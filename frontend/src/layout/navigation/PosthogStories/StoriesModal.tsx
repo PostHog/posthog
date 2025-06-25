@@ -1,29 +1,32 @@
 import './StoriesModal.scss'
 
-import { IconChevronLeft, IconChevronRight, IconPauseFilled, IconPlayFilled, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Stories from 'react-insta-stories'
-import { Story } from 'react-insta-stories/dist/interfaces'
 
 import { storiesLogic } from './storiesLogic'
+import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
+import { StoriesPlayer, Story } from './StoriesPlayer'
 
-const IMAGE_STORY_INTERVAL = 3500
-const CRAZY_VIDEO_DURATION = 1000000 // this is a hack to make the video play for as long as a video would play
+const IMAGE_STORY_INTERVAL = 4000
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
 const DEFAULT_WIDTH = 988
+const OVERLAY_ANIMATION_DURATION = 300 // Match CSS transition duration (0.3s)
+const OVERLAY_TRIGGER_DELAY = 100 // Small delay to ensure story is rendered first
+const OVERLAY_ANIMATION_TRIGGER_DELAY = 10 // Trigger slide-up animation after DOM update
 
 interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     reason: string
     story_id: string
     story_title: string
     story_thumbnail_url: string
+    story_type: StoryType
     time_spent_ms: number
     time_spent_seconds: number
     story_group_id: string
@@ -51,6 +54,9 @@ export const StoriesModal = (): JSX.Element | null => {
         useActions(storiesLogic)
     const storyStartTimeRef = useRef<number>(Date.now())
     const [isPaused, setIsPaused] = useState(false)
+    const [showOverlay, setShowOverlay] = useState(false)
+    const [overlayComponent, setOverlayComponent] = useState<(() => JSX.Element) | null>(null)
+    const [overlayAnimating, setOverlayAnimating] = useState(false)
 
     // Calculate dimensions based on window size and aspect ratio
     const dimensions = useMemo(() => {
@@ -95,14 +101,42 @@ export const StoriesModal = (): JSX.Element | null => {
     const maxStoryIndex = useMemo(() => activeGroup?.stories.length || 0, [activeGroup])
     const isLastStoryGroup = useMemo(() => activeGroupIndex === storyGroups.length - 1, [activeGroupIndex, storyGroups])
 
+    const sendStoryEndEvent = useCallback(
+        (reason: string, extraProps?: StoryEndEventPropsExtraProps) => {
+            const timeSpentMs = Date.now() - storyStartTimeRef.current
+            const props: StoryEndEventProps = {
+                reason: reason,
+                story_id: activeGroup?.stories[activeStoryIndex].id,
+                story_title: activeGroup?.stories[activeStoryIndex].title,
+                story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
+                story_type: activeGroup?.stories[activeStoryIndex].type,
+                story_group_id: activeGroup?.id,
+                story_group_title: activeGroup?.title,
+                time_spent_ms: timeSpentMs,
+                time_spent_seconds: Math.round(timeSpentMs / 1000),
+                story_watched_percentage:
+                    activeStory?.durationMs && activeStory?.durationMs > 0
+                        ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
+                        : undefined,
+                ...extraProps,
+            }
+            posthog.capture('posthog_story_ended', props)
+        },
+        [activeGroup, activeStoryIndex, activeStory]
+    )
+
     const handleClose = useCallback(
         (forceClose: boolean) => {
             const timeSpentMs = Date.now() - storyStartTimeRef.current
+
+            sendStoryEndEvent(forceClose ? 'force_close' : 'natural_close')
+
             posthog.capture('posthog_story_closed', {
                 reason: forceClose ? 'force_close' : 'natural_close',
                 story_id: activeGroup?.stories[activeStoryIndex].id,
                 story_title: activeGroup?.stories[activeStoryIndex].title,
                 story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
+                story_type: activeGroup?.stories[activeStoryIndex].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
                 time_spent_ms: timeSpentMs,
@@ -124,14 +158,9 @@ export const StoriesModal = (): JSX.Element | null => {
             activeGroupIndex,
             activeGroup,
             activeStoryIndex,
+            sendStoryEndEvent,
         ]
     )
-
-    const handlePrevious = useCallback(() => {
-        if (activeStoryIndex > 0) {
-            setActiveStoryIndex(activeStoryIndex - 1)
-        }
-    }, [activeStoryIndex, setActiveStoryIndex])
 
     const handleStoryStart = useCallback(
         (index: number) => {
@@ -141,58 +170,110 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_id: activeGroup?.stories[index].id,
                 story_title: activeGroup?.stories[index].title,
                 story_thumbnail_url: activeGroup?.stories[index].thumbnailUrl,
+                story_type: activeGroup?.stories[index].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
             })
             setActiveStoryIndex(index)
-        },
-        [setActiveStoryIndex, activeGroup]
-    )
 
-    const sendStoryEndEvent = useCallback(
-        (reason: string, extraProps?: StoryEndEventPropsExtraProps) => {
-            const timeSpentMs = Date.now() - storyStartTimeRef.current
-            const props: StoryEndEventProps = {
-                reason: reason,
-                story_id: activeGroup?.stories[activeStoryIndex].id,
-                story_title: activeGroup?.stories[activeStoryIndex].title,
-                story_thumbnail_url: activeGroup?.stories[activeStoryIndex].thumbnailUrl,
-                story_group_id: activeGroup?.id,
-                story_group_title: activeGroup?.title,
-                time_spent_ms: timeSpentMs,
-                time_spent_seconds: Math.round(timeSpentMs / 1000),
-                story_watched_percentage:
-                    activeStory?.durationMs && activeStory?.durationMs > 0
-                        ? Math.round((timeSpentMs / activeStory.durationMs) * 100)
-                        : undefined,
-                ...extraProps,
+            // Auto-trigger overlay for 'overlay' type stories
+            const story = activeGroup?.stories[index]
+            if (story?.type === StoryType.Overlay && story.seeMoreOverlay) {
+                setTimeout(() => {
+                    const closeHandler = (action?: CloseOverlayAction): void => {
+                        setShowOverlay(false)
+                        setOverlayComponent(null)
+                        setIsPaused(false)
+                        if (action === CloseOverlayAction.Modal) {
+                            setOpenStoriesModal(false)
+                        } else if (action === CloseOverlayAction.Next) {
+                            // Go to next story
+                            if (activeGroup && index < activeGroup.stories.length - 1) {
+                                setActiveStoryIndex(index + 1)
+                                return
+                            }
+                            // Last story in group - close the modal
+                            setOpenStoriesModal(false)
+                        } else if (action === CloseOverlayAction.Previous) {
+                            // Go to previous story
+                            if (index > 0) {
+                                setActiveStoryIndex(index - 1)
+                            }
+                            // First story in group
+                        }
+                    }
+                    setOverlayComponent(() => () => story.seeMoreOverlay!(closeHandler))
+                    setShowOverlay(true)
+                    setOverlayAnimating(true) // Start off-screen
+                    setIsPaused(true)
+                    // Trigger slide-up animation
+                    setTimeout(() => setOverlayAnimating(false), OVERLAY_ANIMATION_TRIGGER_DELAY)
+                }, OVERLAY_TRIGGER_DELAY)
             }
-            posthog.capture('posthog_story_ended', props)
         },
-        [activeGroup, activeStoryIndex, activeStory]
+        [setActiveStoryIndex, activeGroup, setOverlayComponent, setShowOverlay, setIsPaused, setOpenStoriesModal]
     )
 
-    const handleNext = useCallback(() => {
-        if (activeStoryIndex < maxStoryIndex - 1) {
-            sendStoryEndEvent('next')
-            setActiveStoryIndex(activeStoryIndex + 1)
-        } else if (!isLastStoryGroup) {
-            sendStoryEndEvent('next')
-            setActiveGroupIndex(activeGroupIndex + 1)
-            setActiveStoryIndex(0)
+    const handlePrevious = useCallback(() => {
+        if (activeStoryIndex > 0) {
+            sendStoryEndEvent('previous')
+            setActiveStoryIndex(activeStoryIndex - 1)
+            setIsPaused(false)
         }
-    }, [
-        activeStoryIndex,
-        maxStoryIndex,
-        isLastStoryGroup,
-        activeGroupIndex,
-        sendStoryEndEvent,
-        setActiveStoryIndex,
-        setActiveGroupIndex,
-    ])
+    }, [activeStoryIndex, setActiveStoryIndex, sendStoryEndEvent])
 
-    const canGoPrevious = activeStoryIndex > 0
-    const canGoNext = activeStoryIndex < maxStoryIndex - 1
+    // Reset pause state when modal opens or story changes
+    useEffect(() => {
+        if (openStoriesModal) {
+            setIsPaused(false)
+        }
+    }, [openStoriesModal])
+
+    // Reset pause state when active story changes
+    useEffect(() => {
+        setIsPaused(false)
+        setShowOverlay(false)
+        setOverlayComponent(null)
+        setOverlayAnimating(false)
+    }, [activeStoryIndex, activeGroupIndex])
+
+    // Handle overlay close
+    const handleOverlayClose = useCallback(
+        (action?: CloseOverlayAction) => {
+            setOverlayAnimating(true)
+
+            // Wait for slide-down animation to complete
+            setTimeout(() => {
+                setShowOverlay(false)
+                setOverlayComponent(null)
+                setOverlayAnimating(false)
+                setIsPaused(false)
+
+                if (action === CloseOverlayAction.Modal) {
+                    sendStoryEndEvent('overlay_close_modal')
+                    setOpenStoriesModal(false)
+                } else if (action === CloseOverlayAction.Next) {
+                    sendStoryEndEvent('overlay_next')
+                    // Go to next story
+                    if (activeStoryIndex < maxStoryIndex - 1) {
+                        setActiveStoryIndex(activeStoryIndex + 1)
+                        return
+                    }
+                    // Last story in group - close the modal
+                    setOpenStoriesModal(false)
+                } else if (action === CloseOverlayAction.Previous) {
+                    sendStoryEndEvent('overlay_previous')
+                    // Go to previous story
+                    if (activeStoryIndex > 0) {
+                        setActiveStoryIndex(activeStoryIndex - 1)
+                    }
+                    // First story in group
+                }
+            }, OVERLAY_ANIMATION_DURATION) // Match CSS transition duration
+            // Default action 'overlay' or undefined just closes the overlay and continues current story
+        },
+        [setOpenStoriesModal, activeStoryIndex, maxStoryIndex, setActiveStoryIndex, sendStoryEndEvent]
+    )
 
     if (!openStoriesModal || !activeGroup) {
         return null
@@ -200,21 +281,33 @@ export const StoriesModal = (): JSX.Element | null => {
 
     const stories = activeGroup.stories.map(
         (story: story): Story => ({
-            url: story.mediaUrl,
+            url: story.mediaUrl || '',
             type: story.type,
+            duration: story.durationMs,
             header: {
                 heading: story.title,
                 subheading: story.description || '',
                 profileImage: story.thumbnailUrl,
             },
-            seeMore: story.link
-                ? () => {
-                      sendStoryEndEvent('see_more')
-                      setOpenStoriesModal(false)
-                      window.open(story.link, '_self')
-                      return null
-                  }
-                : () => <></>, // this is hack to hide the swipe component and not hide the profile component on stories
+            seeMore:
+                story.seeMoreLink || story.seeMoreOverlay
+                    ? () => {
+                          sendStoryEndEvent('see_more')
+                          if (story.seeMoreOverlay) {
+                              setOverlayComponent(() => () => story.seeMoreOverlay!(handleOverlayClose))
+                              setShowOverlay(true)
+                              setOverlayAnimating(true) // Start off-screen
+                              setIsPaused(true)
+                              // Trigger slide-up animation
+                              setTimeout(() => setOverlayAnimating(false), OVERLAY_ANIMATION_TRIGGER_DELAY)
+                          } else if (story.seeMoreLink) {
+                              window.open(story.seeMoreLink, '_blank')
+                              setIsPaused(true)
+                          }
+                          return null
+                      }
+                    : undefined,
+            seeMoreOptions: story.seeMoreOptions,
             preloadResource: true,
         })
     )
@@ -228,45 +321,20 @@ export const StoriesModal = (): JSX.Element | null => {
             onClose={() => handleClose(true)}
         >
             <div className="flex flex-col">
-                {/* Header with play/pause and close buttons */}
-                <div className="flex justify-end gap-2">
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setIsPaused(!isPaused)
-                        }}
-                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
-                        title={isPaused ? 'Resume story' : 'Pause story'}
-                    >
-                        {isPaused ? <IconPlayFilled className="w-5 h-5" /> : <IconPauseFilled className="w-5 h-5" />}
-                    </button>
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            handleClose(true)
-                        }}
-                        className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
-                        title="Close stories"
-                    >
-                        <IconX className="w-5 h-5 [&>*]:fill-white" />
-                    </button>
-                </div>
-
-                <div className="relative cursor-pointer flex-1 stories-container">
-                    <Stories
+                <div className="relative flex-1 stories-container">
+                    <StoriesPlayer
                         stories={stories}
-                        defaultInterval={activeStory?.type === 'video' ? CRAZY_VIDEO_DURATION : IMAGE_STORY_INTERVAL}
-                        width="100%"
-                        height="100%"
+                        defaultInterval={IMAGE_STORY_INTERVAL}
                         currentIndex={activeStoryIndex}
                         isPaused={isPaused}
+                        width={dimensions.width}
+                        height={dimensions.height}
                         onNext={() => {
                             if (!activeGroup?.stories[activeStoryIndex]) {
                                 return
                             }
                             sendStoryEndEvent('next')
+                            setIsPaused(false)
 
                             // Check if this is the last story in the current group
                             if (activeStoryIndex >= maxStoryIndex - 1) {
@@ -277,7 +345,10 @@ export const StoriesModal = (): JSX.Element | null => {
                                 setActiveStoryIndex(activeStoryIndex + 1)
                             }
                         }}
-                        onPrevious={handlePrevious}
+                        onPrevious={() => {
+                            setIsPaused(false)
+                            handlePrevious()
+                        }}
                         onAllStoriesEnd={() => handleClose(false)}
                         onStoryEnd={() => {
                             sendStoryEndEvent('ended_naturally')
@@ -292,35 +363,28 @@ export const StoriesModal = (): JSX.Element | null => {
                             }
                         }}
                         onStoryStart={handleStoryStart}
-                        storyContainerStyles={{
-                            maxWidth: `${dimensions.width}px`,
-                            minWidth: `${dimensions.width}px`,
-                            maxHeight: `${dimensions.height}px`,
-                            minHeight: `${dimensions.height}px`,
-                            borderRadius: '4px',
-                            overflow: 'hidden',
-                        }}
+                        onPauseToggle={() => setIsPaused(!isPaused)}
+                        onClose={() => handleClose(true)}
                     />
 
-                    {/* Navigation arrows */}
-                    {canGoPrevious && (
-                        <button
-                            onClick={handlePrevious}
-                            className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
-                            title="Previous story"
+                    {/* Overlay Component */}
+                    {(showOverlay || overlayAnimating) && overlayComponent && (
+                        <div
+                            className={`absolute inset-0 z-50 bg-white ${
+                                overlayAnimating ? 'overlay-slide-down' : 'overlay-slide-up'
+                            }`}
                         >
-                            <IconChevronLeft className="w-4 h-4" />
-                        </button>
-                    )}
-
-                    {canGoNext && (
-                        <button
-                            onClick={handleNext}
-                            className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/30 hover:bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center transition-all duration-200 z-10"
-                            title="Next story"
-                        >
-                            <IconChevronRight className="w-4 h-4" />
-                        </button>
+                            {!activeGroup?.stories[activeStoryIndex]?.seeMoreOptions?.hideDefaultClose && (
+                                <button
+                                    onClick={() => handleOverlayClose()}
+                                    className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-black/30 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                                    aria-label="Close overlay"
+                                >
+                                    <IconX className="w-5 h-5" />
+                                </button>
+                            )}
+                            <div className="w-full h-full overflow-auto">{overlayComponent()}</div>
+                        </div>
                     )}
                 </div>
             </div>

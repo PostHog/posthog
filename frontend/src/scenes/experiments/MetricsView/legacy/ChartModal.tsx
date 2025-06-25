@@ -69,7 +69,12 @@ export function ChartModal({
                     <LegacyResultsQuery result={result} showTable={true} />
                 </>
             ) : (
-                <ResultsBreakdown result={result} experiment={experiment}>
+                <ResultsBreakdown
+                    result={result}
+                    experiment={experiment}
+                    metricIndex={metricIndex}
+                    isPrimary={!isSecondary}
+                >
                     {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                         <>
                             {query && (
