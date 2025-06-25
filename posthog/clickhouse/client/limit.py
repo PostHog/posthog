@@ -179,7 +179,11 @@ def get_api_personal_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
 
     def __applicable(
-        org_id: Optional[str] = None, team_id: Optional[int] = None, is_api: Optional[bool] = None
+        *args,
+        org_id: Optional[str] = None,
+        team_id: Optional[int] = None,
+        is_api: Optional[bool] = None,
+        **kwargs,
     ) -> bool:
         return (
             not TEST
