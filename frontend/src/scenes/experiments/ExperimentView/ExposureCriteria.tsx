@@ -152,11 +152,6 @@ export function ExposureCriteriaModal(): JSX.Element {
                             label: 'Use first seen variant',
                             'data-attr': 'multiple-handling-first-seen',
                         },
-                        {
-                            value: 'last_seen',
-                            label: 'Use last seen variant',
-                            'data-attr': 'multiple-handling-last-seen',
-                        },
                     ]}
                     placeholder="Select handling method"
                     fullWidth
