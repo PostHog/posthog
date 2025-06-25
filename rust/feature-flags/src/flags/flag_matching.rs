@@ -344,8 +344,17 @@ impl FeatureFlagMatcher {
             1,
         );
 
+        // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
+        // This is because we need to make sure the write is successful before we read it back
+        // to avoid read-after-write consistency issues with database replication lag
+        let database_for_reading = if writing_hash_key_override {
+            self.writer.clone()
+        } else {
+            self.reader.clone()
+        };
+
         match get_feature_flag_hash_key_overrides(
-            self.reader.clone(),
+            database_for_reading,
             self.team_id,
             target_distinct_ids,
         )
