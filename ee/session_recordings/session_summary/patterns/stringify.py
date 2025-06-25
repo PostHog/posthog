@@ -1,0 +1,145 @@
+import json
+from pathlib import Path
+from typing import Dict, Any, List
+
+
+def convert_patterns_to_markdown(json_data: Dict[str, Any]) -> str:
+    """
+    Convert EnrichedSessionGroupSummaryPatternsList JSON data to markdown format.
+
+    Args:
+        json_data: Dictionary containing patterns data
+
+    Returns:
+        Formatted markdown string
+    """
+    patterns = json_data.get("patterns", [])
+
+    if not patterns:
+        return "# Group Summary Patterns\n\nNo patterns found."
+
+    markdown_lines = ["# Group Summary Patterns", ""]
+
+    for pattern in patterns:
+        # Pattern header
+        markdown_lines.extend(
+            [
+                f"## {pattern['pattern_name']}",
+                "",
+                pattern["pattern_description"],
+                "",
+            ]
+        )
+
+        # Pattern stats
+        stats = pattern["stats"]
+        sessions_affected = stats["sessions_affected"]
+        total_sessions = sessions_affected  # Based on the ratio being 1.0 in examples
+        sessions_percentage = f"{stats['sessions_affected_ratio'] * 100:.0f}%"
+        success_percentage = f"{stats['segments_success_ratio'] * 100:.0f}%"
+        success_count = int(stats["segments_success_ratio"] * stats["occurences"])
+
+        markdown_lines.extend(
+            [
+                f"- **How bad it is:** {pattern['severity']}",
+                f"- **How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})",
+                f"- **How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats['occurences']})",
+                "",
+                "### Examples",
+                "",
+            ]
+        )
+
+        # Events examples
+        for event_data in pattern["events"]:
+            session_id = event_data["target_event"]["session_id"]
+
+            markdown_lines.extend(
+                [
+                    f"#### Session {session_id}",
+                    "",
+                    "##### Quick summary",
+                    "",
+                    f"- **What user was doing:** {event_data['segment_name']}",
+                    f"- **What confirmed the pattern:** {event_data['target_event']['description']}",
+                    f"- **Where it happened:** {event_data['target_event']['current_url']}",
+                    "",
+                    "##### Outcome",
+                    "",
+                ]
+            )
+
+            # What happened before
+            if event_data["previous_events_in_segment"]:
+                markdown_lines.append("- **What happened before:**")
+                for prev_event in event_data["previous_events_in_segment"]:
+                    markdown_lines.append(f"    - {prev_event['description']}")
+            else:
+                markdown_lines.append("- **What happened before:** Nothing, start of the segment")
+
+            # What happened after
+            if event_data["next_events_in_segment"]:
+                markdown_lines.append("- **What happened after:**")
+                for next_event in event_data["next_events_in_segment"]:
+                    markdown_lines.append(f"    - {next_event['description']}")
+            else:
+                markdown_lines.append("- **What happened after:** Nothing, end of the segment")
+
+            # Outcome
+            outcome_status = "Success" if event_data["segment_success"] else "Failure"
+            markdown_lines.extend(
+                [
+                    f"- **What's the outcome:** {outcome_status}. {event_data['segment_outcome']}",
+                    "",
+                ]
+            )
+
+    return "\n".join(markdown_lines)
+
+
+def save_patterns_to_markdown(json_file_path: str, output_file_path: str = None) -> str:
+    """
+    Load JSON patterns file and save as markdown.
+
+    Args:
+        json_file_path: Path to the JSON file containing patterns
+        output_file_path: Optional path for output markdown file
+
+    Returns:
+        Path to the created markdown file
+    """
+    # Load JSON data
+    with open(json_file_path, "r") as f:
+        json_data = json.load(f)
+
+    # Convert to markdown
+    markdown_content = convert_patterns_to_markdown(json_data)
+
+    # Determine output path
+    if output_file_path is None:
+        json_path = Path(json_file_path)
+        output_file_path = json_path.with_suffix(".md")
+
+    # Save markdown file
+    with open(output_file_path, "w") as f:
+        f.write(markdown_content)
+
+    return str(output_file_path)
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python stringify.py <json_file_path> [output_file_path]")
+        sys.exit(1)
+
+    json_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+
+    try:
+        result_path = save_patterns_to_markdown(json_file, output_file)
+        print(f"Markdown file saved to: {result_path}")
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
