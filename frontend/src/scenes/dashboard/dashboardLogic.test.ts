@@ -149,7 +149,12 @@ describe('dashboardLogic', () => {
                 short_id: '999' as InsightShortId,
                 last_refresh: now().toISOString(),
             },
-            1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as QueryBasedInsightModel,
+            1001: {
+                ...insightOnDashboard(1001, [8]),
+                id: 1001,
+                short_id: '1001' as InsightShortId,
+                last_refresh: now().toISOString(),
+            },
             800: insight800(),
         }
         dashboards = {
@@ -206,7 +211,7 @@ describe('dashboardLogic', () => {
                         { ...dashboards['10'] },
                     ],
                 },
-                '/api/environments/:team_id/insights/1001/': () => [500, '💣'],
+                '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
                 '/api/environments/:team_id/insights/:id/': (req) => {
                     const dashboard = req.url.searchParams.get('from_dashboard')
