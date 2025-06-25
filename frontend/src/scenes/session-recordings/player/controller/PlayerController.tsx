@@ -1,8 +1,7 @@
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -82,34 +81,6 @@ function CinemaMode(): JSX.Element {
     )
 }
 
-function AnnotateRecording(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setIsCommenting(!isCommenting)}
-            tooltip={
-                isCommenting ? (
-                    <>
-                        Stop commenting <KeyboardShortcut c />
-                    </>
-                ) : (
-                    <>
-                        Comment on this recording <KeyboardShortcut c />
-                    </>
-                )
-            }
-            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isCommenting}
-            icon={<IconComment className="text-xl" />}
-        >
-            Comment
-        </LemonButton>
-    )
-}
-
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { isZenMode } = useValues(playerSettingsLogic)
@@ -131,14 +102,7 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isZenMode && (
-                        <>
-                            <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                <AnnotateRecording />
-                            </FlaggedFeature>
-                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
-                        </>
-                    )}
+                    {!isZenMode && <>{playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}</>}
                     {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
                     <FullScreen />
                 </div>

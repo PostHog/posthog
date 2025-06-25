@@ -3,9 +3,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -49,16 +47,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             annotationsModel,
             ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
-        values: [
-            annotationsModel,
-            ['annotations', 'annotationsLoading'],
-            teamLogic,
-            ['timezone'],
-            userLogic,
-            ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [annotationsModel, ['annotations', 'annotationsLoading'], teamLogic, ['timezone'], userLogic, ['user']],
     })),
     actions({
         openModalToCreateAnnotation: (
@@ -151,19 +140,12 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 return annotations.length === 0 && !annotationsLoading
             },
         ],
-        allowRecordingScope: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE]
-            },
-        ],
         scopeOptions: [
-            (s) => [s.allowRecordingScope],
-            (allowRecordingScope): LemonSelectOptions<AnnotationType['scope'] | null> => {
-                const scopes = Object.values(AnnotationScope).filter((scope) => {
-                    return allowRecordingScope ? true : scope !== AnnotationScope.Recording
-                })
-                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = scopes.map((scope) => ({
+            () => [],
+            (): LemonSelectOptions<AnnotationType['scope'] | null> => {
+                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(
+                    AnnotationScope
+                ).map((scope) => ({
                     value: scope,
                     label: annotationScopeToName[scope],
                 }))
