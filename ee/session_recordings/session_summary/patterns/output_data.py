@@ -82,6 +82,9 @@ class EnrichedPatternAssignedEvent(PaternAssignedEvent):
 class PatternAssignedEventSegmentContext:
     """Context for an event assigned to a pattern, to better understand the event in the context of the segment"""
 
+    segment_name: str
+    segment_outcome: str
+    segment_success: bool
     previous_events_in_segment: list[EnrichedPatternAssignedEvent]
     target_event: EnrichedPatternAssignedEvent
     next_events_in_segment: list[EnrichedPatternAssignedEvent]
@@ -176,6 +179,28 @@ def _enriched_event_from_session_summary_event(
     return enriched_event
 
 
+def _get_segment_name_and_outcome_from_session_summary(
+    target_segment_index: int, session_summary: SessionSummarySerializer
+) -> tuple[str, str, bool]:
+    segment_name = segment_outcome = segment_success = None
+    for segment_state in session_summary.data["segments"]:
+        if str(segment_state["index"]) != str(target_segment_index):
+            continue
+        segment_name = segment_state["name"]
+        break
+    for segment_outcome_state in session_summary.data["segment_outcomes"]:
+        if str(segment_outcome_state["segment_index"]) != str(target_segment_index):
+            continue
+        segment_outcome = segment_outcome_state["summary"]
+        segment_success = segment_outcome_state["success"]
+        break
+    if segment_name is None or segment_outcome is None or segment_success is None:
+        raise ValueError(
+            f"Segment name, outcome or success not found for segment index {target_segment_index} in session summary: {session_summary.data}"
+        )
+    return segment_name, segment_outcome, segment_success
+
+
 def _enrich_pattern_assigned_event_with_session_summary_data(
     pattern_assigned_event: PaternAssignedEvent,
     session_summaries: list[SessionSummarySerializer],
@@ -211,15 +236,21 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                             _enriched_event_from_session_summary_event(pattern_assigned_event, next_event)
                             for next_event in events_in_segment[event_index + 1 : event_index + 4]
                         ]
+                    segment_name, segment_outcome, segment_success = _get_segment_name_and_outcome_from_session_summary(
+                        target_segment_index=segment_key_actions["segment_index"], session_summary=session_summary
+                    )
                     event_segment_context = PatternAssignedEventSegmentContext(
                         previous_events_in_segment=previous_events_in_segment,
                         target_event=current_event,
                         next_events_in_segment=next_events_in_segment,
+                        segment_name=segment_name,
+                        segment_outcome=segment_outcome,
+                        segment_success=segment_success,
                     )
                     return event_segment_context
                 except Exception as err:
                     raise SummaryValidationError(
-                        f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event})"
+                        f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event}): {err}"
                     ) from err
     raise ValueError(f"Session summary with the required event ({pattern_assigned_event}) was not found")
 
