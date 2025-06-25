@@ -24,7 +24,7 @@ export function ExperimentMetricOutlierHandling({
             </p>
             <div className="mt-3 flex items-center gap-2">
                 <LemonCheckbox
-                    label={<span className="text-muted">Lower bound percentile</span>}
+                    label="Lower bound percentile"
                     checked={metric.lower_bound_percentile !== undefined}
                     onChange={(checked) =>
                         handleSetMetric({ ...metric, lower_bound_percentile: checked ? 0.05 : undefined })
@@ -47,7 +47,7 @@ export function ExperimentMetricOutlierHandling({
             </div>
             <div className="mt-3 flex items-center gap-2">
                 <LemonCheckbox
-                    label={<span className="text-muted">Upper bound percentile</span>}
+                    label="Upper bound percentile"
                     checked={metric.upper_bound_percentile !== undefined}
                     onChange={(checked) =>
                         handleSetMetric({ ...metric, upper_bound_percentile: checked ? 0.95 : undefined })

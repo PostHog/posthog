@@ -96,11 +96,9 @@ export const permissionsLogic = kea<permissionsLogicType>([
             (s) => [s.organizationResourcePermissions],
             (organizationResourcePermissions: OrganizationResourcePermissionType[]) => {
                 return organizationResourcePermissions.reduce(
-                    (obj, resourcePermission: OrganizationResourcePermissionType) => ({
-                        ...obj,
-                        [resourcePermission.resource]: resourcePermission,
-                    }),
-                    {}
+                    (obj, resourcePermission: OrganizationResourcePermissionType) =>
+                        Object.assign(obj, { [resourcePermission.resource]: resourcePermission }),
+                    {} as Record<Resource, OrganizationResourcePermissionType>
                 )
             },
         ],

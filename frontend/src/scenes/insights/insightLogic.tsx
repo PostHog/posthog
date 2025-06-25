@@ -181,7 +181,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
-                        beforeUpdates[key] = (values.savedInsight as any)[key]
+                        beforeUpdates[key] = values.savedInsight[key]
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)

@@ -137,7 +137,7 @@ export const activationLogic = kea<activationLogicType>([
                     const response = await api.get(url)
                     breakpoint()
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [url]: response.count,
                     }
                     return cache.apiCache[url]
@@ -334,7 +334,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
@@ -352,7 +352,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.COMPLETED,
                 },
             })

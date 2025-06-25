@@ -613,6 +613,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -838,7 +839,8 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
-         "posthog_teammarketinganalyticsconfig"."sources_map"
+         "posthog_teammarketinganalyticsconfig"."sources_map",
+         "posthog_teammarketinganalyticsconfig"."conversion_goals"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -4860,6 +4862,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -5085,7 +5088,8 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.28
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
-         "posthog_teammarketinganalyticsconfig"."sources_map"
+         "posthog_teammarketinganalyticsconfig"."sources_map",
+         "posthog_teammarketinganalyticsconfig"."conversion_goals"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -5552,6 +5556,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -5979,6 +5984,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",

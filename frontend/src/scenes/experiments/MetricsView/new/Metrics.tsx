@@ -2,8 +2,6 @@ import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
@@ -12,15 +10,17 @@ import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { MAX_PRIMARY_METRICS } from '../shared/const'
 import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
+import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
         getInsightType,
-        metricResults,
-        secondaryMetricResultsNew,
-        secondaryMetricsResultErrors,
-        primaryMetricsResultErrors,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        secondaryMetricsResultsErrors,
+        primaryMetricsResultsErrors,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -28,8 +28,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         return <></>
     }
 
-    const results = isSecondary ? secondaryMetricResultsNew : metricResults
-    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
+    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const sharedMetrics = experiment.saved_metrics
@@ -98,10 +98,11 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                             <div className="rounded bg-[var(--bg-table)]">
                                 <ConfidenceIntervalAxis chartRadius={chartRadius} />
                                 {metrics.map((metric, metricIndex) => {
+                                    const result = results[metricIndex]
+
                                     return (
-                                        <>
+                                        <div key={metricIndex}>
                                             <MetricRow
-                                                key={metricIndex}
                                                 metrics={metrics}
                                                 metricIndex={metricIndex}
                                                 result={results[metricIndex]}
@@ -111,31 +112,24 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                 chartRadius={chartRadius}
                                                 error={errors[metricIndex]}
                                             />
-                                            {metrics.length === 1 && (
-                                                <div className="mt-2">
-                                                    <ResultsBreakdown
-                                                        result={{
-                                                            ...results[metricIndex],
-                                                            metric: metric as ExperimentMetric,
-                                                        }}
-                                                        experiment={experiment}
-                                                    >
-                                                        {({ query, breakdownResults }) => {
-                                                            return (
-                                                                <>
-                                                                    {query && breakdownResults && (
-                                                                        <ResultsQuery
-                                                                            query={query}
-                                                                            breakdownResults={breakdownResults}
-                                                                        />
-                                                                    )}
-                                                                </>
-                                                            )
-                                                        }}
-                                                    </ResultsBreakdown>
-                                                </div>
-                                            )}
-                                        </>
+                                            {metrics.length === 1 &&
+                                                result &&
+                                                hasMinimumExposureForResults &&
+                                                !isSecondary && (
+                                                    <div className="mt-2">
+                                                        <ResultDetails
+                                                            metric={metric as ExperimentMetric}
+                                                            result={{
+                                                                ...results[metricIndex],
+                                                                metric: metric as ExperimentMetric,
+                                                            }}
+                                                            experiment={experiment}
+                                                            metricIndex={metricIndex}
+                                                            isSecondary={!!isSecondary}
+                                                        />
+                                                    </div>
+                                                )}
+                                        </div>
                                     )
                                 })}
                             </div>

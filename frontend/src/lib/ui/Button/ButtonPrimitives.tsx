@@ -155,7 +155,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:pointer-events-none disabled:opacity-50',
+            true: 'disabled:opacity-50',
             false: '',
         },
         hasSideActionRight: {
@@ -239,6 +239,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 })
             ),
             ref,
+            disabled,
             ...rest,
             'aria-disabled': disabled,
             'data-active': active,

@@ -8,10 +8,10 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -229,7 +229,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
@@ -253,6 +253,7 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
+            className="flex"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {

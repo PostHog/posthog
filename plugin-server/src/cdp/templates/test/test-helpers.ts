@@ -126,8 +126,15 @@ export class TemplateTester {
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
+        // Don't compile inputs that don't suppport templating
         const compiledEntries = await Promise.all(
-            Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
+            Object.entries(allInputs).map(async ([key, value]) => {
+                const schema = this.template.inputs_schema.find((input) => input.key === key)
+                if (schema?.templating === false) {
+                    return [key, value]
+                }
+                return [key, await this.compileObject(value)]
+            })
         )
 
         return compiledEntries.reduce((acc, [key, value]) => {
@@ -156,6 +163,7 @@ export class TemplateTester {
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
             updated_at: '2024-01-01T00:00:00Z',
+            is_addon_required: false,
             deleted: false,
         }
 
@@ -231,6 +239,7 @@ export class TemplateTester {
             deleted: false,
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
+            is_addon_required: false,
         })
 
         return this.executor.execute(invocation)

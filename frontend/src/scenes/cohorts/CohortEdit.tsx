@@ -280,8 +280,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 Persons in this cohort
                                 <span className="text-secondary ml-2">
                                     {!cohort.is_calculating &&
+                                        cohort.count !== undefined &&
                                         `(${cohort.count} matching ${pluralize(
-                                            cohort.count ?? 0,
+                                            cohort.count,
                                             'person',
                                             'persons',
                                             false
@@ -295,7 +296,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} context={{ refresh: 'force_blocking' }} />
+                                <Query
+                                    query={query}
+                                    setQuery={setQuery}
+                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                />
                             )}
                         </div>
                     </>

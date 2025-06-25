@@ -10,15 +10,19 @@ import type { ResultBreakdownRenderProps } from './types'
 export const ResultsBreakdown = ({
     result,
     experiment,
+    metricIndex,
+    isPrimary,
     children,
 }: {
     result: CachedExperimentQueryResponse
     experiment: Experiment
+    metricIndex: number
+    isPrimary: boolean
     children?: (props: ResultBreakdownRenderProps) => JSX.Element | null
 }): JSX.Element | null => {
     return (
-        <BindLogic logic={resultsBreakdownLogic} props={{ experiment, metric: result.metric }}>
-            <ResultsBreakdownContent>{children}</ResultsBreakdownContent>
+        <BindLogic logic={resultsBreakdownLogic} props={{ experiment, metric: result.metric, metricIndex, isPrimary }}>
+            <ResultsBreakdownContent result={result}>{children}</ResultsBreakdownContent>
         </BindLogic>
     )
 }
