@@ -162,8 +162,7 @@ export function elementIsVisible(element: HTMLElement): boolean {
             style.opacity !== '0' &&
             style.height !== '0px' &&
             style.width !== '0px' &&
-            !!element.parentElement &&
-            elementIsVisible(element.parentElement)
+            (element.parentElement ? elementIsVisible(element.parentElement) : true)
         )
     } catch {
         // if we can't get the computed style, we'll assume the element is visible
