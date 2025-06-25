@@ -57,13 +57,14 @@ class FeatureFlagStatusChecker:
         # See if the flag is set to 100% on one variant (or 100% on rolled out and active if boolean flag).
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
         is_flag_at_least_thirty_days_old = flag.created_at < datetime.now(UTC) - timedelta(days=30)
-        if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
-            return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
         # Check if flag is rolled out to 0% (no users)
         is_flag_rolled_out_to_no_users, no_users_explanation = self.is_flag_rolled_out_to_no_users(flag)
         if is_flag_rolled_out_to_no_users and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, no_users_explanation
+
+        if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
+            return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
 
