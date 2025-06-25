@@ -185,7 +185,7 @@ def get_api_personal_rate_limiter():
         is_api: Optional[bool] = None,
         **kwargs,
     ) -> bool:
-        return (
+        return bool(
             not TEST
             and org_id
             and is_api

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional, cast
 from collections.abc import Callable
 
-from posthog import settings
+from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -77,9 +77,10 @@ class HogQLQueryRunner(QueryRunner):
 
         if (
             self.is_query_service
-            and settings.API_QUERIES_LEGACY_TEAM_LIST
-            and self.team.pk not in settings.API_QUERIES_LEGACY_TEAM_LIST
+            and app_settings.API_QUERIES_LEGACY_TEAM_LIST
+            and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         ):
+            assert self.settings is not None
             # p95 threads is 102
             self.settings.max_threads = 80
             # p95 duration of HogQL query is 2.78sec
