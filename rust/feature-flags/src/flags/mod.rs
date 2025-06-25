@@ -1,4 +1,5 @@
 pub mod flag_analytics;
+pub mod flag_filters;
 pub mod flag_group_type_mapping;
 pub mod flag_match_reason;
 pub mod flag_matching;
@@ -11,3 +12,5 @@ pub mod flag_service;
 
 #[cfg(test)]
 mod test_flag_matching;
+#[cfg(test)]
+mod test_helpers;
