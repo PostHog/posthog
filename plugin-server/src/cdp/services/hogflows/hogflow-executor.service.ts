@@ -227,6 +227,7 @@ export class HogFlowExecutorService {
             })
             loopCount++
             if (loopCount > 100) {
+                // NOTE: This is hardcoded for now to prevent infinite loops. Later we should fix this properly.
                 break
             }
 
