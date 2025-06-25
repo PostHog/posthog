@@ -73,7 +73,8 @@ export class HogFlowActionRunnerFunction {
 
         const result = this.hogFunctionExecutor.execute(hogFunctionInvocation)
 
-        // TODO: Implement async fetches...
+        // TODO: Swap to `executeWithAsync` or something
+        // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID
 
         logger.info('[HogFlowActionRunnerFunction]', 'Hog function result', {
             finished: result.finished,
