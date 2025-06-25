@@ -33,6 +33,7 @@ import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
+import { groupsModel } from '~/models/groupsModel'
 
 let uniqueNode = 0
 
@@ -121,16 +122,19 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
     }
 
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const taxonomicGroupTypes = isGroupsQuery(query.source)
         ? [
               `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
               TaxonomicFilterGroupType.HogQLExpression,
+              ...groupsTaxonomicTypes,
           ]
         : [
               TaxonomicFilterGroupType.EventProperties,
               TaxonomicFilterGroupType.EventFeatureFlags,
               TaxonomicFilterGroupType.PersonProperties,
               ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+              ...groupsTaxonomicTypes,
           ]
 
     return (
