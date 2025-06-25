@@ -63,7 +63,7 @@ export function ItemSelectModalButton({ buttonProps }: ItemSelectModalButtonProp
     return (
         <>
             <ButtonPrimitive onClick={() => openItemSelectModal()} {...buttonProps}>
-                {buttonProps ? buttonProps.children : 'Select an item'}
+                {buttonProps?.children || 'Select an item'}
             </ButtonPrimitive>
         </>
     )
