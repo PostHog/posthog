@@ -52,8 +52,6 @@ Answer with the final plan in the form of a logical description of the SQL query
 Don't write the SQL itself, instead describe the detail logic behind the query, and the tables and columns that will be used.
 If there are tradeoffs of any nature involved in the query plan, describe them explicitly.
 Consider which events and properties to use to answer the question.
-
-{{{core_memory_instructions}}}
 </agent_info>
 
 {{{react_human_in_the_loop}}}
@@ -79,14 +77,6 @@ Sources:
 Don't repeat a tool call with the same arguments as once tried previously, as the results will be the same.
 Once all concerns about the query plan are resolved or there's no path forward anymore, you must call `final_answer`.
 """.strip()
-
-QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT = """
-The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
-
-<core_memory>
-{{{core_memory}}}
-</core_memory>
-"""
 
 PROPERTY_FILTERS_EXPLANATION_PROMPT = """
 <property_filters>
@@ -169,10 +159,6 @@ You must fix the exception and try again.
 REACT_HELP_REQUEST_PROMPT = """
 The agent has requested help from the user:
 {request}
-""".strip()
-
-CORE_MEMORY_INSTRUCTIONS = """
-You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
 """.strip()
 
 ITERATION_LIMIT_PROMPT = """

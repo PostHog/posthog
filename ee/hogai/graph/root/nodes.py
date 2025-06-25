@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
@@ -292,6 +292,12 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    (
+                        "system",
+                        CORE_MEMORY_PROMPT
+                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                        + " If users ask to save, update, or delete the core memory, say you have done it.",
+                    ),
                     ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     *[
                         (

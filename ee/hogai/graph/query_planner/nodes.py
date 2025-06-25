@@ -17,10 +17,9 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError, Field, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
 
 from .prompts import (
-    CORE_MEMORY_INSTRUCTIONS,
-    QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT,
     QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -108,11 +107,12 @@ class QueryPlannerNode(AssistantNode):
                                 "type": "text",
                                 "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
                             },
+                            {"type": "text", "text": CORE_MEMORY_PROMPT},
                             {
                                 "type": "text",
                                 "text": EVENT_DEFINITIONS_PROMPT,
                             },
-                            {"type": "text", "text": QUERY_PLANNER_DYNAMIC_SYSTEM_PROMPT},
+                            {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},
                         ],
                     ),
                 ],
@@ -139,10 +139,12 @@ class QueryPlannerNode(AssistantNode):
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
                 "events": self._events_prompt,
-                "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
+                "organization_name": self._team.organization.name,
+                "user_full_name": self._user.get_full_name(),
+                "user_email": self._user.email,
                 "actions": state.rag_context,
                 "actions_prompt": ACTIONS_EXPLANATION_PROMPT,
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
