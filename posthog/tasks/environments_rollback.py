@@ -142,17 +142,14 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         _capture_environments_rollback_event("organization environments rollback completed", context, posthog_client)
 
         print(
-            "Environments rollback migration completed successfully",
-            organization_id=organization_id,
-            environment_mappings=environment_mappings,
+            f"Environments rollback migration completed successfully - "
+            f"organization_id={organization_id}, environment_mappings={environment_mappings}"
         )
 
     except Exception as e:
         print(
-            "Environments rollback migration failed",
-            organization_id=organization_id,
-            environment_mappings=environment_mappings,
-            error=str(e),
+            f"Environments rollback migration failed - "
+            f"organization_id={organization_id}, environment_mappings={environment_mappings}, error={str(e)}"
         )
 
         raise
