@@ -538,10 +538,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return result
     }
 
-    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
-        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
-        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
-
+    getCachedPersonForUpdateByUuid(teamId: number, personUuid: string | undefined): PersonUpdate | null | undefined {
         if (personUuid === undefined) {
             this.cacheMetrics.updateCacheMisses++
             return undefined
@@ -566,6 +563,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.cacheMetrics.updateCacheMisses++
             return undefined
         }
+    }
+
+    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
+
+        return this.getCachedPersonForUpdateByUuid(teamId, personUuid)
     }
 
     setCachedPersonForUpdate(teamId: number, distinctId: string, person: PersonUpdate | null): void {
