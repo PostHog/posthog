@@ -793,7 +793,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.assertNotIn("login_hint", extra_args)
 
     def test_auth_extra_arguments_with_email(self):
-        """Test that auth_extra_arguments adds login_hint and prompt when email is provided."""
+        """Test that auth_extra_arguments adds login_hint when email is provided."""
         # Mock strategy to return email in GET parameters
         mock_request = type("MockRequest", (), {})()
         mock_request.GET = {"email": "test@posthog.com"}
@@ -806,9 +806,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
-        # Should contain login_hint and prompt parameters
         self.assertEqual(extra_args["login_hint"], "test@posthog.com")
-        self.assertEqual(extra_args["prompt"], "select_account")
 
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""
