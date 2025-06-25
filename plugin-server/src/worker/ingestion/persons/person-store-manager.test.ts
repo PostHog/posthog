@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { Hub, InternalPerson, PersonBatchWritingMode, TeamId } from '~/types'
 import { DB } from '~/utils/db/db'
+import { UUID7 } from '~/utils/utils'
 
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
@@ -340,7 +341,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeDefined()
             expect(finalState?.person.properties).toEqual({ test: 'test', new_prop: 'new_value' })
             expect(finalState?.versionDisparity).toBe(false)
@@ -364,7 +365,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeDefined()
             expect(finalState?.person.properties).toEqual({ test: 'test', merge_prop: 'merge_value' })
             expect(finalState?.versionDisparity).toBe(false)
@@ -386,7 +387,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was set to null
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeNull()
 
             // Check that batch store cache was cleared
@@ -475,7 +476,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(metricsData!.differentOutcomeDifferentBatch).toBe(0)
             expect(metricsData!.sameOutcomeDifferentBatch).toBe(0)
             expect(metricsData!.logicErrors).toHaveLength(1)
-            expect(metricsData!.logicErrors[0].key).toBe('1:test-distinct')
+            expect(metricsData!.logicErrors[0].key).toBe(`${teamId}:${person.uuid}`)
             expect(metricsData!.logicErrors[0].differences.length).toBeGreaterThan(0)
             expect(metricsData!.concurrentModifications).toHaveLength(0)
 
@@ -522,7 +523,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(metricsData!.logicErrors).toHaveLength(0)
             expect(metricsData!.concurrentModifications).toHaveLength(1)
             expect(metricsData!.concurrentModifications[0].type).toBe('different_outcome')
-            expect(metricsData!.concurrentModifications[0].key).toBe('1:test-distinct')
+            expect(metricsData!.concurrentModifications[0].key).toBe(`${teamId}:${person.uuid}`)
 
             // Test that reportBatch logs the concurrent modifications
             shadowManager.reportBatch()
@@ -705,7 +706,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     errorRate: '33.33%',
                     sampleErrors: expect.arrayContaining([
                         expect.objectContaining({
-                            key: '1:person2-distinct',
+                            key: `${teamId}:${person2.uuid}`,
                             differences: expect.any(Array),
                             mainPersonUuid: expect.any(String),
                             secondaryPersonUuid: expect.any(String),
@@ -724,7 +725,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     concurrentModificationRate: '33.33%',
                     sampleModifications: expect.arrayContaining([
                         expect.objectContaining({
-                            key: '1:person3-distinct',
+                            key: `${teamId}:${person3.uuid}`,
                             type: 'different_outcome',
                             mainPersonUuid: expect.any(String),
                             secondaryPersonUuid: expect.any(String),
@@ -768,7 +769,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             const metrics = shadowManager.getShadowMetrics()
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get(`${teamId}:${distinctId}`)
+            const finalState = finalStates.get(`${teamId}:${existingPerson.uuid}`)
 
             // Verify the final state is tracked correctly
             expect(finalState?.person).toEqual(existingPerson)
@@ -825,6 +826,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
             const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
             const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
+            const distinctId = new UUID7().toString()
 
             // Step 1: Create person - this sets batch cache
             await shadowManager.createPerson(
@@ -836,7 +838,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 null,
                 false,
                 personUuid,
-                [{ distinctId: createdPerson.uuid, version: 0 }]
+                [{ distinctId: distinctId, version: 0 }]
             )
 
             // Verify batch cache was set after create
@@ -844,7 +846,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
 
             // Step 2: Move distinct IDs (simulate merge)
-            await shadowManager.moveDistinctIds(createdPerson, targetPerson, targetPerson.uuid)
+            await shadowManager.moveDistinctIds(createdPerson, targetPerson, distinctId)
 
             // Verify batch cache is populated after moveDistinctIds
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
@@ -862,12 +864,12 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 {
                     type: 'createPerson',
                     timestamp: expect.any(Number),
-                    distinctId: createdPerson.uuid,
+                    distinctId: distinctId,
                 },
                 {
                     type: 'moveDistinctIds',
                     timestamp: expect.any(Number),
-                    distinctId: createdPerson.uuid,
+                    distinctId: distinctId,
                 },
             ])
 
@@ -877,7 +879,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 {
                     type: 'moveDistinctIds',
                     timestamp: expect.any(Number),
-                    distinctId: targetPerson.uuid,
+                    distinctId: distinctId,
                 },
             ])
 

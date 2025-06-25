@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod } from '~/types'
 
 import {
     ExploreAsInsightButton,
@@ -48,7 +47,6 @@ const ResultsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
-        statsMethod,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -78,9 +76,9 @@ const ResultsTab = (): JSX.Element => {
                 </div>
             )}
             {/**
-             * we only show bayesian results for now
+             *  check if we should render the legacy metrics view or the new one
              */}
-            {statsMethod === ExperimentStatsMethod.Bayesian ? (
+            {legacyPrimaryMetricsResults.length > 0 ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
