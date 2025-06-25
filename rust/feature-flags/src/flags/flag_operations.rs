@@ -93,11 +93,10 @@ impl FeatureFlag {
     /// This is true if the flag has a rollout percentage set and the flag has cohort filters
     ///
     pub fn requires_cohort_filters(&self) -> bool {
-        self.filters.groups.iter().any(|group| {
-            group.rollout_percentage.is_some()
-                && group.rollout_percentage.unwrap() > 0.0
-                && self.has_cohort_filters()
-        })
+        self.filters
+            .groups
+            .iter()
+            .any(|group| group.is_rolled_out_to_to_some() && self.has_cohort_filters())
     }
 
     /// Extracts dependent FeatureFlagIds from the feature flag's filters
