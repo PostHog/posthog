@@ -84,6 +84,18 @@ cd posthog
 git pull --prune
 cd ../
 
+# Download GeoLite2-City.mmdb if it doesn't exist
+echo "Downloading GeoIP database file"
+apt-get update && 
+apt-get install -y --no-install-recommends curl ca-certificates brotli && 
+mkdir -p ./share && 
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
+    echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json && 
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
+fi
+
 # Upgrade Docker Compose to version 2.33.1
 echo "Setting up Docker Compose"
 sudo rm /usr/local/bin/docker-compose
