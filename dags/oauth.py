@@ -9,7 +9,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthGrant, OAuthIDToken, OAu
 
 
 def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutionContext, token_type: str) -> int:
-    """Delete tokens in batches to avoid overwhelming the database."""
+    """Delete tokens in batches to avoid locking up the tables."""
     CLEAR_EXPIRED_TOKENS_BATCH_SIZE = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_SIZE", 1000)
     CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL = getattr(settings, "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL", 0.1)
 
@@ -55,7 +55,6 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
     """
     Clear expired OAuth tokens from the database.
     This function deletes expired refresh tokens, access tokens, ID tokens, and grants
-    using configurable batch processing to avoid overwhelming the database.
     """
     now = timezone.now()
     retention_cutoff = now - timedelta(seconds=settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD)
