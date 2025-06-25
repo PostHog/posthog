@@ -146,7 +146,15 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     }
 
     const filteredConnectors = connectors.filter((n) => {
-        return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
+        if (n.name === 'GoogleAds') {
+            return featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH]
+        }
+
+        if (n.name === 'GoogleSheets') {
+            return featureFlags[FEATURE_FLAGS.GOOGLE_SHEETS_DWH]
+        }
+
+        return true
     })
 
     return (
