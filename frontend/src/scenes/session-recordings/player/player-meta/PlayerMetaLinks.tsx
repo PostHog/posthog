@@ -69,7 +69,6 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             <MenuActions size={size} />
                         </div>
                     )}
-                    {size === 'normal' && <AddToNotebookButton />}
 
                     <PlayerShareMenu />
 
@@ -168,6 +167,9 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
+            {
+                label: () => <AddToNotebookButton fullWidth={true} />,
+            },
             isStandardMode && {
                 title: 'Export',
                 key: 'export',
@@ -200,11 +202,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             })
         }
 
-        if (size === 'small') {
-            itemsArray.unshift({
-                label: () => <AddToNotebookButton fullWidth={true} />,
-            })
-        }
         if (logicProps.playerKey !== 'modal') {
             isStandardMode &&
                 itemsArray.push({
