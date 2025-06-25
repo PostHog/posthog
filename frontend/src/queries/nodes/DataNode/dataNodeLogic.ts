@@ -44,6 +44,8 @@ import {
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
     QueryStatus,
@@ -51,8 +53,6 @@ import {
     RefreshType,
     TracesQuery,
     TracesQueryResponse,
-    MarketingAnalyticsTableQuery,
-    MarketingAnalyticsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -62,9 +62,9 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
+    isMarketingAnalyticsTableQuery,
     isPersonsNode,
     isTracesQuery,
-    isMarketingAnalyticsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -672,7 +672,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 ...query,
                                 offset: (query.offset || 0) + (typedResults?.length || 0),
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery | MarketingAnalyticsTableQuery
+                            } as
+                                | EventsQuery
+                                | ActorsQuery
+                                | GroupsQuery
+                                | ErrorTrackingQuery
+                                | TracesQuery
+                                | MarketingAnalyticsTableQuery
                         }
                     }
                 }

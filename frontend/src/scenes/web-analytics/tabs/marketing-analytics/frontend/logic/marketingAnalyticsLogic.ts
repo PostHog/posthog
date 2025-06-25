@@ -5,11 +5,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    ConversionGoalFilter,
     CurrencyCode,
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
-    NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
@@ -18,14 +16,6 @@ import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
-import {
-    generateGoalConversionCTEs,
-    generateGoalConversionJoins,
-    generateGoalConversionSelects,
-    generateSelect,
-    generateWithClause,
-    unionQueriesString,
-} from './marketingTable'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
@@ -216,34 +206,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
-            },
-        ],
-        createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.conversion_goals, s.baseCurrency, s.validNativeSources],
-            (
-                validExternalTables: ExternalTable[],
-                conversionGoals: ConversionGoalFilter[],
-                baseCurrency: CurrencyCode,
-                validNativeSources: NativeSource[]
-            ): string | null => {
-                const unionQueries = unionQueriesString(validNativeSources, validExternalTables, baseCurrency)
-
-                if (unionQueries.length === 0) {
-                    // no valid sources found
-                    return null
-                }
-
-                // Actions are now supported as conversion goals
-                const filteredConversionGoal = conversionGoals
-
-                const conversionGoalCTEs = generateGoalConversionCTEs(filteredConversionGoal)
-                const withClause = generateWithClause(unionQueries, conversionGoalCTEs)
-                const conversionJoins = generateGoalConversionJoins(filteredConversionGoal)
-                const conversionColumns = generateGoalConversionSelects(filteredConversionGoal)
-
-                const query = generateSelect(withClause, conversionColumns, conversionJoins)
-
-                return query
             },
         ],
     }),

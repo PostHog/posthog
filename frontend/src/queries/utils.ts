@@ -191,7 +191,9 @@ export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebG
     return node?.kind === NodeKind.WebGoalsQuery
 }
 
-export function isMarketingAnalyticsTableQuery(node?: Record<string, any> | null): node is MarketingAnalyticsTableQuery {
+export function isMarketingAnalyticsTableQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsTableQuery {
     return node?.kind === NodeKind.MarketingAnalyticsTableQuery
 }
 

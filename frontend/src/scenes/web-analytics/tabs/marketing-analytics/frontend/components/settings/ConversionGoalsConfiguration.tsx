@@ -24,7 +24,6 @@ const createEmptyFormState = (): ConversionGoalFormState => ({
 
 export function ConversionGoalsConfiguration(): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    console.log('JFBW: ConversionGoalsConfiguration conversion_goals', conversion_goals)
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const [formState, setFormState] = useState<ConversionGoalFormState>(createEmptyFormState())
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)

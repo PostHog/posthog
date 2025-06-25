@@ -33,6 +33,7 @@ import {
     DataTableNode,
     EventsNode,
     InsightVizNode,
+    MarketingAnalyticsTableQuery,
     NodeKind,
     QuerySchema,
     TrendsFilter,
@@ -46,7 +47,6 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebVitalsMetric,
-    MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
@@ -427,7 +427,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery', 'validExternalTables', 'validNativeSources'],
+            ['loading', 'createMarketingDataWarehouseNodes'],
         ],
     })),
     actions({
@@ -2420,33 +2420,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts, s.validExternalTables, s.validNativeSources, s.conversion_goals],
-            (loading: boolean, dateFilter: any, webAnalyticsFilters: any, filterTestAccounts: boolean, validExternalTables: any, validNativeSources: any, conversion_goals: any): DataTableNode | null => {
-                // For now, let's always show the MarketingAnalyticsTableQuery for testing
-                // TODO: Add back the createDynamicCampaignQuery dependency when we want conditional logic
+            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts],
+            (
+                loading: boolean,
+                dateFilter: any,
+                webAnalyticsFilters: any,
+                filterTestAccounts: boolean
+            ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
 
-                // JFBW: Simple check of data being sent to backend
-                console.log('JFBW: Marketing analytics query', {
-                    externalTables: validExternalTables?.length || 0,
-                    nativeSources: validNativeSources?.length || 0,
-                    conversionGoals: conversion_goals?.length || 0
-                })
-                
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.MarketingAnalyticsTableQuery,
-                        select: [],  // Use default columns
+                        select: [], // Use default columns
                         dateRange: {
                             date_from: dateFilter.dateFrom,
                             date_to: dateFilter.dateTo,
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        limit: 200,  // Changed from 100 to 20 for easier pagination testing
+                        limit: 200, // Changed from 100 to 20 for easier pagination testing
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,

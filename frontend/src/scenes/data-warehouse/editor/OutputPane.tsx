@@ -386,23 +386,29 @@ export function OutputPane(): JSX.Element {
         if (!response?.columns || !response?.results) {
             return
         }
-        
+
         // Create CSV header
         const csvHeader = response.columns.join(',')
-        
+
         // Create CSV rows
-        const csvRows = response.results.map((row: any[]) => 
-            row.map(cell => {
-                if (cell === null) return ''
-                if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
-                    return `"${cell.replace(/"/g, '""')}"`
-                }
-                return String(cell)
-            }).join(',')
+        const csvRows = response.results.map((row: any[]) =>
+            row
+                .map((cell) => {
+                    if (cell === null) {
+                        return ''
+                    }
+                    if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
+                        return `"${cell.replace(/"/g, '""')}"`
+                    }
+                    return String(cell)
+                })
+                .join(',')
         )
-        
+
         const csvContent = [csvHeader, ...csvRows].join('\n')
-        copyToClipboard(csvContent, 'CSV data')
+        copyToClipboard(csvContent, 'CSV data').catch((e) => {
+            console.error('Error copying CSV data', e)
+        })
     }, [response])
 
     return (

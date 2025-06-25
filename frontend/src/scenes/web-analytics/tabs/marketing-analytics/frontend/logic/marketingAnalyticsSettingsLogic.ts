@@ -48,12 +48,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     if (!state) {
                         return { ...createEmptyConfig(), conversion_goals: [conversionGoal] }
                     }
-                    
+
                     const existingGoals = state.conversion_goals || []
                     const existingIndex = existingGoals.findIndex(
                         (goal) => goal.conversion_goal_id === conversionGoal.conversion_goal_id
                     )
-                    
+
                     let updatedGoals: ConversionGoalFilter[]
                     if (existingIndex >= 0) {
                         // Update existing goal
@@ -63,19 +63,17 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         // Add new goal
                         updatedGoals = [...existingGoals, conversionGoal]
                     }
-                    
+
                     return { ...state, conversion_goals: updatedGoals }
                 },
                 removeConversionGoal: (state: MarketingAnalyticsConfig | null, { goalId }) => {
                     if (!state) {
                         return state
                     }
-                    
+
                     const existingGoals = state.conversion_goals || []
-                    const updatedGoals = existingGoals.filter(
-                        (goal) => goal.conversion_goal_id !== goalId
-                    )
-                    
+                    const updatedGoals = existingGoals.filter((goal) => goal.conversion_goal_id !== goalId)
+
                     return { ...state, conversion_goals: updatedGoals }
                 },
                 updateSourceMapping: (state: MarketingAnalyticsConfig | null, { tableId, fieldName, columnName }) => {
@@ -122,23 +120,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         conversion_goals: [
             (s) => [s.marketingAnalyticsConfig],
             (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
-                const goals = marketingAnalyticsConfig?.conversion_goals || []
-                console.log('JFBW: marketingAnalyticsSettingsLogic conversion_goals selector', {
-                    marketingAnalyticsConfig,
-                    goals,
-                    goalsCount: goals.length,
-                    goalsDetailed: goals.map((goal: any, index: number) => ({
-                        index,
-                        goal,
-                        goalType: typeof goal,
-                        goalKeys: goal ? Object.keys(goal) : [],
-                        goalId: goal?.conversion_goal_id,
-                        schema: goal?.schema,
-                        schemaType: typeof goal?.schema,
-                        schemaKeys: goal?.schema ? Object.keys(goal.schema) : []
-                    }))
-                })
-                return goals
+                return marketingAnalyticsConfig?.conversion_goals || []
             },
         ],
     }),
@@ -161,25 +143,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: {
             loadMarketingAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    const config = values.currentTeam.marketing_analytics_config || createEmptyConfig()
-                    console.log('JFBW: loadMarketingAnalyticsConfig from team', {
-                        currentTeam: values.currentTeam,
-                        config,
-                        configType: typeof config,
-                        conversionGoals: config.conversion_goals,
-                        conversionGoalsCount: config.conversion_goals?.length || 0,
-                        conversionGoalsDetailed: config.conversion_goals?.map((goal: any, index: number) => ({
-                            index,
-                            goal,
-                            goalType: typeof goal,
-                            goalKeys: goal ? Object.keys(goal) : [],
-                            goalId: goal?.conversion_goal_id,
-                            schema: goal?.schema,
-                            schemaType: typeof goal?.schema,
-                            schemaKeys: goal?.schema ? Object.keys(goal.schema) : []
-                        }))
-                    })
-                    return config
+                    return values.currentTeam.marketing_analytics_config || createEmptyConfig()
                 }
                 return null
             },
