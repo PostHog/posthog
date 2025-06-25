@@ -25,6 +25,12 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
+export const counterMissingAddon = new Counter({
+    name: 'cdp_function_missing_addon',
+    help: 'A function invocation was missing an addon',
+    labelNames: ['team_id'],
+})
+
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
@@ -74,7 +80,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             await this.groupsManager.enrichGroups(invocationGlobals)
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-            const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
+            const [hogFunctionsByTeam, teamsById] = await Promise.all([
+                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes),
+                this.hub.teamManager.getTeams(teamsToLoad),
+            ])
 
             const possibleInvocations = (
                 await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
@@ -97,6 +106,28 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
+                // Disable invocations for teams that don't have the addon (for now just metric them out..)
+
+                if (
+                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
+                    item.hogFunction.is_addon_required
+                ) {
+                    // NOTE: This counter is temporary until we are confident in enabling this
+                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
+                    // TODO: Later add the below code
+                    // this.hogFunctionMonitoringService.queueAppMetric(
+                    //     {
+                    //         team_id: item.teamId,
+                    //         app_source_id: item.functionId,
+                    //         metric_kind: 'failure',
+                    //         metric_name: 'missing_addon',
+                    //         count: 1,
+                    //     },
+                    //     'hog_function'
+                    // )
+                    // return
+                }
+
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
                     this.hogFunctionMonitoringService.queueAppMetric(

@@ -2126,6 +2126,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "type": "String",
         },
+        "coupon": {
+            "label": "Coupon",
+            "description": "The name of the coupon on the revenue event.",
+            "type": "String",
+        },
+        "coupon_id": {
+            "label": "Coupon ID",
+            "description": "The ID of the coupon on the revenue event.",
+            "type": "String",
+        },
+        "initial_coupon": {
+            "label": "Initial coupon",
+            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "type": "String",
+        },
+        "initial_coupon_id": {
+            "label": "Initial coupon ID",
+            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "type": "String",
+        },
     },
 }
 

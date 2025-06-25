@@ -14,11 +14,13 @@ import { FilterType } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { modalsLogic } from '../modalsLogic'
 
 export function ExposureCriteriaModal(): JSX.Element {
-    const { experiment, isExposureCriteriaModalOpen } = useValues(experimentLogic)
-    const { closeExposureCriteriaModal, restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } =
-        useActions(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
+    const { restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } = useActions(experimentLogic)
+    const { closeExposureCriteriaModal } = useActions(modalsLogic)
+    const { isExposureCriteriaModalOpen } = useValues(modalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (

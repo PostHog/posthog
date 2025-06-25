@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 import structlog
 from boto3 import client
@@ -22,7 +22,17 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def head_object(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+        pass
+
+    @abc.abstractmethod
+    def get_presigned_post(
+        self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
+    ) -> Optional[dict]:
         pass
 
     @abc.abstractmethod
@@ -61,7 +71,15 @@ class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
         return False
 
+    def head_object(self, bucket: str, file_key: str):
+        return None
+
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+        pass
+
+    def get_presigned_post(
+        self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
+    ) -> Optional[dict]:
         pass
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
@@ -97,6 +115,13 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.health_check_failed", bucket=bucket, error=e)
             return False
 
+    def head_object(self, bucket: str, file_key) -> Optional[dict]:
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except Exception as e:
+            logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            return None
+
     def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
         try:
             return self.aws_client.generate_presigned_url(
@@ -107,6 +132,18 @@ class ObjectStorage(ObjectStorageClient):
             )
         except Exception as e:
             logger.exception("object_storage.get_presigned_url_failed", file_name=file_key, error=e)
+            capture_exception(e)
+            return None
+
+    def get_presigned_post(
+        self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
+    ) -> Optional[dict]:
+        try:
+            return self.aws_client.generate_presigned_post(
+                bucket, file_key, Conditions=conditions, ExpiresIn=expiration
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
             return None
 
@@ -279,6 +316,16 @@ def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
     return object_storage_client().get_presigned_url(
         bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
     )
+
+
+def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+    return object_storage_client().get_presigned_post(
+        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, conditions=conditions, expiration=expiration
+    )
+
+
+def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:
+    return object_storage_client().head_object(file_key=file_key, bucket=bucket)
 
 
 def health_check() -> bool:

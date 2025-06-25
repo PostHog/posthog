@@ -28,11 +28,9 @@ from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_web_bounces_structure,
 )
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.object_storage import (
-    OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
+    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
 
 
@@ -154,9 +152,9 @@ def export_web_analytics_data(
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
 
     if DEBUG:
-        s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_BUCKET}/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
+        s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}/{export_prefix}.native"
     else:
-        s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_prefix}.native"
+        s3_path = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com/{export_prefix}.native"
 
     export_query = sql_generator(
         date_start="2020-01-01",

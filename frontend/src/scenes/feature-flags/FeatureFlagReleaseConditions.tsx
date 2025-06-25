@@ -156,7 +156,7 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <div className="w-full" key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className="mb-4 border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
@@ -275,7 +275,7 @@ export function FeatureFlagReleaseConditions({
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${id}-${index}-${filterGroups.length}-${
+                                pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
                                     filters.aggregation_group_type_index ?? ''
                                 }`}
                                 propertyFilters={group?.properties}
@@ -446,7 +446,7 @@ export function FeatureFlagReleaseConditions({
         const hasMatchingEarlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlagKey)
 
         return (
-            <div className="w-full" key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className="mb-4 rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">

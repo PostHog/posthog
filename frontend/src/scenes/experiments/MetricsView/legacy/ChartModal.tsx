@@ -1,5 +1,4 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 
 import {
     ExperimentFunnelsQuery,
@@ -10,6 +9,8 @@ import {
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
 import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
@@ -68,8 +69,13 @@ export function ChartModal({
                     <LegacyResultsQuery result={result} showTable={true} />
                 </>
             ) : (
-                <ResultsBreakdown result={result} experiment={experiment}>
-                    {({ query, breakdownResults, breakdownResultsLoading }) => (
+                <ResultsBreakdown
+                    result={result}
+                    experiment={experiment}
+                    metricIndex={metricIndex}
+                    isPrimary={!isSecondary}
+                >
+                    {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                         <>
                             {query && (
                                 <div className="flex justify-end">
@@ -85,7 +91,10 @@ export function ChartModal({
                             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                             {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                             {query && breakdownResults && (
-                                <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                <>
+                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                </>
                             )}
                         </>
                     )}

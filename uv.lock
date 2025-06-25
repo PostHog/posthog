@@ -262,6 +262,15 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncstdlib"
+version = "3.13.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/e1/72e388631c85233a2fd890d024fc20a8a9961dbba8614d78266636218f1f/asyncstdlib-3.13.1.tar.gz", hash = "sha256:f47564b9a3566f8f9172631d88c75fe074b0ce2127963b7265d310df9aeed03a", size = 49752, upload-time = "2025-03-09T07:52:51.587Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/4a/c86c045bc7bb0244044935ba80c83998f1fdee4f4cef64c6b078e043b0e6/asyncstdlib-3.13.1-py3-none-any.whl", hash = "sha256:a64da68176af1da8c699026cad98f70b184f82b4cb39739e0b9701a2a7541cf9", size = 43993, upload-time = "2025-03-09T07:52:50.108Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3603,6 +3612,7 @@ dependencies = [
     { name = "aiokafka" },
     { name = "anthropic" },
     { name = "antlr4-python3-runtime" },
+    { name = "asyncstdlib" },
     { name = "azure-ai-inference" },
     { name = "azure-ai-projects" },
     { name = "beautifulsoup4" },
@@ -3812,6 +3822,7 @@ requires-dist = [
     { name = "aiokafka", specifier = ">=0.8" },
     { name = "anthropic", specifier = "==0.49.0" },
     { name = "antlr4-python3-runtime", specifier = "==4.13.1" },
+    { name = "asyncstdlib", specifier = "==3.13.1" },
     { name = "azure-ai-inference", specifier = ">=1.0.0b9" },
     { name = "azure-ai-projects", specifier = ">=1.0.0b11" },
     { name = "beautifulsoup4", specifier = "==4.12.3" },
@@ -3897,7 +3908,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=4.6.2" },
+    { name = "posthoganalytics", specifier = ">=5.1.0" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -3932,7 +3943,7 @@ requires-dist = [
     { name = "statshog", specifier = "==1.0.6" },
     { name = "stripe", specifier = "==12.2.0" },
     { name = "structlog", specifier = "==23.2.0" },
-    { name = "temporalio", specifier = "==1.7.1" },
+    { name = "temporalio", specifier = "==1.8.0" },
     { name = "tenacity", specifier = ">=8.4.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
@@ -4016,7 +4027,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "4.6.2"
+version = "5.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4025,9 +4036,9 @@ dependencies = [
     { name = "requests" },
     { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f2/64/9d9b82c0ba828e6921ef67bab519bddfbb42c34475a7f48227e3f83a0717/posthoganalytics-4.6.2.tar.gz", hash = "sha256:46ceaad31533d5f5a96ed357d3e70867bc3caaa4c2d3ddf8a63bb7d0a9ee7f52", size = 84876, upload-time = "2025-06-10T10:06:00.427Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/2b/88f865bbb1671fac1f101a823002b75dca35913b8525950d8f896915ba50/posthoganalytics-5.1.0.tar.gz", hash = "sha256:071a082d2e8b5df91764d7a7ed0f3e678a61e49195b311a5fab0ec40e5b4f6f1", size = 86318, upload-time = "2025-06-18T16:28:00.678Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/89/9dc32d720eed8aa790d81f02ec0aec4948ce06dff04c7d7baac6b8db9f33/posthoganalytics-4.6.2-py3-none-any.whl", hash = "sha256:e757f60fb3256d9887ebd840a8ece4fe3f4e164e26423093584e255bd209623d", size = 103033, upload-time = "2025-06-10T10:05:58.677Z" },
+    { url = "https://files.pythonhosted.org/packages/af/04/657214a32547cb04bd614d2fc000e04eb6f7042420bac36987c499718d13/posthoganalytics-5.1.0-py3-none-any.whl", hash = "sha256:37ae772b13914410dd82760322de6aa11a3bbd194cf1b4a41e0cc0e299f2dfbd", size = 104611, upload-time = "2025-06-18T16:27:59.515Z" },
 ]
 
 [[package]]
@@ -5452,20 +5463,20 @@ wheels = [
 
 [[package]]
 name = "temporalio"
-version = "1.7.1"
+version = "1.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
     { name = "types-protobuf" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/c8/2e3aa7eb5ff75129fd0531a9c0b854f35a41b32c4b373f1ddeb6acf2f658/temporalio-1.7.1.tar.gz", hash = "sha256:8250c391b33dd498dfd7d65a880c72b17e9b0e7cc04e7d444400be74c0fe4c85", size = 1300517, upload-time = "2024-09-11T14:23:40.522Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/25/90efe7c75de3c3c8fc14272edd7296c61f8a5c22c6cc6b0366f42fdf4a58/temporalio-1.8.0.tar.gz", hash = "sha256:b9e239b8bfd60126a4b591c6e2e691392b69afc8cac9db452d692654bf85f9cc", size = 1303762, upload-time = "2024-10-10T21:06:19.171Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/1b/defa7afb3b26bb8f05202b26d32398a3611551d67d41409c789784959892/temporalio-1.7.1-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:3aff503662255c3e2fa1e9c07b8a702bf8ff1f7d99370b4a6785699c45e75527", size = 10377078, upload-time = "2024-09-11T14:23:22.006Z" },
-    { url = "https://files.pythonhosted.org/packages/33/bb/1c1271c8c2d4ea0fe959a98450c45abce4ddfab698115640aaf6ef28c14f/temporalio-1.7.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:0685c7ece5ba639a1af7eb39939726c70c99ffe6c212be3f01f213753923fd88", size = 10066864, upload-time = "2024-09-11T14:23:26.266Z" },
-    { url = "https://files.pythonhosted.org/packages/97/d9/b03168bb89bd77de14a94ab04e37bbced094ba0a16d2c9f703c17737c37d/temporalio-1.7.1-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:396e608c227a4f20cde7dfd3c7c8e2d8a9039cd76a40171668bb2b9a84d36bea", size = 10885210, upload-time = "2024-09-11T14:23:30.292Z" },
-    { url = "https://files.pythonhosted.org/packages/30/41/e382acec104423cff27efd9fa5321296fd688f617a4d0997bfacb60d2ff8/temporalio-1.7.1-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:a38652e2556c384261f81f820b5f65f3b099767f18b9332628ec730cd31f0972", size = 10783356, upload-time = "2024-09-11T14:23:34.269Z" },
-    { url = "https://files.pythonhosted.org/packages/31/bc/233f98d39887d98073898b182de4ce76853f21f1517c60dd580bf0c81807/temporalio-1.7.1-cp38-abi3-win_amd64.whl", hash = "sha256:9b3aea332f6686a424467b026cbc8a1e93c550dfb6f7d983d392090de3d92847", size = 10920946, upload-time = "2024-09-11T14:23:38.31Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/a2/3e2ac571de8645f9fcdad80faaf564dd865060c538239494c54a629eb798/temporalio-1.8.0-cp38-abi3-macosx_10_9_x86_64.whl", hash = "sha256:c6acb217d4bd7297389db756dd9da73ef2bae17f6afee1faa8bf77be200e8b93", size = 10377752, upload-time = "2024-10-10T21:04:24.851Z" },
+    { url = "https://files.pythonhosted.org/packages/48/f1/f68064bd821a9c8eed1a139fa6e3865df1b0e3295f2fa74d8e0980cf373d/temporalio-1.8.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:6ec61660631b2513ce710b468068135280996af105571126295c9645bf29ee22", size = 10068302, upload-time = "2024-10-10T21:04:50.344Z" },
+    { url = "https://files.pythonhosted.org/packages/43/76/73274306e1d09defb57ff246123c2018757fc6aaa6e9d510cbc2d6a8e917/temporalio-1.8.0-cp38-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4ee13d155dc917e7792b87d1e37b1a0e837c361deb722ccc294edaa5344f2fa2", size = 10887067, upload-time = "2024-10-10T21:05:21.729Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/34/f812ddf9aeca077d16858c197c7879eeddba74bea8390e97d41466f75e0f/temporalio-1.8.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6b67c115b6eaceddae373dc2c597e5ad5dd567282f4bb0ee63c99124f5f0c12d", size = 10784271, upload-time = "2024-10-10T21:05:51.958Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/92/6550a06cbc27f5f3d416384c8d9fefbad9d2a5ffd21e7319daced402b1a1/temporalio-1.8.0-cp38-abi3-win_amd64.whl", hash = "sha256:6a45571c09859b6cbf33be26dd5d5fab7e7ee3625750a7b91ebde5770e61015b", size = 10922417, upload-time = "2024-10-10T21:06:14.391Z" },
 ]
 
 [[package]]
