@@ -938,7 +938,9 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
 
     event_payload = prepare_capture_payload(token, distinct_id, raw_event)
 
-    # do what posthog-python does here but allow for incoming user's token :)
+    # OBVIOUSLY NOT CORRECT ATM: goal: do what posthog-python does, but allow for:
+    # 1. supplying the API token on the fly representing the right PostHog team
+    # 2. stay internal to PH network in this hop from Django -> capture-rs if we can
     return requests.post(
         "https://app.posthog.com/i/v0/e/",
         json=event_payload,
@@ -993,6 +995,7 @@ def capture_internal(
     now,
     sent_at,
     to_capture_rs=False,
+    # TODO(eli): add optional arg here to default to NOT processing persons profiles!
     event_uuid=None,
     token=None,
     historical=False,
