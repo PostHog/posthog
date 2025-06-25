@@ -13,13 +13,22 @@ import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
+const dashboard = require('./__mocks__/dashboard1.json')
+const insightMocks = dashboard.tiles.reduce((acc: Record<string, any>, tile: any) => {
+    if (tile.insight) {
+        acc[`/api/projects/:team_id/insights/${tile.insight.id}/`] = tile.insight
+    }
+    return acc
+}, {})
+
 const meta: Meta = {
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/environments/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
+                '/api/environments/:team_id/dashboards/1/': dashboard,
+                ...insightMocks,
                 '/api/environments/:team_id/dashboards/1/collaborators/': [],
                 '/api/environments/:team_id/dashboards/2/': [500, { detail: 'Server error' }],
                 '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
@@ -121,6 +130,7 @@ export const Show = (): JSX.Element => {
     }, [])
     return <App />
 }
+Show.parameters = {}
 
 export const Edit = (): JSX.Element => {
     useEffect(() => {
@@ -130,6 +140,7 @@ export const Edit = (): JSX.Element => {
     }, [])
     return <App />
 }
+Edit.parameters = {}
 
 export const NotFound = (): JSX.Element => {
     useEffect(() => {
