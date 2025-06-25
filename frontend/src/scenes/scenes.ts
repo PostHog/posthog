@@ -457,18 +457,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Messaging broadcasts',
-    },
-    [Scene.MessagingCampaigns]: {
-        projectBased: true,
-        name: 'Messaging campaigns',
-    },
-    [Scene.MessagingLibrary]: {
-        projectBased: true,
-        name: 'Messaging library',
-    },
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',
         layout: 'plain',
