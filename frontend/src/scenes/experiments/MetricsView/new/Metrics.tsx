@@ -112,18 +112,23 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                 chartRadius={chartRadius}
                                                 error={errors[metricIndex]}
                                             />
-                                            {metrics.length === 1 && result && hasMinimumExposureForResults && (
-                                                <div className="mt-2">
-                                                    <ResultDetails
-                                                        metric={metric as ExperimentMetric}
-                                                        result={{
-                                                            ...results[metricIndex],
-                                                            metric: metric as ExperimentMetric,
-                                                        }}
-                                                        experiment={experiment}
-                                                    />
-                                                </div>
-                                            )}
+                                            {metrics.length === 1 &&
+                                                result &&
+                                                hasMinimumExposureForResults &&
+                                                !isSecondary && (
+                                                    <div className="mt-2">
+                                                        <ResultDetails
+                                                            metric={metric as ExperimentMetric}
+                                                            result={{
+                                                                ...results[metricIndex],
+                                                                metric: metric as ExperimentMetric,
+                                                            }}
+                                                            experiment={experiment}
+                                                            metricIndex={metricIndex}
+                                                            isSecondary={!!isSecondary}
+                                                        />
+                                                    </div>
+                                                )}
                                         </div>
                                     )
                                 })}

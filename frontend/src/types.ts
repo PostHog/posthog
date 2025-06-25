@@ -4294,6 +4294,20 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'warehouse_table'
 
+export type APIScopeAction = 'read' | 'write'
+
+export type APIScope = {
+    key: APIScopeObject
+    objectPlural: string
+    info?: string | JSX.Element
+    disabledActions?: APIScopeAction[]
+    disabledWhenProjectScoped?: boolean
+    description?: string
+    warnings?: Partial<Record<APIScopeAction, string | JSX.Element>>
+}
+
+export type APIScopePreset = { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }
+
 export enum AccessControlLevel {
     None = 'none',
     Member = 'member',
@@ -5534,6 +5548,10 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export type OAuthApplicationPublicMetadata = {
+    name: string
+    client_id: string
+}
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
     dnsRecords: (
