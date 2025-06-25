@@ -85,7 +85,6 @@ export function PinnedFolder(): JSX.Element {
                                         tooltipPlacement: 'top',
                                         children: <IconPlusSmall className="size-4 text-tertiary" />,
                                     }}
-                                    includeProtocol
                                 />
                             ) : null}
                             {configMenu}
