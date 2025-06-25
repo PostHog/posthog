@@ -13,7 +13,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { ContextDisplay } from './ContextDisplay'
+import { ContextDisplay } from '../Context'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -166,7 +166,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'flex gap-1 text-xs font-medium cursor-default px-1.5',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                : 'w-full pb-1'
+                                : 'w-full -mb-1 py-0.5'
                         )}
                     >
                         <span>Tools in context:</span>

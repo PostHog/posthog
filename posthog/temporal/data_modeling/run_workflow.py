@@ -431,7 +431,16 @@ async def materialize_model(
         except FileNotFoundError:
             await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
+        delta_table: deltalake.DeltaTable | None = None
+
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            if delta_table is None:
+                delta_table = deltalake.DeltaTable.create(
+                    table_uri=table_uri,
+                    schema=batch.schema,
+                    storage_options=storage_options,
+                )
+
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
             schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
             if index == 0:
@@ -443,7 +452,12 @@ async def materialize_model(
             )
 
             deltalake.write_deltalake(
-                table_or_uri=table_uri, storage_options=storage_options, data=batch, mode=mode, schema_mode=schema_mode
+                table_or_uri=delta_table,
+                storage_options=storage_options,
+                data=batch,
+                mode=mode,
+                schema_mode=schema_mode,
+                engine="rust",
             )
 
             row_count = row_count + batch.num_rows
@@ -451,7 +465,9 @@ async def materialize_model(
             shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
-        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+
+        if delta_table is None:
+            delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
     except Exception as e:
         error_message = str(e)
         if "Query exceeds memory limits" in error_message:

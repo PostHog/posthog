@@ -1495,6 +1495,24 @@ class MatchedRecordingEvent(BaseModel):
     uuid: str
 
 
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: float
+    name: str
+
+
+class MaxEventContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    id: str
+    name: Optional[str] = None
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11411,7 +11429,9 @@ class MaxContextShape(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actions: Optional[list[MaxActionContext]] = None
     dashboards: Optional[list[MaxDashboardContext]] = None
+    events: Optional[list[MaxEventContext]] = None
     filters_override: Optional[DashboardFilter] = None
     insights: Optional[list[MaxInsightContext]] = None
     variables_override: Optional[dict[str, HogQLVariable]] = None
@@ -11423,7 +11443,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: Optional[str] = None
     filters: DashboardFilter
-    id: Union[str, int]
+    id: float
     insights: list[MaxInsightContext]
     name: Optional[str] = None
 
@@ -11433,7 +11453,7 @@ class MaxInsightContext(BaseModel):
         extra="forbid",
     )
     description: Optional[str] = None
-    id: Union[str, int]
+    id: str
     name: Optional[str] = None
     query: Union[
         EventsNode,

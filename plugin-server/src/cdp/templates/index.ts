@@ -13,10 +13,12 @@ import { template as defaultTransformationTemplate } from './_transformations/de
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
+import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
+import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
 import { HogFunctionTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
@@ -40,6 +42,8 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     botDetectionTemplate,
     dropEventsTemplate,
     filterPropertiesTemplate,
+    hashPropertiesTemplate,
+    urlNormalizationTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
