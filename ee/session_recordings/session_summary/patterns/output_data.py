@@ -78,6 +78,15 @@ class EnrichedPatternAssignedEvent(PaternAssignedEvent):
     event_index: int
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class PatternAssignedEventSegmentContext:
+    """Context for an event assigned to a pattern, to better understand the event in the context of the segment"""
+
+    previous_events_in_segment: list[EnrichedPatternAssignedEvent]
+    target_event: EnrichedPatternAssignedEvent
+    next_events_in_segment: list[EnrichedPatternAssignedEvent]
+
+
 def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> SessionGroupSummaryPatternsList:
     if not raw_content:
         raise SummaryValidationError(
@@ -145,34 +154,70 @@ def combine_patterns_assignments_from_single_session_summaries(
     return combined_patterns_assignments
 
 
+def _enriched_event_from_session_summary_event(
+    pattern_assigned_event: PaternAssignedEvent, event: dict
+) -> EnrichedPatternAssignedEvent:
+    enriched_event = EnrichedPatternAssignedEvent(
+        event_id=pattern_assigned_event.event_id,
+        event_uuid=pattern_assigned_event.event_uuid,
+        session_id=pattern_assigned_event.session_id,
+        description=event["description"],
+        abandonment=event["abandonment"],
+        confusion=event["confusion"],
+        exception=event["exception"],
+        timestamp=event["timestamp"],
+        milliseconds_since_start=event["milliseconds_since_start"],
+        window_id=event["window_id"],
+        current_url=event["current_url"],
+        event=event["event"],
+        event_type=event["event_type"],
+        event_index=event["event_index"],
+    )
+    return enriched_event
+
+
 def _enrich_pattern_assigned_event_with_session_summary_data(
     pattern_assigned_event: PaternAssignedEvent,
     session_summaries: list[SessionSummarySerializer],
-) -> EnrichedPatternAssignedEvent:
+) -> PatternAssignedEventSegmentContext:
     for session_summary in session_summaries:
-        key_actions_list = session_summary.data["key_actions"]
-        for key_actions in key_actions_list:
-            for event in key_actions["events"]:
+        key_actions = session_summary.data["key_actions"]
+        for segment_key_actions in key_actions:
+            for event_index, event in enumerate(segment_key_actions["events"]):
+                # Find the event in the session summary
                 if event["event_id"] != pattern_assigned_event.event_id:
                     continue
                 try:
-                    enriched_event = EnrichedPatternAssignedEvent(
-                        event_id=pattern_assigned_event.event_id,
-                        event_uuid=pattern_assigned_event.event_uuid,
-                        session_id=pattern_assigned_event.session_id,
-                        description=event["description"],
-                        abandonment=event["abandonment"],
-                        confusion=event["confusion"],
-                        exception=event["exception"],
-                        timestamp=event["timestamp"],
-                        milliseconds_since_start=event["milliseconds_since_start"],
-                        window_id=event["window_id"],
-                        current_url=event["current_url"],
-                        event=event["event"],
-                        event_type=event["event_type"],
-                        event_index=event["event_index"],
+                    # If the event is found, enrich it with session summary data first
+                    current_event = _enriched_event_from_session_summary_event(pattern_assigned_event, event)
+                    events_in_segment = segment_key_actions["events"]
+                    events_in_segment_count = len(events_in_segment)
+                    # Find and enrichprevious events
+                    if event_index == 0:
+                        # If the captured event is the first in the segment, there are no previous events
+                        previous_events_in_segment = []
+                    else:
+                        # Get and enrich all the previous events
+                        previous_events_in_segment = [
+                            _enriched_event_from_session_summary_event(pattern_assigned_event, previous_event)
+                            for previous_event in events_in_segment[:event_index]
+                        ]
+                    # Find and enrich next events
+                    if event_index == events_in_segment_count - 1:
+                        # If the captured event is the last in the segment, there are no next events
+                        next_events_in_segment = []
+                    else:
+                        # Get and enrich all the next events
+                        next_events_in_segment = [
+                            _enriched_event_from_session_summary_event(pattern_assigned_event, next_event)
+                            for next_event in events_in_segment[event_index + 1 :]
+                        ]
+                    event_segment_context = PatternAssignedEventSegmentContext(
+                        previous_events_in_segment=previous_events_in_segment,
+                        target_event=current_event,
+                        next_events_in_segment=next_events_in_segment,
                     )
-                    return enriched_event
+                    return event_segment_context
                 except Exception as err:
                     raise SummaryValidationError(
                         f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event})"
@@ -180,11 +225,11 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
     raise ValueError(f"Session summary with the required event ({pattern_assigned_event}) was not found")
 
 
-def combine_patterns_with_event_ids(
+def combine_patterns_with_events_context(
     combined_event_ids_mappings: dict[str, str],
     combined_patterns_assignments: dict[int, list[str]],
     session_summaries: list[SessionSummarySerializer],
-) -> dict[int, list[EnrichedPatternAssignedEvent]]:
+) -> dict[int, list[PatternAssignedEventSegmentContext]]:
     pattern_event_ids_mapping: dict[int, list[PaternAssignedEvent]] = {}
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
@@ -199,10 +244,12 @@ def combine_patterns_with_event_ids(
             # Map them to the pattern id to be able to enrich summaries and calculate patterns stats
             session_id, event_uuid = unpack_full_event_id(full_event_id)
             full_id_event = PaternAssignedEvent(event_id=event_id, event_uuid=event_uuid, session_id=session_id)
-            enriched_event = _enrich_pattern_assigned_event_with_session_summary_data(full_id_event, session_summaries)
+            event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
+                full_id_event, session_summaries
+            )
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
-            pattern_event_ids_mapping[pattern_id].append(enriched_event)
+            pattern_event_ids_mapping[pattern_id].append(event_segment_context)
     return pattern_event_ids_mapping
 
 

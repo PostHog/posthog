@@ -18,7 +18,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     SessionGroupSummaryPatternsList,
     combine_event_ids_mappings_from_single_session_summaries,
     combine_patterns_assignments_from_single_session_summaries,
-    combine_patterns_with_event_ids,
+    combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
@@ -267,14 +267,14 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
     with open("combined_patterns_assignments.json", "w") as f:
         f.write(json.dumps(combined_patterns_assignments))
 
-    # Combine patterns with full event ids (from DB) of attached events
-    pattern_event_ids_mapping = combine_patterns_with_event_ids(
+    # Combine patterns with full event ids (from DB) and previous/next events in the segment per each assigned event
+    pattern_event_context_mapping = combine_patterns_with_events_context(
         combined_event_ids_mappings=combined_event_ids_mappings,
         combined_patterns_assignments=combined_patterns_assignments,
         session_summaries=session_summaries,
     )
     with open("pattern_event_ids_mapping.json", "w") as f:
-        f.write(json.dumps({k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_event_ids_mapping.items()}))
+        f.write(json.dumps({k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_event_context_mapping.items()}))
 
     # TODO: Enable after testing
     # summary_prompt = generate_session_group_summary_prompt(
