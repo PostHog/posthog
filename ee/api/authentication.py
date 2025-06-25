@@ -176,7 +176,6 @@ class CustomGoogleOAuth2(GoogleOAuth2):
 
         if email:
             extra_args["login_hint"] = email
-            extra_args["prompt"] = "select_account"
 
         return extra_args
 

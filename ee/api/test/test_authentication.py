@@ -789,9 +789,8 @@ class TestCustomGoogleOAuth2(APILicensedTest):
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
-        # Should only contain base arguments from parent class, no login_hint or prompt
+        # Should only contain base arguments from parent class, no login_hint
         self.assertNotIn("login_hint", extra_args)
-        self.assertNotIn("prompt", extra_args)
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint and prompt when email is provided."""
