@@ -1,6 +1,5 @@
 # This workflow runs generic Python tests global to Dagster and PostHog.
 name: Python CI
-
 on:
     push:
         branches:
@@ -99,6 +98,15 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Restore mypy cache
+              if: needs.changes.outputs.python == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  restore-keys: |
+                      mypy-cache-${{ runner.os }}-
+
             - name: Check static typing
               if: needs.changes.outputs.python == 'true'
               shell: bash -e {0}
@@ -116,3 +124,15 @@ jobs:
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.python == 'true'
+        needs: [code-quality] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

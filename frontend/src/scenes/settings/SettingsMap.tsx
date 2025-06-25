@@ -1,16 +1,16 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
+import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/configuration/ExceptionAutocaptureSettings'
+import { ErrorTrackingAutoAssignment } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingCustomGrouping } from '@posthog/products-error-tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
+import { ErrorTrackingSymbolSets } from '@posthog/products-error-tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
+import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
+import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { ErrorTrackingAlerting } from 'products/error_tracking/frontend/configuration/alerting/ErrorTrackingAlerting'
-import { ExceptionAutocaptureSettings } from 'products/error_tracking/frontend/configuration/ExceptionAutocaptureSettings'
-import { ErrorTrackingAutoAssignment } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingAutoAssignment'
-import { ErrorTrackingCustomGrouping } from 'products/error_tracking/frontend/configuration/rules/ErrorTrackingCustomGrouping'
-import { ErrorTrackingSymbolSets } from 'products/error_tracking/frontend/configuration/symbol-sets/ErrorTrackingSymbolSets'
-import { EventConfiguration } from 'products/revenue_analytics/frontend/settings/EventConfiguration'
-import { ExternalDataSourceConfiguration } from 'products/revenue_analytics/frontend/settings/ExternalDataSourceConfiguration'
-import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from 'products/revenue_analytics/frontend/settings/FilterTestAccountsConfiguration'
-import { GoalsConfiguration } from 'products/revenue_analytics/frontend/settings/GoalsConfiguration'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -429,7 +429,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
                 component: <ErrorTrackingCustomGrouping />,
-                flag: 'ERROR_TRACKING_CUSTOM_GROUPING',
             },
             {
                 id: 'error-tracking-integrations',

@@ -1,6 +1,5 @@
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,6 +15,7 @@ import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
+import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
@@ -24,23 +24,17 @@ export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        legacyMetricResults,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
-        isDescriptionModalOpen,
+        legacyPrimaryMetricsResults,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
     } = useValues(experimentLogic)
-    const {
-        updateExperiment,
-        setExperimentStatsVersion,
-        refreshExperimentResults,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openEditConclusionModal,
-        openStatsEngineModal,
-    } = useActions(experimentLogic)
+    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
+        useActions(modalsLogic)
+    const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
@@ -54,9 +48,7 @@ export function Info(): JSX.Element {
         return <></>
     }
 
-    const currentStatsVersion = experiment.stats_config?.version || 1
-
-    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
+    const lastRefresh = legacyPrimaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -124,28 +116,6 @@ export function Info(): JSX.Element {
                                 )}
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">
-                                <span>Stats Version</span>
-                            </div>
-                            <div className="flex gap-1">
-                                {[1, 2].map((version) => (
-                                    <LemonButton
-                                        key={version}
-                                        size="xsmall"
-                                        type="tertiary"
-                                        active={currentStatsVersion === version}
-                                        onClick={() => {
-                                            setExperimentStatsVersion(version)
-                                        }}
-                                    >
-                                        v{version}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="flex flex-col">
@@ -165,7 +135,7 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
                                             ? dayjs(lastRefresh).fromNow()

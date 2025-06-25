@@ -186,16 +186,26 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    if let Some(person_props) = person_props {
-        flag_evaluation_state.set_person_properties(
-            person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        );
-    }
+    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
+    {
+        person_props
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    // Always add distinct_id to person properties to match Python implementation
+    // This allows flags to filter on distinct_id even when no other person properties exist
+    all_person_properties.insert(
+        "distinct_id".to_string(),
+        Value::String(distinct_id.clone()),
+    );
+
+    flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
 
     // Only fetch group property data if we have group types to look up
@@ -275,15 +285,9 @@ pub fn locally_computable_property_overrides(
         return None;
     }
 
-    // Filter out metadata that isn't a real property override
-    let real_overrides = extract_real_property_overrides(overrides);
-    if real_overrides.is_empty() {
-        return None;
-    }
-
     // Only return overrides if they're useful for this flag
-    if are_overrides_useful_for_flag(&real_overrides, property_filters) {
-        Some(real_overrides)
+    if are_overrides_useful_for_flag(overrides, property_filters) {
+        Some(overrides.clone())
     } else {
         None
     }
@@ -294,15 +298,6 @@ fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
     property_filters
         .iter()
         .any(|prop| prop.prop_type == PropertyType::Cohort)
-}
-
-/// Extracts real property overrides, filtering out metadata like $group_key
-fn extract_real_property_overrides(overrides: &HashMap<String, Value>) -> HashMap<String, Value> {
-    overrides
-        .iter()
-        .filter(|(key, _)| *key != "$group_key")
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect()
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs

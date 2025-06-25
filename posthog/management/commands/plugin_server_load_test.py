@@ -14,7 +14,7 @@ from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 from posthog.api.capture import capture_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.models import Team
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -66,7 +66,7 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
 
         admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
-        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers=settings.KAFKA_HOSTS)
+        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION, bootstrap_servers=settings.KAFKA_HOSTS)
         team = Team.objects.filter(id=int(options["team_id"])).first()
         if not team:
             logger.critical("Cannot find team with id: " + options["team_id"])
@@ -116,17 +116,17 @@ class Command(BaseCommand):
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
-            end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
+            end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)])
             if end_offsets is None:
                 logger.error(
                     "no_end_offsets",
-                    topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                    topic=KAFKA_EVENTS_PLUGIN_INGESTION,
                     partition=0,
                 )
                 sys.exit(1)
 
-            end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
-            offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)].offset
+            end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)]
+            offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)].offset
             logger.info("offset_lag", offset=offset, end_offset=end_offset)
             if end_offset == offset:
                 break

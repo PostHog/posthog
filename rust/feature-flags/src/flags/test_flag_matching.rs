@@ -21,9 +21,9 @@ mod tests {
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
-            add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client,
+            add_person_to_cohort, create_group_in_pg, create_test_flag,
+            get_person_id_by_distinct_id, insert_cohort_for_team_in_pg, insert_new_team_in_pg,
+            insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
         },
     };
 
@@ -3849,5 +3849,591 @@ mod tests {
             FeatureFlagMatchReason::NoConditionMatch,
             "Match reason should be NoConditionMatch"
         );
+    }
+    #[tokio::test]
+    async fn test_filters_with_distinct_id_exact() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let distinct_id = "user_distinct_id".to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "flag1",
+                "key": "flag1",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "distinct_id",
+                                    "type": "person",
+                                    "value": [
+                                         distinct_id.clone()
+                                    ],
+                                    "operator": "exact"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Matcher for a matching distinct_id
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let match_result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(match_result.matches);
+        assert_eq!(match_result.variant, None);
+    }
+
+    #[tokio::test]
+    async fn test_partial_property_overrides_fallback_behavior() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let distinct_id = "test_user".to_string();
+
+        // Insert person with specific properties in DB that would match condition 1
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "app_version": "1.3.6",
+                "focus": "all-of-the-above",
+                "os": "iOS",
+                "email": "test@example.com"
+            })),
+        )
+        .await
+        .expect("Failed to insert person");
+
+        // Create a flag with two conditions similar to the user's example
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 1: Requires app_version, focus, os
+                    FlagPropertyGroup {
+                        properties: Some(vec![
+                            PropertyFilter {
+                                key: "app_version".to_string(),
+                                value: Some(json!("1\\.[23456789]\\.\\d{1,2}")),
+                                operator: Some(OperatorType::Regex),
+                                prop_type: PropertyType::Person,
+                                group_type_index: None,
+                                negation: None,
+                            },
+                            PropertyFilter {
+                                key: "focus".to_string(),
+                                value: Some(json!(["become-more-active", "all-of-the-above"])),
+                                operator: Some(OperatorType::Exact),
+                                prop_type: PropertyType::Person,
+                                group_type_index: None,
+                                negation: None,
+                            },
+                            PropertyFilter {
+                                key: "os".to_string(),
+                                value: Some(json!(["iOS"])),
+                                operator: Some(OperatorType::Exact),
+                                prop_type: PropertyType::Person,
+                                group_type_index: None,
+                                negation: None,
+                            },
+                        ]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    // Condition 2: Requires only email (100% rollout)
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!(["flag-test@example.com"])),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: Partial overrides - missing 'focus' property
+        // This should fall back to DB for condition 1, but condition 2 should use overrides and not match
+        let partial_overrides = HashMap::from([
+            ("os".to_string(), json!("iOS")),
+            ("app_version".to_string(), json!("1.3.6")),
+            ("email".to_string(), json!("override-test@example.com")), // Different email, won't match condition 2
+        ]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                Some(partial_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result.errors_while_computing_flags);
+        // The flag should evaluate using DB properties for condition 1 (which has focus="all-of-the-above")
+        // and overrides for condition 2 (which won't match the email).
+        let flag_result = result.flags.get(&flag.key).unwrap();
+        assert!(flag_result.enabled);
+
+        // Test case 2: Complete overrides for condition 2
+        // This should use overrides and match condition 2
+        let complete_overrides_match = HashMap::from([
+            ("email".to_string(), json!("flag-test@example.com")), // Matches condition 2
+        ]);
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result2 = matcher2
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                Some(complete_overrides_match),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result2.errors_while_computing_flags);
+        let flag_result2 = result2.flags.get(&flag.key).unwrap();
+
+        // Should match condition 2 since email matches and rollout is 100%
+        assert!(flag_result2.enabled);
+
+        // Test case 3: Complete overrides for condition 2 with non-matching value
+        // This should use overrides and not match condition 2
+        let complete_overrides_no_match = HashMap::from([
+            ("email".to_string(), json!("wrong@email.com")), // Doesn't match either email condition
+        ]);
+
+        let mut matcher3 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result3 = matcher3
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                Some(complete_overrides_no_match),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result3.errors_while_computing_flags);
+        let flag_result3 = result3.flags.get(&flag.key).unwrap();
+        assert!(flag_result3.enabled); // Should be true because condition 1 matches (email override doesn't affect condition 1 properties)
+
+        // Should not match condition 2 since email doesn't match, but condition 1 still matches
+        // because it only depends on app_version, focus, and os (which come from DB and still match)
+
+        // Test case 4: Complete overrides with all properties for condition 1
+        let complete_overrides_condition1 = HashMap::from([
+            ("app_version".to_string(), json!("1.3.6")),
+            ("focus".to_string(), json!("all-of-the-above")), // Now includes focus
+            ("os".to_string(), json!("iOS")),
+        ]);
+
+        let mut matcher4 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result4 = matcher4
+            .evaluate_all_feature_flags(
+                flags,
+                Some(complete_overrides_condition1),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result4.errors_while_computing_flags);
+        let flag_result4 = result4.flags.get(&flag.key).unwrap();
+        assert!(flag_result4.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_partial_group_property_overrides_fallback_behavior() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let distinct_id = "test_user".to_string();
+
+        // Insert person (required for group flag evaluation)
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
+        // Create a group with specific properties in DB that would match condition 1
+        create_group_in_pg(
+            reader.clone(),
+            team.id,
+            "organization",
+            "test_org_123",
+            json!({
+                "plan": "enterprise",
+                "region": "us-east-1",
+                "feature_access": "full",
+                "billing_email": "billing@testorg.com"
+            }),
+        )
+        .await
+        .expect("Failed to create group");
+
+        // Create a group flag with two conditions similar to the person property test
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![
+                    // Condition 1: Requires plan, region, feature_access (group properties)
+                    FlagPropertyGroup {
+                        properties: Some(vec![
+                            PropertyFilter {
+                                key: "plan".to_string(),
+                                value: Some(json!(["enterprise", "pro"])),
+                                operator: Some(OperatorType::Exact),
+                                prop_type: PropertyType::Group,
+                                group_type_index: Some(1), // organization type
+                                negation: None,
+                            },
+                            PropertyFilter {
+                                key: "region".to_string(),
+                                value: Some(json!("us-.*")),
+                                operator: Some(OperatorType::Regex),
+                                prop_type: PropertyType::Group,
+                                group_type_index: Some(1),
+                                negation: None,
+                            },
+                            PropertyFilter {
+                                key: "feature_access".to_string(),
+                                value: Some(json!(["full", "premium"])),
+                                operator: Some(OperatorType::Exact),
+                                prop_type: PropertyType::Group,
+                                group_type_index: Some(1),
+                                negation: None,
+                            },
+                        ]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    // Condition 2: Requires only billing_email (100% rollout)
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "billing_email".to_string(),
+                            value: Some(json!(["special-billing@testorg.com"])),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Group,
+                            group_type_index: Some(1),
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: Some(1), // This is a group-based flag
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let groups = HashMap::from([("organization".to_string(), json!("test_org_123"))]);
+
+        // Test case 1: Partial group overrides - missing 'feature_access' property
+        // This should fall back to DB for condition 1, but condition 2 should use overrides and not match
+        let partial_group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([
+                ("plan".to_string(), json!("enterprise")),
+                ("region".to_string(), json!("us-east-1")),
+                (
+                    "billing_email".to_string(),
+                    json!("override-billing@testorg.com"),
+                ), // Different email, won't match condition 2
+                   // Missing 'feature_access' - should fall back to DB
+            ]),
+        )]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            Some(groups.clone()),
+        );
+
+        let flags = FeatureFlagList {
+            flags: vec![flag.clone()],
+        };
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                Some(partial_group_overrides),
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result.errors_while_computing_flags);
+        // The flag should evaluate using DB properties for condition 1 (which has feature_access="full")
+        // and overrides for condition 2 (which won't match the billing_email).
+        let flag_result = result.flags.get(&flag.key).unwrap();
+        assert!(flag_result.enabled);
+
+        // Test case 2: Complete group overrides for condition 2
+        // This should use overrides and match condition 2
+        let complete_group_overrides_match = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([
+                (
+                    "billing_email".to_string(),
+                    json!("special-billing@testorg.com"),
+                ), // Matches condition 2
+            ]),
+        )]);
+
+        let mut matcher2 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            Some(groups.clone()),
+        );
+
+        let result2 = matcher2
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                Some(complete_group_overrides_match),
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result2.errors_while_computing_flags);
+        let flag_result2 = result2.flags.get(&flag.key).unwrap();
+
+        // Should match condition 2 since billing_email matches and rollout is 100%
+        assert!(flag_result2.enabled);
+
+        // Test case 3: Complete group overrides for condition 2 with non-matching value
+        // This should use overrides and not match condition 2
+        let complete_group_overrides_no_match = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([
+                (
+                    "billing_email".to_string(),
+                    json!("wrong-billing@testorg.com"),
+                ), // Doesn't match condition 2
+            ]),
+        )]);
+
+        let mut matcher3 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            Some(groups.clone()),
+        );
+
+        let result3 = matcher3
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                Some(complete_group_overrides_no_match),
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result3.errors_while_computing_flags);
+        let flag_result3 = result3.flags.get(&flag.key).unwrap();
+        assert!(flag_result3.enabled); // Should be true because condition 1 matches (billing_email override doesn't affect condition 1 properties)
+
+        // Test case 4: Complete group overrides with all properties for condition 1
+        let complete_group_overrides_condition1 = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([
+                ("plan".to_string(), json!("enterprise")),
+                ("region".to_string(), json!("us-east-1")),
+                ("feature_access".to_string(), json!("full")), // Now includes feature_access
+            ]),
+        )]);
+
+        let mut matcher4 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            Some(groups.clone()),
+        );
+
+        let result4 = matcher4
+            .evaluate_all_feature_flags(
+                flags.clone(),
+                None,
+                Some(complete_group_overrides_condition1),
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result4.errors_while_computing_flags);
+        let flag_result4 = result4.flags.get(&flag.key).unwrap();
+        assert!(flag_result4.enabled);
+
+        // Test case 5: Mixed overrides - some properties sufficient for fast path, others require DB merge
+        let mixed_group_overrides = HashMap::from([(
+            "organization".to_string(),
+            HashMap::from([
+                ("plan".to_string(), json!("pro")), // Different plan but still matches condition 1
+                ("region".to_string(), json!("us-west-2")), // Different region but still matches regex
+                // Missing feature_access - will need DB merge for condition 1
+                (
+                    "billing_email".to_string(),
+                    json!("special-billing@testorg.com"),
+                ), // Matches condition 2 exactly
+            ]),
+        )]);
+
+        let mut matcher5 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            Some(groups),
+        );
+
+        let result5 = matcher5
+            .evaluate_all_feature_flags(
+                flags,
+                None,
+                Some(mixed_group_overrides),
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        assert!(!result5.errors_while_computing_flags);
+        let flag_result5 = result5.flags.get(&flag.key).unwrap();
+        // Should match because:
+        // - Condition 1: plan=pro (matches), region=us-west-2 (matches regex), feature_access=full (from DB merge)
+        // - Condition 2: billing_email matches exactly
+        assert!(flag_result5.enabled);
     }
 }
