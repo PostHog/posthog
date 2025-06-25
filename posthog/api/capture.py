@@ -5,6 +5,7 @@ from random import random
 
 import structlog
 import time
+import requests
 from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
@@ -921,6 +922,69 @@ def parse_event(event):
     return event
 
 
+class CaptureInternalError(Exception):
+    pass
+
+
+def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]) -> dict[str, Any]:
+    """
+    new_capture_internal submits a single-event capture request payload to
+    PostHog (capture-rs backend) rather than pushing directly to Kafka and
+    bypassing downstream checks
+    """
+    logger.debug(
+        "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
+    )
+
+    event_payload = prepare_capture_payload(token, distinct_id, raw_event)
+
+    # do what posthog-python does here but allow for incoming user's token :)
+    return requests.post(
+        "https://app.posthog.com/i/v0/e/",
+        json=event_payload,
+        timeout=5,
+    )
+
+
+# prep payload for new_capture_internal to POST to capture-rs
+def prepare_capture_payload(
+    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]
+) -> dict[str, Any]:
+    # mark event as internal for observability
+    properties = raw_event.pop("properties", {})
+    properties["capture_internal"] = True
+
+    # ensure args passed into capture_internal that
+    # override event attributes are well formed
+    if token is None or len(token) == 0:
+        token = raw_event.pop("api_token", raw_event.pop("token", None))
+    if token is None:
+        raise CaptureInternalError("capture_internal: API token is required")
+
+    if distinct_id is None or len(distinct_id) == 0:
+        distinct_id = raw_event.pop("distinct_id", None)
+    if distinct_id is None:
+        distinct_id = properties.pop("distinct_id", None)
+    if distinct_id is None:
+        raise CaptureInternalError("capture_internal: distinct ID is required")
+
+    event_name = raw_event.pop("event", None)
+    if event_name is None:
+        raise CaptureInternalError("capture_internal: event name is required")
+
+    event_timestamp = raw_event.pop("timestamp", None)
+    if event_timestamp is None:
+        event_timestamp = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "api_token": token,
+        "timestamp": event_timestamp,
+        "distinct_id": distinct_id,
+        "event": event_name,
+        "properties": properties,
+    }
+
+
 def capture_internal(
     event,
     distinct_id,
@@ -928,11 +992,15 @@ def capture_internal(
     site_url,
     now,
     sent_at,
+    to_capture_rs=False,
     event_uuid=None,
     token=None,
     historical=False,
     extra_headers: list[tuple[str, str]] | None = None,
 ):
+    if to_capture_rs:
+        return new_capture_internal(token, distinct_id, event)
+
     if event_uuid is None:
         event_uuid = UUIDT()
 
