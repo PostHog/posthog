@@ -94,6 +94,15 @@ impl FeatureFlag {
         }
         Ok(dependencies)
     }
+
+    /// Returns true if the flag requires DB properties to be evaluated.
+    ///
+    /// This is true if the flag has a group type index set
+    /// OR if the flag has a super group or holdout group
+    ///
+    pub fn requires_db_properties(&self) -> bool {
+        self.get_group_type_index().is_some() || self.filters.super_groups.is_some()
+    }
 }
 
 impl DependencyProvider for FeatureFlag {
@@ -1612,5 +1621,104 @@ mod tests {
         assert!(flag.filters.payloads.is_none());
         assert!(flag.filters.super_groups.is_none());
         assert!(flag.filters.holdout_groups.is_none());
+    }
+
+    #[test]
+    fn test_does_not_require_db_properties_if_no_group_type_index() {
+        let flag = FeatureFlag {
+            filters: FlagFilters::default(),
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(flag.get_group_type_index().is_none());
+        assert!(!flag.requires_db_properties());
+    }
+
+    #[test]
+    fn test_requires_db_properties_if_group_type_index_set() {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: Some(0),
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(flag.get_group_type_index().is_some());
+        assert!(flag.requires_db_properties());
+    }
+
+    #[test]
+    fn test_requires_db_properties_if_super_group_set() {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: None,
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(flag.requires_db_properties());
+    }
+
+    #[test]
+    fn test_does_not_require_db_properties_if_holdout_group_set() {
+        let flag = FeatureFlag {
+            filters: FlagFilters {
+                groups: vec![],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: Some(vec![FlagPropertyGroup {
+                    properties: None,
+                    rollout_percentage: None,
+                    variant: None,
+                }]),
+            },
+            id: 1,
+            team_id: 1,
+            name: Some("Flag 1".to_string()),
+            key: "flag_1".to_string(),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: Some(1),
+        };
+
+        assert!(!flag.requires_db_properties());
     }
 }
