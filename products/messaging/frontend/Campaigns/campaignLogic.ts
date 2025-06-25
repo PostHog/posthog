@@ -105,7 +105,7 @@ export const campaignLogic = kea<campaignLogicType>([
         },
     })),
     selectors({
-        logicProps: [() => [(_, props) => props], (props) => props],
+        logicProps: [() => [(_, props) => props], (props): CampaignLogicProps => props],
         campaignLoading: [(s) => [s.originalCampaignLoading], (originalCampaignLoading) => originalCampaignLoading],
         edgesByActionId: [
             (s) => [s.campaign],

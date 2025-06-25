@@ -43,7 +43,7 @@ export interface HogflowTestResult {
 }
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
-    path(['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic']),
+    path((key) => ['products', 'messaging', 'frontend', 'Campaigns', 'hogflows', 'actions', 'workflowTestLogic', key]),
     props({} as HogFlowEditorTestLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
