@@ -16,12 +16,10 @@ import { useEffect, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
-import { HogFlowEditorDetailsPanel } from './HogFlowEditorDetailsPanel'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
-import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
 import { HogFlowActionNode } from './types'
-import { HogFlowEditorTestPanel } from './testing/HogFlowEditorTestPanel'
+import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -69,11 +67,7 @@ function HogFlowEditorContent(): JSX.Element {
 
                 <Controls showInteractive={false} />
 
-                <HogFlowEditorToolbar />
-
-                <HogFlowEditorDetailsPanel />
-
-                <HogFlowEditorTestPanel />
+                <HogFlowEditorRightPanel />
             </ReactFlow>
         </div>
     )

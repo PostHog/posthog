@@ -40,14 +40,10 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <HogFlowEditorPanel position="left-top">
-            <h3 className="px-3 my-2 font-semibold">Workflow steps</h3>
-            <LemonDivider className="my-0" />
-            <div className="flex overflow-y-auto flex-col gap-px p-1">
-                {TOOLBAR_NODES_TO_SHOW.map((type) => (
-                    <HogFlowEditorToolbarNode key={type} type={type} />
-                ))}
-            </div>
-        </HogFlowEditorPanel>
+        <div className="flex overflow-y-auto flex-col gap-px p-1 w-120">
+            {TOOLBAR_NODES_TO_SHOW.map((type) => (
+                <HogFlowEditorToolbarNode key={type} type={type} />
+            ))}
+        </div>
     )
 }

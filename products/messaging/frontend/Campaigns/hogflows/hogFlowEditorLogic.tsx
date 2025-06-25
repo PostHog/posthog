@@ -26,6 +26,8 @@ import type { DragEvent } from 'react'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
+export type HogFlowEditorMode = 'build' | 'test'
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as CampaignLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -55,8 +57,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: HogFlowAction['type'] | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
+        setMode: (mode: HogFlowEditorMode) => ({ mode }),
     }),
     reducers(() => ({
+        mode: [
+            'build' as HogFlowEditorMode,
+            {
+                setMode: (_, { mode }) => mode,
+            },
+        ],
         nodes: [
             [] as HogFlowActionNode[],
             {

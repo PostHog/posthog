@@ -47,7 +47,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
-        toggleExpanded: true,
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
@@ -55,12 +54,6 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
     }),
     reducers({
-        expanded: [
-            false,
-            {
-                toggleExpanded: (state) => !state,
-            },
-        ],
         testResult: [
             null as HogflowTestResult | null,
             {
@@ -85,83 +78,10 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             {
                 loadSampleGlobals: () => false,
                 cancelSampleGlobalsLoading: () => true,
-                toggleExpanded: () => false,
             },
         ],
     }),
-    selectors(({ values }) => ({
-        canLoadSampleGlobals: [
-            () => [],
-            (): boolean => {
-                return (
-                    !!values.campaign.trigger?.filters?.events?.length ||
-                    !!values.campaign.trigger?.filters?.actions?.length ||
-                    !!values.campaign.trigger?.filters?.data_warehouse?.length
-                )
-            },
-        ],
-        // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
-        matchingFilters: [
-            () => [],
-            (): PropertyGroupFilter => {
-                const seriesProperties: PropertyGroupFilterValue = {
-                    type: FilterLogicalOperator.Or,
-                    values: [],
-                }
-                const properties: PropertyGroupFilter = {
-                    type: FilterLogicalOperator.And,
-                    values: [seriesProperties],
-                }
-                const allPossibleEventFilters = values.campaign.trigger.filters?.events ?? []
-                const allPossibleActionFilters = values.campaign.trigger.filters?.actions ?? []
 
-                for (const event of allPossibleEventFilters) {
-                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
-                    if (event.id) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`event = ${event.id}`,
-                        })
-                    }
-                    if (eventProperties.length === 0) {
-                        eventProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: 'true',
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: eventProperties,
-                    })
-                }
-                for (const action of allPossibleActionFilters) {
-                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
-                    if (action.id) {
-                        actionProperties.push({
-                            type: PropertyFilterType.HogQL,
-                            key: hogql`matchesAction(${parseInt(action.id)})`,
-                        })
-                    }
-                    seriesProperties.values.push({
-                        type: FilterLogicalOperator.And,
-                        values: actionProperties,
-                    })
-                }
-                if ((values.campaign.trigger.filters?.properties?.length ?? 0) > 0) {
-                    const globalProperties: PropertyGroupFilterValue = {
-                        type: FilterLogicalOperator.And,
-                        values: [],
-                    }
-                    for (const property of values.campaign.trigger.filters?.properties ?? []) {
-                        globalProperties.values.push(property as AnyPropertyFilter)
-                    }
-                    properties.values.push(globalProperties)
-                }
-                return properties
-            },
-            { resultEqualityCheck: equal },
-        ],
-    })),
     loaders(({ actions, values }) => ({
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
@@ -236,6 +156,79 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     }
                 },
             },
+        ],
+    })),
+    selectors(({ values }) => ({
+        canLoadSampleGlobals: [
+            () => [],
+            (): boolean => {
+                return (
+                    !!values.campaign.trigger?.filters?.events?.length ||
+                    !!values.campaign.trigger?.filters?.actions?.length ||
+                    !!values.campaign.trigger?.filters?.data_warehouse?.length
+                )
+            },
+        ],
+        // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
+        matchingFilters: [
+            () => [],
+            (): PropertyGroupFilter => {
+                const seriesProperties: PropertyGroupFilterValue = {
+                    type: FilterLogicalOperator.Or,
+                    values: [],
+                }
+                const properties: PropertyGroupFilter = {
+                    type: FilterLogicalOperator.And,
+                    values: [seriesProperties],
+                }
+                const allPossibleEventFilters = values.campaign.trigger.filters?.events ?? []
+                const allPossibleActionFilters = values.campaign.trigger.filters?.actions ?? []
+
+                for (const event of allPossibleEventFilters) {
+                    const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
+                    if (event.id) {
+                        eventProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`event = ${event.id}`,
+                        })
+                    }
+                    if (eventProperties.length === 0) {
+                        eventProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: 'true',
+                        })
+                    }
+                    seriesProperties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: eventProperties,
+                    })
+                }
+                for (const action of allPossibleActionFilters) {
+                    const actionProperties: AnyPropertyFilter[] = [...(action.properties ?? [])]
+                    if (action.id) {
+                        actionProperties.push({
+                            type: PropertyFilterType.HogQL,
+                            key: hogql`matchesAction(${parseInt(action.id)})`,
+                        })
+                    }
+                    seriesProperties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: actionProperties,
+                    })
+                }
+                if ((values.campaign.trigger.filters?.properties?.length ?? 0) > 0) {
+                    const globalProperties: PropertyGroupFilterValue = {
+                        type: FilterLogicalOperator.And,
+                        values: [],
+                    }
+                    for (const property of values.campaign.trigger.filters?.properties ?? []) {
+                        globalProperties.values.push(property as AnyPropertyFilter)
+                    }
+                    properties.values.push(globalProperties)
+                }
+                return properties
+            },
+            { resultEqualityCheck: equal },
         ],
     })),
     forms(({ actions, values }) => ({
