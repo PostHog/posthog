@@ -1049,6 +1049,16 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentBreakdownResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    absolute_exposure: float
+    count: float
+    exposure: float
+    variant: str
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1586,6 +1596,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_BREAKDOWN_QUERY = "ExperimentBreakdownQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -1758,7 +1769,16 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative59(BaseModel):
+class QueryResponseAlternative18(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentBreakdownQuery"] = "ExperimentBreakdownQuery"
+    results: list[ExperimentBreakdownResult]
+
+
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2826,6 +2846,15 @@ class CustomChannelRule(BaseModel):
     items: list[CustomChannelCondition]
 
 
+class Response19(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentBreakdownQuery"] = "ExperimentBreakdownQuery"
+    results: list[ExperimentBreakdownResult]
+
+
 class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3017,6 +3046,15 @@ class EventsHeatMapStructuredResult(BaseModel):
     columnAggregations: list[EventsHeatMapColumnAggregationResult]
     data: list[EventsHeatMapDataResult]
     rowAggregations: list[EventsHeatMapRowAggregationResult]
+
+
+class ExperimentBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentBreakdownQuery"] = "ExperimentBreakdownQuery"
+    results: list[ExperimentBreakdownResult]
 
 
 class ExperimentExposureQueryResponse(BaseModel):
@@ -3395,7 +3433,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4880,6 +4918,27 @@ class CachedEventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedExperimentBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    date_range: DateRange
+    is_cached: bool
+    kind: Literal["ExperimentBreakdownQuery"] = "ExperimentBreakdownQuery"
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[ExperimentBreakdownResult]
+    timezone: str
+
+
 class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6152,7 +6211,7 @@ class Response14(BaseModel):
     types: Optional[list] = None
 
 
-class Response19(BaseModel):
+class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7401,7 +7460,7 @@ class QueryResponseAlternative13(BaseModel):
     )
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7423,34 +7482,6 @@ class QueryResponseAlternative18(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    usedPreAggregatedTables: Optional[bool] = None
-
-
-class QueryResponseAlternative19(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list
-    samplingRate: Optional[SamplingRate] = None
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = None
     usedPreAggregatedTables: Optional[bool] = None
 
 
@@ -7479,9 +7510,37 @@ class QueryResponseAlternative20(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7502,7 +7561,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7525,7 +7584,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7547,7 +7606,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7568,7 +7627,7 @@ class QueryResponseAlternative27(BaseModel):
     )
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7590,7 +7649,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7616,7 +7675,7 @@ class QueryResponseAlternative29(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7643,7 +7702,7 @@ class QueryResponseAlternative30(BaseModel):
     types: Optional[list[str]] = None
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7670,7 +7729,7 @@ class QueryResponseAlternative31(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7700,7 +7759,7 @@ class QueryResponseAlternative32(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7722,34 +7781,6 @@ class QueryResponseAlternative33(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    usedPreAggregatedTables: Optional[bool] = None
-
-
-class QueryResponseAlternative34(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list
-    samplingRate: Optional[SamplingRate] = None
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = None
     usedPreAggregatedTables: Optional[bool] = None
 
 
@@ -7778,9 +7809,37 @@ class QueryResponseAlternative35(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative36(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
+
+
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7801,7 +7860,7 @@ class QueryResponseAlternative37(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7827,7 +7886,7 @@ class QueryResponseAlternative38(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7849,7 +7908,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7870,7 +7929,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7892,7 +7951,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7918,7 +7977,7 @@ class QueryResponseAlternative43(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7943,7 +8002,7 @@ class QueryResponseAlternative45(BaseModel):
     )
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7968,7 +8027,7 @@ class QueryResponseAlternative48(BaseModel):
     )
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7990,7 +8049,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8012,7 +8071,7 @@ class QueryResponseAlternative50(BaseModel):
     )
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8034,7 +8093,7 @@ class QueryResponseAlternative51(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8055,7 +8114,7 @@ class QueryResponseAlternative53(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8076,7 +8135,7 @@ class QueryResponseAlternative54(BaseModel):
     )
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8102,7 +8161,7 @@ class QueryResponseAlternative56(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative58(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8127,7 +8186,7 @@ class QueryResponseAlternative58(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8148,7 +8207,7 @@ class QueryResponseAlternative60(BaseModel):
     )
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8169,7 +8228,7 @@ class QueryResponseAlternative61(BaseModel):
     )
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8190,7 +8249,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8215,7 +8274,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9358,7 +9417,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10376,7 +10435,7 @@ class QueryResponseAlternative16(BaseModel):
     variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10392,7 +10451,7 @@ class QueryResponseAlternative46(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10575,6 +10634,21 @@ class Response17(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class ExperimentBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: float
+    kind: Literal["ExperimentBreakdownQuery"] = "ExperimentBreakdownQuery"
+    metric: Union[ExperimentMeanMetric, ExperimentFunnelMetric]
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentBreakdownQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10719,7 +10793,7 @@ class PathsQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative57(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10758,38 +10832,37 @@ class QueryResponseAlternative(
             QueryResponseAlternative18,
             QueryResponseAlternative19,
             QueryResponseAlternative20,
-            QueryResponseAlternative22,
+            QueryResponseAlternative21,
             QueryResponseAlternative23,
             QueryResponseAlternative24,
             QueryResponseAlternative25,
-            QueryResponseAlternative27,
+            QueryResponseAlternative26,
             QueryResponseAlternative28,
-            Any,
             QueryResponseAlternative29,
+            Any,
             QueryResponseAlternative30,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
             QueryResponseAlternative33,
             QueryResponseAlternative34,
             QueryResponseAlternative35,
-            QueryResponseAlternative37,
+            QueryResponseAlternative36,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
-            QueryResponseAlternative41,
+            QueryResponseAlternative40,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
-            QueryResponseAlternative45,
+            QueryResponseAlternative44,
             QueryResponseAlternative46,
             QueryResponseAlternative47,
             QueryResponseAlternative48,
-            QueryResponseAlternative49,
             QueryResponseAlternative50,
             QueryResponseAlternative51,
             QueryResponseAlternative52,
             QueryResponseAlternative53,
             QueryResponseAlternative54,
+            QueryResponseAlternative55,
             QueryResponseAlternative56,
-            QueryResponseAlternative57,
             QueryResponseAlternative58,
             QueryResponseAlternative59,
             QueryResponseAlternative60,
@@ -10797,6 +10870,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative62,
             QueryResponseAlternative63,
             QueryResponseAlternative64,
+            QueryResponseAlternative65,
+            QueryResponseAlternative66,
         ]
     ]
 ):
@@ -10820,38 +10895,37 @@ class QueryResponseAlternative(
         QueryResponseAlternative18,
         QueryResponseAlternative19,
         QueryResponseAlternative20,
-        QueryResponseAlternative22,
+        QueryResponseAlternative21,
         QueryResponseAlternative23,
         QueryResponseAlternative24,
         QueryResponseAlternative25,
-        QueryResponseAlternative27,
+        QueryResponseAlternative26,
         QueryResponseAlternative28,
-        Any,
         QueryResponseAlternative29,
+        Any,
         QueryResponseAlternative30,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
         QueryResponseAlternative33,
         QueryResponseAlternative34,
         QueryResponseAlternative35,
-        QueryResponseAlternative37,
+        QueryResponseAlternative36,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
-        QueryResponseAlternative41,
+        QueryResponseAlternative40,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
-        QueryResponseAlternative45,
+        QueryResponseAlternative44,
         QueryResponseAlternative46,
         QueryResponseAlternative47,
         QueryResponseAlternative48,
-        QueryResponseAlternative49,
         QueryResponseAlternative50,
         QueryResponseAlternative51,
         QueryResponseAlternative52,
         QueryResponseAlternative53,
         QueryResponseAlternative54,
+        QueryResponseAlternative55,
         QueryResponseAlternative56,
-        QueryResponseAlternative57,
         QueryResponseAlternative58,
         QueryResponseAlternative59,
         QueryResponseAlternative60,
@@ -10859,6 +10933,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative62,
         QueryResponseAlternative63,
         QueryResponseAlternative64,
+        QueryResponseAlternative65,
+        QueryResponseAlternative66,
     ]
 
 
@@ -11236,6 +11312,7 @@ class DataTableNode(BaseModel):
             Response17,
             Response18,
             Response19,
+            Response20,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -11344,6 +11421,7 @@ class HogQLAutocomplete(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
+            ExperimentBreakdownQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -11404,6 +11482,7 @@ class HogQLMetadata(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
+            ExperimentBreakdownQuery,
         ]
     ] = Field(
         default=None,
@@ -11479,6 +11558,7 @@ class MaxInsightContext(BaseModel):
         ExperimentTrendsQuery,
         ExperimentQuery,
         ExperimentExposureQuery,
+        ExperimentBreakdownQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
@@ -11547,6 +11627,7 @@ class QueryRequest(BaseModel):
         ExperimentTrendsQuery,
         ExperimentQuery,
         ExperimentExposureQuery,
+        ExperimentBreakdownQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
@@ -11632,6 +11713,7 @@ class QuerySchemaRoot(
             ExperimentTrendsQuery,
             ExperimentQuery,
             ExperimentExposureQuery,
+            ExperimentBreakdownQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
@@ -11691,6 +11773,7 @@ class QuerySchemaRoot(
         ExperimentTrendsQuery,
         ExperimentQuery,
         ExperimentExposureQuery,
+        ExperimentBreakdownQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,

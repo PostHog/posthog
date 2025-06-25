@@ -130,6 +130,7 @@ export enum NodeKind {
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentBreakdownQuery = 'ExperimentBreakdownQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -180,6 +181,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | ExperimentBreakdownQuery
 
 /**
  * @discriminator kind
@@ -209,6 +211,7 @@ export type QuerySchema =
     | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
+    | ExperimentBreakdownQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -743,6 +746,7 @@ export interface DataTableNode
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
+                    | ExperimentBreakdownQuery
                     | TracesQuery
                 )['response']
             >
@@ -2375,6 +2379,28 @@ export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExpe
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
+
+export interface ExperimentBreakdownQueryResponse {
+    kind: NodeKind.ExperimentBreakdownQuery
+    results: ExperimentBreakdownResult[]
+    date_range: DateRange
+}
+
+export interface ExperimentBreakdownResult {
+    variant: string
+    count: number
+    exposure: number
+    absolute_exposure: number
+}
+
+export interface ExperimentBreakdownQuery extends DataNode<ExperimentBreakdownQueryResponse> {
+    kind: NodeKind.ExperimentBreakdownQuery
+    experiment_id: number
+    metric: ExperimentMetric
+    name?: string
+}
+
+export type CachedExperimentBreakdownQueryResponse = CachedQueryResponse<ExperimentBreakdownQueryResponse>
 
 /**
  * @discriminator kind

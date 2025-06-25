@@ -515,6 +515,9 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentBreakdownQuery"
                 }
             ]
         },
@@ -2958,6 +2961,64 @@
                 "results",
                 "timezone",
                 "types"
+            ],
+            "type": "object"
+        },
+        "CachedExperimentBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "date_range": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentBreakdownQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "cache_key",
+                "date_range",
+                "is_cached",
+                "kind",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
             ],
             "type": "object"
         },
@@ -7639,6 +7700,26 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "date_range": {
+                                    "$ref": "#/definitions/DateRange"
+                                },
+                                "kind": {
+                                    "const": "ExperimentBreakdownQuery",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["date_range", "kind", "results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
                                 "columns": {
                                     "items": {
                                         "type": "string"
@@ -9455,6 +9536,76 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "ExperimentBreakdownQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ExperimentBreakdownQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentBreakdownQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["experiment_id", "kind", "metric"],
+            "type": "object"
+        },
+        "ExperimentBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "date_range": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "ExperimentBreakdownQuery",
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentBreakdownResult"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "results", "date_range"],
+            "type": "object"
+        },
+        "ExperimentBreakdownResult": {
+            "additionalProperties": false,
+            "properties": {
+                "absolute_exposure": {
+                    "type": "number"
+                },
+                "count": {
+                    "type": "number"
+                },
+                "exposure": {
+                    "type": "number"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["variant", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
         "ExperimentDataWarehouseNode": {
@@ -13920,6 +14071,7 @@
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
+                "ExperimentBreakdownQuery",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -15439,6 +15591,26 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "date_range": {
+                            "$ref": "#/definitions/DateRange"
+                        },
+                        "kind": {
+                            "const": "ExperimentBreakdownQuery",
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentBreakdownResult"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["kind", "results", "date_range"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "dateFrom": {
                             "type": "string"
                         },
@@ -16876,6 +17048,26 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "date_range": {
+                            "$ref": "#/definitions/DateRange"
+                        },
+                        "kind": {
+                            "const": "ExperimentBreakdownQuery",
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentBreakdownResult"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["date_range", "kind", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "columns": {
                             "items": {
                                 "type": "string"
@@ -17574,6 +17766,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentExposureQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"
