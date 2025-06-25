@@ -728,5 +728,62 @@ Time period: this January
                     ),
                 ),
             ),
+            # Exclusion case previously failed as Max sometimes considered funnel steps 1-indexed - should not be the case anymore
+            EvalCase(
+                input="What was the conversion from page view to sign up to payment, excluding users who visited the homepage between sign up and payment?",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Sequence:
+1. $pageview
+2. signed_up
+3. paid_bill
+
+
+Exclusions:
+- $pageview
+    - start index: 1
+    - end index: 2
+    - property filter:
+        - entity: event
+        - property name: $current_url
+        - property type: String
+        - operator: equals
+        - property value: "https://hedgebox.net/"
+""",
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={"date_from": "-30d", "date_to": None},
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            exclusions=[
+                                AssistantFunnelsExclusionEventsNode(
+                                    event="$pageview",
+                                    properties=[
+                                        {
+                                            "key": "$current_url",
+                                            "value": "https://hedgebox.net/",
+                                            "operator": "exact",
+                                            "type": "event",
+                                        }
+                                    ],
+                                    funnelFromStep=1,  # 0-based indexing: step 1 is the second step (signed_up)
+                                    funnelToStep=2,  # 0-based indexing: step 2 is the third step (paid_bill)
+                                )
+                            ],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="signed_up", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="paid_bill", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
         ],
     )

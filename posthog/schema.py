@@ -2614,86 +2614,6 @@ class AssistantFunnelsBreakdownFilter(BaseModel):
     )
 
 
-class AssistantFunnelsExclusionEventsNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    funnelFromStep: int
-    funnelToStep: int
-    kind: Literal["EventsNode"] = "EventsNode"
-
-
-class AssistantFunnelsFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    binCount: Optional[int] = Field(
-        default=None,
-        description=(
-            "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram."
-        ),
-    )
-    exclusions: Optional[list[AssistantFunnelsExclusionEventsNode]] = Field(
-        default=[],
-        description=(
-            "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
-            " between specific steps. These events must not be included in the main sequence. You must include start"
-            " and end indexes for each exclusion where the minimum index is one and the maximum index is the number of"
-            " steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding,"
-            " purchase. If the user wants to exclude all conversions in which users left the page before finishing the"
-            " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
-        ),
-    )
-    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
-        default=None,
-        description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-    )
-    funnelOrderType: Optional[StepOrderValue] = Field(
-        default=StepOrderValue.ORDERED,
-        description=(
-            "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to"
-            " use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any"
-            " number of events can happen between A and B. `strict` - defines a funnel where all events must happen in"
-            " order. Step B must happen directly after Step A without any events in between. `any` - order doesn't"
-            " matter. Steps can be completed in any sequence."
-        ),
-    )
-    funnelStepReference: Optional[FunnelStepReference] = Field(
-        default=FunnelStepReference.TOTAL,
-        description=(
-            "Whether conversion shown in the graph should be across all steps or just relative to the previous step."
-        ),
-    )
-    funnelVizType: Optional[FunnelVizType] = Field(
-        default=FunnelVizType.STEPS,
-        description=(
-            "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
-            " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
-            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends"
-            " of the conversion rate of the whole sequence over time."
-        ),
-    )
-    funnelWindowInterval: Optional[int] = Field(
-        default=14,
-        description=(
-            "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the"
-            " user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
-        ),
-    )
-    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = Field(
-        default=FunnelConversionWindowTimeUnit.DAY,
-        description=(
-            "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the"
-            " user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days."
-        ),
-    )
-    layout: Optional[FunnelLayout] = Field(
-        default=FunnelLayout.VERTICAL,
-        description="Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
-    )
-
-
 class AssistantGenerationStatusEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3386,8 +3306,12 @@ class FunnelExclusionSteps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: int = Field(
+        ..., description="From which step to apply the particular exclusion. Steps 0-indexed here."
+    )
+    funnelToStep: int = Field(
+        ..., description="Until which step to apply the particular exclusion. Steps 0-indexed here."
+    )
 
 
 class FunnelsFilterLegacy(BaseModel):
@@ -4734,6 +4658,110 @@ class AssistantFunnelsEventsNode(BaseModel):
         ]
     ] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class AssistantFunnelsExclusionEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    funnelFromStep: int = Field(
+        ..., description="From which step to apply the particular exclusion. Steps 0-indexed here."
+    )
+    funnelToStep: int = Field(
+        ..., description="Until which step to apply the particular exclusion. Steps 0-indexed here."
+    )
+    kind: Literal["EventsNode"] = "EventsNode"
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
+                ],
+            ]
+        ]
+    ] = None
+
+
+class AssistantFunnelsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binCount: Optional[int] = Field(
+        default=None,
+        description=(
+            "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram."
+        ),
+    )
+    exclusions: Optional[list[AssistantFunnelsExclusionEventsNode]] = Field(
+        default=[],
+        description=(
+            "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
+            " between specific steps. These events must not be included in the main sequence. You must include start"
+            " and end indexes for each exclusion where the minimum index is one and the maximum index is the number of"
+            " steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding,"
+            " purchase. If the user wants to exclude all conversions in which users left the page before finishing the"
+            " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
+        ),
+    )
+    funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
+        default=None,
+        description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
+    )
+    funnelOrderType: Optional[StepOrderValue] = Field(
+        default=StepOrderValue.ORDERED,
+        description=(
+            "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to"
+            " use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any"
+            " number of events can happen between A and B. `strict` - defines a funnel where all events must happen in"
+            " order. Step B must happen directly after Step A without any events in between. `any` - order doesn't"
+            " matter. Steps can be completed in any sequence."
+        ),
+    )
+    funnelStepReference: Optional[FunnelStepReference] = Field(
+        default=FunnelStepReference.TOTAL,
+        description=(
+            "Whether conversion shown in the graph should be across all steps or just relative to the previous step."
+        ),
+    )
+    funnelVizType: Optional[FunnelVizType] = Field(
+        default=FunnelVizType.STEPS,
+        description=(
+            "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
+            " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
+            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends"
+            " of the conversion rate of the whole sequence over time."
+        ),
+    )
+    funnelWindowInterval: Optional[int] = Field(
+        default=14,
+        description=(
+            "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the"
+            " user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+        ),
+    )
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = Field(
+        default=FunnelConversionWindowTimeUnit.DAY,
+        description=(
+            "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the"
+            " user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days."
+        ),
+    )
+    layout: Optional[FunnelLayout] = Field(
+        default=FunnelLayout.VERTICAL,
+        description="Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
+    )
 
 
 class AssistantFunnelsQuery(BaseModel):
@@ -7563,8 +7591,12 @@ class FunnelExclusionActionsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: int = Field(
+        ..., description="From which step to apply the particular exclusion. Steps 0-indexed here."
+    )
+    funnelToStep: int = Field(
+        ..., description="Until which step to apply the particular exclusion. Steps 0-indexed here."
+    )
     id: int
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
@@ -7645,8 +7677,12 @@ class FunnelExclusionEventsNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    funnelFromStep: int
-    funnelToStep: int
+    funnelFromStep: int = Field(
+        ..., description="From which step to apply the particular exclusion. Steps 0-indexed here."
+    )
+    funnelToStep: int = Field(
+        ..., description="Until which step to apply the particular exclusion. Steps 0-indexed here."
+    )
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[int] = None
     math: Optional[
