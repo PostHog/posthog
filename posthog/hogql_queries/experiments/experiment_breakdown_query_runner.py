@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, UTC
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import (
@@ -152,172 +153,151 @@ class ExperimentBreakdownQueryRunner(QueryRunner):
         Returns the query for the exposure data. One row per entity. If an entity is exposed to multiple variants,
         we place them in the $multiple variant.
         """
-        # Default to feature flag events
-        exposure_events = ["$feature_flag_called"]
+        # Handle exposure configuration like the main experiment query runner
+        exposure_config = (
+            self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
+        )
 
-        # Build the exposure query
-        exposure_where_conditions = [
+        if exposure_config and exposure_config.get("event") != "$feature_flag_called":
+            # For custom exposure events, we extract the event name from the exposure config
+            # and get the variant from the $feature/<key> property
+            feature_flag_variant_property = f"$feature/{self.feature_flag.key}"
+            event = exposure_config.get("event")
+        else:
+            # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+            feature_flag_variant_property = "$feature_flag_response"
+            event = "$feature_flag_called"
+
+        # Common criteria for all exposure queries
+        exposure_conditions: list[ast.Expr] = [
             ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_from()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_range_query.date_to()),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value=event),
-                op=ast.CompareOperationOp.Eq,
-            )
-            for event in exposure_events
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["properties", feature_flag_variant_property]),
+                right=ast.Constant(value=self.variants),
+            ),
+            *self._get_test_accounts_filter(),
         ]
 
-        # Add feature flag key filter
-        exposure_where_conditions.append(
-            ast.CompareOperation(
-                left=ast.Field(chain=["properties", "$feature_flag_key"]),
-                right=ast.Constant(value=self.feature_flag.key),
-                op=ast.CompareOperationOp.Eq,
+        # Custom exposures can have additional properties to narrow the audience
+        if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
+            exposure_property_filters: list[ast.Expr] = []
+
+            if exposure_config.get("properties"):
+                for property in exposure_config.get("properties"):
+                    exposure_property_filters.append(property_to_expr(property, self.team))
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+
+        # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
+        if event == "$feature_flag_called":
+            exposure_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["properties", "$feature_flag"]),
+                    right=ast.Constant(value=self.feature_flag.key),
+                ),
             )
-        )
 
-        # Add date range filter
-        exposure_where_conditions.extend(
-            [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_from()),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_to()),
-                ),
-            ]
+        # Use the same approach as the main experiment query runner
+        variant_expression = ast.Alias(
+            alias="variant",
+            expr=parse_expr(
+                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
+                placeholders={
+                    "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
+                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            ),
         )
-
-        # Add test account filters
-        test_account_filters = self._get_test_accounts_filter()
-        if test_account_filters:
-            exposure_where_conditions.extend(test_account_filters)
 
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=[self.entity_key]),
                 ast.Alias(
-                    expr=ast.Call(
-                        name="argMin",
-                        args=[
-                            ast.Field(chain=["properties", "$feature_flag_response"]),
-                            ast.Field(chain=["timestamp"]),
-                        ],
-                    ),
-                    alias="first_exposure_variant",
+                    alias="entity_id",
+                    expr=ast.Field(chain=[self.entity_key]),
                 ),
+                variant_expression,
                 ast.Alias(
+                    alias="first_exposure_time",
                     expr=ast.Call(
                         name="min",
                         args=[ast.Field(chain=["timestamp"])],
                     ),
-                    alias="first_exposure_time",
-                ),
-                # Check if user was exposed to multiple variants
-                ast.Alias(
-                    expr=ast.Call(
-                        name="countDistinct",
-                        args=[ast.Field(chain=["properties", "$feature_flag_response"])],
-                    ),
-                    alias="variant_count",
                 ),
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
-                alias="exposure_data",
             ),
-            where=ast.And(exprs=exposure_where_conditions),
-            group_by=[ast.Field(chain=[self.entity_key])],
+            where=ast.And(exprs=exposure_conditions),
+            group_by=[
+                ast.Field(chain=[self.entity_key]),
+            ],
         )
 
     def _get_metric_events_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
         Returns the query for the metric events, joined with exposure data.
         """
-        # Get the metric filter based on the metric type
-        if self.metric.metric_type == "funnel":
-            metric_filter = funnel_steps_to_filter(self.metric.series)
-        else:
-            # For trends metrics
-            metric_filter = event_or_action_to_filter(self.metric.source, self.team)
-
-        # Build the metric events query
-        metric_where_conditions = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=event),
-                op=ast.CompareOperationOp.Eq,
+        # For funnel metrics, we need to pre-calculate step conditions
+        # For each step in the funnel, we create a new column that is 1 if the step is true, 0 otherwise
+        step_selects = []
+        for i, funnel_step in enumerate(self.metric.series):
+            step_filter = event_or_action_to_filter(self.team, funnel_step)
+            step_selects.append(
+                ast.Alias(
+                    alias=f"step_{i}",
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                )
             )
-            for event in metric_filter.events
-        ]
-
-        # Add time window conditions - events must be after first exposure
-        metric_where_conditions.extend(
-            [
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_from()),
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                    op=ast.CompareOperationOp.GtEq,
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self.date_range_query.date_to()),
-                ),
-            ]
-        )
-
-        # Add test account filters
-        test_account_filters = self._get_test_accounts_filter()
-        if test_account_filters:
-            metric_where_conditions.extend(test_account_filters)
 
         return ast.SelectQuery(
             select=[
-                ast.Field(chain=[self.entity_key]),
-                ast.Field(chain=["event"]),
-                ast.Field(chain=["timestamp"]),
-                ast.Field(chain=["properties"]),
-                # Use $multiple variant if user was exposed to multiple variants
-                ast.Alias(
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["exposure_data", "variant_count"]),
-                                right=ast.Constant(value=1),
-                                op=ast.CompareOperationOp.Gt,
-                            ),
-                            ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                            ast.Field(chain=["exposure_data", "first_exposure_variant"]),
-                        ],
-                    ),
-                    alias="final_variant",
-                ),
-                ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                ast.Field(chain=["events", "timestamp"]),
+                ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", self.entity_key])),
+                ast.Field(chain=["exposure_data", "variant"]),
+                ast.Field(chain=["events", "event"]),
+                ast.Field(chain=["events", "uuid"]),
+                ast.Field(chain=["events", "properties"]),
+                *step_selects,
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
-                alias="metric_events",
-                join_expr=ast.JoinExpr(
+                next_join=ast.JoinExpr(
                     table=exposure_query,
+                    join_type="INNER JOIN",
                     alias="exposure_data",
-                    join_type="INNER",
-                    constraint=ast.CompareOperation(
-                        left=ast.Field(chain=["metric_events", self.entity_key]),
-                        right=ast.Field(chain=["exposure_data", self.entity_key]),
-                        op=ast.CompareOperationOp.Eq,
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["events", self.entity_key]),
+                            right=ast.Field(chain=["exposure_data", "entity_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                        ),
+                        constraint_type="ON",
                     ),
                 ),
             ),
-            where=ast.And(exprs=metric_where_conditions),
+            where=ast.And(
+                exprs=[
+                    *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
+                    *self._get_test_accounts_filter(),
+                    funnel_steps_to_filter(self.team, self.metric.series),
+                ],
+            ),
         )
 
     def _get_breakdown_query(self, metric_events_query: ast.SelectQuery) -> ast.SelectQuery:
@@ -372,46 +352,40 @@ class ExperimentBreakdownQueryRunner(QueryRunner):
         """
         Calculate the experiment breakdown results.
         """
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
         tag_queries(
             experiment_id=self.experiment.id,
-            team_id=self.team.id,
-            query_type="experiment_breakdown",
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
         )
 
-        # Get exposure data
+        # Get the exposure query
         exposure_query = self._get_exposure_query()
 
-        # Get metric events with exposure data
+        # Get the metric events query
         metric_events_query = self._get_metric_events_query(exposure_query)
 
-        # Get breakdown results
+        # Get the breakdown query
         breakdown_query = self._get_breakdown_query(metric_events_query)
 
         # Execute the query
         result = execute_hogql_query(
+            query_type="ExperimentBreakdownQuery",
             query=breakdown_query,
             team=self.team,
-            modifiers=self.modifiers,
-            settings=HogQLGlobalSettings(
-                max_execution_time=60,
-                readonly=2,
-            ),
+            timings=self.timings,
+            settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
-        # Process results
+        # Transform the results to match the expected format
         breakdown_results = []
         for row in result.results:
-            variant = row[0] if row[0] else "unknown"
-            breakdown_value = row[1] if row[1] else "null"
-            count = row[2]
-            unique_users = row[3]
-
             breakdown_results.append(
                 {
-                    "variant": variant,
-                    "breakdown_value": breakdown_value,
-                    "count": count,
-                    "unique_users": unique_users,
+                    "breakdown_value": row[0],  # variant
+                    "count": row[1],  # count
+                    "conversion_rate": row[2],  # conversion rate
                 }
             )
 
