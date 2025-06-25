@@ -223,3 +223,7 @@ class BatchExportDebug:
         parameters = {**parameters, **extra_query_parameters}
 
         return pa.Table.from_batches(self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters))
+
+
+if __name__ == "__main__":
+    main()
