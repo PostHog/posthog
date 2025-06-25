@@ -3719,6 +3719,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pyjwt" },
+    { name = "pympler" },
     { name = "pymssql" },
     { name = "pymysql" },
     { name = "pyodbc" },
@@ -3930,6 +3931,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==18.1.0" },
     { name = "pydantic", specifier = "==2.10.3" },
     { name = "pyjwt", specifier = "==2.4.0" },
+    { name = "pympler", specifier = "==1.1" },
     { name = "pymssql", specifier = "==2.3.1" },
     { name = "pymysql", specifier = "==1.1.1" },
     { name = "pyodbc", specifier = "==5.1.0" },
@@ -4376,6 +4378,18 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pympler"
+version = "1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/37/c384631908029676d8e7213dd956bb686af303a80db7afbc9be36bc49495/pympler-1.1.tar.gz", hash = "sha256:1eaa867cb8992c218430f1708fdaccda53df064144d1c5656b1e6f1ee6000424", size = 179954, upload-time = "2024-06-28T19:56:06.563Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/4f/a6a2e2b202d7fd97eadfe90979845b8706676b41cbd3b42ba75adf329d1f/Pympler-1.1-py3-none-any.whl", hash = "sha256:5b223d6027d0619584116a0cbc28e8d2e378f7a79c1e5e024f9ff3b673c58506", size = 165766, upload-time = "2024-06-28T19:56:05.087Z" },
 ]
 
 [[package]]
