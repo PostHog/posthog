@@ -101,7 +101,10 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         ])
 
         # Events examples
-        for event_data in pattern["events"]:
+        events_to_show = pattern["events"][:3]  # Limit to 3 examples
+        total_events = len(pattern["events"])
+        
+        for event_data in events_to_show:
             session_id = event_data["target_event"]["session_id"]
 
             markdown_lines.extend(
@@ -140,6 +143,18 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
             markdown_lines.extend(
                 [
                     f"- **What's the outcome:** {outcome_status}. {event_data['segment_outcome']}",
+                    "",
+                ]
+            )
+        
+        # Add note about remaining examples if there are more than 3
+        if total_events > 3:
+            remaining_examples = total_events - 3
+            markdown_lines.extend(
+                [
+                    "---",
+                    "",
+                    f"*📋 {len(events_to_show)} examples covered, you can research {remaining_examples} remaining examples at PostHog.com*",
                     "",
                 ]
             )
