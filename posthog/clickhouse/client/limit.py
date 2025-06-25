@@ -97,7 +97,10 @@ class RateLimit:
         team_id: Optional[int] = kwargs.get("team_id", None)
 
         max_concurrency = self.max_concurrency
-        in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
+        in_beta = kwargs.get("is_api") and (
+            team_id in settings.API_QUERIES_PER_TEAM
+            or (settings.API_QUERIES_LEGACY_TEAM_LIST and team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
+        )
         if in_beta:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
@@ -137,7 +140,7 @@ class RateLimit:
                     limit_name=self.limit_name,
                     result="retry",
                 ).inc()
-                self.sleep(backoff(count))
+                self.sleep(backoff(attempt=count))
                 count += 1
                 continue
 
