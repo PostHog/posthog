@@ -77,9 +77,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
     #[cfg(test)]
-    FETCH_CALLS.with(|counter| {
-        *counter.borrow_mut() += 1;
-    });
+    increment_fetch_calls_count();
 
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
     let mut conn = reader.as_ref().get_connection().await?;
