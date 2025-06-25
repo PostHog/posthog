@@ -508,16 +508,11 @@ impl FeatureFlagMatcher {
             let property_override_match_timer =
                 common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
-            let property_overrides = match precomputed_property_overrides.get(&flag.key) {
-                Some(overrides) => overrides,
-                None => {
-                    error!(
-                        "Flag '{}' not found in precomputed_property_overrides map during override evaluation - this indicates a logic bug",
-                        flag.key
-                    );
-                    &None // Safe fallback: treat as no overrides to avoid panics
-                }
-            };
+            let property_overrides = self.get_property_overrides_for_flag(
+                &flag.key,
+                &precomputed_property_overrides,
+                "override evaluation for project",
+            );
 
             match self.match_flag_exclusively_with_overrides(
                 flag,
@@ -606,18 +601,11 @@ impl FeatureFlagMatcher {
             flags_needing_db_properties
                 .par_iter()
                 .map(|flag| {
-                    // If the overrides for this flag are not in the pre-computed map, assume no overrides
-                    // this shouldn't happen, but it's here to avoid panics
-                    let property_overrides = match precomputed_property_overrides.get(&flag.key) {
-                        Some(overrides) => overrides.clone(),
-                        None => {
-                            error!(
-                                "Flag '{}' not found in precomputed_property_overrides map during parallel evaluation - this indicates a logic bug",
-                                flag.key
-                            );
-                            None // Safe fallback: treat as no overrides to avoid panics
-                        }
-                    };
+                    let property_overrides = self.get_property_overrides_for_flag(
+                        &flag.key,
+                        &precomputed_property_overrides,
+                        "parallel evaluation for project",
+                    );
                     (
                         flag.key.clone(),
                         self.get_match(flag, property_overrides, hash_key_overrides.clone()),
@@ -695,13 +683,13 @@ impl FeatureFlagMatcher {
     fn match_flag_exclusively_with_overrides(
         &mut self,
         flag: &FeatureFlag,
-        property_overrides: &Option<HashMap<String, Value>>,
+        property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
         // Check if overrides are sufficient for independent evaluation
-        if self.are_overrides_sufficient_for_match_predicate(flag, property_overrides) {
+        if self.are_overrides_sufficient_for_match_predicate(flag, property_overrides.clone()) {
             // Fast path: evaluate using overrides only
-            self.get_match(flag, property_overrides.clone(), hash_key_overrides)
+            self.get_match(flag, property_overrides, hash_key_overrides)
                 .map(Some)
         } else {
             // Overrides are insufficient, return None to trigger DB merge path
@@ -716,7 +704,7 @@ impl FeatureFlagMatcher {
     fn are_overrides_sufficient_for_match_predicate(
         &self,
         flag: &FeatureFlag,
-        overrides: &Option<HashMap<String, Value>>,
+        overrides: Option<HashMap<String, Value>>,
     ) -> bool {
         let Some(ref overrides_map) = overrides else {
             return false;
@@ -1552,5 +1540,24 @@ impl FeatureFlagMatcher {
             .fin();
 
         errors_while_computing_flags
+    }
+
+    /// Helper to safely get property overrides with error logging for missing flags
+    fn get_property_overrides_for_flag(
+        &self,
+        flag_key: &str,
+        precomputed_overrides: &HashMap<String, Option<HashMap<String, Value>>>,
+        context: &str,
+    ) -> Option<HashMap<String, Value>> {
+        match precomputed_overrides.get(flag_key) {
+            Some(overrides) => overrides.clone(),
+            None => {
+                error!(
+                    "Flag '{}' not found in precomputed_property_overrides map during {} for project {} - this indicates a logic bug",
+                    flag_key, context, self.project_id
+                );
+                None // Safe fallback: treat as no overrides to avoid panics
+            }
+        }
     }
 }
