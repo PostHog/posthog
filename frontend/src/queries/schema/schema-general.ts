@@ -2216,7 +2216,7 @@ export interface ExperimentExposureCriteria {
     exposure_config?: ExperimentEventExposureConfig
 }
 
-export interface ExperimentEventExposureConfig {
+export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
@@ -2227,7 +2227,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
 }
 
-export type ExperimentMetricBaseProperties = {
+export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     name?: string
     conversion_window?: integer
@@ -3200,7 +3200,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
 }
 
 export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters

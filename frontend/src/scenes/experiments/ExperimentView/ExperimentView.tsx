@@ -119,6 +119,8 @@ const ResultsTab = (): JSX.Element => {
                                     <ResultsBreakdown
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
+                                        metricIndex={0}
+                                        isPrimary={true}
                                     >
                                         {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                                             <div>

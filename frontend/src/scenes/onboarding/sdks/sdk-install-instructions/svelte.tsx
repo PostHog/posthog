@@ -7,13 +7,14 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function SvelteAppClientCodeSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
-    const options = [`api_host: '${apiHostOrigin()}'`]
+    const options = [`api_host: '${apiHostOrigin()}'`, `defaults: '${SDK_DEFAULTS_DATE}'`]
 
     if (!isPersonProfilesDisabled) {
         options.push(
@@ -27,7 +28,7 @@ function SvelteAppClientCodeSnippet(): JSX.Element {
 import { browser } from '$app/environment';
 import { onMount } from 'svelte';
 
-onMount(() => {
+export const load = async () => {
   if (browser) {
     posthog.init(
       '${currentTeam?.api_token}',
@@ -36,7 +37,9 @@ onMount(() => {
       }
     )
   }
-});`}
+
+  return
+};`}
         </CodeSnippet>
     )
 }

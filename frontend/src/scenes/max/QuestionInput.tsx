@@ -11,7 +11,7 @@ import { CSSTransition } from 'react-transition-group'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { ContextDisplay } from './ContextDisplay'
+import { ContextDisplay } from './Context'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, SuggestionGroup } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'

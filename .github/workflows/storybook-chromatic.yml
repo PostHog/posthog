@@ -33,6 +33,53 @@ jobs:
                         - '.github/workflows/storybook-chromatic.yml'
                         - 'playwright.config.ts'
 
+    build-storybook:
+        name: Build Storybook
+        runs-on: ${{ needs.changes.outputs.frontend == 'true' && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        timeout-minutes: 15
+        needs: changes
+        steps:
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 18.12.1
+                  cache: pnpm
+
+            - name: Install dependencies
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Cache webpack build
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: common/storybook/node_modules/.cache/
+                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-webpack-storybook-
+
+            - name: Build Storybook
+              if: needs.changes.outputs.frontend == 'true'
+              env:
+                  NODE_OPTIONS: --max-old-space-size=32768
+              run: |
+                  bin/turbo --filter=@posthog/storybook prepare
+                  pnpm --filter=@posthog/storybook build --test
+
+            - name: Upload Storybook build artifact
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+                  retention-days: 1
+
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
@@ -80,8 +127,8 @@ jobs:
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: changes
-        timeout-minutes: 30
+        needs: [changes, build-storybook]
+        timeout-minutes: 20
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
         strategy:
@@ -89,32 +136,53 @@ jobs:
             matrix:
                 include:
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 1
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 2
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 3
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 4
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 5
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 6
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 7
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 8
                     - browser: chromium
-                      shard_count: 9
+                      shard_count: 16
                       shard: 9
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 10
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 11
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 12
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 13
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 14
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 15
+                    - browser: chromium
+                      shard_count: 16
+                      shard: 16
                     # WebKit is much faster, so we run with only 3 shards
                     - browser: webkit
                       shard_count: 3
@@ -185,6 +253,48 @@ jobs:
             chromium-9-total: ${{ steps.diff.outputs.chromium-9-total }}
             chromium-9-commitHash: ${{ steps.commit-hash.outputs.chromium-9-commitHash }}
             chromium-9-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-9-pathsFlapping }}
+            chromium-10-added: ${{ steps.diff.outputs.chromium-10-added }}
+            chromium-10-modified: ${{ steps.diff.outputs.chromium-10-modified }}
+            chromium-10-deleted: ${{ steps.diff.outputs.chromium-10-deleted }}
+            chromium-10-total: ${{ steps.diff.outputs.chromium-10-total }}
+            chromium-10-commitHash: ${{ steps.commit-hash.outputs.chromium-10-commitHash }}
+            chromium-10-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-10-pathsFlapping }}
+            chromium-11-added: ${{ steps.diff.outputs.chromium-11-added }}
+            chromium-11-modified: ${{ steps.diff.outputs.chromium-11-modified }}
+            chromium-11-deleted: ${{ steps.diff.outputs.chromium-11-deleted }}
+            chromium-11-total: ${{ steps.diff.outputs.chromium-11-total }}
+            chromium-11-commitHash: ${{ steps.commit-hash.outputs.chromium-11-commitHash }}
+            chromium-11-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-11-pathsFlapping }}
+            chromium-12-added: ${{ steps.diff.outputs.chromium-12-added }}
+            chromium-12-modified: ${{ steps.diff.outputs.chromium-12-modified }}
+            chromium-12-deleted: ${{ steps.diff.outputs.chromium-12-deleted }}
+            chromium-12-total: ${{ steps.diff.outputs.chromium-12-total }}
+            chromium-12-commitHash: ${{ steps.commit-hash.outputs.chromium-12-commitHash }}
+            chromium-12-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-12-pathsFlapping }}
+            chromium-13-added: ${{ steps.diff.outputs.chromium-13-added }}
+            chromium-13-modified: ${{ steps.diff.outputs.chromium-13-modified }}
+            chromium-13-deleted: ${{ steps.diff.outputs.chromium-13-deleted }}
+            chromium-13-total: ${{ steps.diff.outputs.chromium-13-total }}
+            chromium-13-commitHash: ${{ steps.commit-hash.outputs.chromium-13-commitHash }}
+            chromium-13-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-13-pathsFlapping }}
+            chromium-14-added: ${{ steps.diff.outputs.chromium-14-added }}
+            chromium-14-modified: ${{ steps.diff.outputs.chromium-14-modified }}
+            chromium-14-deleted: ${{ steps.diff.outputs.chromium-14-deleted }}
+            chromium-14-total: ${{ steps.diff.outputs.chromium-14-total }}
+            chromium-14-commitHash: ${{ steps.commit-hash.outputs.chromium-14-commitHash }}
+            chromium-14-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-14-pathsFlapping }}
+            chromium-15-added: ${{ steps.diff.outputs.chromium-15-added }}
+            chromium-15-modified: ${{ steps.diff.outputs.chromium-15-modified }}
+            chromium-15-deleted: ${{ steps.diff.outputs.chromium-15-deleted }}
+            chromium-15-total: ${{ steps.diff.outputs.chromium-15-total }}
+            chromium-15-commitHash: ${{ steps.commit-hash.outputs.chromium-15-commitHash }}
+            chromium-15-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-15-pathsFlapping }}
+            chromium-16-added: ${{ steps.diff.outputs.chromium-16-added }}
+            chromium-16-modified: ${{ steps.diff.outputs.chromium-16-modified }}
+            chromium-16-deleted: ${{ steps.diff.outputs.chromium-16-deleted }}
+            chromium-16-total: ${{ steps.diff.outputs.chromium-16-total }}
+            chromium-16-commitHash: ${{ steps.commit-hash.outputs.chromium-16-commitHash }}
+            chromium-16-pathsFlapping: ${{ steps.flappy-bird.outputs.chromium-16-pathsFlapping }}
             webkit-1-added: ${{ steps.diff.outputs.webkit-1-added }}
             webkit-1-modified: ${{ steps.diff.outputs.webkit-1-modified }}
             webkit-1-deleted: ${{ steps.diff.outputs.webkit-1-deleted }}
@@ -222,6 +332,19 @@ jobs:
                   node-version: 18.12.1
                   cache: pnpm
 
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -230,11 +353,12 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install http-server wait-on -g
 
-            - name: Build Storybook
+            - name: Download Storybook build artifact
               if: needs.changes.outputs.frontend == 'true'
-              run: |
-                  bin/turbo --filter=@posthog/storybook prepare
-                  pnpm --filter=@posthog/storybook build --test
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
 
             - name: Serve Storybook in the background
               if: needs.changes.outputs.frontend == 'true'

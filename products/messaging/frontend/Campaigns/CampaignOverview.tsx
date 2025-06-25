@@ -8,10 +8,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { campaignLogic, CampaignLogicProps } from './campaignLogic'
+import { HogFlowFilters } from './hogflows/filters/HogFlowFilters'
 
 export function CampaignOverview({ id }: CampaignLogicProps): JSX.Element {
     return (
@@ -32,7 +31,7 @@ export function CampaignOverview({ id }: CampaignLogicProps): JSX.Element {
 
 function BasicInfoSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-full rounded border bg-surface-primary p-3">
+        <div className="flex flex-col gap-2 p-3 w-full rounded border bg-surface-primary">
             <LemonField name="name" label="Name">
                 <LemonInput />
             </LemonField>
@@ -45,38 +44,17 @@ function BasicInfoSection(): JSX.Element {
 
 function TriggerSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-full rounded border bg-surface-primary p-3">
+        <div className="flex flex-col gap-2 p-3 w-full rounded border bg-surface-primary">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Campaign trigger event</p>
+                <p className="mb-1 text-lg font-semibold">Campaign trigger event</p>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
             <LemonField name="triggerEvents">
                 {({ value, onChange }) => (
-                    <ActionFilter
+                    <HogFlowFilters
                         filters={value ?? {}}
                         setFilters={onChange}
                         typeKey="campaign-trigger"
-                        mathAvailability={MathAvailability.None}
-                        hideRename
-                        hideDuplicate
-                        showNestedArrow={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        propertyFiltersPopover
-                        addFilterDefaultOptions={{
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                        }}
-                        buttonProps={{
-                            type: 'secondary',
-                        }}
                         buttonCopy="Add trigger event"
                     />
                 )}
@@ -87,9 +65,9 @@ function TriggerSection(): JSX.Element {
 
 function ConversionGoalSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-1/2 rounded border bg-surface-primary p-3 h-fit">
+        <div className="flex flex-col gap-2 p-3 w-1/2 rounded border bg-surface-primary h-fit">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Conversion goal</p>
+                <p className="mb-1 text-lg font-semibold">Conversion goal</p>
                 <p className="mb-0">Define what properties a user must have to be considered converted.</p>
             </div>
 
@@ -139,9 +117,9 @@ function ConversionGoalSection(): JSX.Element {
 
 function ExitConditionSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-1/2 rounded border bg-surface-primary p-3">
+        <div className="flex flex-col gap-2 p-3 w-1/2 rounded border bg-surface-primary">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Exit condition</p>
+                <p className="mb-1 text-lg font-semibold">Exit condition</p>
                 <p className="mb-0">Choose how your users move through the campaign.</p>
             </div>
 
