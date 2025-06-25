@@ -59,8 +59,9 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
     now = timezone.now()
     retention_cutoff = now - timedelta(seconds=settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD)
 
-    refresh_token_expiry_cutoff = retention_cutoff - timedelta(
-        seconds=settings.OAUTH2_PROVIDER["REFRESH_TOKEN_EXPIRE_SECONDS"]
+    refresh_token_expiry_cutoff = now - timedelta(
+        seconds=settings.OAUTH2_PROVIDER["REFRESH_TOKEN_EXPIRE_SECONDS"] + 
+               settings.OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD
     )
 
     context.log.info(f"Clearing OAuth tokens expired before {retention_cutoff}")
