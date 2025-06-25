@@ -124,18 +124,9 @@ then
 export REGISTRY_URL="posthog/posthog"
 fi
 
-# rewrite caddyfile
-rm -f Caddyfile
-envsubst > Caddyfile <<EOF
-{
-$TLS_BLOCK
-}
-$DOMAIN, http://, https:// {
-encode gzip zstd
-reverse_proxy http://web:8000
-reverse_proxy http://livestream:8666
-}
-EOF
+# Set Caddy environment variables
+export CADDY_DOMAIN="$DOMAIN, http://, https://"
+export LIVESTREAM_PROXY="reverse_proxy http://livestream:8666"
 
 # Write .env file
 envsubst > .env <<EOF
