@@ -158,7 +158,7 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
 
-    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "")]
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", default = "none")]
@@ -199,7 +199,7 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
-            new_analytics_capture_endpoint: "".to_string(),
+            new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
@@ -290,6 +290,8 @@ mod tests {
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
         );
+        assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
+        assert_eq!(config.debug, FlexBool(false));
     }
 
     #[test]
