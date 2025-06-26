@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import structlog
 
+from posthog.hogql import ast
 from posthog.models.team.team import DEFAULT_CURRENCY
 from products.marketing_analytics.backend.hogql_queries.constants import (
     CAMPAIGN_NAME_FIELD,
@@ -82,28 +83,28 @@ class MarketingSourceAdapter(ABC):
         pass
 
     @abstractmethod
-    def _get_campaign_name_field(self) -> str:
-        """Get the campaign name field for the query"""
+    def _get_campaign_name_field_ast(self) -> ast.Expr:
+        """Get the campaign name field expression as AST"""
         pass
 
     @abstractmethod
-    def _get_source_name_field(self) -> str:
-        """Get the source name field for the query"""
+    def _get_source_name_field_ast(self) -> ast.Expr:
+        """Get the source name field expression as AST"""
         pass
 
     @abstractmethod
-    def _get_impressions_field(self) -> str:
-        """Get the impressions field for the query"""
+    def _get_impressions_field_ast(self) -> ast.Expr:
+        """Get the impressions field expression as AST"""
         pass
 
     @abstractmethod
-    def _get_clicks_field(self) -> str:
-        """Get the clicks field for the query"""
+    def _get_clicks_field_ast(self) -> ast.Expr:
+        """Get the clicks field expression as AST"""
         pass
 
     @abstractmethod
-    def _get_cost_field(self) -> str:
-        """Get the cost field for the query"""
+    def _get_cost_field_ast(self) -> ast.Expr:
+        """Get the cost field expression as AST"""
         pass
 
     @abstractmethod
@@ -142,7 +143,7 @@ class MarketingSourceAdapter(ABC):
 
     def build_query(self) -> Optional[str]:
         """
-        Build SQL query that returns marketing data in standardized format.
+        Build SQL query that returns marketing data in standardized format using AST internally.
 
         MUST return columns in this exact order and format:
         - campaign_name (string): Campaign identifier
@@ -154,17 +155,37 @@ class MarketingSourceAdapter(ABC):
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            query = f"""
-SELECT
-    {self._get_campaign_name_field()} as {self.campaign_name_field},
-    {self._get_source_name_field()} as {self.source_name_field},
-    {self._get_impressions_field()} as {self.impressions_field},
-    {self._get_clicks_field()} as {self.clicks_field},
-    {self._get_cost_field()} as {self.cost_field}
-{self._get_from_clause()}
-{self._get_join_clause()}
-{self._get_where_conditions()}
-{self._get_group_by_clause()}"""
+            # Build SELECT columns using AST internally
+            select_columns = [
+                ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field_ast()),
+                ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field_ast()),
+                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field_ast()),
+                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field_ast()),
+                ast.Alias(alias=self.cost_field, expr=self._get_cost_field_ast()),
+            ]
+
+            # Build query components
+            from_clause = self._get_from_clause()
+            join_clause = self._get_join_clause()
+            where_conditions = self._get_where_conditions()
+            group_by_clause = self._get_group_by_clause()
+
+            # Build the base SELECT statement using AST
+            select_part = "SELECT\n    " + ",\n    ".join([col.to_hogql() for col in select_columns])
+
+            # Assemble the complete query
+            query_parts = [select_part]
+            if from_clause:
+                query_parts.append(from_clause)
+            if join_clause:
+                query_parts.append(join_clause)
+            if where_conditions:
+                where_clause = "WHERE " + " AND ".join(where_conditions)
+                query_parts.append(where_clause)
+            if group_by_clause:
+                query_parts.append(group_by_clause)
+
+            query = "\n".join(query_parts)
 
             self._log_query_generation(True)
             return query

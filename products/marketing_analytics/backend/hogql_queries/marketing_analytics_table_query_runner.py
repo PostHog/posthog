@@ -167,21 +167,12 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         return final_query
 
     def _build_with_clause(self, union_query_string: str, processors: list) -> str:
-        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs"""
-        # Build the campaign_costs CTE
-        with_clause = f"""
-WITH {CAMPAIGN_COST_CTE_NAME} AS (
-SELECT
-    {MarketingSourceAdapter.campaign_name_field},
-    {MarketingSourceAdapter.source_name_field},
-    sum({MarketingSourceAdapter.cost_field}) as {TOTAL_COST_FIELD},
-    sum({MarketingSourceAdapter.clicks_field}) as {TOTAL_CLICKS_FIELD},
-    sum({MarketingSourceAdapter.impressions_field}) as {TOTAL_IMPRESSIONS_FIELD}
-FROM (
-    {union_query_string}
-)
-GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.source_name_field}
-)"""
+        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs using AST internally"""
+        # Build the campaign_costs CTE using AST internally
+        campaign_cost_select_ast = self._build_campaign_cost_select_ast(union_query_string)
+        campaign_cost_cte = f"{CAMPAIGN_COST_CTE_NAME} AS (\n{campaign_cost_select_ast.to_hogql()}\n)"
+
+        with_clause = f"WITH {campaign_cost_cte}"
 
         # Add conversion goal CTEs if any
         if processors:
@@ -191,8 +182,43 @@ GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.s
 
         return with_clause
 
+    def _build_campaign_cost_select_ast(self, union_query_string: str) -> ast.SelectQuery:
+        """Build the campaign_costs CTE SELECT query using AST internally"""
+        # Build SELECT columns for the CTE using AST
+        select_columns = [
+            ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
+            ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
+            ast.Alias(
+                alias=TOTAL_COST_FIELD,
+                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.cost_field])]),
+            ),
+            ast.Alias(
+                alias=TOTAL_CLICKS_FIELD,
+                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.clicks_field])]),
+            ),
+            ast.Alias(
+                alias=TOTAL_IMPRESSIONS_FIELD,
+                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
+            ),
+        ]
+
+        # Parse the union query as a subquery and wrap it in a JoinExpr
+        from posthog.hogql.parser import parse_select
+
+        union_subquery = parse_select(union_query_string)
+        union_join_expr = ast.JoinExpr(table=union_subquery)
+
+        # Build GROUP BY using AST
+        group_by_exprs = [
+            ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
+            ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
+        ]
+
+        # Build the CTE SELECT query
+        return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
+
     def _build_order_by_clause(self) -> str:
-        """Build the ORDER BY clause with proper null handling"""
+        """Build the ORDER BY clause with proper null handling using AST internally"""
         order_by_parts = []
 
         if hasattr(self.query, "orderBy") and self.query.orderBy:
@@ -201,15 +227,50 @@ GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.s
                 if "nullif(" in order_expr and CONVERSION_GOAL_PREFIX in order_expr:
                     if order_expr.strip().endswith(" ASC"):
                         calc_part = order_expr.replace(" ASC", "").strip()
-                        order_expr = f"COALESCE({calc_part}, {FALLBACK_COST_VALUE}) ASC"
+                        # Build AST: COALESCE(calc_part, FALLBACK_COST_VALUE) ASC
+                        from posthog.hogql.parser import parse_expr
+
+                        try:
+                            calc_expr_ast = parse_expr(calc_part)
+                        except:
+                            calc_expr_ast = ast.Field(chain=[calc_part])
+
+                        coalesce_ast = ast.Call(
+                            name="COALESCE", args=[calc_expr_ast, ast.Constant(value=FALLBACK_COST_VALUE)]
+                        )
+                        order_expr = f"{coalesce_ast.to_hogql()} ASC"
                     elif order_expr.strip().endswith(" DESC"):
                         calc_part = order_expr.replace(" DESC", "").strip()
-                        order_expr = f"COALESCE({calc_part}, -{FALLBACK_COST_VALUE}) DESC"
+                        # Build AST: COALESCE(calc_part, -FALLBACK_COST_VALUE) DESC
+                        from posthog.hogql.parser import parse_expr
+
+                        try:
+                            calc_expr_ast = parse_expr(calc_part)
+                        except:
+                            calc_expr_ast = ast.Field(chain=[calc_part])
+
+                        coalesce_ast = ast.Call(
+                            name="COALESCE", args=[calc_expr_ast, ast.Constant(value=-FALLBACK_COST_VALUE)]
+                        )
+                        order_expr = f"{coalesce_ast.to_hogql()} DESC"
                     else:
-                        order_expr = f"COALESCE({order_expr}, {FALLBACK_COST_VALUE})"
+                        # Build AST: COALESCE(order_expr, FALLBACK_COST_VALUE)
+                        from posthog.hogql.parser import parse_expr
+
+                        try:
+                            expr_ast = parse_expr(order_expr)
+                        except:
+                            expr_ast = ast.Field(chain=[order_expr])
+
+                        coalesce_ast = ast.Call(
+                            name="COALESCE", args=[expr_ast, ast.Constant(value=FALLBACK_COST_VALUE)]
+                        )
+                        order_expr = coalesce_ast.to_hogql()
                 order_by_parts.append(order_expr)
         else:
-            order_by_parts = [f"{CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD} DESC"]
+            # Build default order by using AST: campaign_costs.total_cost DESC
+            default_field_ast = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
+            order_by_parts = [f"{default_field_ast.to_hogql()} DESC"]
 
         return "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
 
@@ -222,7 +283,7 @@ GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.s
         return f"LIMIT {actual_limit}\nOFFSET {offset}"
 
     def _build_select_clause(self, processors: list) -> str:
-        """Build the SELECT clause with base columns and conversion goal columns"""
+        """Build the SELECT clause with base columns and conversion goal columns using AST internally"""
         # Get conversion goal components (processors already created and passed in)
         if processors:
             conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
@@ -231,14 +292,9 @@ GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.s
             conversion_joins = ""
             conversion_columns = ""
 
-        # Build base columns
-        base_columns = f"""    {CAMPAIGN_COST_CTE_NAME}.{MarketingSourceAdapter.campaign_name_field} as "Campaign",
-    {CAMPAIGN_COST_CTE_NAME}.{MarketingSourceAdapter.source_name_field} as "Source",
-    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD}, {DECIMAL_PRECISION}) as "Total Cost",
-    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD}, 0) as "Total Clicks",
-    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_IMPRESSIONS_FIELD}, 0) as "Total Impressions",
-    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD} / nullif({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD}, 0), {DECIMAL_PRECISION}) as "Cost per Click",
-    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD} / nullif({CAMPAIGN_COST_CTE_NAME}.{TOTAL_IMPRESSIONS_FIELD}, 0) * {CTR_PERCENTAGE_MULTIPLIER}, {DECIMAL_PRECISION}) as "CTR\""""
+        # Build base columns using AST internally
+        base_columns_ast = self._build_base_columns_ast()
+        base_columns = ",\n".join([f"    {col.to_hogql()}" for col in base_columns_ast])
 
         # Combine base and conversion goal columns
         all_columns = base_columns
@@ -249,6 +305,93 @@ GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.s
 {all_columns}
 FROM {CAMPAIGN_COST_CTE_NAME}
 {conversion_joins}"""
+
+    def _build_base_columns_ast(self) -> list[ast.Alias]:
+        """Build base columns using AST internally"""
+        return [
+            # Campaign name
+            ast.Alias(
+                alias="Campaign",
+                expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
+            ),
+            # Source name
+            ast.Alias(
+                alias="Source", expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field])
+            ),
+            # Total Cost: round(campaign_costs.total_cost, 2)
+            ast.Alias(
+                alias="Total Cost",
+                expr=ast.Call(
+                    name="round",
+                    args=[
+                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                        ast.Constant(value=DECIMAL_PRECISION),
+                    ],
+                ),
+            ),
+            # Total Clicks: round(campaign_costs.total_clicks, 0)
+            ast.Alias(
+                alias="Total Clicks",
+                expr=ast.Call(
+                    name="round",
+                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
+                ),
+            ),
+            # Total Impressions: round(campaign_costs.total_impressions, 0)
+            ast.Alias(
+                alias="Total Impressions",
+                expr=ast.Call(
+                    name="round",
+                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
+                ),
+            ),
+            # Cost per Click: round(total_cost / nullif(total_clicks, 0), 2)
+            ast.Alias(
+                alias="Cost per Click",
+                expr=ast.Call(
+                    name="round",
+                    args=[
+                        ast.ArithmeticOperation(
+                            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                            op=ast.ArithmeticOperationOp.Div,
+                            right=ast.Call(
+                                name="nullif",
+                                args=[
+                                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                                    ast.Constant(value=0),
+                                ],
+                            ),
+                        ),
+                        ast.Constant(value=DECIMAL_PRECISION),
+                    ],
+                ),
+            ),
+            # CTR: round(total_clicks / nullif(total_impressions, 0) * 100, 2)
+            ast.Alias(
+                alias="CTR",
+                expr=ast.Call(
+                    name="round",
+                    args=[
+                        ast.ArithmeticOperation(
+                            left=ast.ArithmeticOperation(
+                                left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                                op=ast.ArithmeticOperationOp.Div,
+                                right=ast.Call(
+                                    name="nullif",
+                                    args=[
+                                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
+                                        ast.Constant(value=0),
+                                    ],
+                                ),
+                            ),
+                            op=ast.ArithmeticOperationOp.Mult,
+                            right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
+                        ),
+                        ast.Constant(value=DECIMAL_PRECISION),
+                    ],
+                ),
+            ),
+        ]
 
     def _create_conversion_goal_processors(self, conversion_goals: list) -> list:
         """Create conversion goal processors for reuse across different methods"""
@@ -321,27 +464,47 @@ FROM {CAMPAIGN_COST_CTE_NAME}
         date_field="timestamp",
         use_date_not_datetime=False,
     ):
-        """Build WHERE conditions with common patterns"""
+        """Build WHERE conditions with common patterns using AST internally"""
         conditions = base_conditions or []
 
         if include_date_range:
             if use_date_not_datetime:
                 # For conversion goals that use toDate instead of toDateTime
-                date_cast = date_field
-                conditions.extend(
-                    [
-                        f"{date_cast} >= toDate('{self.query_date_range.date_from_str}')",
-                        f"{date_cast} <= toDate('{self.query_date_range.date_to_str}')",
-                    ]
+                # Build AST: date_field >= toDate('date_from')
+                date_field_ast = ast.Field(chain=[date_field])
+                from_date_ast = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
+                to_date_ast = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
+
+                gte_condition = ast.CompareOperation(
+                    left=date_field_ast, op=ast.CompareOperationOp.GtEq, right=from_date_ast
                 )
+                lte_condition = ast.CompareOperation(
+                    left=date_field_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast
+                )
+
+                conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
             else:
-                date_cast = f"toDateTime({date_field})" if date_field != "timestamp" else date_field
-                conditions.extend(
-                    [
-                        f"{date_cast} >= toDateTime('{self.query_date_range.date_from_str}')",
-                        f"{date_cast} <= toDateTime('{self.query_date_range.date_to_str}')",
-                    ]
+                # Build AST for regular datetime conditions
+                if date_field != "timestamp":
+                    date_cast_ast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+                else:
+                    date_cast_ast = ast.Field(chain=[date_field])
+
+                from_datetime_ast = ast.Call(
+                    name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_from_str)]
                 )
+                to_datetime_ast = ast.Call(
+                    name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_to_str)]
+                )
+
+                gte_condition = ast.CompareOperation(
+                    left=date_cast_ast, op=ast.CompareOperationOp.GtEq, right=from_datetime_ast
+                )
+                lte_condition = ast.CompareOperation(
+                    left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_datetime_ast
+                )
+
+                conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
 
         if include_global_filters:
             conditions.extend(get_global_property_conditions(self.query, self.team))

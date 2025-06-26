@@ -1,5 +1,6 @@
 # Self-Managed Marketing Source Adapters
 
+from posthog.hogql import ast
 from .base import MarketingSourceAdapter, ValidationResult
 from ..constants import (
     MARKETING_ANALYTICS_SCHEMA,
@@ -87,45 +88,79 @@ class SelfManagedAdapter(MarketingSourceAdapter):
             self.logger.exception("Self-managed table validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
 
-    def _get_campaign_name_field(self) -> str:
+    def _get_campaign_name_field_ast(self) -> ast.Expr:
         campaign_name_field = get_source_map_field(
             self.config.get("source_map"), SOURCE_MAP_UTM_CAMPAIGN_NAME
         ) or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CAMPAIGN_NAME)
-        return f"toString({campaign_name_field})"
 
-    def _get_source_name_field(self) -> str:
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_name_field])])
+
+    def _get_source_name_field_ast(self) -> ast.Expr:
         source_name_field = (
             get_source_map_field(self.config.get("source_map"), SOURCE_MAP_UTM_SOURCE_NAME)
             or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_SOURCE_NAME)
             or f"'{self.config.get('schema_name')}'"
         )
-        return f"toString({source_name_field})"
 
-    def _get_cost_field(self) -> str:
-        # Handle currency conversion (exactly matching existing logic)
+        if source_name_field.startswith("'") and source_name_field.endswith("'"):
+            # It's a literal string
+            inner_expr = ast.Constant(value=source_name_field[1:-1])
+        else:
+            # It's a field reference
+            inner_expr = ast.Field(chain=[source_name_field])
+
+        return ast.Call(name="toString", args=[inner_expr])
+
+    def _get_cost_field_ast(self) -> ast.Expr:
+        # Handle currency conversion
         total_cost_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_TOTAL_COST)
         currency_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CURRENCY)
         base_currency = self.context.base_currency
 
         if currency_field and total_cost_field:
-            cost_select = f"toFloat(convertCurrency('{currency_field}', '{base_currency}', toFloat(coalesce({total_cost_field}, 0))))"
+            # toFloat(convertCurrency('currency_field', 'base_currency', toFloat(coalesce(total_cost_field, 0))))
+            coalesce_ast = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
+            inner_toFloat_ast = ast.Call(name="toFloat", args=[coalesce_ast])
+            convert_currency_ast = ast.Call(
+                name="convertCurrency",
+                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), inner_toFloat_ast],
+            )
+            return ast.Call(name="toFloat", args=[convert_currency_ast])
         elif total_cost_field:
-            cost_select = f"toFloat(coalesce({total_cost_field}, 0))"
+            # toFloat(coalesce(total_cost_field, 0))
+            coalesce_ast = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
+            return ast.Call(name="toFloat", args=[coalesce_ast])
         else:
-            cost_select = "0"
+            # 0
+            return ast.Constant(value=0)
 
-        return cost_select
+    def _get_impressions_field_ast(self) -> ast.Expr:
+        impressions_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_IMPRESSIONS, "0")
 
-    def _get_impressions_field(self) -> str:
-        return (
-            f"toFloat(coalesce({get_source_map_field(self.config.get('source_map'), SOURCE_MAP_IMPRESSIONS, '0')}, 0))"
-        )
+        if impressions_field == "0":
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[impressions_field])
 
-    def _get_clicks_field(self) -> str:
-        return f"toFloat(coalesce({get_source_map_field(self.config.get('source_map'), SOURCE_MAP_CLICKS, '0')}, 0))"
+        coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce_ast])
+
+    def _get_clicks_field_ast(self) -> ast.Expr:
+        clicks_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CLICKS, "0")
+
+        if clicks_field == "0":
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[clicks_field])
+
+        coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce_ast])
 
     def _get_from_clause(self) -> str:
-        return f"FROM {self.config.get('table').name}"
+        # Build AST for FROM table_name
+        table_name = self.config.get("table").name
+        from_ast = ast.Field(chain=[table_name])
+        return f"FROM {from_ast.to_hogql()}"
 
     def _get_join_clause(self) -> str:
         return ""
@@ -140,19 +175,31 @@ class SelfManagedAdapter(MarketingSourceAdapter):
 
         # Add date range conditions
         if self.context.date_range:
-            date_cast = f"toDateTime({date_field})" if date_field != "timestamp" else date_field
-            conditions.extend(
-                [
-                    f"{date_cast} >= toDateTime('{self.context.date_range.date_from_str}')",
-                    f"{date_cast} <= toDateTime('{self.context.date_range.date_to_str}')",
-                ]
+            if date_field != "timestamp":
+                # toDateTime(date_field) >= toDateTime('date_from')
+                date_cast_ast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+            else:
+                date_cast_ast = ast.Field(chain=[date_field])
+
+            # Build >= condition
+            from_date_ast = ast.Call(
+                name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)]
+            )
+            gte_condition = ast.CompareOperation(
+                left=date_cast_ast, op=ast.CompareOperationOp.GtEq, right=from_date_ast
             )
 
-        # Add global filters
+            # Build <= condition
+            to_date_ast = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
+            lte_condition = ast.CompareOperation(left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast)
+
+            conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
+
+        # Add global filters (keep as strings for now)
         if self.context.global_filters:
             conditions.extend(self.context.global_filters)
 
-        return "WHERE " + " AND ".join(conditions) if conditions else ""
+        return conditions
 
 
 class AWSAdapter(SelfManagedAdapter):

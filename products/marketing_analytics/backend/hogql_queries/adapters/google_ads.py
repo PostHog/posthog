@@ -1,6 +1,6 @@
 # Google Ads Marketing Source Adapter
 
-from typing import Optional
+from posthog.hogql import ast
 from .base import MarketingSourceAdapter, ValidationResult
 
 
@@ -59,29 +59,47 @@ class GoogleAdsAdapter(MarketingSourceAdapter):
             self.logger.exception("Google Ads validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
 
-    def _get_campaign_name_field(self) -> str:
-        return f"toString({self.config.get('campaign_table').name}.campaign_name)"
+    def _get_campaign_name_field_ast(self) -> ast.Expr:
+        campaign_table_name = self.config.get("campaign_table").name
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "campaign_name"])])
 
-    def _get_source_name_field(self) -> str:
-        return f"toString('google')"
+    def _get_source_name_field_ast(self) -> ast.Expr:
+        return ast.Call(name="toString", args=[ast.Constant(value="google")])
 
-    def _get_impressions_field(self) -> str:
-        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_impressions))"
+    def _get_impressions_field_ast(self) -> ast.Expr:
+        stats_table_name = self.config.get("stats_table").name
+        sum_ast = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_impressions"])])
+        return ast.Call(name="toFloat", args=[sum_ast])
 
-    def _get_clicks_field(self) -> str:
-        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_clicks))"
+    def _get_clicks_field_ast(self) -> ast.Expr:
+        stats_table_name = self.config.get("stats_table").name
+        sum_ast = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_clicks"])])
+        return ast.Call(name="toFloat", args=[sum_ast])
 
-    def _get_cost_field(self) -> str:
-        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_cost_micros) / 1000000)"
+    def _get_cost_field_ast(self) -> ast.Expr:
+        stats_table_name = self.config.get("stats_table").name
+        sum_ast = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_cost_micros"])])
+        div_ast = ast.ArithmeticOperation(
+            left=sum_ast, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000)
+        )
+        return ast.Call(name="toFloat", args=[div_ast])
 
     def _get_from_clause(self) -> str:
         campaign_table = self.config.get("campaign_table")
-        return f"FROM {campaign_table.name}"
+        from_ast = ast.Field(chain=[campaign_table.name])
+        return f"FROM {from_ast.to_hogql()}"
 
     def _get_join_clause(self) -> str:
         stats_table = self.config.get("stats_table")
         campaign_table = self.config.get("campaign_table")
-        return f"LEFT JOIN {stats_table.name} ON {campaign_table.name}.campaign_id = {stats_table.name}.campaign_id"
+
+        # Build AST for: campaign_table.campaign_id = stats_table.campaign_id
+        left_field = ast.Field(chain=[campaign_table.name, "campaign_id"])
+        right_field = ast.Field(chain=[stats_table.name, "campaign_id"])
+        join_condition = ast.CompareOperation(left=left_field, op=ast.CompareOperationOp.Eq, right=right_field)
+
+        stats_table_ast = ast.Field(chain=[stats_table.name])
+        return f"LEFT JOIN {stats_table_ast.to_hogql()} ON {join_condition.to_hogql()}"
 
     def _get_where_conditions(self) -> list[str]:
         """Build WHERE conditions for Google Ads query"""
@@ -89,46 +107,29 @@ class GoogleAdsAdapter(MarketingSourceAdapter):
 
         # Add date range conditions
         if self.context.date_range:
-            conditions.extend(
-                [
-                    f"toDateTime({self.config.get('stats_table').name}.segments_date) >= toDateTime('{self.context.date_range.date_from_str}')",
-                    f"toDateTime({self.config.get('stats_table').name}.segments_date) <= toDateTime('{self.context.date_range.date_to_str}')",
-                ]
+            stats_table_name = self.config.get("stats_table").name
+
+            # Build AST for date conditions
+            date_field = ast.Call(name="toDateTime", args=[ast.Field(chain=[stats_table_name, "segments_date"])])
+
+            # >= condition
+            from_date_ast = ast.Call(
+                name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)]
             )
+            gte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.GtEq, right=from_date_ast)
+
+            # <= condition
+            to_date_ast = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
+            lte_condition = ast.CompareOperation(left=date_field, op=ast.CompareOperationOp.LtEq, right=to_date_ast)
+
+            conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
 
         # Add global filters
         if self.context.global_filters:
             conditions.extend(self.context.global_filters)
 
-        return "WHERE " + " AND ".join(conditions) if conditions else ""
+        return conditions
 
     def _get_group_by_clause(self) -> str:
-        return f"GROUP BY {self._get_campaign_name_field()}"
-
-    def build_query(self) -> Optional[str]:
-        """
-        Build Google Ads query that matches the existing implementation.
-        This preserves the exact same query logic from _build_google_ads_query_with_tables.
-        """
-        try:
-            # This query exactly matches the existing _build_google_ads_query_with_tables implementation
-            query = f"""
-SELECT
-    {self._get_campaign_name_field()} as {self.campaign_name_field},
-    {self._get_source_name_field()} as {self.source_name_field},
-    {self._get_impressions_field()} as {self.impressions_field},
-    {self._get_clicks_field()} as {self.clicks_field},
-    {self._get_cost_field()} as {self.cost_field}
-{self._get_from_clause()}
-{self._get_join_clause()}
-{self._get_where_conditions()}
-{self._get_group_by_clause()}
-"""
-
-            self._log_query_generation(True)
-            return query
-
-        except Exception as e:
-            error_msg = f"Query generation error: {str(e)}"
-            self._log_query_generation(False, error_msg)
-            return None
+        campaign_field_ast = self._get_campaign_name_field_ast()
+        return f"GROUP BY {campaign_field_ast.to_hogql()}"
