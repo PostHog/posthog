@@ -47,13 +47,11 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
 
     listeners(({ actions, values, props }) => ({
         [experimentLogic(props).actionTypes.setPrimaryMetricsResultsLoading]: ({ loading }) => {
-            console.log('setPrimaryMetricsResultsLoading', loading)
             if (!loading && !values.metricsLoading) {
                 actions.generateSummary()
             }
         },
         [experimentLogic(props).actionTypes.setSecondaryMetricsResultsLoading]: ({ loading }) => {
-            console.log('setSecondaryMetricsResultsLoading', loading)
             if (!loading && !values.metricsLoading) {
                 actions.generateSummary()
             }
@@ -65,34 +63,37 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
             }
 
             try {
-                // Use api.stream() which handles CSRF automatically
-                await api.stream(`/api/environments/@current/experiment/${props.experimentId}/generate_summary/`, {
-                    method: 'POST',
-                    data: {},
-                    onMessage: (event) => {
-                        try {
-                            const data = JSON.parse(event.data)
-                            if (data.content) {
-                                actions.updateSummary(data.content)
-                            }
-                            if (data === '[DONE]') {
-                                lemonToast.success('Summary generated successfully!')
-                                return
-                            }
-                        } catch (e) {
-                            // Skip invalid JSON
-                        }
-                    },
-                    onError: (error) => {
-                        console.error('Error generating summary:', error)
-                        lemonToast.error('Failed to generate summary')
-                    },
+                // Use the standardized /max_tools endpoint with the experiment_results_summary tool
+                const response = await api.create(`/api/environments/@current/max_tools/experiment_results_summary/`, {
+                    experiment_id: props.experimentId.toString(),
                 })
+
+                // Parse the response to extract the summary content
+                if (response && Array.isArray(response)) {
+                    let summaryContent = ''
+                    for (const message of response) {
+                        if (message.type === 'message' && message.data?.content) {
+                            summaryContent += message.data.content + '\n'
+                        } else if (message.type === 'ai' && message.content) {
+                            summaryContent += message.content + '\n'
+                        }
+                    }
+
+                    if (summaryContent.trim()) {
+                        actions.updateSummary(summaryContent.trim())
+                        lemonToast.success('Summary generated successfully!')
+                    } else {
+                        lemonToast.error('No summary content received')
+                        actions.resetSummary()
+                    }
+                } else {
+                    lemonToast.error('Unexpected response format')
+                    actions.resetSummary()
+                }
             } catch (error) {
                 console.error('Error generating summary:', error)
                 lemonToast.error('Failed to generate summary')
                 actions.resetSummary()
-            } finally {
             }
         },
     })),
