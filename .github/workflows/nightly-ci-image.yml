@@ -1,9 +1,12 @@
-name: Build Nightly CI Image
+name: Build Nightly CI Images
 
 on:
     schedule:
         # Run nightly at 2 AM UTC
         - cron: '0 2 * * *'
+    pull_request:
+        branches:
+            - 'nightly-image'
     workflow_dispatch:
         inputs:
             force_rebuild:
@@ -14,7 +17,7 @@ on:
 
 jobs:
     build-ci-image:
-        name: Build CI Image
+        name: Build Nightly CI Images
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30
         permissions:
@@ -34,18 +37,16 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
-            - name: Build and save CI image in Depot
+            - name: Build and save backend CI image in Depot
               id: build
               uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
               with:
                   context: .
-                  file: ./Dockerfile.ci
-                  save: true # Save to Depot's ephemeral registry
-                  tags: posthog/ci:nightly
+                  file: ./Dockerfile.ci-backend
+                  save: true
+                  tags: posthog/ci-backend:nightly
                   platforms: linux/amd64,linux/arm64
                   project: 'm736dg11vv'
-                  build-args: |
-                      COMMIT_HASH=${{ github.sha }}
                   no-cache: ${{ github.event.inputs.force_rebuild == 'true' }}
               env:
                   ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}

@@ -1,0 +1,46 @@
+FROM python:3.11.9-slim-bookworm
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Install basic system dependencies for building packages
+RUN apt-get update &&
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        curl \
+        libpq-dev \
+        libxmlsec1-dev \
+        libxml2-dev \
+        libffi-dev \
+        pkg-config &&
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+RUN pip install uv~=0.7.0 --no-cache-dir
+
+# Copy dependency files and install Python packages
+COPY pyproject.toml uv.lock ./
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --dev --no-cache --compile-bytecode
+
+# Set up Python environment
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONPATH=/opt/venv \
+    PYTHONUNBUFFERED=1
+
+# Install Node.js for frontend dependencies
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&
+    apt-get install -y nodejs &&
+    corepack enable
+
+# Copy package files and install Node.js dependencies
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ./bin/turbo ./bin/turbo
+COPY ./patches ./patches
+COPY ./common/esbuilder/ ./common/esbuilder/
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+
+# Pre-install Node.js dependencies (the slow part)
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable &&
+    pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store &&
+    bin/turbo --filter=@posthog/plugin-transpiler build
