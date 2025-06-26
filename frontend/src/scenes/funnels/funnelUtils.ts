@@ -253,16 +253,10 @@ export function stepsWithConversionMetrics(
     stepReference: FunnelStepReference,
     optionalSteps: number[] = []
 ): FunnelStepWithConversionMetrics[] {
-    let lastOptionalStep = 0
+    let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
-        // Update lastOptionalStep to track the last optional step encountered
-        // Note: optionalSteps are 1-indexed, so we convert to 0-indexed
-        if (optionalSteps.includes(i + 1)) {
-            lastOptionalStep = i
-        }
-
-        // Use lastOptionalStep instead of i-1 for previousCount calculation
-        const previousStepIndex = i > 0 ? lastOptionalStep : 0
+        // Use lastNonOptionalStep for previousCount calculation (this is the last non-optional step we've seen)
+        const previousStepIndex = i > 0 ? lastNonOptionalStep : 0
         const previousCount = i > 0 ? steps[previousStepIndex].count : step.count // previous is faked for the first step
         const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
 
@@ -299,6 +293,13 @@ export function stepsWithConversionMetrics(
             // and conversion percentage as 0% but that's better for users than `NaN%`
             total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
         }
+
+        // Update lastNonOptionalStep after processing this step, so it's available for the next iteration
+        // Note: optionalSteps are 1-indexed, so we convert to 0-indexed
+        if (!optionalSteps.includes(i + 1)) {
+            lastNonOptionalStep = i
+        }
+
         return {
             ...step,
             droppedOffFromPrevious,
