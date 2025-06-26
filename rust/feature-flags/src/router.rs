@@ -27,7 +27,8 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
-    pub redis: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pub reader: Arc<dyn DatabaseClient + Send + Sync>,
     pub writer: Arc<dyn DatabaseClient + Send + Sync>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
@@ -39,8 +40,9 @@ pub struct State {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<R, D>(
-    redis: Arc<R>,
+pub fn router<RR, RW, D>(
+    redis_reader: Arc<RR>,
+    redis_writer: Arc<RW>,
     reader: Arc<D>,
     writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
@@ -51,11 +53,13 @@ pub fn router<R, D>(
     config: Config,
 ) -> Router
 where
-    R: RedisClient + Send + Sync + 'static,
+    RR: RedisClient + Send + Sync + 'static,
+    RW: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,
 {
     let state = State {
-        redis,
+        redis_reader,
+        redis_writer,
         reader,
         writer,
         cohort_cache_manager: cohort_cache,

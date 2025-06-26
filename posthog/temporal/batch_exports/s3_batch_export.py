@@ -1212,7 +1212,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
 
             await self.logger.ainfo(
-                "Finished uploading file number %s part %s with upload id %s. File size: %sMB, upload time: %s, speed: %s MB/s",
+                "Finished uploading file number %s part %s with upload id %s. File size: %.2f MB, upload time: %.2fs, speed: %.2f MB/s",
                 self.current_file_index,
                 part_number,
                 self.upload_id,

@@ -22,7 +22,13 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
     {
         key: 'Month to date',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('m').format(DATE_FORMAT),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart', 'mEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('m')),
         defaultInterval: 'day',
     },
     {
@@ -31,6 +37,12 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         defaultInterval: 'day',
+    },
+    {
+        key: 'This year',
+        values: ['yStart', 'yEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('y')),
+        defaultInterval: 'month',
     },
     {
         key: 'Year to date',

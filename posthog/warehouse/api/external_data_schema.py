@@ -18,6 +18,10 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     get_schemas as get_bigquery_schemas,
 )
 from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+    GoogleSheetsServiceAccountSourceConfig,
+    get_schema_incremental_fields as get_google_schema_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.google_ads import (
     get_incremental_fields as get_google_ads_incremental_fields,
 )
@@ -382,7 +386,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
             incremental_columns = DOIT_INCREMENTAL_FIELDS
-
+        elif source.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            incremental_columns = get_google_schema_incremental_fields(
+                GoogleSheetsServiceAccountSourceConfig.from_dict(source.job_inputs), instance.name
+            )
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
             if mapping is None:

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import re
 import structlog
 from typing import Any
+from django.core.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -315,8 +316,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             tokens = search_tokenizer(self.query.searchQuery)
             and_exprs: list[ast.Expr] = []
 
-            if len(tokens) > 10:
-                raise ValueError("Too many search tokens")
+            if len(tokens) > 100:
+                raise ValidationError("Too many search tokens")
 
             for token in tokens:
                 if not token:
@@ -524,11 +525,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             # If we have an issueId, we should just use that
             return [self.query.issueId]
 
-        objects = ErrorTrackingIssue.objects
-        if self.query.dateRange.date_from:
-            objects = objects.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
-
-        queryset = objects.select_related("assignment").filter(team=self.team)
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team)
 
         if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True

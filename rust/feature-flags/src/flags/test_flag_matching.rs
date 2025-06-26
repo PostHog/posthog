@@ -13,7 +13,9 @@ mod tests {
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
-            flag_matching_utils::set_feature_flag_hash_key_overrides,
+            flag_matching_utils::{
+                get_fetch_calls_count, reset_fetch_calls_count, set_feature_flag_hash_key_overrides,
+            },
             flag_models::{
                 FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
                 MultivariateFlagOptions, MultivariateFlagVariant,
@@ -544,6 +546,7 @@ mod tests {
             None,
         );
 
+        reset_fetch_calls_count();
         let result = matcher
             .evaluate_all_feature_flags(
                 FeatureFlagList {
@@ -556,6 +559,13 @@ mod tests {
             )
             .await;
 
+        let fetch_calls = get_fetch_calls_count();
+        assert_eq!(
+            fetch_calls,
+            0,
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 0 times, but it was called {} times", 
+            fetch_calls
+        );
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
@@ -4024,6 +4034,7 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag.clone()],
         };
+        reset_fetch_calls_count();
 
         let result = matcher
             .evaluate_all_feature_flags(
@@ -4035,6 +4046,13 @@ mod tests {
             )
             .await;
 
+        let fetch_calls = get_fetch_calls_count();
+        assert_eq!(
+            fetch_calls,
+            1,
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {} times", 
+            fetch_calls
+        );
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has focus="all-of-the-above")
         // and overrides for condition 2 (which won't match the email).

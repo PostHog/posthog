@@ -21,11 +21,11 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-    get_s3_function_args,
 )
 from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_web_stats_structure,
     get_s3_web_bounces_structure,
+    get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (

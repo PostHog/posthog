@@ -107,6 +107,7 @@ class BayesianMethod:
         Returns:
             Appropriate BayesianTest instance
         """
+        test: BayesianTest
 
         if stat_type == SampleMeanStatistic:
             test = BayesianMeanTest(ci_level=self.config.ci_level, inverse=self.config.inverse)
@@ -186,7 +187,7 @@ class BayesianMethod:
         }
 
         # Add effect size interpretation
-        if result.difference_type == DifferenceType.RELATIVE:
+        if "relative" in result.difference_type:
             summary["interpretation"] = {
                 "effect_size": f"{result.effect_size:.1%}",
                 "effect_direction": "positive" if result.effect_size > 0 else "negative",

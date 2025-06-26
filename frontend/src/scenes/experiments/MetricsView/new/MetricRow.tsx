@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentFunnelsQuery } from '~/queries/schema/schema-general'
-import { ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
@@ -99,6 +97,8 @@ export function MetricRow({
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
+                                metricIndex={metricIndex}
+                                isSecondary={isSecondary}
                             />
                         </div>
                     ) : resultsLoading ? (

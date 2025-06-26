@@ -1,7 +1,8 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -200,11 +201,55 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ],
         }
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         locationChanged: () => {
-            actions.resetContext()
-            actions.clearActiveInsights()
-            actions.clearActiveDashboard()
+            // Don't reset context if the only change is the side panel opening/closing
+            const currentLocation = router.values.location
+            const currentHashParams = router.values.hashParams || {}
+            const currentSearchParams = router.values.searchParams || {}
+            const previousLocation = cache.previousLocation
+
+            cache.previousLocation = {
+                location: currentLocation,
+                hashParams: currentHashParams,
+                searchParams: currentSearchParams,
+            }
+
+            if (!previousLocation) {
+                return
+            }
+
+            const shouldResetContext = (): void => {
+                actions.resetContext()
+                actions.clearActiveInsights()
+                actions.clearActiveDashboard()
+            }
+
+            // Always reset context if pathname or search params changed
+            if (
+                currentLocation?.pathname !== previousLocation.location?.pathname ||
+                !objectsEqual({ ...currentSearchParams }, { ...previousLocation.searchParams })
+            ) {
+                shouldResetContext()
+                return
+            }
+
+            // Check if only panel parameter changed in hash params
+            const currentNonPanelKeys = Object.keys(currentHashParams).filter((k) => k !== 'panel')
+            const previousNonPanelKeys = Object.keys(previousLocation.hashParams || {}).filter((k) => k !== 'panel')
+
+            // Check if non-panel keys are the same
+            const sameKeys =
+                currentNonPanelKeys.length === previousNonPanelKeys.length &&
+                currentNonPanelKeys.every(
+                    (key) =>
+                        previousNonPanelKeys.includes(key) &&
+                        currentHashParams[key] === (previousLocation.hashParams || {})[key]
+                )
+
+            if (!sameKeys) {
+                shouldResetContext()
+            }
         },
         handleTaxonomicFilterChange: async (
             {
@@ -539,5 +584,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 )
             },
         ],
+    }),
+    afterMount(({ cache }) => {
+        cache.previousLocation = {
+            location: router.values.location,
+            hashParams: router.values.hashParams,
+            searchParams: router.values.searchParams,
+        }
     }),
 ])

@@ -11,7 +11,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
-import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -42,7 +43,7 @@ export function DashboardItems(): JSX.Element {
         updateTileColor,
         removeTile,
         duplicateTile,
-        refreshDashboardItem,
+        triggerDashboardItemRefresh,
         moveToDashboard,
         setDashboardMode,
     } = useActions(dashboardLogic)
@@ -156,7 +157,7 @@ export function DashboardItems(): JSX.Element {
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
-                                    refresh={() => refreshDashboardItem({ tile })}
+                                    refresh={() => triggerDashboardItemRefresh({ tile })}
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}

@@ -30,8 +30,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     async move {
         let start_time = std::time::Instant::now();
 
-        let flag_service =
-            FlagService::new(context.state.redis.clone(), context.state.reader.clone());
+        let flag_service = FlagService::new(
+            context.state.redis_reader.clone(),
+            context.state.redis_writer.clone(),
+            context.state.reader.clone(),
+        );
 
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
@@ -72,7 +75,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
         let property_overrides = properties::prepare_overrides(&context, &request)?;
 
-        // Evaluate flags (this will return empty if disable_flags is true)
+        // Evaluate flags (this will return empty if is_flags_disabled is true)
         let flags_response = flags::evaluate_for_request(
             &context.state,
             team.id,

@@ -1,5 +1,4 @@
-import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
-
+import { type ExperimentVariantResult } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
 import { useTooltipHover } from './useTooltipHover'
@@ -15,7 +14,7 @@ export function Chart({
     isSecondary,
 }: {
     chartSvgRef: React.RefObject<SVGSVGElement>
-    variantResults: ExperimentVariantResultFrequentist[]
+    variantResults: ExperimentVariantResult[]
     chartRadius: number
     metricIndex: number
     tickValues: number[]
@@ -40,7 +39,7 @@ export function Chart({
                     </g>
                     <g className="variant-bars-layer">
                         {/* Variant bars */}
-                        {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+                        {variantResults.map((variantResult: ExperimentVariantResult, index: number) => (
                             <VariantBar
                                 key={`variant-bar-${variantResult.key}`}
                                 variantResult={variantResult}
@@ -58,7 +57,7 @@ export function Chart({
                 </svg>
             </div>
 
-            {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+            {variantResults.map((variantResult: ExperimentVariantResult, index: number) => (
                 <VariantTooltip
                     key={`tooltip-${variantResult.key}`}
                     variantResult={variantResult}

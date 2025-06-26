@@ -2916,3 +2916,32 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Experiment already has an exposure cohort")
+
+    def test_create_experiment_with_stats_config(self) -> None:
+        """Test that stats_config can be passed from frontend and is preserved"""
+        ff_key = "stats-config-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stats Config Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+                "stats_config": {
+                    "method": "bayesian",
+                    "use_new_bayesian_method": True,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Stats Config Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # Verify stats_config is preserved with custom fields
+        stats_config = response.json()["stats_config"]
+        self.assertEqual(stats_config["method"], "bayesian")
+        self.assertEqual(stats_config["use_new_bayesian_method"], True)

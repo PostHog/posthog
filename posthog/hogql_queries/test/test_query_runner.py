@@ -84,7 +84,7 @@ class TestQueryRunner(BaseTest):
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
 
         # changes to the cache payload have a significant impact, as they'll

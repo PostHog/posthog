@@ -1,6 +1,5 @@
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -82,7 +81,7 @@ function CinemaMode(): JSX.Element {
     )
 }
 
-function AnnotateRecording(): JSX.Element {
+function CommentOnRecordingButton(): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
@@ -133,9 +132,7 @@ export function PlayerController(): JSX.Element {
                 <div className="flex justify-end items-center">
                     {!isZenMode && (
                         <>
-                            <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                <AnnotateRecording />
-                            </FlaggedFeature>
+                            <CommentOnRecordingButton />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
