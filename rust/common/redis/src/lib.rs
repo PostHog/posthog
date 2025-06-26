@@ -6,7 +6,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
-const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 3000;
+const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
 
 fn get_redis_timeout_ms() -> u64 {
     std::env::var("REDIS_TIMEOUT_MS")
