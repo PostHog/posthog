@@ -215,11 +215,13 @@ class BatchExportsDebugger:
 
             >>> bedbg = BatchExportsDebugger(team_id) # doctest: +SKIP
             >>> bedbg.get_latest_run(status="failed") # doctest: +SKIP
+            <BatchExportRun: BatchExportRun object (...)>
 
             Get the latest created run:
 
             >>> bedbg = BatchExportsDebugger(team_id) # doctest: +SKIP
             >>> bedbg.get_latest_run(order_by="created_at") # doctest: +SKIP
+            <BatchExportRun: BatchExportRun object (...)>
         """
         return next(self.iter_runs(status, order_by=order_by, descending=True, offset=offset))
 
