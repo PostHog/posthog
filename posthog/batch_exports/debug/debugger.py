@@ -95,7 +95,7 @@ class BatchExportsDebugger:
         )
 
     @property
-    def batch_export(self):
+    def batch_export(self) -> BatchExport:
         """Working batch export."""
         if self._batch_export is None:
             self._batch_export = self.loaded_batch_exports[0]
@@ -103,7 +103,7 @@ class BatchExportsDebugger:
         assert self._batch_export is not None
         return self._batch_export
 
-    def set_batch_export_from_loaded(self, batch_export: BatchExport | str | int | uuid.UUID | None = None):
+    def set_batch_export_from_loaded(self, batch_export: BatchExport | str | int | uuid.UUID | None = None) -> None:
         """Set working batch export from loaded batch exports.
 
         Multiple type parameters are allowed as described in `get_batch_export`.
@@ -158,7 +158,7 @@ class BatchExportsDebugger:
             filters["name"] = name
 
         if destination is not None:
-            filters["destination__type"] = destination
+            filters["destination__type__iexact"] = destination
 
         if paused is not None:
             filters["paused"] = paused
