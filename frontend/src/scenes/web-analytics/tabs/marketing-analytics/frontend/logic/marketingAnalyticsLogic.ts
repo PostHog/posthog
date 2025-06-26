@@ -35,6 +35,7 @@ export type ExternalTable = {
     external_type: DataWarehouseSettingsTab
     source_map: SourceMap | null
     schema_name: string
+    dw_source_type: string
 }
 
 export type NativeSource = {
@@ -134,6 +135,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             external_type: tableType,
                             source_map: sourceMap,
                             schema_name: table.schema?.name || table.name,
+                            dw_source_type: tableType,
                         })
                     })
                 }

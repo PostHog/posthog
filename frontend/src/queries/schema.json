@@ -6410,6 +6410,9 @@
                         "distinct_id_field": {
                             "type": "string"
                         },
+                        "dw_source_type": {
+                            "type": "string"
+                        },
                         "fixedProperties": {
                             "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                             "items": {
@@ -8166,6 +8169,9 @@
                     "type": "string"
                 },
                 "distinct_id_field": {
+                    "type": "string"
+                },
+                "dw_source_type": {
                     "type": "string"
                 },
                 "fixedProperties": {
@@ -13973,7 +13979,7 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "properties", "select"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "MarketingAnalyticsTableQueryResponse": {

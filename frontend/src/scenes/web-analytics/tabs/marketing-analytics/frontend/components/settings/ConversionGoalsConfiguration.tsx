@@ -30,10 +30,14 @@ export function ConversionGoalsConfiguration(): JSX.Element {
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
 
     const handleAddConversionGoal = (): void => {
+        let conversionGoalName = formState.name.trim()
+        if (conversionGoalName === '') {
+            conversionGoalName = formState.filter.custom_name || formState.filter.name || 'No name'
+        }
         const newGoal: ConversionGoalFilter = {
             ...formState.filter,
             conversion_goal_id: formState.filter.conversion_goal_id || uuid(),
-            conversion_goal_name: formState.name.trim(),
+            conversion_goal_name: conversionGoalName,
         }
 
         addOrUpdateConversionGoal(newGoal)
@@ -62,7 +66,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
         removeConversionGoal(goalId)
     }
 
-    const isFormValid = formState.name.trim() !== '' && defaultConversionGoalFilter.name !== formState.filter.name
+    const isFormValid = defaultConversionGoalFilter.name !== formState.filter.name
 
     return (
         <div className="space-y-6">

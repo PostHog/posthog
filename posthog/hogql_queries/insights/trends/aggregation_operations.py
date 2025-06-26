@@ -173,12 +173,24 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 
-            # For DataWarehouse nodes we will use today's date as the timestamp to avoid
-            # the database's automatic toDateTime wrapping that causes parseDateTime64BestEffortOrNull issues
-            # for the timestamp field that are strings (self managed sources especially)
+            # For DataWarehouse nodes we have a timestamp field we need to use
+            # This timestamp data can be nullable, so we need to handle NULL values
+            # to avoid ClickHouse errors with dictGetOrDefault expecting non-nullable dates
             timestamp_expr: ast.Expr
             if isinstance(self.series, DataWarehouseNode):
-                timestamp_expr = ast.Call(name="today", args=[])
+                if self.series.dw_source_type == "self-managed":
+                    # The database's automatic toDateTime wrapping causes parseDateTime64BestEffortOrNull issues
+                    # for the timestamp field that are strings for self managed sources.
+                    # We use today's date as the timestamp to avoid this issue.
+                    timestamp_expr = ast.Call(name="today", args=[])
+                else:
+                    timestamp_expr = ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Field(chain=[self.series.timestamp_field]),
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                        ],
+                    )
             else:
                 # For events, timestamp is never null
                 timestamp_expr = ast.Field(chain=["timestamp"])

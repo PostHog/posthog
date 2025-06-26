@@ -6004,6 +6004,7 @@ class ConversionGoalFilter3(BaseModel):
     conversion_goal_name: str
     custom_name: Optional[str] = None
     distinct_id_field: str
+    dw_source_type: Optional[str] = None
     fixedProperties: Optional[
         list[
             Union[
@@ -6470,6 +6471,7 @@ class DataWarehouseNode(BaseModel):
     )
     custom_name: Optional[str] = None
     distinct_id_field: str
+    dw_source_type: Optional[str] = None
     fixedProperties: Optional[
         list[
             Union[
@@ -9698,7 +9700,9 @@ class MarketingAnalyticsTableQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[MarketingAnalyticsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
-    select: list[str] = Field(..., description="Return a limited set of data. Will use default columns if empty.")
+    select: Optional[list[str]] = Field(
+        default=None, description="Return a limited set of data. Will use default columns if empty."
+    )
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")

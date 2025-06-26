@@ -638,6 +638,7 @@ export interface DataWarehouseNode extends EntityNode {
     table_name: string
     timestamp_field: string
     distinct_id_field: string
+    dw_source_type?: string
 }
 
 export interface ActionsNode extends EntityNode {
@@ -3202,7 +3203,7 @@ export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
     kind: NodeKind.MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
-    select: HogQLExpression[]
+    select?: HogQLExpression[]
     /** Columns to order by - similar to EventsQuery format */
     orderBy?: string[]
     /** Number of rows to return */
