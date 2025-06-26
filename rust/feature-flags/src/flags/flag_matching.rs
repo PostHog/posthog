@@ -13,6 +13,7 @@ use crate::flags::flag_matching_utils::{
     set_feature_flag_hash_key_overrides, should_write_hash_key_override,
 };
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
+use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
@@ -433,8 +434,36 @@ impl FeatureFlagMatcher {
             .initialize_group_type_mappings_if_needed(&feature_flags)
             .await;
 
+        let flags_requiring_db_preparation = flags_require_db_preparation(
+            &feature_flags.flags,
+            person_property_overrides.as_ref().unwrap_or(&HashMap::new()),
+        );
+
+        let mut flag_details_map = HashMap::new();
+
+        if !flags_requiring_db_preparation.is_empty() {
+            if let Err(e) = self
+                .prepare_flag_evaluation_state(&flags_requiring_db_preparation)
+                .await
+            {
+                errors_while_computing_flags = true;
+                let reason = parse_exception_for_prometheus_label(&e);
+                flag_details_map.extend(
+                    flags_requiring_db_preparation
+                        .iter()
+                        .map(|flag| (flag.key.clone(), FlagDetails::create_error(flag, reason, None)))
+                );
+                error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
+            }
+        }
+
         // Evaluate all flags in the current level
-        let (flag_details_map, level_errors) = self
+        let (level_flag_details_map, level_errors) = self
             .evaluate_flags_in_level(
                 &feature_flags.flags,
                 &person_property_overrides,
@@ -443,6 +472,7 @@ impl FeatureFlagMatcher {
             )
             .await;
         errors_while_computing_flags |= level_errors;
+        flag_details_map.extend(level_flag_details_map);
 
         FlagsResponse {
             errors_while_computing_flags,
@@ -577,12 +607,11 @@ impl FeatureFlagMatcher {
                 // Handle database errors
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                for flag in &flags_needing_db_properties {
-                    flag_details_map.insert(
-                        flag.key.clone(),
-                        FlagDetails::create_error(flag, reason, None),
-                    );
-                }
+                flag_details_map.extend(
+                    flags_needing_db_properties
+                        .iter()
+                        .map(|flag| (flag.key.clone(), FlagDetails::create_error(flag, reason, None)))
+                );
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
