@@ -9587,7 +9587,7 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
-                "multiple_handling": {
+                "multiple_variant_handling": {
                     "enum": ["exclude", "first_seen"],
                     "type": "string"
                 }

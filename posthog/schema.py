@@ -1049,7 +1049,7 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class MultipleHandling(StrEnum):
+class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"
 
@@ -6679,7 +6679,7 @@ class ExperimentExposureCriteria(BaseModel):
     )
     exposure_config: Optional[ExperimentEventExposureConfig] = None
     filterTestAccounts: Optional[bool] = None
-    multiple_handling: Optional[MultipleHandling] = None
+    multiple_variant_handling: Optional[MultipleVariantHandling] = None
 
 
 class ExperimentExposureQuery(BaseModel):

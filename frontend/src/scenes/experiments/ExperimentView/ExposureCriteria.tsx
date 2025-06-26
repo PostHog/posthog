@@ -135,10 +135,10 @@ export function ExposureCriteriaModal(): JSX.Element {
             <div className="mb-4">
                 <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
                 <LemonSelect
-                    value={experiment.exposure_criteria?.multiple_handling || 'exclude'}
+                    value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
                     onChange={(value) => {
                         setExposureCriteria({
-                            multiple_handling: value as 'exclude' | 'first_seen',
+                            multiple_variant_handling: value as 'exclude' | 'first_seen',
                         })
                     }}
                     options={[
@@ -157,10 +157,10 @@ export function ExposureCriteriaModal(): JSX.Element {
                     fullWidth
                 />
                 <div className="text-xs text-muted mt-1">
-                    {experiment.exposure_criteria?.multiple_handling === 'first_seen' &&
+                    {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
                         'Users exposed to multiple variants will be analyzed using their first seen variant.'}
-                    {(!experiment.exposure_criteria?.multiple_handling ||
-                        experiment.exposure_criteria?.multiple_handling === 'exclude') &&
+                    {(!experiment.exposure_criteria?.multiple_variant_handling ||
+                        experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
                         'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
                 </div>
             </div>

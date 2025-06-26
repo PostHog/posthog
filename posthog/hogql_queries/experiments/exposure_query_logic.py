@@ -13,33 +13,35 @@ from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
-from posthog.schema import MultipleHandling
+from posthog.schema import MultipleVariantHandling
 
 
-def get_multiple_handling_from_experiment(experiment: Experiment) -> MultipleHandling:
+def get_multiple_variant_handling_from_experiment(experiment: Experiment) -> MultipleVariantHandling:
     """
     Determines how to handle entities exposed to multiple variants based on experiment configuration.
     """
-    if experiment.exposure_criteria and experiment.exposure_criteria.get("multiple_handling"):
-        return experiment.exposure_criteria.get("multiple_handling")
+    if experiment.exposure_criteria and experiment.exposure_criteria.get("multiple_variant_handling"):
+        return experiment.exposure_criteria.get("multiple_variant_handling")
     else:
         # Default to "exclude" if not specified (maintains backwards compatibility)
-        return MultipleHandling.EXCLUDE
+        return MultipleVariantHandling.EXCLUDE
 
 
-def get_variant_selection_expr(feature_flag_variant_property: str, multiple_handling: MultipleHandling) -> ast.Expr:
+def get_variant_selection_expr(
+    feature_flag_variant_property: str, multiple_variant_handling: MultipleVariantHandling
+) -> ast.Expr:
     """
-    Returns the appropriate variant selection expression based on multiple_handling configuration.
+    Returns the appropriate variant selection expression based on multiple_variant_handling configuration.
 
     Args:
         feature_flag_variant_property: The property name containing the variant value
-        multiple_handling: How to handle multiple exposures (EXCLUDE or FIRST_SEEN)
+        multiple_variant_handling: How to handle multiple exposures (EXCLUDE or FIRST_SEEN)
     """
     variant_property_field = ast.Field(chain=["properties", feature_flag_variant_property])
 
-    match multiple_handling:
-        case MultipleHandling.EXCLUDE:
-            # Current behavior: assign MULTIPLE_VARIANT_KEY when multiple variants detected
+    match multiple_variant_handling:
+        case MultipleVariantHandling.EXCLUDE:
+            # If more than 1 variant is seen, assign user to the MULTIPLE_VARIANT_KEY
             return parse_expr(
                 "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
                 placeholders={
@@ -47,7 +49,7 @@ def get_variant_selection_expr(feature_flag_variant_property: str, multiple_hand
                     "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
-        case MultipleHandling.FIRST_SEEN:
+        case MultipleVariantHandling.FIRST_SEEN:
             # Use variant from earliest exposure (minimum timestamp)
             return parse_expr(
                 "argMin({variant_property}, timestamp)",

@@ -34,7 +34,7 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     FunnelConversionWindowTimeUnit,
     LegacyExperimentQueryResponse,
-    MultipleHandling,
+    MultipleVariantHandling,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -2067,24 +2067,24 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         [
             [
                 "exclude",
-                MultipleHandling.EXCLUDE,
+                MultipleVariantHandling.EXCLUDE,
                 {"control_count": 1, "test_count": 1, "control_exposure": 1, "test_exposure": 1},
             ],
             [
                 "first_seen",
-                MultipleHandling.FIRST_SEEN,
+                MultipleVariantHandling.FIRST_SEEN,
                 {"control_count": 4, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
             ],
         ]
     )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_multiple_handling_options(self, name, multiple_handling, expected_results):
+    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
-        # Set the multiple_handling configuration
-        experiment.exposure_criteria = {"multiple_handling": multiple_handling}
+        # Set the multiple_variant_handling configuration
+        experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -2249,7 +2249,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
         )
 
-        # Verify the expected behavior based on multiple_handling setting
+        # Verify the expected behavior based on multiple_variant_handling setting
         self.assertEqual(
             control_variant.count, expected_results["control_count"], f"Control count mismatch for {name} handling"
         )

@@ -27,7 +27,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     build_common_exposure_conditions,
     get_entity_key,
     get_exposure_event_and_property,
-    get_multiple_handling_from_experiment,
+    get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
     get_variant_selection_expr,
 )
@@ -81,7 +81,7 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     IntervalType,
-    MultipleHandling,
+    MultipleVariantHandling,
 )
 
 
@@ -127,7 +127,7 @@ class ExperimentQueryRunner(QueryRunner):
                 self.stats_method = "bayesian"
 
         # Determine how to handle entities exposed to multiple variants
-        self.multiple_handling = get_multiple_handling_from_experiment(self.experiment)
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -228,7 +228,7 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(alias="entity_id", expr=ast.Field(chain=[self.entity_key])),
             ast.Alias(
                 alias="variant",
-                expr=get_variant_selection_expr(feature_flag_variant_property, self.multiple_handling),
+                expr=get_variant_selection_expr(feature_flag_variant_property, self.multiple_variant_handling),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -591,7 +591,7 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         # Remove the $multiple variant only when using exclude handling
-        if self.multiple_handling == MultipleHandling.EXCLUDE:
+        if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
             response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
