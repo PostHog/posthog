@@ -16,7 +16,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
     // When there are optional steps, indent all content to make room for the layout
     &.has-optional-steps {
         .funnel-step {
-            padding-left: $series_container_width + 1.5rem; // Extra space for optional step positioning
+            padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
         }
     }
 
@@ -28,6 +28,17 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             &,
             .funnel-series-container {
                 padding-top: 0.75rem;
+            }
+        }
+
+        // Optional step styling - make it translucent to indicate it's not a real funnel step
+        &.funnel-step--optional {
+            opacity: 0.6;
+
+            .funnel-step-title,
+            .funnel-bar-wrapper,
+            .funnel-conversion-metadata {
+                opacity: 0.8;
             }
         }
 

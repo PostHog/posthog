@@ -95,7 +95,6 @@ export function FunnelBarHorizontal({
                                     ) : (
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
-                                    {isOptional && <span className="text-xs text-muted ml-2">(optional)</span>}
                                 </div>
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
