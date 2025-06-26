@@ -141,44 +141,49 @@ class MaxTool(BaseTool):
         return self.root_system_prompt_template.format(**formatted_context)
 
 
-# Define the exact possible page keys for navigation. Extracted using the following Cursor prompt:
+# Define the exact possible page keys for navigation. Extracted using the following Claude Code prompt, tweaked manually:
 # "
-# List every key of the `frontend/src/products.tsx::productUrls` object, whose function takes either zero arguments,
-# or only optional arguments, of which the first is named `tab` (exactly `tab`, and it CAN be the only argument).
-# Exclude beta or alpha products. Exclude scenes about importing a file. Your only output should be a list of those
-# string keys in Python `Literal[..., ..., ...]` syntax. Once done, verify whether indeed each item of the output
-# satisfies the argument criterion.
+# List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
+# whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
+# Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
+# Your only output should be a list of those string keys in Python `Literal[..., ..., ...]` syntax.
+# Once done, verify whether indeed each item of the output satisfies the criteria.
 # "
 PageKeyLiterals = Literal[
     "createAction",
     "actions",
     "cohorts",
-    "dashboards",
-    "earlyAccessFeatures",
-    "errorTrackingConfiguration",
-    "experiments",
-    "experimentsSharedMetrics",
-    "game368hedgehogs",
-    "managedMigration",
-    "managedMigrationNew",
-    "messagingCampaignNew",
-    "messagingLibraryTemplateNew",
-    "notebooks",
-    "persons",
+    "projectHomepage",
+    "max",
+    "settings",
+    "eventDefinitions",
+    "propertyDefinitions",
+    "database",
+    "activity",
+    "ingestionWarnings",
     "insights",
-    "alerts",
-    "revenueAnalytics",
-    "surveyTemplates",
+    "insightNew",
+    "savedInsights",
     "webAnalytics",
     "webAnalyticsWebVitals",
-    "webAnalyticsPageReports",
-    "webAnalyticsMarketing",
+    "alerts",
+    "dashboards",
+    "experiments",
     "featureFlags",
-    "savedInsights",
     "surveys",
+    "surveyTemplates",
     "replay",
+    "replaySettings",
+    "pipeline",
     "sqlEditor",
-    "insightNew",
+    "annotations",
+    "heatmaps",
+    "earlyAccessFeatures",
+    "errorTracking",
+    "game368hedgehogs",
+    "notebooks",
+    "persons",
+    "toolbarLaunch",
 ]
 
 
