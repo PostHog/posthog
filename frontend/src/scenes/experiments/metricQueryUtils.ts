@@ -83,7 +83,7 @@ export const getExperimentDateRange = (experiment: Experiment): DateRange => {
 /**
  * returns the math properties for the source
  */
-const getMathProperties = (source: ExperimentMetricSource): MathProperties =>
+export const getMathProperties = (source: ExperimentMetricSource): MathProperties =>
     match(source)
         .with({ math: ExperimentMetricMathType.Sum }, ({ math, math_property }) => ({
             math,
@@ -290,26 +290,30 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
         }))
 }
 
-export const getEventNode = (event: EventConfig): EventsNode | ActionsNode => {
+export const getEventNode = (
+    event: EventConfig,
+    options?: { mathProps?: MathProperties }
+): EventsNode | ActionsNode => {
     return match(event)
         .with({ entityType: TaxonomicFilterGroupType.Events }, (event) => {
             return {
-                kind: NodeKind.EventsNode,
+                kind: NodeKind.EventsNode as const,
                 name: event.name,
                 event: event.event,
                 properties: event.properties,
+                ...options?.mathProps,
             }
         })
         .with({ entityType: TaxonomicFilterGroupType.Actions }, (action) => {
             return {
-                kind: NodeKind.ActionsNode,
-                id: action.event,
+                kind: NodeKind.ActionsNode as const,
+                id: parseInt(action.event, 10) || 0,
                 name: action.name,
+                properties: action.properties,
+                ...options?.mathProps,
             }
         })
-        .otherwise(() => {
-            throw new Error('Invalid event config')
-        })
+        .exhaustive()
 }
 
 export const getExposureConfigEventsNode = (
@@ -349,8 +353,13 @@ export const getExposureConfigEventsNode = (
     }
 }
 
+/**
+ * we can only add exposure to funnel metrics, that have a series.
+ * we may want to add exposure at this stage to process all items in the series
+ * together, or make sense sematically
+ */
 export const addExposureToMetric =
-    (exposureEvent: EventsNode) =>
+    (exposureEvent: EventsNode | ActionsNode) =>
     (metric: ExperimentMetric): ExperimentMetric =>
         match(metric)
             .with({ metric_type: ExperimentMetricType.FUNNEL }, (funnelMetric) => {
@@ -363,6 +372,20 @@ export const addExposureToMetric =
                 }
             })
             .otherwise(() => metric)
+
+/**
+ * unlike metrics, both Funnels and Trends queries have a series property,
+ * so we can add the exposure event to the series.
+ */
+export const addExposureToQuery =
+    (exposureEvent: EventsNode | ActionsNode) =>
+    (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
+        query
+            ? {
+                  ...query,
+                  series: [exposureEvent, ...query.series],
+              }
+            : undefined
 
 type InsightVizNodeOptions = {
     showTable: boolean

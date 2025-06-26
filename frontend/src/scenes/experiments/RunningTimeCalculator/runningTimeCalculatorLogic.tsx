@@ -3,7 +3,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
-
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
@@ -14,14 +13,20 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, Experiment, ExperimentMetricMathType, FunnelVizType } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    CountPerActorMathType,
+    Experiment,
+    ExperimentMetricMathType,
+    FunnelVizType,
+} from '~/types'
 
 import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
-import { getFunnelQuery, getSumQuery, getTotalCountQuery } from './metricQueryUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 import {
-    addExposureToMetric,
+    addExposureToQuery,
     compose,
     getDefaultDateRange,
     getEventNode,
@@ -74,6 +79,28 @@ const defaultExposureEstimateConfig: ExposureEstimateConfig = {
     uniqueUsers: null,
 }
 
+const applyMathTrendsQuery =
+    (metric: ExperimentMetric) =>
+    (query: TrendsQuery | FunnelsQuery | undefined): TrendsQuery | FunnelsQuery | undefined => {
+        if (!query) {
+            return undefined
+        }
+
+        if (metric.metric_type === ExperimentMetricType.MEAN) {
+            return {
+                ...query,
+                series: [
+                    ...query.series.slice(0, -1)!,
+                    {
+                        ...query.series.at(-1)!,
+                        math: CountPerActorMathType.Average,
+                    },
+                ],
+            }
+        }
+        return query
+    }
+
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
@@ -123,55 +150,52 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
-                const query =
-                    metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? getTotalCountQuery(
-                              metric,
-                              values.experiment,
-                              values.exposureEstimateConfig?.eventFilter ?? null
-                          )
-                        : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.source.math === ExperimentMetricMathType.Sum
-                        ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
-                        : getFunnelQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
-
-                console.log('values.exposureEstimateConfig?.eventFilter', values.exposureEstimateConfig?.eventFilter)
-                console.log('query', query)
-
+                /**
+                 * we get the event filter from the exposure estimate config, or use
+                 * $pageview as the default.
+                 */
                 const eventFilter = values.exposureEstimateConfig?.eventFilter ?? {
                     event: '$pageview',
                     name: '$pageview',
                     properties: [],
                     entityType: TaxonomicFilterGroupType.Events,
                 }
-
-                // const queryBuilder = compose<
-                //     ExperimentMetric,
-                //     ExperimentMetric,
-                //     FunnelsQuery | TrendsQuery | undefined
-                // >(
-                //     getQuery({
-                //         filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
-                //         dateRange: getDefaultDateRange(),
-                //         funnelsFilter: {
-                //             funnelVizType: FunnelVizType.Steps,
-                //         },
-                //     })
-                // )
-
-                const queryBuilder = getQuery({
-                    filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
-                    dateRange: getDefaultDateRange(),
-                    funnelsFilter: {
-                        funnelVizType: FunnelVizType.Steps,
+                /**
+                 * we create the exposure event node and add math properties to it
+                 */
+                const exposureEventNode = getEventNode(eventFilter, {
+                    mathProps: {
+                        math: BaseMathType.UniqueUsers,
                     },
                 })
 
-                const newQuery = queryBuilder(metric)
+                /**
+                 * let's compose a query builder that will take a metric and return a query
+                 * with all the options we need for running time calculations.
+                 */
+                const queryBuilder = compose<
+                    ExperimentMetric,
+                    FunnelsQuery | TrendsQuery | undefined,
+                    FunnelsQuery | TrendsQuery | undefined,
+                    FunnelsQuery | TrendsQuery | undefined
+                >(
+                    getQuery({
+                        filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
+                        dateRange: getDefaultDateRange(),
+                        funnelsFilter: {
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                        trendsFilter: {},
+                    }),
+                    addExposureToQuery(exposureEventNode),
+                    applyMathTrendsQuery(metric)
+                )
 
-                console.log('eventFilter', eventFilter, getEventNode(eventFilter))
-                console.log('newQuery', newQuery)
+                const query = queryBuilder(metric)
+
+                if (!query) {
+                    return null
+                }
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
