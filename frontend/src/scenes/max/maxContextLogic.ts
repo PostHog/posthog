@@ -21,10 +21,10 @@ import {
 } from './maxTypes'
 
 // Type definitions for better reusability
-type TaxonomicItem = DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
+export type TaxonomicItem = DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
 
-type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
-type InsightItemInfo = { id: InsightShortId; preloaded: QueryBasedInsightModel | null }
+export type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
+export type InsightItemInfo = { id: InsightShortId; preloaded: QueryBasedInsightModel | null }
 
 type EntityWithId = { id: string | number }
 
