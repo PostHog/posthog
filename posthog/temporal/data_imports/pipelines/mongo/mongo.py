@@ -22,6 +22,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
 
+DEFAULT_BATCH_SIZE = 5000
+
 
 @config.config
 class MongoSourceConfig(config.Config):
@@ -366,7 +368,7 @@ def mongo_source(
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
-            cursor = read_collection.find({})
+            cursor = read_collection.find({}, batch_size=DEFAULT_BATCH_SIZE)
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
