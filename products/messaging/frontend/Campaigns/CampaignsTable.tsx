@@ -7,6 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { campaignsLogic } from './campaignsLogic'
 import { HogFlow } from './hogflows/types'
+import { LemonTag } from '@posthog/lemon-ui'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export function CampaignsTable(): JSX.Element {
     useMountedLogic(campaignsLogic)
@@ -19,6 +21,16 @@ export function CampaignsTable(): JSX.Element {
             render: (_, item) => {
                 return (
                     <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} description={item.status} />
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: (_, item) => {
+                return (
+                    <LemonTag type={item.status === 'active' ? 'success' : 'default'}>
+                        {capitalizeFirstLetter(item.status)}
+                    </LemonTag>
                 )
             },
         },
