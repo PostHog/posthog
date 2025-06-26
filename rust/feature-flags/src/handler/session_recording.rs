@@ -113,7 +113,13 @@ pub fn session_recording_config_response(
         event_triggers: team
             .session_recording_event_trigger_config
             .as_ref()
-            .map(|vec| Value::Array(vec.iter().map(|s| Value::String(s.clone())).collect())),
+            .map(|vec| {
+                Value::Array(
+                    vec.iter()
+                        .filter_map(|s| s.as_ref().map(|s| Value::String(s.clone())))
+                        .collect(),
+                )
+            }),
         trigger_match_type: team
             .session_recording_trigger_match_type_config
             .as_ref()
@@ -215,5 +221,39 @@ mod tests {
 
         // Empty domains list should allow recording (return false)
         assert!(!session_recording_domain_not_allowed(&team, &headers));
+    }
+
+    #[test]
+    fn test_event_triggers_with_null_elements() {
+        use crate::config::Config;
+        use axum::http::HeaderMap;
+
+        let mut team = Team::default();
+        team.session_recording_opt_in = true;
+        // Simulate database array with NULL elements: {NULL, "valid_event", NULL, "another_event"}
+        team.session_recording_event_trigger_config = Some(vec![
+            None,
+            Some("valid_event".to_string()),
+            None,
+            Some("another_event".to_string()),
+        ]);
+
+        let headers = HeaderMap::new();
+        let config = Config::default_test_config();
+
+        let result = session_recording_config_response(&team, &headers, &config);
+
+        if let Some(SessionRecordingField::Config(config)) = result {
+            if let Some(Value::Array(triggers)) = config.event_triggers {
+                // Should only contain the non-NULL values
+                assert_eq!(triggers.len(), 2);
+                assert_eq!(triggers[0], Value::String("valid_event".to_string()));
+                assert_eq!(triggers[1], Value::String("another_event".to_string()));
+            } else {
+                panic!("Expected event_triggers to be Some(Array)");
+            }
+        } else {
+            panic!("Expected SessionRecordingField::Config");
+        }
     }
 }
