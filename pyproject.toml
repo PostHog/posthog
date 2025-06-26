@@ -88,6 +88,7 @@ dependencies = [
     "pyarrow==18.1.0",
     "pydantic==2.10.3",
     "pyjwt==2.4.0",
+    "pympler==1.1",
     "pymssql==2.3.1",
     "pymysql==1.1.1",
     "pyodbc==5.1.0",
