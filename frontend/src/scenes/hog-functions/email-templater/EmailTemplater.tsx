@@ -11,11 +11,12 @@ import EmailEditor from 'react-email-editor'
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 
 function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
-    const { logicProps, appliedTemplate, templates, templatesLoading, mergeTags } = useValues(emailTemplaterLogic)
+    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
+        useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
+    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
         <>
@@ -82,6 +83,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                                 imageEditor: true,
                                 stockImages: false,
                             },
+                            projectId: unlayerEditorProjectId,
                         }}
                     />
                 ) : (

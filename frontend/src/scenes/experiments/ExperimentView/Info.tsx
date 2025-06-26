@@ -1,6 +1,5 @@
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,6 +15,7 @@ import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
+import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
@@ -24,22 +24,20 @@ export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
-        legacyMetricResults,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
-        isDescriptionModalOpen,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
         isExperimentDraft,
     } = useValues(experimentLogic)
-    const {
-        updateExperiment,
-        refreshExperimentResults,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openEditConclusionModal,
-        openStatsEngineModal,
-    } = useActions(experimentLogic)
+    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
+        useActions(modalsLogic)
+    const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
@@ -53,7 +51,13 @@ export function Info(): JSX.Element {
         return <></>
     }
 
-    const lastRefresh = legacyMetricResults?.[0]?.last_refresh
+    // Get the last refresh timestamp from either legacy or new results format
+    // Check both primary and secondary metrics for the most recent timestamp
+    const lastRefresh =
+        legacyPrimaryMetricsResults?.[0]?.last_refresh ||
+        legacySecondaryMetricsResults?.[0]?.last_refresh ||
+        primaryMetricsResults?.[0]?.last_refresh ||
+        secondaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -140,7 +144,7 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                        {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
                                             ? dayjs(lastRefresh).fromNow()

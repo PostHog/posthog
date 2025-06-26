@@ -371,7 +371,7 @@ def test_should_partition_table_with_table_and_key():
     to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
 
     schema_mock = MagicMock()
-    schema_mock.to_arrow = MagicMock(return_value=to_pyarrow_mock)
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
 
     delta_table.schema = MagicMock(return_value=schema_mock)
 
@@ -398,3 +398,23 @@ def test_normalize_table_column_names_prevents_collisions():
     assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
     assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
     assert normalized_table.column("another_field").to_pylist() == ["value3"]
+
+
+def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
+    # Very restrictive type, and the large_decimal value is too large for the schema
+    schema = pa.schema({"column": pa.decimal128(5, 1)})
+    large_decimal = decimal.Decimal("12345.6789")
+
+    table = table_from_py_list([{"column": large_decimal}], schema)
+
+    expected_schema = pa.schema([pa.field("column", pa.decimal128(38, 32))])
+    assert table.equals(
+        pa.table(
+            {
+                "column": pa.array(
+                    [decimal.Decimal("12345.67890000000000000000000000000000")], type=pa.decimal128(38, 32)
+                )
+            }
+        )
+    )
+    assert table.schema.equals(expected_schema)

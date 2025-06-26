@@ -86,7 +86,7 @@ const sourceFieldToElement = (
                     const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
                     return (
                         <>
-                            {!!field.caption && <p>{field.caption}</p>}
+                            {!!field.caption && <p className="mb-0">{field.caption}</p>}
                             <LemonSwitch checked={isEnabled} onChange={onChange} />
                             {isEnabled && (
                                 <Group name={field.name}>
@@ -161,6 +161,7 @@ const sourceFieldToElement = (
                         sourceConfig={sourceConfig}
                         value={value}
                         onChange={onChange}
+                        integration={field.kind}
                     />
                 )}
             </LemonField>

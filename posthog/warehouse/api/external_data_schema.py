@@ -18,6 +18,13 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
     get_schemas as get_bigquery_schemas,
 )
 from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+    GoogleSheetsServiceAccountSourceConfig,
+    get_schema_incremental_fields as get_google_schema_incremental_fields,
+)
+from posthog.temporal.data_imports.pipelines.google_ads import (
+    get_incremental_fields as get_google_ads_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -367,9 +374,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
+        elif source.source_type == ExternalDataSource.Type.GOOGLEADS:
+            incremental_fields = get_google_ads_incremental_fields()
+            matching_fields = incremental_fields.get(instance.name, None)
+            if matching_fields is None:
+                incremental_columns = []
+            else:
+                incremental_columns = [
+                    {"field": field_name, "field_type": field_type, "label": field_name, "type": field_type}
+                    for field_name, field_type in matching_fields
+                ]
         elif source.source_type == ExternalDataSource.Type.DOIT:
             incremental_columns = DOIT_INCREMENTAL_FIELDS
-
+        elif source.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            incremental_columns = get_google_schema_incremental_fields(
+                GoogleSheetsServiceAccountSourceConfig.from_dict(source.job_inputs), instance.name
+            )
         else:
             mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
             if mapping is None:
@@ -381,4 +401,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
             incremental_columns = mapping_fields
 
-        return Response(status=status.HTTP_200_OK, data=incremental_columns)
+        data = {
+            "incremental_fields": incremental_columns,
+            "incremental_available": len(incremental_columns) > 0
+            and source.source_type != ExternalDataSource.Type.STRIPE,
+            "append_available": len(incremental_columns) > 0,
+            "full_refresh_available": True,
+        }
+
+        return Response(status=status.HTTP_200_OK, data=data)

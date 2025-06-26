@@ -294,10 +294,19 @@ export type AnyResponseType =
     | LogsQueryResponse
     | Partial<QueryBasedInsightModel>
 
+/** Tags that will be added to the Query log comment  **/
+export interface QueryLogTags {
+    /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene **/
+    scene?: string
+    /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product **/
+    productKey?: string
+}
+
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    tags?: QueryLogTags
 }
 
 /** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
@@ -986,6 +995,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
@@ -2222,9 +2233,10 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentEventExposureConfig
+    multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
-export interface ExperimentEventExposureConfig {
+export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
@@ -2235,7 +2247,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
 }
 
-export type ExperimentMetricBaseProperties = {
+export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     name?: string
     conversion_window?: integer
@@ -3235,7 +3247,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
 }
 
 export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters

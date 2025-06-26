@@ -99,6 +99,10 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
+    flush(): Promise<void> {
+        return Promise.resolve()
+    }
+
     reportBatch(): void {
         for (const [_, methodCounts] of this.methodCountsPerDistinctId.entries()) {
             for (const [method, count] of methodCounts.entries()) {
@@ -226,32 +230,12 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         )
     }
 
-    async updatePersonWithPropertiesDiffForUpdate(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        return this.updatePersonWithPropertiesDiff(
-            person,
-            propertiesToSet,
-            propertiesToUnset,
-            otherUpdates,
-            tx,
-            'updatePersonWithPropertiesDiffForUpdate',
-            'forUpdate',
-            distinctId
-        )
-    }
-
     async updatePersonForUpdate(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return this.updatePerson(person, update, tx, 'updatePersonForUpdate', 'forUpdate', distinctId)
     }
 
@@ -260,35 +244,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         update: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
-    }
-
-    private async updatePersonWithPropertiesDiff(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        tx: TransactionClient | undefined,
-        methodName: MethodName,
-        updateType: UpdateType,
-        distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        this.incrementCount(methodName, distinctId)
-        this.clearCache()
-        this.incrementDatabaseOperation(methodName, distinctId)
-        const start = performance.now()
-        const response = await this.db.updatePersonWithMergeOperator(
-            person,
-            propertiesToSet,
-            propertiesToUnset,
-            otherUpdates,
-            tx,
-            updateType
-        )
-        this.recordUpdateLatency(updateType, (performance.now() - start) / 1000, distinctId)
-        observeLatencyByVersion(person, start, methodName)
-        return response
     }
 
     private async updatePerson(
@@ -298,12 +255,12 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         methodName: MethodName,
         updateType: UpdateType,
         distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         this.incrementCount(methodName, distinctId)
         this.clearCache()
         this.incrementDatabaseOperation(methodName, distinctId)
         const start = performance.now()
-        const response = await this.db.updatePersonDeprecated(person, update, tx, updateType)
+        const response = await this.db.updatePerson(person, update, tx, updateType)
         this.recordUpdateLatency(updateType, (performance.now() - start) / 1000, distinctId)
         observeLatencyByVersion(person, start, methodName)
         return response

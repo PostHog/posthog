@@ -153,6 +153,23 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
+export function elementIsVisible(element: HTMLElement): boolean {
+    try {
+        const style = window.getComputedStyle(element)
+        return (
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            parseFloat(style.opacity) !== 0 &&
+            style.height !== '0px' &&
+            style.width !== '0px' &&
+            (element.parentElement ? elementIsVisible(element.parentElement) : true)
+        )
+    } catch {
+        // if we can't get the computed style, we'll assume the element is visible
+        return true
+    }
+}
+
 export function getAllClickTargets(
     startNode: Document | HTMLElement | ShadowRoot = document,
     selector?: string
@@ -174,16 +191,16 @@ export function getAllClickTargets(
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
-        .reduce((a, b) => [...a, ...b], [])
+        .reduce((a, b) => {
+            a.push(...b)
+            return a
+        }, [] as HTMLElement[])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
         .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
-    return uniqueElements.filter((element) => {
-        const style = window.getComputedStyle(element)
-        return style.display !== 'none' && style.visibility !== 'hidden'
-    })
+    return uniqueElements.filter(elementIsVisible)
 }
 
 export function stepMatchesHref(step: ActionStepType, href: string): boolean {

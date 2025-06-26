@@ -26,6 +26,7 @@ import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
 import { generateViolinPath } from './violinUtils'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -507,17 +508,18 @@ export function DeltaChart({
     const {
         experimentId,
         experiment,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const { openVariantDeltaTimeseriesModal, duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal } = useActions(modalsLogic)
 
     // Loading state
-    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+    const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
     // Chart dimensions
     const dimensions = useChartDimensions(variants)

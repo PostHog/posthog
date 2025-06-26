@@ -1733,7 +1733,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1741,7 +1741,7 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
 }

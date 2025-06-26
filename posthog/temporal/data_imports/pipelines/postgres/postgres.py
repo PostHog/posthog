@@ -115,7 +115,7 @@ class RangeAsStringLoader(Loader):
 def _build_query(
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
@@ -123,7 +123,7 @@ def _build_query(
 ) -> sql.Composed:
     query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
-    if not is_incremental:
+    if not should_use_incremental_field:
         if add_limit:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
             return sql.SQL(query_with_limit).format()
@@ -436,7 +436,7 @@ def postgres_source(
     sslmode: str,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     team_id: Optional[int] = None,
@@ -463,7 +463,7 @@ def postgres_source(
             inner_query_with_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -473,7 +473,7 @@ def postgres_source(
             inner_query_without_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -488,7 +488,9 @@ def postgres_source(
                 table = _get_table(cursor, schema, table_name)
                 chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                )
                 has_duplicate_primary_keys = False
 
                 # Fallback on checking for an `id` field on the table
@@ -496,7 +498,7 @@ def postgres_source(
                     primary_keys = ["id"]
                     has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
             except psycopg.errors.QueryCanceled:
-                if is_incremental:
+                if should_use_incremental_field:
                     raise QueryTimeoutException(
                         f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
                     )
@@ -533,7 +535,7 @@ def postgres_source(
                 query = _build_query(
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

@@ -41,9 +41,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
             <PopoverPrimitiveTrigger asChild>
-                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button">
+                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button" className="flex-1 min-w-0 max-w-fit">
                     <IconFolderOpen className="text-tertiary" />
-                    Project
+                    <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
                     <IconChevronRight
                         className={`
                         size-3 
@@ -63,7 +63,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             >
                 <Combobox>
                     <Combobox.Search placeholder="Search projects..." />
-                    <Combobox.Content className="max-h-[300px]">
+                    <Combobox.Content className="max-h-[calc(90vh-100px)]">
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>
