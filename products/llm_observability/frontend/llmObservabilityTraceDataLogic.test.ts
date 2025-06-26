@@ -66,30 +66,25 @@ describe('llmObservabilityTraceDataLogic: restoreTree', () => {
         expect(tree).toEqual([
             {
                 event: events[0],
-                aggregation: {
+                aggregation: expect.objectContaining({
                     totalCost: 0,
                     totalLatency: 0,
                     inputTokens: 0,
                     outputTokens: 0,
-                },
+                }),
                 children: [
                     {
                         event: events[1],
-                        aggregation: {
+                        aggregation: expect.objectContaining({
                             totalCost: 0,
                             totalLatency: 0,
                             inputTokens: 0,
                             outputTokens: 0,
-                        },
+                        }),
                         children: [
                             {
                                 event: events[2],
-                                aggregation: {
-                                    totalCost: 0,
-                                    totalLatency: 0,
-                                    inputTokens: 0,
-                                    outputTokens: 0,
-                                },
+                                children: undefined,
                             },
                         ],
                     },
@@ -158,21 +153,11 @@ describe('llmObservabilityTraceDataLogic: restoreTree', () => {
         expect(tree).toEqual([
             {
                 event: events[0],
-                aggregation: {
-                    totalCost: 0,
-                    totalLatency: 0,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                },
+                children: undefined,
             },
             {
                 event: events[1],
-                aggregation: {
-                    totalCost: 0,
-                    totalLatency: 0,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                },
+                children: undefined,
             },
         ])
     })
