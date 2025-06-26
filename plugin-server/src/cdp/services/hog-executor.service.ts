@@ -4,6 +4,9 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
 
+import { fetch, FetchOptions } from '~/utils/request'
+import { tryCatch } from '~/utils/try-catch'
+
 import { buildIntegerMatcher } from '../../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -26,6 +29,7 @@ import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
+import { cdpHttpRequests } from './fetch-executor.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -639,7 +643,8 @@ export class HogExecutorService {
         invocation: CyclotronJobInvocationHogFunction,
         maxAsyncFunctions: number
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const asyncFunctionCount = 0
+        let asyncFunctionCount = 0
+
         const finalResult = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'hog',
         })
@@ -650,90 +655,93 @@ export class HogExecutorService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queueParameters?.type === 'fetch') {
-                // Indicates the next thing to be done is a fetch request
+                asyncFunctionCount++
 
-                // TODO: Replace with actual fetch call
-                const fetchResponse = {
-                    body: '{"message": "Hello, world!"}',
-                    isRetriable: true,
-                    status: 200,
-                    duration_ms: 100,
+                if (asyncFunctionCount > maxAsyncFunctions) {
+                    logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
+
+                    // TODO: Check if this is correct?
+                    break
                 }
 
-                if (fetchResponse.status >= 400) {
-                    finalResult.logs.push({
-                        level: 'warn',
-                        timestamp: DateTime.now(),
-                        message: `HTTP fetch failed with status code ${fetchResponse.status ?? '(none)'}`,
-                    })
-                }
-
-                nextInvocation.state.timings.push({
-                    kind: 'async_function',
-                    duration_ms: fetchResponse.duration_ms,
-                })
-
-                // TODO: Early break with retry if necessary here...
-
-                const hogVmResponse: {
-                    status: number
-                    body: unknown
-                } = {
-                    status: fetchResponse.status,
-                    body: fetchResponse.body,
-                }
-
-                if (typeof hogVmResponse.body === 'string') {
-                    try {
-                        hogVmResponse.body = parseJSON(hogVmResponse.body)
-                    } catch (e) {
-                        // pass - if it isn't json we just pass it on
-                    }
-                }
-
-                // Finally we create the response object as the VM expects
-                nextInvocation.state.vmState!.stack.push(hogVmResponse)
+                result = await this.executeFetch(nextInvocation)
+            } else {
+                result = this.execute(nextInvocation)
             }
 
-            result = this.execute(nextInvocation)
+            if (result.finished || result.invocation.queueScheduledAt) {
+                break
+            }
+
             await new Promise((resolve) => process.nextTick(resolve))
 
-            // if (nextInvocation.queue === 'hog') {
-            //     result = this.execute(nextInvocation)
-            //     // Heartbeat and free the event loop to handle health checks
-            //     this.heartbeat()
-            //     await new Promise((resolve) => process.nextTick(resolve))
-            // } else if (nextInvocation.queue === 'fetch') {
-            //     // Fetch requests we only perform if we haven't already performed one
-            //     if (result && performedAsyncRequest) {
-            //         // if we have performed an async request already then we break the loop and return the result
-            //         break
-            //     }
-            //     result = (await this.fetchExecutor.execute(
-            //         nextInvocation
-            //     )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-            //     performedAsyncRequest = true
-            // } else {
-            //     throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
-            // }
-
-            // result?.logs?.forEach((log) => {
-            //     logs.push(log)
-            // })
-            // result?.metrics?.forEach((metric) => {
-            //     metrics.push(metric)
-            // })
-
-            // if (!result?.finished && result?.invocation.queueScheduledAt) {
-            //     // If the invocation is scheduled to run later then we break the loop and return the result for it to be queued
-            //     break
-            // }
+            finalResult.logs = [...finalResult.logs, ...result.logs]
+            finalResult.metrics = [...finalResult.metrics, ...result.metrics]
         }
 
-        finalResult.logs = [...finalResult.logs, ...result.logs]
-        finalResult.metrics = [...finalResult.metrics, ...result.metrics]
-
         return finalResult
+    }
+
+    async executeFetch(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        if (invocation.queueParameters?.type !== 'fetch') {
+            throw new Error('Bad invocation')
+        }
+
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
+            queue: 'hog',
+        })
+
+        const start = performance.now()
+        const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
+        const method = params.method.toUpperCase()
+        const fetchParams: FetchOptions = {
+            method,
+            headers: params.headers,
+            timeoutMs: this.config.CDP_FETCH_TIMEOUT_MS,
+        }
+        if (!['GET', 'HEAD'].includes(method) && params.body) {
+            fetchParams.body = params.body
+        }
+
+        const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
+        const duration = performance.now() - start
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
+
+        result.invocation.state.timings.push({
+            kind: 'async_function',
+            duration_ms: duration,
+        })
+
+        if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
+            result.logs.push({
+                level: 'warn',
+                timestamp: DateTime.now(),
+                message: `HTTP fetch failed with status code ${fetchResponse?.status ?? '(none)'}`,
+            })
+        }
+
+        // TODO: Early break with retry if necessary here...
+
+        const hogVmResponse: {
+            status: number
+            body: unknown
+        } = {
+            status: fetchResponse.status,
+            body: fetchResponse.body,
+        }
+
+        if (typeof hogVmResponse.body === 'string') {
+            try {
+                hogVmResponse.body = parseJSON(hogVmResponse.body)
+            } catch (e) {
+                // pass - if it isn't json we just pass it on
+            }
+        }
+
+        // Finally we create the response object as the VM expects
+        nextInvocation.state.vmState!.stack.push(hogVmResponse)
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {

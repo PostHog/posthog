@@ -14,7 +14,7 @@ import {
 } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 
-const cdpHttpRequests = new Counter({
+export const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
     labelNames: ['status'],
