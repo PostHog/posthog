@@ -19,11 +19,11 @@ from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, Web
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+from posthog.hogql.database.schema.web_analytics_s3 import (
+    get_s3_url,
+    get_s3_web_stats_structure,
+    get_s3_web_bounces_structure,
+    get_s3_function_args,
 )
 
 
@@ -110,28 +110,24 @@ def stats_hourly_has_data() -> AssetCheckResult:
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
-        # Get the export path - follow same pattern as export_web_analytics_data
-        if DEBUG:
-            # For local development, use Minio with s3() function for proper authentication
-            s3_endpoint = "http://objectstorage:19000"
-            bucket = "posthog"
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+        export_filename = f"{export_type}_export.native"
+        export_path = get_s3_url(table_name=export_filename)
+
+        if export_type == "web_stats_daily":
+            table_structure = get_s3_web_stats_structure().strip()
+        elif export_type == "web_bounces_daily":
+            table_structure = get_s3_web_bounces_structure().strip()
         else:
-            # For production, use S3 URL (same pattern as export method)
-            s3_endpoint = "https://s3.amazonaws.com"
-            bucket = DAGSTER_DATA_EXPORT_S3_BUCKET
-            key = f"{OBJECT_STORAGE_PREAGGREGATED_WEB_ANALYTICS_FOLDER}/{export_type}_export.native"
+            raise ValueError(f"Unknown export type: {export_type}")
 
         try:
-            # Try to query the export file with chdb using s3() function for proper AWS auth
-            s3_query = f"SELECT COUNT(*) as row_count FROM s3('{s3_endpoint}/{bucket}/{key}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native')"
+            s3_function_args = get_s3_function_args(export_path)
+            s3_query = f"SELECT COUNT(*) as row_count FROM s3({s3_function_args}, '{table_structure}')"
             result = chdb.query(s3_query)
             row_count = int(result.data().strip()) if result.data().strip().isdigit() else 0
 
             passed = row_count > 0
             env_type = "Minio" if DEBUG else "S3"
-
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
             logger.info(log_event_name, export_path=export_path, row_count=row_count, queryable=True, env=env_type)
 
             return AssetCheckResult(
@@ -154,7 +150,6 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # File doesn't exist yet - this is expected for new exports
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             logger.info(
                 log_event_name, export_path=export_path, status="file_not_found", error=error_msg[:100], env=env_type
@@ -165,7 +160,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
                 description=f"Export file not found on {env_type} - may not have been created yet",
                 metadata={
                     "export_path": MetadataValue.text(export_path),
-                    "error": MetadataValue.text(error_msg[:200]),
+                    "error": MetadataValue.text(error_msg),
                     "export_type": MetadataValue.text(export_type),
                     "status": MetadataValue.text("file_not_found"),
                     "environment": MetadataValue.text(env_type),
@@ -175,11 +170,10 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # Handle parsing/format issues
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             if "table structure cannot be extracted" in error_msg.lower():
                 status = "format_issue"
-                description = f"Export file exists on {env_type} but chdb cannot determine structure - this is expected for Native format"
+                description = f"Export file exists on {env_type} but chdb cannot determine structure - this should not happen with explicit structure"
             else:
                 status = "parse_error"
                 description = f"Error parsing export file on {env_type}: {error_msg}"
@@ -201,7 +195,6 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
             # Handle other unexpected errors
             error_msg = str(e)
             env_type = "Minio" if DEBUG else "S3"
-            export_path = f"{s3_endpoint}/{bucket}/{key}"
 
             # Check for common ClickHouse/S3 errors
             if "CANNOT_STAT" in error_msg or "Cannot stat file" in error_msg:
@@ -221,7 +214,7 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
                 description=description,
                 metadata={
                     "export_path": MetadataValue.text(export_path),
-                    "error": MetadataValue.text(error_msg[:200]),
+                    "error": MetadataValue.text(error_msg),
                     "export_type": MetadataValue.text(export_type),
                     "status": MetadataValue.text(status),
                     "environment": MetadataValue.text(env_type),

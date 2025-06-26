@@ -126,8 +126,15 @@ export class TemplateTester {
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
+        // Don't compile inputs that don't suppport templating
         const compiledEntries = await Promise.all(
-            Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
+            Object.entries(allInputs).map(async ([key, value]) => {
+                const schema = this.template.inputs_schema.find((input) => input.key === key)
+                if (schema?.templating === false) {
+                    return [key, value]
+                }
+                return [key, await this.compileObject(value)]
+            })
         )
 
         return compiledEntries.reduce((acc, [key, value]) => {

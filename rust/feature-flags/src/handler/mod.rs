@@ -10,11 +10,13 @@ pub mod properties;
 pub mod session_recording;
 pub mod types;
 
+use common_metrics::inc;
 pub use types::*;
 
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::flag_service::FlagService,
+    metrics::consts::FLAG_REQUESTS_COUNTER,
 };
 use tracing::{info, warn};
 
@@ -28,8 +30,11 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     async move {
         let start_time = std::time::Instant::now();
 
-        let flag_service =
-            FlagService::new(context.state.redis.clone(), context.state.reader.clone());
+        let flag_service = FlagService::new(
+            context.state.redis_reader.clone(),
+            context.state.redis_writer.clone(),
+            context.state.reader.clone(),
+        );
 
         let (original_distinct_id, verified_token, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
@@ -70,7 +75,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
         let property_overrides = properties::prepare_overrides(&context, &request)?;
 
-        // Evaluate flags (this will return empty if disable_flags is true)
+        // Evaluate flags (this will return empty if is_flags_disabled is true)
         let flags_response = flags::evaluate_for_request(
             &context.state,
             team.id,
@@ -95,6 +100,17 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         if !request.is_flags_disabled() {
             billing::record_usage(&context, &filtered_flags, team.id).await;
         }
+        inc(
+            FLAG_REQUESTS_COUNTER,
+            &[
+                (
+                    "flags_disabled".to_string(),
+                    request.is_flags_disabled().to_string(),
+                ),
+                ("team_id".to_string(), team.id.to_string()),
+            ],
+            1,
+        );
 
         let total_duration = start_time.elapsed();
 

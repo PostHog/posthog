@@ -156,6 +156,7 @@ export class KafkaConsumer {
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
+            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
@@ -243,8 +244,8 @@ export class KafkaConsumer {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
-                            topic: tp.topic,
-                            partition: tp.partition.toString(),
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
                             pod: this.podName,
                             group_id: this.config.groupId,
                         },
@@ -255,8 +256,8 @@ export class KafkaConsumer {
                 topicPartitions.forEach((tp) => {
                     kafkaConsumerAssignment.set(
                         {
-                            topic: tp.topic,
-                            partition: tp.partition.toString(),
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
                             pod: this.podName,
                             group_id: this.config.groupId,
                         },

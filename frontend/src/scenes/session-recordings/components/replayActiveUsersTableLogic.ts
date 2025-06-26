@@ -33,7 +33,7 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                         ) as q
                     group by p
                     order by c desc
-                        limit 5
+                        limit 10
                 `
 
                 const qResponse = await api.queryHogQL(q)

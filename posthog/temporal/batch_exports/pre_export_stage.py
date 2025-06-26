@@ -113,7 +113,8 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=1)
+        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
+        start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
@@ -400,7 +401,7 @@ async def _get_query(
             logger.info("Using unbounded events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_backfill:
-            logger.info("Using events_batch_export_backfill view for batch export")
+            logger.info("Using events_batch_export_backfill query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
         else:
             logger.info("Using events table for batch export")
@@ -609,7 +610,7 @@ class ProducerFromInternalS3Stage:
                 await self.logger.ainfo("No files found in S3 -> assuming no data to export")
                 return
             keys = [obj["Key"] for obj in contents if "Key" in obj]
-            await self.logger.ainfo(f"Found {len(keys)} files in S3")
+            await self.logger.ainfo(f"Producer found {len(keys)} files in S3 stage")
 
             # Read in batches
             try:
