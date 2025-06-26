@@ -1,4 +1,4 @@
-import { calculateCost, convertHogToJS, ExecResult } from '@posthog/hogvm'
+import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
@@ -720,16 +720,25 @@ export class HogExecutorService {
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
 
+            let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
+                fetchResponse?.status ?? '(none)'
+            }.`
+
+            if (fetchError) {
+                message += ` Error: ${fetchError.message}.`
+            }
+
+            if (canRetry) {
+                message += ` Retrying in ${backoffMs}ms.`
+            }
+
             result.logs.push({
                 level: 'warn',
                 timestamp: DateTime.now(),
-                message:
-                    `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
-                        fetchResponse?.status ?? '(none)'
-                    }.` + (canRetry ? ` Retrying in ${backoffMs}ms.` : ''),
+                message,
             })
 
-            if (canRetry && result.invocation.state.attempts <= this.config.CDP_FETCH_RETRIES) {
+            if (canRetry && result.invocation.state.attempts < this.config.CDP_FETCH_RETRIES) {
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
@@ -742,12 +751,22 @@ export class HogExecutorService {
         // Reset the attempts as we are done
         result.invocation.state.attempts = 0
 
+        let body = await fetchResponse?.text()
+
+        if (typeof body === 'string') {
+            try {
+                body = parseJSON(body)
+            } catch (e) {
+                // Pass through the error
+            }
+        }
+
         const hogVmResponse: {
             status: number
             body: unknown
         } = {
             status: fetchResponse?.status ?? 500,
-            body: fetchResponse ? (await tryCatch(async () => parseJSON(await fetchResponse.text())))[1] : null,
+            body,
         }
 
         // Finally we create the response object as the VM expects

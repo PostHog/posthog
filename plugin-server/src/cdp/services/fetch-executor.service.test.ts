@@ -187,7 +187,7 @@ describe('FetchExecutorService', () => {
             trace: [
                 {
                     kind: 'requesterror',
-                    message: 'SecureRequestError: Internal hostname',
+                    message: 'SecureRequestError: Hostname is not allowed',
                 },
             ],
         })
