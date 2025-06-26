@@ -1797,7 +1797,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("uses", models.PositiveIntegerField(default=0)),
-                ("max_uses", models.PositiveIntegerField(blank=True, default=None, null=True)),
                 ("target_email", models.EmailField(blank=True, db_index=True, default=None, max_length=254, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -1975,10 +1974,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="name",
             field=models.CharField(default="Default Project", max_length=200, null=True),
-        ),
-        migrations.RemoveField(
-            model_name="organizationinvite",
-            name="max_uses",
         ),
         migrations.RemoveField(
             model_name="organizationinvite",
@@ -3148,7 +3143,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={},
         ),
         migrations.CreateModel(
             name="EventDefinition",
@@ -3565,29 +3559,6 @@ class Migration(migrations.Migration):
                 max_length=24,
             ),
         ),
-        migrations.CreateModel(
-            name="Experiment",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name", models.CharField(max_length=400)),
-                ("description", models.CharField(blank=True, max_length=400, null=True)),
-                ("filters", models.JSONField(default=dict)),
-                ("parameters", models.JSONField(default=dict, null=True)),
-                ("start_date", models.DateTimeField(null=True)),
-                ("end_date", models.DateTimeField(null=True)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "created_by",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
-                ),
-                (
-                    "feature_flag",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.featureflag"),
-                ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-            ],
-        ),
         migrations.RenameModel(
             old_name="SpecialMigration",
             new_name="AsyncMigration",
@@ -3623,20 +3594,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="propertydefinition",
-            name="property_type_format",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("unix_timestamp", "Unix Timestamp"),
-                    ("YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"),
-                    ("YYYY-MM-DD", "YYYY-MM-DD"),
-                ],
-                max_length=50,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
             model_name="grouptypemapping",
             name="name_plural",
             field=models.CharField(blank=True, max_length=400, null=True),
@@ -3646,7 +3603,7 @@ class Migration(migrations.Migration):
             name="name_singular",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AlterField(
+        migrations.AddField(
             model_name="propertydefinition",
             name="property_type_format",
             field=models.CharField(
@@ -3682,15 +3639,30 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.AddField(
-            model_name="experiment",
-            name="archived",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="experiment",
-            name="secondary_metrics",
-            field=models.JSONField(default=list, null=True),
+        migrations.CreateModel(
+            name="Experiment",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("name", models.CharField(max_length=400)),
+                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                ("filters", models.JSONField(default=dict)),
+                ("parameters", models.JSONField(default=dict, null=True)),
+                ("start_date", models.DateTimeField(null=True)),
+                ("end_date", models.DateTimeField(null=True)),
+                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                ),
+                (
+                    "feature_flag",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.featureflag"),
+                ),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("archived", models.BooleanField(default=False)),
+                ("secondary_metrics", models.JSONField(default=list, null=True)),
+            ],
         ),
         migrations.AddField(
             model_name="insight",
@@ -4859,7 +4831,6 @@ class Migration(migrations.Migration):
                 ("cache_key", models.CharField(max_length=400)),
                 ("target_cache_age_seconds", models.IntegerField(null=True)),
                 ("last_refresh", models.DateTimeField(blank=True, null=True)),
-                ("last_refresh_queued_at", models.BooleanField(null=True)),
                 ("refresh_attempt", models.IntegerField(default=0)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -4868,47 +4839,22 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         null=True,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="caching_state",
+                        related_name="caching_states",
                         to="posthog.dashboardtile",
                     ),
                 ),
                 (
                     "insight",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="caching_state", to="posthog.insight"
+                        on_delete=django.db.models.deletion.CASCADE, related_name="caching_states", to="posthog.insight"
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("last_refresh_queued_at", models.DateTimeField(blank=True, null=True)),
             ],
             options={
                 "indexes": [models.Index(fields=["cache_key"], name="filter_by_cache_key_idx")],
             },
-        ),
-        migrations.RemoveField(
-            model_name="insightcachingstate",
-            name="last_refresh_queued_at",
-        ),
-        migrations.AddField(
-            model_name="insightcachingstate",
-            name="last_refresh_queued_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="insightcachingstate",
-            name="dashboard_tile",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="caching_states",
-                to="posthog.dashboardtile",
-            ),
-        ),
-        migrations.AlterField(
-            model_name="insightcachingstate",
-            name="insight",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="caching_states", to="posthog.insight"
-            ),
         ),
         migrations.CreateModel(
             name="Prompt",
@@ -5011,55 +4957,19 @@ class Migration(migrations.Migration):
                 ("session_id", models.CharField(max_length=200, unique=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("click_count", models.IntegerField(blank=True, null=True)),
+                ("deleted", models.BooleanField(blank=True, null=True)),
+                ("distinct_id", models.CharField(blank=True, max_length=400, null=True)),
+                ("duration", models.IntegerField(blank=True, null=True)),
+                ("end_time", models.DateTimeField(blank=True, null=True)),
+                ("keypress_count", models.IntegerField(blank=True, null=True)),
+                ("object_storage_path", models.CharField(blank=True, max_length=200, null=True)),
+                ("start_time", models.DateTimeField(blank=True, null=True)),
+                ("start_url", models.CharField(blank=True, max_length=512, null=True)),
             ],
             options={
                 "unique_together": {("team", "session_id")},
             },
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="click_count",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="deleted",
-            field=models.BooleanField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="distinct_id",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="duration",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="end_time",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="keypress_count",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="object_storage_path",
-            field=models.CharField(blank=True, max_length=200, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="start_time",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecording",
-            name="start_url",
-            field=models.CharField(blank=True, max_length=512, null=True),
         ),
         migrations.CreateModel(
             name="SessionRecordingPlaylistItem",
@@ -6533,34 +6443,6 @@ class Migration(migrations.Migration):
             name="external_data_workspace_id",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.CreateModel(
-            name="ExternalDataSource",
-            fields=[
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                    ),
-                ),
-                ("source_id", models.CharField(max_length=400)),
-                ("connection_id", models.CharField(max_length=400)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-                ("status", models.CharField(max_length=400)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("source_type", models.CharField(choices=[("Stripe", "Stripe")], max_length=128)),
-                ("are_tables_created", models.BooleanField(default=False)),
-                ("destination_id", models.CharField(blank=True, max_length=400, null=True)),
-            ],
-            options={
-                "abstract": False,
-            },
-        ),
         migrations.AddField(
             model_name="pluginconfig",
             name="deleted",
@@ -6598,10 +6480,35 @@ class Migration(migrations.Migration):
                 blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
             ),
         ),
-        migrations.AddField(
-            model_name="externaldatasource",
-            name="job_inputs",
-            field=posthog.helpers.encrypted_fields.EncryptedJSONField(blank=True, null=True),
+        migrations.CreateModel(
+            name="ExternalDataSource",
+            fields=[
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
+                ("source_id", models.CharField(max_length=400)),
+                ("connection_id", models.CharField(max_length=400)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
+                ("status", models.CharField(max_length=400)),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("source_type", models.CharField(choices=[("Stripe", "Stripe")], max_length=128)),
+                ("are_tables_created", models.BooleanField(default=False)),
+                ("destination_id", models.CharField(blank=True, max_length=400, null=True)),
+                ("job_inputs", posthog.helpers.encrypted_fields.EncryptedJSONField(blank=True, null=True)),
+                ("prefix", models.CharField(blank=True, max_length=100, null=True)),
+            ],
+            options={
+                "abstract": False,
+            },
         ),
         migrations.AddField(
             model_name="datawarehousetable",
@@ -7215,11 +7122,6 @@ class Migration(migrations.Migration):
                 default="UTC",
                 max_length=240,
             ),
-        ),
-        migrations.AddField(
-            model_name="externaldatasource",
-            name="prefix",
-            field=models.CharField(blank=True, max_length=100, null=True),
         ),
         migrations.AddField(
             model_name="user",
