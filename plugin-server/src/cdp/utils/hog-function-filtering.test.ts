@@ -47,6 +47,11 @@ describe('hog-function-filtering', () => {
 
             expect(response).toMatchInlineSnapshot(`
                 {
+                  "$group_0": "org_123",
+                  "$group_1": "proj_456",
+                  "$group_2": null,
+                  "$group_3": null,
+                  "$group_4": null,
                   "distinct_id": "user_123",
                   "elements_chain": "",
                   "elements_chain_elements": [],
@@ -55,40 +60,23 @@ describe('hog-function-filtering', () => {
                   "elements_chain_texts": [],
                   "event": "test_event",
                   "group_0": {
-                    "index": 0,
-                    "key": "org_123",
                     "properties": {
                       "name": "Acme Corp",
                     },
                   },
                   "group_1": {
-                    "index": 1,
-                    "key": "proj_456",
                     "properties": {
                       "name": "Project X",
                     },
                   },
                   "group_2": {
-                    "index": 2,
-                    "key": null,
                     "properties": {},
                   },
                   "group_3": {
-                    "index": 3,
-                    "key": null,
                     "properties": {},
                   },
                   "group_4": {
-                    "index": 4,
-                    "key": null,
                     "properties": {},
-                  },
-                  "organization": {
-                    "index": 0,
-                    "key": "org_123",
-                    "properties": {
-                      "name": "Acme Corp",
-                    },
                   },
                   "pdi": {
                     "distinct_id": "user_123",
@@ -101,13 +89,6 @@ describe('hog-function-filtering', () => {
                   "person": {
                     "id": "person_123",
                     "properties": {},
-                  },
-                  "project": {
-                    "index": 1,
-                    "key": "proj_456",
-                    "properties": {
-                      "name": "Project X",
-                    },
                   },
                   "properties": {},
                   "timestamp": "2025-01-01T00:00:00.000Z",
