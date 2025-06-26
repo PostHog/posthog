@@ -36,7 +36,7 @@ def eval_tool_generate_hogql_query(call_generate_hogql_query):
             ),
             EvalCase(
                 input=(
-                    # This errouneously says "logs are stored in a table named 'console_logs'". Whether it was
+                    # This erroneously says "logs are stored in a table named 'console_logs'". Whether it was
                     # the root node that pulled it out of its ass, or the user - we should handle this gracefully
                     "Write an SQL query to find console logs where the level is error."
                     "Assume the logs are stored in a table named 'console_logs'."
