@@ -569,6 +569,7 @@ export class HogExecutorService {
                                 : fetchOptions?.body
 
                             const fetchQueueParameters = this.enrichFetchRequest({
+                                type: 'fetch',
                                 url,
                                 method,
                                 body,
@@ -576,7 +577,7 @@ export class HogExecutorService {
                                 return_queue: 'hog',
                             })
 
-                            result.invocation.queue = 'fetch'
+                            result.invocation.queue = 'fetch' // TODO: Once we have moved away from the queue types then this will swap to "hog" queue
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
@@ -632,6 +633,107 @@ export class HogExecutorService {
         }
 
         return result
+    }
+
+    async executeWithAsyncFunctions(
+        invocation: CyclotronJobInvocationHogFunction,
+        maxAsyncFunctions: number
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const asyncFunctionCount = 0
+        const finalResult = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
+            queue: 'hog',
+        })
+
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
+
+        while (!result || !result.finished) {
+            const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
+
+            if (nextInvocation.queueParameters?.type === 'fetch') {
+                // Indicates the next thing to be done is a fetch request
+
+                // TODO: Replace with actual fetch call
+                const fetchResponse = {
+                    body: '{"message": "Hello, world!"}',
+                    isRetriable: true,
+                    status: 200,
+                    duration_ms: 100,
+                }
+
+                if (fetchResponse.status >= 400) {
+                    finalResult.logs.push({
+                        level: 'warn',
+                        timestamp: DateTime.now(),
+                        message: `HTTP fetch failed with status code ${fetchResponse.status ?? '(none)'}`,
+                    })
+                }
+
+                nextInvocation.state.timings.push({
+                    kind: 'async_function',
+                    duration_ms: fetchResponse.duration_ms,
+                })
+
+                // TODO: Early break with retry if necessary here...
+
+                const hogVmResponse: {
+                    status: number
+                    body: unknown
+                } = {
+                    status: fetchResponse.status,
+                    body: fetchResponse.body,
+                }
+
+                if (typeof hogVmResponse.body === 'string') {
+                    try {
+                        hogVmResponse.body = parseJSON(hogVmResponse.body)
+                    } catch (e) {
+                        // pass - if it isn't json we just pass it on
+                    }
+                }
+
+                // Finally we create the response object as the VM expects
+                nextInvocation.state.vmState!.stack.push(hogVmResponse)
+            }
+
+            result = this.execute(nextInvocation)
+            await new Promise((resolve) => process.nextTick(resolve))
+
+            // if (nextInvocation.queue === 'hog') {
+            //     result = this.execute(nextInvocation)
+            //     // Heartbeat and free the event loop to handle health checks
+            //     this.heartbeat()
+            //     await new Promise((resolve) => process.nextTick(resolve))
+            // } else if (nextInvocation.queue === 'fetch') {
+            //     // Fetch requests we only perform if we haven't already performed one
+            //     if (result && performedAsyncRequest) {
+            //         // if we have performed an async request already then we break the loop and return the result
+            //         break
+            //     }
+            //     result = (await this.fetchExecutor.execute(
+            //         nextInvocation
+            //     )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+            //     performedAsyncRequest = true
+            // } else {
+            //     throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
+            // }
+
+            // result?.logs?.forEach((log) => {
+            //     logs.push(log)
+            // })
+            // result?.metrics?.forEach((metric) => {
+            //     metrics.push(metric)
+            // })
+
+            // if (!result?.finished && result?.invocation.queueScheduledAt) {
+            //     // If the invocation is scheduled to run later then we break the loop and return the result for it to be queued
+            //     break
+            // }
+        }
+
+        finalResult.logs = [...finalResult.logs, ...result.logs]
+        finalResult.metrics = [...finalResult.metrics, ...result.metrics]
+
+        return finalResult
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
