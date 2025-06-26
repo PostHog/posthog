@@ -1581,7 +1581,7 @@ class NodeKind(StrEnum):
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
-    REVENUE_ANALYTICS_INSIGHTS_QUERY = "RevenueAnalyticsInsightsQuery"
+    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
@@ -1913,7 +1913,7 @@ class RevenueAnalyticsGoal(BaseModel):
     name: str
 
 
-class RevenueAnalyticsInsightsQueryGroupBy(StrEnum):
+class RevenueAnalyticsGrossRevenueQueryGroupBy(StrEnum):
     COHORT = "cohort"
     COUNTRY = "country"
     COUPON = "coupon"
@@ -3505,7 +3505,7 @@ class RevenueAnalyticsEventItem(BaseModel):
     revenueProperty: str
 
 
-class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
+class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3527,7 +3527,7 @@ class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     )
 
 
-class RevenueAnalyticsInsightsQueryResponse(BaseModel):
+class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5145,7 +5145,7 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
+class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5176,7 +5176,7 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueAnalyticsInsightsQueryResponse(BaseModel):
+class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8360,6 +8360,21 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
+class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8371,21 +8386,6 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class RevenueAnalyticsBaseQueryRevenueAnalyticsInsightsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -8429,6 +8429,23 @@ class RevenueAnalyticsConfig(BaseModel):
     goals: Optional[list[RevenueAnalyticsGoal]] = []
 
 
+class RevenueAnalyticsGrossRevenueQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    groupBy: list[RevenueAnalyticsGrossRevenueQueryGroupBy]
+    interval: IntervalType
+    kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8440,23 +8457,6 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class RevenueAnalyticsInsightsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    groupBy: list[RevenueAnalyticsInsightsQueryGroupBy]
-    interval: IntervalType
-    kind: Literal["RevenueAnalyticsInsightsQuery"] = "RevenueAnalyticsInsightsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsInsightsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -11363,7 +11363,7 @@ class DataTableNode(BaseModel):
         WebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         RevenueExampleEventsQuery,
@@ -11406,7 +11406,7 @@ class HogQLAutocomplete(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsInsightsQuery,
+            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             WebOverviewQuery,
@@ -11467,7 +11467,7 @@ class HogQLMetadata(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsInsightsQuery,
+            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             WebOverviewQuery,
@@ -11574,7 +11574,7 @@ class MaxInsightContext(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         DataVisualizationNode,
@@ -11642,7 +11642,7 @@ class QueryRequest(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         DataVisualizationNode,
@@ -11727,7 +11727,7 @@ class QuerySchemaRoot(
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsInsightsQuery,
+            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             DataVisualizationNode,
@@ -11786,7 +11786,7 @@ class QuerySchemaRoot(
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         DataVisualizationNode,
