@@ -15,8 +15,8 @@ describe('HogFlowActionRunnerCondition', () => {
     let action: Extract<HogFlowAction, { type: 'conditional_branch' }>
 
     beforeEach(() => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2025-01-01T00:00:00.000Z'))
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         runner = new HogFlowActionRunnerConditionalBranch()
 
@@ -105,7 +105,9 @@ describe('HogFlowActionRunnerCondition', () => {
             it('should throw error if action started at timestamp is invalid', async () => {
                 invocation.state.currentAction = undefined
                 action.config.delay_duration = '300s'
-                expect(() => runner.run(invocation, action)).toThrow("'startedAtTimestamp' is not set or is invalid")
+                await expect(async () => runner.run(invocation, action)).rejects.toThrow(
+                    "'startedAtTimestamp' is not set or is invalid"
+                )
             })
         })
     })
