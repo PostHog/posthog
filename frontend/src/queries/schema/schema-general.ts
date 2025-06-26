@@ -120,6 +120,7 @@ export enum NodeKind {
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
@@ -160,6 +161,7 @@ export type AnyDataNode =
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -224,6 +226,7 @@ export type QuerySchema =
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
@@ -746,6 +749,7 @@ export interface DataTableNode
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -776,6 +780,7 @@ export interface DataTableNode
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -1906,7 +1911,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export enum RevenueAnalyticsGrossRevenueQueryGroupBy {
+export enum RevenueAnalyticsGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
     COUPON = 'coupon',
@@ -1919,7 +1924,7 @@ export enum RevenueAnalyticsGrossRevenueQueryGroupBy {
 export interface RevenueAnalyticsGrossRevenueQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
     kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
-    groupBy: RevenueAnalyticsGrossRevenueQueryGroupBy[]
+    groupBy: RevenueAnalyticsGroupBy[]
     interval: IntervalType
 }
 
@@ -1943,6 +1948,16 @@ export interface RevenueAnalyticsOverviewItem {
 export interface RevenueAnalyticsOverviewQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsRevenueQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {

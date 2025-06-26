@@ -13,7 +13,7 @@ from posthog.schema import (
     PropertyOperator,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsGrossRevenueQueryGroupBy,
+    RevenueAnalyticsGroupBy,
     IntervalType,
     HogQLQueryModifiers,
     RevenueAnalyticsPropertyFilter,
@@ -203,7 +203,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
-        group_by: list[RevenueAnalyticsGrossRevenueQueryGroupBy] | None = None,
+        group_by: list[RevenueAnalyticsGroupBy] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
@@ -320,9 +320,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(results, [])
 
     def test_with_data_for_product_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
-            group_by=[RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT]
-        ).results
+        results = self._run_revenue_analytics_gross_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
         self.assertEqual(len(results), 6)
         self.assertEqual(
@@ -398,7 +396,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
     def test_with_data_with_double_grouping(self):
         results = self._run_revenue_analytics_gross_revenue_query(
-            group_by=[RevenueAnalyticsGrossRevenueQueryGroupBy.COHORT, RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT]
+            group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
         ).results
 
         # 12 comes from the 6 products and 2 cohorts
@@ -475,7 +473,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # When grouping results should be exactly the same, just the label changes
         results = self._run_revenue_analytics_gross_revenue_query(
-            group_by=[RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT],
+            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",

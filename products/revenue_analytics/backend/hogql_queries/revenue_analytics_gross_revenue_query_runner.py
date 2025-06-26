@@ -4,7 +4,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsGrossRevenueQueryResponse,
     RevenueAnalyticsGrossRevenueQueryResponse,
     RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrossRevenueQueryGroupBy,
+    RevenueAnalyticsGroupBy,
 )
 from posthog.utils import format_label_date
 
@@ -96,9 +96,7 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
 
         return query
 
-    def _append_group_by(
-        self, query: ast.SelectQuery, group_by: RevenueAnalyticsGrossRevenueQueryGroupBy
-    ) -> ast.SelectQuery:
+    def _append_group_by(self, query: ast.SelectQuery, group_by: RevenueAnalyticsGroupBy) -> ast.SelectQuery:
         # Join with the subquery to get access to the coalesced field
         # and also change the `breakdown_by` to include that
         join_to, field_name = self._join_to_and_field_name_for_group_by(group_by)
@@ -149,21 +147,21 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         return query
 
     def _join_to_and_field_name_for_group_by(
-        self, group_by: RevenueAnalyticsGrossRevenueQueryGroupBy
+        self, group_by: RevenueAnalyticsGroupBy
     ) -> tuple[type[RevenueAnalyticsBaseView], str]:
-        if group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT:
+        if group_by == RevenueAnalyticsGroupBy.PRODUCT:
             return RevenueAnalyticsProductView, "name"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COUNTRY:
+        elif group_by == RevenueAnalyticsGroupBy.COUNTRY:
             return RevenueAnalyticsCustomerView, "country"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COHORT:
+        elif group_by == RevenueAnalyticsGroupBy.COHORT:
             return RevenueAnalyticsCustomerView, "cohort"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COUPON:
+        elif group_by == RevenueAnalyticsGroupBy.COUPON:
             return RevenueAnalyticsInvoiceItemView, "coupon"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COUPON_ID:
+        elif group_by == RevenueAnalyticsGroupBy.COUPON_ID:
             return RevenueAnalyticsInvoiceItemView, "coupon_id"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.INITIAL_COUPON:
+        elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON:
             return RevenueAnalyticsCustomerView, "initial_coupon"
-        elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.INITIAL_COUPON_ID:
+        elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON_ID:
             return RevenueAnalyticsCustomerView, "initial_coupon_id"
         else:
             raise ValueError(f"Invalid group by: {group_by}")

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { RevenueAnalyticsGrossRevenueQueryGroupBy } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
@@ -25,7 +25,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -85,7 +85,7 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT])
+        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     useEffect(() => {
@@ -121,7 +121,7 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
         setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT])
+        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     return <App />
