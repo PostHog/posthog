@@ -411,6 +411,14 @@ class Team(UUIDClassicModel):
     # DEPRECATED: use `revenue_analytics_config` property instead
     revenue_tracking_config = models.JSONField(null=True, blank=True)
 
+    # Duration in seconds for dropping events older than this threshold
+    drop_events_older_than = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Duration in seconds. Events older than this threshold will be dropped.",
+    )
+
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
     base_currency = models.CharField(
         max_length=3,
