@@ -8,6 +8,7 @@ from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     StringDatabaseField,
     FieldOrTable,
@@ -39,6 +40,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "source_label": StringDatabaseField(name="source_label"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),  # When we should consider the revenue to be recognized
     "created_at": DateTimeDatabaseField(name="created_at"),  # When the invoice item was created
+    "is_recurring": BooleanDatabaseField(name="is_recurring"),
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
     "invoice_id": StringDatabaseField(name="invoice_id"),
@@ -192,8 +194,9 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         alias="invoice_item_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])])
                     ),
                     ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
-                    ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
+                    ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
+                    ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                     ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
                     ast.Alias(
@@ -304,6 +307,13 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ),
                 ),
                 ast.Alias(alias="created_at", expr=ast.Field(chain=["created_at"])),
+                ast.Alias(
+                    alias="is_recurring",
+                    expr=ast.Call(
+                        name="isNotNull",
+                        args=[ast.Field(chain=["subscription_id"])],
+                    ),
+                ),
                 ast.Field(chain=["product_id"]),
                 ast.Field(chain=["customer_id"]),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
@@ -385,6 +395,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                         ast.Field(chain=["id"]),
                         ast.Field(chain=["created_at"]),
                         ast.Field(chain=["customer_id"]),
+                        ast.Field(chain=["subscription_id"]),
                         ast.Field(chain=["discount"]),
                         # Explode the `lines.data` field into an individual row per item
                         ast.Alias(
