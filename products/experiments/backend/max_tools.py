@@ -23,8 +23,7 @@ Examples:
 - "After 14 days, the test variant is leading with a 95% probability of being the best, showing a 12% lift over control. This result is statistically significant and suggests the test variant is outperforming the baseline."
 - "The experiment has been running for 8 days with no significant difference between variants. More data is needed to draw a conclusion."
 - "Control and test variants are performing similarly so far, with the test variant showing a slight, but not significant, improvement. Credible intervals overlap and the p-value is above the significance threshold."
-`
-    """
+"""
 
     def _run(self, experiment_id: str) -> str:
         # tool implementation goes here :D
