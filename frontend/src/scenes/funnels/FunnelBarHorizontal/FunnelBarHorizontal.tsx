@@ -71,8 +71,6 @@ export function FunnelBarHorizontal({
                     step.nested_breakdown?.length !== undefined &&
                     !(step.nested_breakdown.length === 1)
 
-                const dropOffCount = step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
-
                 return (
                     <section key={step.order} className={clsx('funnel-step', { 'funnel-step--optional': isOptional })}>
                         <div className={clsx('funnel-series-container', { 'optional-step': isOptional })}>
@@ -216,7 +214,7 @@ export function FunnelBarHorizontal({
                                         />
                                         <b>
                                             {pluralize(
-                                                dropOffCount,
+                                                step.droppedOffFromPrevious,
                                                 aggregationTargetLabel.singular,
                                                 aggregationTargetLabel.plural
                                             )}
