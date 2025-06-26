@@ -57,7 +57,7 @@ class HogQLQueryExecutor:
 
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk)
+            self.context = HogQLContext(team_id=self.team.pk, team=self.team)
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug

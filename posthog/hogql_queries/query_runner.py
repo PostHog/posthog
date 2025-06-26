@@ -18,7 +18,7 @@ from posthog.clickhouse.client.limit import (
     get_app_org_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries, AccessMethod
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -883,14 +883,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     org_id=self.team.organization_id,
                     task_id=self.query_id,
                     team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
+                    is_api=get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY,
                 ):
                     with get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
                         dashboard_id=dashboard_id,
                         task_id=self.query_id,
                         team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
+                        is_api=get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY,
                     ):
                         fresh_response_dict = {
                             **self.calculate().model_dump(),

@@ -12,7 +12,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, AccessMethod
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -379,7 +379,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Execute query with personal_api_key access method
         query = "SELECT 1"
         # tag_queries = {"access_method": "personal_api_key"}
-        tag_queries(access_method="personal_api_key")
+        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY)
         result = sync_execute(query)
 
         # Verify first call was with OFFLINE workload

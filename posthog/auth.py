@@ -14,7 +14,7 @@ from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, AccessMethod
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import (
@@ -164,7 +164,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         tag_queries(
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
-            access_method="personal_api_key",
+            access_method=AccessMethod.PERSONAL_API_KEY,
         )
 
         self.personal_api_key = personal_api_key_object

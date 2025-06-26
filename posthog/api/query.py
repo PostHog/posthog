@@ -28,7 +28,7 @@ from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
 )
-from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
+from posthog.clickhouse.query_tagging import tag_queries, AccessMethod, get_query_tags
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
@@ -139,14 +139,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
-
+            is_api_access = get_query_tags().access_method == AccessMethod.PERSONAL_API_KEY
             result = process_query_model(
                 self.team,
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                is_query_service=is_api_access,
                 limit_context=(
                     # QUERY_ASYNC provides extended max execution time for insight queries
                     LimitContext.QUERY_ASYNC
@@ -155,7 +155,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                         or is_insight_actors_query(query_dict)
                         or is_insight_actors_options_query(query_dict)
                     )
-                    and get_query_tag_value("access_method") != "personal_api_key"
+                    and not is_api_access
                     else None
                 ),
             )
