@@ -15,6 +15,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
+from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
+    CalculateTableSizeActivityInputs,
+    calculate_table_size_activity,
+)
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -43,6 +47,7 @@ from posthog.warehouse.models.external_data_schema import update_should_sync
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
     "Primary key required for incremental syncs",
+    "The primary keys for this table are not unique",
 ]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
@@ -50,6 +55,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
+        "Expired API Key provided",
     ],
     ExternalDataSource.Type.POSTGRES: [
         "NoSuchTableError",
@@ -66,6 +72,12 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Address not in tenant allow_list",
         "FATAL: no such database",
         "does not exist",
+        "timestamp too small",
+        "QueryTimeoutException",
+        "TemporaryFileSizeExceedsLimitException",
+        "Name or service not known",
+        "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
+        "InsufficientPrivilege",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
@@ -86,6 +98,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ],
     ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
+    ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
 }
 
 
@@ -260,7 +273,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             if hit_billing_limit:
-                update_inputs.status = ExternalDataJob.Status.CANCELLED
+                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
             await workflow.execute_activity(
@@ -302,6 +315,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 CreateSourceTemplateInputs(team_id=inputs.team_id, run_id=job_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+            await workflow.execute_activity(
+                calculate_table_size_activity,
+                CalculateTableSizeActivityInputs(team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id)),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
         except exceptions.ActivityError as e:

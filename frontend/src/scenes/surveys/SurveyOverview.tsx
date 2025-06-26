@@ -51,7 +51,7 @@ const QuestionIconMap = {
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
-    const { surveyUsesLimit, surveyUsesAdaptiveLimit, isPartialResponsesEnabled } = useValues(surveyLogic)
+    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
@@ -102,23 +102,19 @@ export function SurveyOverview(): JSX.Element {
                         </span>
                     </SurveyOption>
                 )}
-                {isPartialResponsesEnabled && (
-                    <SurveyOption label="Partial responses">
-                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
-                    </SurveyOption>
-                )}
+                <SurveyOption label="Partial responses">
+                    {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
+                </SurveyOption>
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </dl>
             <div className="flex flex-col items-center">
                 {survey.type !== SurveyType.API ? (
-                    <div className="mt-6 px-4">
-                        <SurveyFormAppearance
-                            previewPageIndex={selectedPageIndex || 0}
-                            survey={survey}
-                            handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
-                        />
-                    </div>
+                    <SurveyFormAppearance
+                        previewPageIndex={selectedPageIndex || 0}
+                        survey={survey}
+                        handleSetSelectedPageIndex={(preview) => setSelectedPageIndex(preview)}
+                    />
                 ) : (
                     <div className="mt-2 space-y-2">
                         <div className="p-4 border rounded">

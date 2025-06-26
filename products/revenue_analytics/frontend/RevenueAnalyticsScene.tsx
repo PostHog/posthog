@@ -1,8 +1,7 @@
-import { IconDatabase, IconGear, IconPieChart, IconPlus } from '@posthog/icons'
+import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +9,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
@@ -26,6 +24,7 @@ import { TopCustomersTile } from './tiles/TopCustomersTile'
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
+    settingSectionId: 'environment-revenue-analytics',
 }
 
 const PRODUCT_NAME = 'Revenue Analytics'
@@ -37,7 +36,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -46,8 +44,11 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 productName={PRODUCT_NAME}
                 productKey={PRODUCT_KEY}
                 thingName={PRODUCT_THING_NAME}
-                description={PRODUCT_DESCRIPTION}
-                titleOverride="Revenue Analytics is in opt-in beta"
+                description={
+                    PRODUCT_DESCRIPTION +
+                    ". Because we're in open beta, each user will need to enable this feature separately."
+                }
+                titleOverride="Revenue Analytics is in opt-in beta."
                 actionElementOverride={
                     <LemonButton
                         type="primary"
@@ -71,21 +72,6 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <PageHeader
-                delimited
-                buttons={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGear />}
-                        onClick={() => {
-                            openSettingsPanel({ sectionId: 'environment-revenue-analytics' })
-                        }}
-                    >
-                        Settings
-                    </LemonButton>
-                }
-            />
             <RevenueAnalyticsSceneContent />
         </BindLogic>
     )
@@ -118,6 +104,16 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
             >
                 Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any issues
                 directly to us!
+            </LemonBanner>
+
+            <LemonBanner type="info" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
+                <b>We've made some updates!</b>
+                We've recently introduced deferred revenue recognition for data warehouse sources. This means you will
+                see revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
+                <code>period.end</code> that spans several months.
+                <br />
+                More information on{' '}
+                <Link to="https://posthog.com/docs/web-analytics/revenue-analytics#deferred-revenue">our docs</Link>.
             </LemonBanner>
 
             {sourceRunningForTheFirstTime && (
@@ -172,7 +168,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                             sideIcon={<IconDatabase />}
                             onClick={() => {
                                 updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
+                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
                             }}
                             data-attr="create-revenue-source"
                         >
@@ -196,7 +192,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
 
 const RevenueAnalyticsTables = (): JSX.Element => {
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
             <GrossRevenueTile />
 

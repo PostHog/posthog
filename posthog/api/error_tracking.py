@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -8,7 +8,7 @@ import hashlib
 from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import MultiPartParser, FileUploadParser
+from rest_framework.parsers import MultiPartParser, FileUploadParser, JSONParser
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -19,11 +19,14 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.utils import action
+from posthog.models.utils import UUIDT
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
+    ErrorTrackingRelease,
     ErrorTrackingSymbolSet,
     ErrorTrackingAssignmentRule,
     ErrorTrackingGroupingRule,
+    ErrorTrackingSuppressionRule,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -41,16 +44,12 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.schema import PropertyGroupFilterValue
 
-ONE_GIGABYTE = 1024 * 1024 * 1024
+ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
 
 logger = structlog.get_logger(__name__)
-
-
-class ObjectStorageUnavailable(Exception):
-    pass
 
 
 class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
@@ -82,9 +81,29 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         status_before = instance.status
         status_updated = "status" in validated_data and status_after != status_before
 
+        name_after = validated_data.get("name")
+        name_before = instance.name
+        name_updated = "name" in validated_data and name_after != name_before
+
         updated_instance = super().update(instance, validated_data)
 
+        changes = []
         if status_updated:
+            changes.append(
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="status",
+                    before=status_before,
+                    after=status_after,
+                    action="changed",
+                )
+            )
+        if name_updated:
+            changes.append(
+                Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
+            )
+
+        if changes:
             log_activity(
                 organization_id=team.organization.id,
                 team_id=team.id,
@@ -95,15 +114,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
                 activity="updated",
                 detail=Detail(
                     name=instance.name,
-                    changes=[
-                        Change(
-                            type="ErrorTrackingIssue",
-                            field="status",
-                            before=status_before,
-                            after=status_after,
-                            action="changed",
-                        )
-                    ],
+                    changes=changes,
                 ),
             )
 
@@ -333,6 +344,83 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
         return Response({"results": serializer.data})
 
 
+class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingRelease
+        fields = ["id", "hash_id", "team_id", "created_at", "metadata", "version", "project"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingRelease.objects.all()
+    serializer_class = ErrorTrackingReleaseSerializer
+
+    def safely_get_queryset(self, queryset):
+        queryset = queryset.filter(team_id=self.team.id)
+
+        return queryset
+
+    def validate_hash_id(self, hash_id: str, assert_new: bool) -> str:
+        if len(hash_id) > 128:
+            raise ValueError("Hash id length cannot exceed 128 bytes")
+
+        if assert_new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
+            raise ValueError(f"Hash id {hash_id} already in use")
+
+        return hash_id
+
+    def update(self, request, *args, **kwargs) -> Response:
+        release = self.get_object()
+
+        metadata = request.data.get("metadata")
+        hash_id = request.data.get("hash_id")
+        version = request.data.get("version")
+        project = request.data.get("project")
+
+        if metadata:
+            release.metadata = metadata
+
+        if version:
+            version = str(version)
+            release.version = version
+
+        if project:
+            project = str(project)
+            release.project = project
+
+        if hash_id and hash_id != release.hash_id:
+            hash_id = str(hash_id)
+            hash_id = self.validate_hash_id(hash_id, True)
+            release.hash_id = hash_id
+
+        release.save()
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        id = UUIDT()  # We use this in the hash if one isn't set, and also as the id of the model
+        metadata = request.data.get("metadata")
+        hash_id = str(request.data.get("hash_id") or id)
+        hash_id = self.validate_hash_id(hash_id, True)
+        version = request.data.get("version")
+        project = request.data.get("project")
+
+        if not version:
+            raise ValidationError("Version is required")
+
+        if not project:
+            raise ValidationError("Project is required")
+
+        version = str(version)
+
+        release = ErrorTrackingRelease.objects.create(
+            id=id, team=self.team, hash_id=hash_id, metadata=metadata, project=project, version=version
+        )
+
+        serializer = ErrorTrackingReleaseSerializer(release)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
@@ -345,6 +433,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
+    scope_object_write_actions = ["start_upload", "finish_upload", "destroy", "update", "create"]
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id)
@@ -367,7 +456,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def destroy(self, request, *args, **kwargs):
         symbol_set = self.get_object()
         symbol_set.delete()
-        # TODO: delete file from s3
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def update(self, request, *args, **kwargs) -> Response:
@@ -386,36 +474,111 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
+        multipart = request.query_params.get("multipart", False)
+        release_id = request.query_params.get("release_id", None)
+
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # file added to the request data by the FileUploadParser
-        data = request.data["file"].read()
+        if multipart:
+            data = bytearray()
+            for chunk in request.FILES["file"].chunks():
+                data.extend(chunk)
+        else:
+            # legacy: older versions of the CLI did not use multipart uploads
+            # file added to the request data by the FileUploadParser
+            data = request.data["file"].read()
+
         (storage_ptr, content_hash) = upload_content(bytearray(data))
-
-        with transaction.atomic():
-            # Use update_or_create for proper upsert behavior
-            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
-                team=self.team,
-                ref=chunk_id,
-                defaults={
-                    "storage_ptr": storage_ptr,
-                    "content_hash": content_hash,
-                    "failure_reason": None,
-                },
-            )
-
-            # Delete any existing frames associated with this symbol set
-            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
+        create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
+    @action(methods=["POST"], detail=False)
+    def start_upload(self, request, **kwargs):
+        chunk_id = request.query_params.get("chunk_id", None)
+        release_id = request.query_params.get("release_id", None)
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        if not chunk_id:
+            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_key = generate_symbol_set_file_key()
+        presigned_url = object_storage.get_presigned_post(
+            file_key=file_key,
+            conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+            expiration=60,
+        )
+
+        symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+
+        return Response(
+            {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
+        )
+
+    @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
+    def finish_upload(self, request, **kwargs):
+        content_hash = request.data.get("content_hash")
+
+        if not content_hash:
+            raise ValidationError(
+                code="content_hash_required",
+                detail="A content hash must be provided to complete symbol set upload.",
+            )
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        symbol_set = self.get_object()
+        s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
+
+        if s3_upload:
+            content_length = s3_upload.get("ContentLength")
+
+            if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
+                symbol_set.delete()
+
+                raise ValidationError(
+                    code="file_too_large",
+                    detail="The uploaded symbol set file was too large.",
+                )
+        else:
+            raise ValidationError(
+                code="file_not_found",
+                detail="No file has been uploaded for the symbol set.",
+            )
+
+        if not symbol_set.content_hash:
+            symbol_set.content_hash = content_hash
+            symbol_set.save()
+
+        return Response({"success": True}, status=status.HTTP_200_OK)
+
 
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
+    assignee = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters"]
+        fields = ["id", "filters", "assignee"]
         read_only_fields = ["team_id"]
+
+    def get_assignee(self, obj):
+        if obj.user_id:
+            return {"type": "user", "id": obj.user_id}
+        elif obj.user_group_id:
+            return {"type": "user_group", "id": obj.user_group_id}
+        elif obj.role_id:
+            return {"type": "role", "id": obj.role_id}
+        return None
 
 
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -473,10 +636,21 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
 
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
+    assignee = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters"]
+        fields = ["id", "filters", "assignee"]
         read_only_fields = ["team_id"]
+
+    def get_assignee(self, obj):
+        if obj.user_id:
+            return {"type": "user", "id": obj.user_id}
+        elif obj.user_group_id:
+            return {"type": "user_group", "id": obj.user_group_id}
+        elif obj.role_id:
+            return {"type": "role", "id": obj.role_id}
+        return None
 
 
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -526,14 +700,86 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             filters=json_filters,
             bytecode=bytecode,
             order_key=0,
-            user_id=None if assignee["type"] != "user" else assignee["id"],
-            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
-            role_id=None if assignee["type"] != "role" else assignee["id"],
+            user_id=None if (not assignee or assignee["type"] != "user") else assignee["id"],
+            user_group_id=None if (not assignee or assignee["type"] != "user_group") else assignee["id"],
+            role_id=None if (not assignee or assignee["type"] != "role") else assignee["id"],
             description=description,
         )
 
         serializer = ErrorTrackingGroupingRuleSerializer(grouping_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingSuppressionRule
+        fields = ["id", "filters", "order_key"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingSuppressionRule.objects.all()
+    serializer_class = ErrorTrackingSuppressionRuleSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
+
+    def update(self, request, *args, **kwargs) -> Response:
+        suppression_rule = self.get_object()
+        filters = request.data.get("filters")
+
+        if filters:
+            suppression_rule.filters = filters
+
+        suppression_rule.save()
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        filters = request.data.get("filters")
+
+        if not filters:
+            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        suppression_rule = ErrorTrackingSuppressionRule.objects.create(
+            team=self.team,
+            filters=filters,
+            order_key=0,
+        )
+
+        serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+def create_symbol_set(
+    chunk_id: str, team: Team, release_id: str | None, storage_ptr: str, content_hash: Optional[str] = None
+):
+    if release_id:
+        objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+        if len(objects) < 1:
+            raise ValueError(f"Unknown release: {release_id}")
+        release = objects[0]
+    else:
+        release = None
+
+    with transaction.atomic():
+        # Use update_or_create for proper upsert behavior
+        symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+            team=team,
+            ref=chunk_id,
+            release=release,
+            defaults={
+                "storage_ptr": storage_ptr,
+                "content_hash": content_hash,
+                "failure_reason": None,
+            },
+        )
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set=symbol_set).delete()
+
+        return symbol_set
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
@@ -544,24 +790,20 @@ def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple
 def upload_content(content: bytearray) -> tuple[str, str]:
     content_hash = hashlib.sha512(content).hexdigest()
 
-    try:
-        if settings.OBJECT_STORAGE_ENABLED:
-            # TODO - maybe a gigabyte is too much?
-            if len(content) > ONE_GIGABYTE:
-                raise ValidationError(
-                    code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
-                )
-
-            upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-            object_storage.write(upload_path, bytes(content))
-            return (upload_path, content_hash)
-        else:
-            raise ObjectStorageUnavailable()
-    except ObjectStorageUnavailable:
+    if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
+
+    if len(content) > ONE_HUNDRED_MEGABYTES:
+        raise ValidationError(
+            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
+        )
+
+    upload_path = generate_symbol_set_file_key()
+    object_storage.write(upload_path, bytes(content))
+    return (upload_path, content_hash)
 
 
 def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
@@ -599,3 +841,11 @@ def validate_bytecode(bytecode: list[Any]) -> None:
                 raise ValidationError(f"Expected string for global function name, got {type(name)}")
             if name not in RUST_HOGVM_STL:
                 raise ValidationError(f"Unknown global function: {name}")
+
+
+def get_suppression_rules(team: Team):
+    return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+
+
+def generate_symbol_set_file_key():
+    return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"

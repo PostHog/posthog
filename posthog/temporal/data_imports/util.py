@@ -16,6 +16,7 @@ def prepare_s3_files_for_querying(
     delete_existing: bool = True,
 ):
     s3 = get_s3_client()
+    s3.invalidate_cache()
 
     normalized_table_name = NamingConvention().normalize_identifier(table_name)
 

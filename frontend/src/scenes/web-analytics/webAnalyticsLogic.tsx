@@ -1,5 +1,6 @@
 import { IconGear } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -12,12 +13,13 @@ import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { errorTrackingQuery } from 'scenes/error-tracking/queries'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -28,9 +30,11 @@ import {
     BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
+    DataTableNode,
     EventsNode,
     InsightVizNode,
     NodeKind,
+    QueryLogTags,
     QuerySchema,
     TrendsFilter,
     TrendsQuery,
@@ -45,6 +49,7 @@ import {
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
     BaseMathType,
@@ -55,6 +60,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    ProductKey,
     PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
@@ -67,6 +73,7 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
+import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
@@ -117,6 +124,8 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
+    MARKETING = 'MARKETING',
+    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -124,6 +133,7 @@ export enum ProductTab {
     WEB_VITALS = 'web-vitals',
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
+    MARKETING = 'marketing',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -170,6 +180,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
+    [TileId.MARKETING]: 16,
+
+    // Marketing Tiles
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -393,6 +407,10 @@ const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
+export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.WEB_ANALYTICS,
+}
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -402,13 +420,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'baseCurrency'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
+            marketingAnalyticsSettingsLogic,
+            ['sources_map', 'conversion_goals'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseTables', 'selfManagedTables'],
+            marketingAnalyticsLogic,
+            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery'],
         ],
     })),
     actions({
@@ -774,6 +798,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     })
                 }
 
+                if (productTab === ProductTab.MARKETING) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsMarketing,
+                        name: `Marketing`,
+                        path: urls.webAnalyticsMarketing(),
+                    })
+                }
+
                 return breadcrumbs
             },
         ],
@@ -794,19 +826,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
-            (s) => [
-                s.rawWebAnalyticsFilters,
-                s.isPathCleaningEnabled,
-                s.domainFilter,
-                s.deviceTypeFilter,
-                () => values.featureFlags,
-            ],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 domainFilter: string | null,
-                deviceTypeFilter: DeviceType | null,
-                featureFlags: Record<string, boolean>
+                deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
@@ -841,7 +866,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 // Translate exact path filters to cleaned path filters
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] && isPathCleaningEnabled) {
+                if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => ({
                         ...filter,
                         operator:
@@ -924,6 +949,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.currentTeam,
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
+                () => values.campaignCostsBreakdown,
+                s.createMarketingDataWarehouseNodes,
             ],
             (
                 productTab,
@@ -943,7 +970,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 currentTeam,
                 tileVisualizations,
-                preAggregatedEnabled
+                preAggregatedEnabled,
+                campaignCostsBreakdown,
+                createMarketingDataWarehouseNodes
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -999,17 +1028,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_analytics_config
-                        ? ([
-                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
-                                  name: e.eventName,
-                                  event: e.eventName,
-                                  custom_name: e.eventName,
-                                  math: PropertyMathType.Sum,
-                                  kind: NodeKind.EventsNode,
-                                  math_property: e.revenueProperty,
-                                  math_property_revenue_currency: e.revenueCurrencyProperty,
-                              })),
-                          ] as EventsNode[])
+                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
+                              name: e.eventName,
+                              event: e.eventName,
+                              custom_name: e.eventName,
+                              math: PropertyMathType.Sum,
+                              kind: NodeKind.EventsNode,
+                              math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
+                          })) as EventsNode[])
                         : []
 
                 const conversionRevenueSeries =
@@ -1051,6 +1078,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             filterTestAccounts,
                             conversionGoal,
                             properties: webAnalyticsFilters,
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
@@ -1088,7 +1116,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
                         canOpenModal: true,
-                        ...(tab || {}),
+                        ...tab,
                     }
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
@@ -1110,6 +1138,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
@@ -1136,7 +1165,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
-                                ...(source || {}),
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                ...source,
                             },
                             embedded: false,
                             showActions: true,
@@ -1180,6 +1210,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
@@ -1219,6 +1250,80 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         },
                     ]
+                }
+
+                if (productTab === ProductTab.MARKETING) {
+                    return [
+                        {
+                            kind: 'query',
+                            tileId: TileId.MARKETING,
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                                orderWhenLargeClassName: 'xxl:order-1',
+                            },
+                            title: 'Marketing Costs',
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                embedded: true,
+                                hidePersonsModal: true,
+                                hideTooltipOnScroll: true,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    series:
+                                        createMarketingDataWarehouseNodes.length > 0
+                                            ? createMarketingDataWarehouseNodes
+                                            : [
+                                                  // Fallback when no sources are configured
+                                                  {
+                                                      kind: NodeKind.EventsNode,
+                                                      event: 'no_sources_configured',
+                                                      custom_name: 'No marketing sources configured',
+                                                      math: BaseMathType.TotalCount,
+                                                  },
+                                              ],
+                                    interval: 'week',
+                                    dateRange: dateRange,
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsAreaGraph,
+                                        aggregationAxisFormat: 'numeric',
+                                        aggregationAxisPrefix: '$',
+                                    },
+                                },
+                            },
+                            insightProps: createInsightProps(TileId.MARKETING),
+                            canOpenInsight: true,
+                            canOpenModal: false,
+                            docs: {
+                                title: 'Marketing Costs',
+                                description:
+                                    createMarketingDataWarehouseNodes.length > 0
+                                        ? 'Track costs from your configured marketing data sources.'
+                                        : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
+                            },
+                        },
+                        campaignCostsBreakdown
+                            ? {
+                                  kind: 'query',
+                                  tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                                  layout: {
+                                      colSpanClassName: 'md:col-span-2',
+                                      orderWhenLargeClassName: 'xxl:order-2',
+                                  },
+                                  title: 'Campaign Costs Breakdown',
+                                  query: campaignCostsBreakdown,
+                                  insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                                  canOpenModal: true,
+                                  canOpenInsight: false,
+                                  docs: {
+                                      title: 'Campaign Costs Breakdown',
+                                      description:
+                                          'Breakdown of marketing costs by individual campaign names across all ad platforms.',
+                                  },
+                              }
+                            : null,
+                    ]
+                        .filter(isNotNil)
+                        .map((tile) => tile as WebAnalyticsTile)
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -1761,6 +1866,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   filterTestAccounts,
                                                   properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                               },
                                               hidePersonsModal: true,
                                               embedded: true,
@@ -1834,6 +1940,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,
                                       },
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   vizSpecificOptions: {
                                       [InsightType.RETENTION]: {
@@ -1899,6 +2006,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -1912,11 +2020,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of unique users during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
@@ -1942,6 +2062,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -1954,11 +2075,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           pageviews, broken down by hour of the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of total pageviews during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
@@ -1993,6 +2126,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2092,6 +2226,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       compareFilter,
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2254,6 +2389,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     } as TrendsFilter,
                     filterTestAccounts,
                     properties: webAnalyticsFilters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
                 embedded: false,
             }),
@@ -2278,7 +2414,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             urlsByDomain.set(key, [])
                         }
                         urlsByDomain.get(key)!.push(url)
-                    } catch (e) {
+                    } catch {
                         // Silently skip URLs that can't be parsed
                     }
                 }
@@ -2288,6 +2424,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
                     return preferredUrl.origin
                 })
+            },
+        ],
+        campaignCostsBreakdown: [
+            (s) => [s.loading, s.createDynamicCampaignQuery],
+            (loading: boolean, createDynamicCampaignQuery: string | null): DataTableNode | null => {
+                if (!createDynamicCampaignQuery || loading) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: createDynamicCampaignQuery,
+                    },
+                }
             },
         ],
     })),
@@ -2498,6 +2650,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
+            } else if (productTab === ProductTab.MARKETING) {
+                basePath = '/web/marketing'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
@@ -2557,12 +2711,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab = ProductTab.ANALYTICS
             }
 
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
+            if (
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
+                    productTab
+                )
+            ) {
                 return
             }
 
-            const parsedFilters = isWebAnalyticsPropertyFilters(filters) ? filters : undefined
-
+            const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
@@ -2694,7 +2851,7 @@ const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     // check if we have any conversion events from the last week without sessions ids
 
     const response = await hogqlQuery(
-        `select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
+        hogql`select count() from events where timestamp >= (now() - toIntervalHour(24)) AND ($session_id IS NULL OR $session_id = '') AND event = {event}`,
         { event: customEventName }
     )
     breakpoint?.()

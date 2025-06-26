@@ -20,11 +20,18 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useEffect, useState } from 'react'
-import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
+import { defaultQuery, syncAnchorIntervalToHumanReadable, SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataWarehouseSyncInterval, ExternalDataSourceSchema, ExternalDataSourceType, ProductKey } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceSchema,
+    ExternalDataSourceType,
+    ProductKey,
+} from '~/types'
 
 import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
@@ -74,12 +81,14 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting: Record<string, LemonTagType> = {
+const StatusTagSetting: Record<ExternalDataSchemaStatus | ExternalDataJobStatus, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
-    Error: 'danger',
     Failed: 'danger',
     'Billing limits': 'danger',
+    'Billing limit too low': 'danger',
+    Cancelled: 'warning',
+    Paused: 'warning',
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
@@ -235,7 +244,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         type="secondary"
                                         onClick={() => openSyncMethodModal(schema)}
                                     >
-                                        {schema.sync_type == 'incremental' ? 'Incremental' : 'Full refresh'}
+                                        {SyncTypeLabelMap[schema.sync_type]}
                                     </LemonButton>
                                     <SyncMethodModal schema={schema} />
                                 </>
@@ -275,6 +284,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             // Synced but no rows
                             if (schema.status === 'Completed') {
                                 return <div>No rows to query</div>
+                            }
+
+                            if (schema.status === 'Running') {
+                                return <div>Syncing...</div>
                             }
 
                             return <div>Not yet synced</div>
@@ -321,7 +334,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                             )
-                            return schema.latest_error && schema.status === 'Error' ? (
+                            return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
                             ) : (
                                 tagContent
@@ -426,15 +439,17 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 }
 
 const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
+    const logic = dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
+
     const {
         syncMethodModalIsOpen,
         currentSyncMethodModalSchema,
         schemaIncrementalFields,
         schemaIncrementalFieldsLoading,
         saveButtonIsLoading,
-    } = useValues(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+    } = useValues(logic)
     const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
-        useActions(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+        useActions(logic)
 
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
@@ -484,8 +499,9 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
-                        incremental_available: !!schemaIncrementalFields.length,
-                        incremental_fields: schemaIncrementalFields,
+                        incremental_available: schemaIncrementalFields.incremental_available,
+                        append_available: schemaIncrementalFields.append_available,
+                        incremental_fields: schemaIncrementalFields.incremental_fields,
                     }}
                     onClose={() => {
                         resetSchemaIncrementalFields()

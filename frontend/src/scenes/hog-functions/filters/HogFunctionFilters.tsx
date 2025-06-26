@@ -10,17 +10,17 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { useMemo } from 'react'
 
-function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
+function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
-    const sanitized: HogFunctionFiltersType = {}
+    const sanitized: CyclotronJobFiltersType = {}
 
     if (filters.events) {
         sanitized.events = filters.events.map((f) => ({
@@ -49,43 +49,34 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
-    if (type === 'broadcast') {
-        return (
-            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
-                <LemonField name="filters" label="Filters">
-                    {({ value, onChange }) => (
-                        <PropertyFilters
-                            propertyFilters={value?.properties ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(properties: AnyPropertyFilter[]) => {
-                                onChange({
-                                    ...value,
-                                    properties,
-                                })
-                            }}
-                            pageKey={`HogFunctionPropertyFilters.${id}`}
-                            metadataSource={{ kind: NodeKind.ActorsQuery }}
-                        />
-                    )}
-                </LemonField>
-            </div>
-        )
-    }
-
-    if (type === 'internal_destination') {
-        return <HogFunctionFiltersInternal />
-    }
-
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+    const isTransformation = type === 'transformation'
+
+    const taxonomicGroupTypes = useMemo(() => {
+        const types = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+
+        if (!isTransformation) {
+            types.push(
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.Elements,
+                ...groupsTaxonomicTypes
+            )
+        }
+
+        return types
+    }, [isTransformation, groupsTaxonomicTypes])
 
     const showMasking = type === 'destination' && !isLegacyPlugin
     const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
-    const isTransformation = type === 'transformation'
+    if (type === 'internal_destination') {
+        return <HogFunctionFiltersInternal />
+    }
 
     return (
         <div
@@ -105,7 +96,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 }
             >
                 {({ value, onChange }) => {
-                    const filters = (value ?? {}) as HogFunctionFiltersType
+                    const filters = (value ?? {}) as CyclotronJobFiltersType
                     return (
                         <>
                             {useMapping && (
@@ -123,21 +114,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             )}
                             <PropertyFilters
                                 propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={
-                                    isTransformation
-                                        ? [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                          ]
-                                        : [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.PersonProperties,
-                                              TaxonomicFilterGroupType.EventFeatureFlags,
-                                              TaxonomicFilterGroupType.Elements,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                              ...groupsTaxonomicTypes,
-                                          ]
-                                }
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...filters,
@@ -149,7 +126,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
                             {!useMapping ? (
                                 <>
-                                    <div className="flex justify-between w-full gap-2">
+                                    <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
@@ -176,21 +153,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
-                                        propertiesTaxonomicGroupTypes={
-                                            isTransformation
-                                                ? [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                  ]
-                                                : [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.EventFeatureFlags,
-                                                      TaxonomicFilterGroupType.Elements,
-                                                      TaxonomicFilterGroupType.PersonProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                      ...groupsTaxonomicTypes,
-                                                  ]
-                                        }
+                                        propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
                                         addFilterDefaultOptions={{
                                             id: '$pageview',
@@ -203,7 +166,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     {showDropEvents && (
                                         <>
                                             <LemonLabel>
-                                                <span className="flex items-center justify-between flex-1 gap-2">
+                                                <span className="flex flex-1 gap-2 justify-between items-center">
                                                     Drop events that don't match
                                                     <LemonSwitch
                                                         checked={value?.drop_events ?? false}
@@ -243,7 +206,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
-                        <div className="flex flex-wrap items-center gap-1">
+                        <div className="flex flex-wrap gap-1 items-center">
                             <LemonSelect
                                 options={[
                                     {
@@ -273,7 +236,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -318,7 +281,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}

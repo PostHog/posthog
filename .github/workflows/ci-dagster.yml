@@ -1,6 +1,5 @@
 # This workflow runs all of our dagster tests.
 name: Dagster CI
-
 on:
     push:
         branches:
@@ -57,24 +56,6 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
-    code-quality:
-        needs: changes
-        timeout-minutes: 30
-        if: needs.changes.outputs.dagster == 'true'
-
-        name: Python code quality checks
-        runs-on: depot-ubuntu-latest
-
-        steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-              with:
-                  fetch-depth: 1
-
-            - uses: ./.github/actions/python-code-quality
-              with:
-                  python-version: 3.11.9
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-
     dagster:
         name: Dagster tests
         needs: changes
@@ -127,3 +108,15 @@ jobs:
             - name: Run Dagster tests
               run: |
                   pytest dags
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.dagster == 'true'
+        needs: [dagster] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

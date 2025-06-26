@@ -27,6 +27,7 @@ test.describe('Early Access Management', () => {
 
         // save
         await page.locator('[data-attr="save-feature"]').click()
+        await page.locator('[data-attr="save-to-modal-save-button"]').click()
         await expect(page.locator('[data-attr=success-toast]')).toContainText('Early access feature saved')
 
         // back to features

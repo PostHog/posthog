@@ -1,3 +1,4 @@
+import { IconFlag, IconInfo } from '@posthog/icons'
 import { Meta, StoryObj } from '@storybook/react'
 import { BreakdownTag as BreakdownTagComponent } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
@@ -45,6 +46,62 @@ export const LemonTag: Story = {
                     </div>
                 )
             })}
+        </div>
+    ),
+}
+
+export const CloseOnClick: Story = {
+    render: () => (
+        <div className="space-y-4">
+            <div>
+                <h4>Close on Click Mode</h4>
+                <p className="text-muted mb-2">
+                    Hover to see the icon swap to close (X), click anywhere on the tag to close it
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                    <LemonTagComponent
+                        icon={<IconFlag />}
+                        closeOnClick
+                        onClose={() => alert('Tag closed!')}
+                        type="primary"
+                    >
+                        Primary tag with icon
+                    </LemonTagComponent>
+                    <LemonTagComponent
+                        icon={<IconInfo />}
+                        closeOnClick
+                        onClose={() => alert('Info tag closed!')}
+                        type="highlight"
+                    >
+                        Info tag
+                    </LemonTagComponent>
+                    <LemonTagComponent
+                        icon={<IconFlag />}
+                        closeOnClick
+                        onClose={() => alert('Warning tag closed!')}
+                        type="warning"
+                        size="small"
+                    >
+                        Small warning
+                    </LemonTagComponent>
+                </div>
+            </div>
+            <div>
+                <h4>Regular Closable Tags (for comparison)</h4>
+                <div className="flex gap-2 flex-wrap">
+                    <LemonTagComponent
+                        icon={<IconFlag />}
+                        closable
+                        onClose={() => alert('Regular tag closed!')}
+                        type="primary"
+                    >
+                        Regular closable
+                    </LemonTagComponent>
+                    <LemonTagComponent closable onClose={() => alert('No icon tag closed!')} type="highlight">
+                        No icon closable
+                    </LemonTagComponent>
+                </div>
+            </div>
         </div>
     ),
 }

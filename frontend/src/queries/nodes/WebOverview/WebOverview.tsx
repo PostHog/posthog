@@ -9,14 +9,14 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
-    CurrencyCode,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
@@ -32,6 +32,7 @@ const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
+
 export function WebOverview(props: {
     query: WebOverviewQuery
     cachedResults?: AnyResponseType
@@ -57,7 +58,10 @@ export function WebOverview(props: {
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
-        canUseWebAnalyticsPreAggregatedTables && response?.usedPreAggregatedTables
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables
 
     return (
         <>
@@ -103,7 +107,7 @@ const WebOverviewItemCell = ({
     item: WebOverviewItem
     usedPreAggregatedTables: boolean
 }): JSX.Element => {
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const label = labelFromKey(item.key)
     const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
@@ -172,7 +176,8 @@ const WebOverviewItemCell = ({
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} /> {formatPercentage(item.changeFromPreviousPct)}
+                        <trend.Icon color={trend.color} />
+                        {formatPercentage(item.changeFromPreviousPct)}
                     </div>
                 ) : (
                     <div />
@@ -210,7 +215,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? DEFAULT_CURRENCY)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`

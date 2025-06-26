@@ -8,10 +8,11 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-segment-worker.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
+import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -114,7 +115,6 @@ export class PluginServer {
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
                     { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
                     { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
-                    { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
                 ]
 
                 for (const consumerOption of consumersOptions) {
@@ -229,6 +229,7 @@ export class PluginServer {
                     await initPlugins()
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())
+                    await api.start()
                     return api.service
                 })
             }
@@ -253,6 +254,14 @@ export class PluginServer {
             if (capabilities.cdpCyclotronWorkerFetch) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerFetch(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerHogFlow) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerHogFlow(hub)
                     await worker.start()
                     return worker.service
                 })

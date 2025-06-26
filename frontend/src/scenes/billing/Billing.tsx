@@ -20,7 +20,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
@@ -51,21 +51,29 @@ export function Billing(): JSX.Element {
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { location, searchParams } = useValues(router)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    if (preflight && !isCloudOrDev) {
-        router.actions.push(urls.default())
-    }
+    useEffect(() => {
+        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+            return
+        }
+    }, [featureFlags, location.pathname, searchParams])
 
     useEffect(() => {
         if (billing) {
             reportBillingShown()
         }
     }, [!!billing])
+
+    if (preflight && !isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
 
     if (!billing && billingLoading) {
         return (
@@ -196,7 +204,7 @@ export function Billing(): JSX.Element {
             {products
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>

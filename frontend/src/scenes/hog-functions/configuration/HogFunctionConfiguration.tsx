@@ -5,7 +5,6 @@ import {
     LemonDivider,
     LemonDropdown,
     LemonInput,
-    LemonLabel,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -15,29 +14,30 @@ import {
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl } from 'kea-router'
+import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
-import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
-import { urls } from 'scenes/urls'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { AvailableFeature } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
-import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
@@ -54,9 +54,7 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
-        hideTestingConfiguration?: boolean
         canEditSource?: boolean
-        showPersonsCount?: boolean
     }
 }
 
@@ -78,18 +76,18 @@ export function HogFunctionConfiguration({
         hogFunction,
         willReEnableOnSave,
         willChangeEnabledOnSave,
-        globalsWithInputs,
+        sampleGlobalsWithInputs,
         showPaygate,
         hasAddon,
-        personsCount,
-        personsCountLoading,
-        personsListQuery,
         template,
         templateHasChanged,
         type,
         usesGroups,
         hasGroupsAddon,
         mightDropEvents,
+        oldHogCode,
+        newHogCode,
+        featureFlags,
     } = useValues(logic)
 
     const {
@@ -101,8 +99,16 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        setOldHogCode,
+        setNewHogCode,
+        clearHogCodeDiff,
+        reportAIHogFunctionPrompted,
+        reportAIHogFunctionAccepted,
+        reportAIHogFunctionRejected,
+        reportAIHogFunctionPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
     const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
@@ -184,36 +190,27 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'email', 'transformation'].includes(
-            type
-        )
+        ['destination', 'internal_destination', 'site_destination', 'email', 'transformation'].includes(type)
     const showExpectedVolume =
         displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        [
-            'destination',
-            'internal_destination',
-            'email',
-            'site_destination',
-            'site_app',
-            'transformation',
-            'broadcast',
-        ].includes(type)
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
             !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
-    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
-    const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
+    const showLeftPanel = showOverview || showExpectedVolume || showFilters
 
     return (
         <div className="deprecated-space-y-3">
@@ -235,11 +232,30 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                ) : [
+                      'template-google-ads',
+                      'template-meta-ads',
+                      'template-tiktok-ads',
+                      'template-snapchat-ads',
+                      'template-linkedin-ads',
+                      'template-reddit-pixel',
+                      'template-tiktok-pixel',
+                      'template-snapchat-pixel',
+                      'template-reddit-conversions-api',
+                  ].includes(templateId ?? '') || template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
-                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
-                            may result in some events failing to be delivered.
+                            <p>
+                                This destination is currently in an experimental state. For many cases this will work
+                                just fine but for others there may be unexpected issues and we do not offer official
+                                customer support for it in these cases.
+                            </p>
+                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                                <span className="mt-2">
+                                    The receiving destination imposes a rate limit of 10 events per second. Exceeding
+                                    this limit may result in some events failing to be delivered.
+                                </span>
+                            ) : null}
                         </LemonBanner>
                     </div>
                 ) : null}
@@ -272,7 +288,7 @@ export function HogFunctionConfiguration({
 
                                         <div className="flex flex-col flex-1 justify-start items-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
-                                            {template && <DestinationTag status={template.status} />}
+                                            {template && <HogFunctionStatusTag status={template.status} />}
                                         </div>
 
                                         {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -341,7 +357,7 @@ export function HogFunctionConfiguration({
                                                 <Link subtle className="flex flex-wrap gap-1 items-center p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                    <DestinationTag status={hogFunction.template.status} />
+                                                    <HogFunctionStatusTag status={hogFunction.template.status} />
                                                     {templateHasChanged ? (
                                                         <LemonTag type="success">Update available!</LemonTag>
                                                     ) : null}
@@ -351,38 +367,9 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
 
-                                {showFilters && <HogFunctionFilters />}
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
 
-                                {showPersonsCount && (
-                                    <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
-                                        <div>
-                                            <LemonLabel>Matching persons</LemonLabel>
-                                        </div>
-                                        {personsCount && !personsCountLoading ? (
-                                            <>
-                                                Found{' '}
-                                                <Link
-                                                    to={
-                                                        // TODO: swap for a link to the persons page
-                                                        combineUrl(urls.activity(), {}, { q: personsListQuery }).url
-                                                    }
-                                                    target="_blank"
-                                                >
-                                                    <strong>
-                                                        {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
-                                                    </strong>
-                                                </Link>{' '}
-                                                to send to.
-                                            </>
-                                        ) : personsCountLoading ? (
-                                            <div className="min-h-20">
-                                                <SpinnerOverlay />
-                                            </div>
-                                        ) : (
-                                            <p>The expected volume could not be calculated</p>
-                                        )}
-                                    </div>
-                                )}
+                                {showFilters && <HogFunctionFilters />}
 
                                 {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                             </div>
@@ -419,9 +406,18 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     ) : null}
 
-                                    <HogFunctionInputs
-                                        configuration={configuration}
-                                        setConfigurationValue={setConfigurationValue}
+                                    <CyclotronJobInputs
+                                        configuration={{
+                                            inputs_schema: configuration.inputs_schema ?? [],
+                                            inputs: configuration.inputs ?? {},
+                                        }}
+                                        onInputSchemaChange={(schema) => {
+                                            setConfigurationValue('inputs_schema', schema)
+                                        }}
+                                        onInputChange={(key, input) => {
+                                            setConfigurationValue(`inputs.${key}`, input)
+                                        }}
+                                        showSource={showSource}
                                     />
                                     {showSource && canEditSource ? (
                                         <LemonButton
@@ -476,7 +472,8 @@ export function HogFunctionConfiguration({
                                                     }, 100)
                                                 }}
                                                 disabledReason={
-                                                    !hasAddon
+                                                    // We allow editing the source code for transformations without the Data Pipelines addon
+                                                    !hasAddon && type !== 'transformation'
                                                         ? 'Editing the source code requires the Data Pipelines addon'
                                                         : undefined
                                                 }
@@ -500,8 +497,8 @@ export function HogFunctionConfiguration({
                                                 <>
                                                     {!type.startsWith('site_') ? (
                                                         <span className="text-xs text-secondary">
-                                                            This is the underlying Hog code that will run whenever the
-                                                            filters match.{' '}
+                                                            This is the underlying Hog code that will run whenever this
+                                                            triggers.{' '}
                                                             <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
                                                             for more info
                                                         </span>
@@ -513,35 +510,108 @@ export function HogFunctionConfiguration({
                                                             instead.
                                                         </LemonBanner>
                                                     )}
-                                                    <CodeEditorResizeable
-                                                        language={type.startsWith('site_') ? 'typescript' : 'hog'}
-                                                        value={value ?? ''}
-                                                        onChange={(v) => onChange(v ?? '')}
-                                                        globals={globalsWithInputs}
-                                                        options={{
-                                                            minimap: {
-                                                                enabled: false,
-                                                            },
-                                                            wordWrap: 'on',
-                                                            scrollBeyondLastLine: false,
-                                                            automaticLayout: true,
-                                                            fixedOverflowWidgets: true,
-                                                            suggest: {
-                                                                showInlineDetails: true,
-                                                            },
-                                                            quickSuggestionsDelay: 300,
-                                                        }}
-                                                    />
+                                                    {aiHogFunctionCreation ? (
+                                                        <MaxTool
+                                                            name="create_hog_transformation_function"
+                                                            displayName="Write and tweak Hog code"
+                                                            context={{
+                                                                current_hog_code: value ?? '',
+                                                            }}
+                                                            callback={(toolOutput: string) => {
+                                                                // Store the old value before changing
+                                                                setOldHogCode(value ?? '')
+                                                                // Store the new value from Max Tool
+                                                                setNewHogCode(toolOutput)
+                                                                // Report that AI was prompted
+                                                                reportAIHogFunctionPrompted()
+                                                                // Don't immediately update the form - let user accept/reject
+                                                            }}
+                                                            onMaxOpen={() => {
+                                                                reportAIHogFunctionPromptOpen()
+                                                            }}
+                                                            suggestions={[]}
+                                                            introOverride={{
+                                                                headline: 'What transformation do you want to create?',
+                                                                description:
+                                                                    'Let me help you quickly write the code for your transformation, and tweak it.',
+                                                            }}
+                                                        >
+                                                            <CodeEditorResizeable
+                                                                language={
+                                                                    type.startsWith('site_') ? 'typescript' : 'hog'
+                                                                }
+                                                                value={newHogCode ?? value ?? ''}
+                                                                originalValue={
+                                                                    oldHogCode && newHogCode ? oldHogCode : undefined
+                                                                }
+                                                                onChange={(v) => {
+                                                                    // If user manually edits while diff is showing, clear the diff
+                                                                    if (oldHogCode && newHogCode) {
+                                                                        clearHogCodeDiff()
+                                                                    }
+                                                                    onChange(v ?? '')
+                                                                }}
+                                                                globals={sampleGlobalsWithInputs}
+                                                                showDiffActions={!!(oldHogCode && newHogCode)}
+                                                                onAcceptChanges={() => {
+                                                                    if (newHogCode) {
+                                                                        onChange(newHogCode)
+                                                                    }
+                                                                    reportAIHogFunctionAccepted()
+                                                                    clearHogCodeDiff()
+                                                                }}
+                                                                onRejectChanges={() => {
+                                                                    if (oldHogCode) {
+                                                                        onChange(oldHogCode)
+                                                                    }
+                                                                    reportAIHogFunctionRejected()
+                                                                    clearHogCodeDiff()
+                                                                }}
+                                                                options={{
+                                                                    minimap: {
+                                                                        enabled: false,
+                                                                    },
+                                                                    wordWrap: 'on',
+                                                                    scrollBeyondLastLine: false,
+                                                                    automaticLayout: true,
+                                                                    fixedOverflowWidgets: true,
+                                                                    suggest: {
+                                                                        showInlineDetails: true,
+                                                                    },
+                                                                    quickSuggestionsDelay: 300,
+                                                                    readOnly: !!(oldHogCode && newHogCode),
+                                                                }}
+                                                            />
+                                                        </MaxTool>
+                                                    ) : (
+                                                        <CodeEditorResizeable
+                                                            language={type.startsWith('site_') ? 'typescript' : 'hog'}
+                                                            value={value ?? ''}
+                                                            onChange={(v) => onChange(v ?? '')}
+                                                            globals={sampleGlobalsWithInputs}
+                                                            options={{
+                                                                minimap: {
+                                                                    enabled: false,
+                                                                },
+                                                                wordWrap: 'on',
+                                                                scrollBeyondLastLine: false,
+                                                                automaticLayout: true,
+                                                                fixedOverflowWidgets: true,
+                                                                suggest: {
+                                                                    showInlineDetails: true,
+                                                                },
+                                                                quickSuggestionsDelay: 300,
+                                                            }}
+                                                        />
+                                                    )}
                                                 </>
                                             )}
                                         </LemonField>
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
-                            ) : null}
-                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
+                            {showTesting ? <HogFunctionTest /> : null}
+                            {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
                             <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>

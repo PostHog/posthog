@@ -3,7 +3,7 @@ import csv
 from collections import defaultdict
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
-from sentry_sdk import start_span
+from posthog.api.insight import capture_legacy_api_call
 import structlog
 
 from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
@@ -87,7 +87,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
-    type: Literal["event"]
+    type: Literal["event", "element"]
     key: str
     value: Any
     operator: str | None = None
@@ -234,6 +234,7 @@ class CohortSerializer(serializers.ModelSerializer):
             if existing_cohort_id:
                 filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
             if filter_data:
+                capture_legacy_api_call(request, self.context["get_team"]())
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
@@ -260,8 +261,8 @@ class CohortSerializer(serializers.ModelSerializer):
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         decoded_file = file.read().decode("utf-8").splitlines()
         reader = csv.reader(decoded_file)
-        distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails, team_id=self.context["team_id"])
+        distinct_ids = [row[0] for row in reader if len(row) > 0 and row]
+        calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
 
     def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
@@ -530,6 +531,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "request": request,
                 "from_cohort_id": cohort.pk,
                 "team_id": team.pk,
+                "get_team": lambda: team,
             },
         )
 
@@ -894,51 +896,50 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             if len(all_persons) == 0:
                 break
 
-            with start_span(op="batch_flag_matching_with_overrides"):
-                for person in all_persons:
-                    # ignore almost-deleted persons / persons with no distinct ids
-                    if len(person.distinct_ids) == 0:
-                        continue
+            for person in all_persons:
+                # ignore almost-deleted persons / persons with no distinct ids
+                if len(person.distinct_ids) == 0:
+                    continue
 
-                    distinct_id = person.distinct_ids[0]
-                    person_overrides = {}
-                    if feature_flag.ensure_experience_continuity:
-                        # :TRICKY: This is inefficient because it tries to get the hashkey overrides one by one.
-                        # But reusing functions is better for maintainability. Revisit optimising if this becomes a bottleneck.
-                        person_overrides = get_feature_flag_hash_key_overrides(
-                            team_id, [distinct_id], person_id_to_distinct_id_mapping={person.id: distinct_id}
-                        )
+                distinct_id = person.distinct_ids[0]
+                person_overrides = {}
+                if feature_flag.ensure_experience_continuity:
+                    # :TRICKY: This is inefficient because it tries to get the hashkey overrides one by one.
+                    # But reusing functions is better for maintainability. Revisit optimising if this becomes a bottleneck.
+                    person_overrides = get_feature_flag_hash_key_overrides(
+                        team_id, [distinct_id], person_id_to_distinct_id_mapping={person.id: distinct_id}
+                    )
 
-                    try:
-                        match = FeatureFlagMatcher(
-                            team_id,
-                            project_id,
-                            [feature_flag],
-                            distinct_id,
-                            groups={},
-                            cache=matcher_cache,
-                            hash_key_overrides=person_overrides,
-                            property_value_overrides={**default_person_properties, **person.properties},
-                            group_property_value_overrides={},
-                            cohorts_cache=cohorts_cache,
-                        ).get_match(feature_flag)
-                        if match.match:
-                            uuids_to_add_to_cohort.append(str(person.uuid))
-                    except (DatabaseError, ValueError, ValidationError):
-                        logger.exception(
-                            "Error evaluating feature flag for person", person_uuid=str(person.uuid), team_id=team_id
-                        )
-                    except Exception as err:
-                        # matching errors are not fatal, so we just log them and move on.
-                        # Capturing in sentry for now just in case there are some unexpected errors
-                        # we did not account for.
-                        capture_exception(err)
+                try:
+                    match = FeatureFlagMatcher(
+                        team_id,
+                        project_id,
+                        [feature_flag],
+                        distinct_id,
+                        groups={},
+                        cache=matcher_cache,
+                        hash_key_overrides=person_overrides,
+                        property_value_overrides={**default_person_properties, **person.properties},
+                        group_property_value_overrides={},
+                        cohorts_cache=cohorts_cache,
+                    ).get_match(feature_flag)
+                    if match.match:
+                        uuids_to_add_to_cohort.append(str(person.uuid))
+                except (DatabaseError, ValueError, ValidationError):
+                    logger.exception(
+                        "Error evaluating feature flag for person", person_uuid=str(person.uuid), team_id=team_id
+                    )
+                except Exception as err:
+                    # matching errors are not fatal, so we just log them and move on.
+                    # Capturing error for now just in case there are some unexpected errors
+                    # we did not account for.
+                    capture_exception(err)
 
-                    if len(uuids_to_add_to_cohort) >= batchsize:
-                        cohort.insert_users_list_by_uuid(
-                            uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-                        )
-                        uuids_to_add_to_cohort = []
+                if len(uuids_to_add_to_cohort) >= batchsize:
+                    cohort.insert_users_list_by_uuid(
+                        uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
+                    )
+                    uuids_to_add_to_cohort = []
 
             start += batchsize
             batch_of_persons = queryset[start : start + batchsize]

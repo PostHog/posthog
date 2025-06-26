@@ -200,7 +200,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
-            experiment_id=str(self.query.experiment_id),
+            experiment_id=self.query.experiment_id,
             experiment_name=self.query.experiment_name,
             experiment_feature_flag_key=self.feature_flag_key,
         )
@@ -239,9 +239,25 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 variant=variant, days=sorted_days, exposure_counts=cumulative_counts
             )
 
+        # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+        ordered_timeseries = []
+
+        # Add variants in original order
+        for variant in self.variants:
+            if variant in variant_series:
+                ordered_timeseries.append(variant_series[variant])
+
+        if MULTIPLE_VARIANT_KEY in variant_series:
+            ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
+
+        # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
+        total_exposures = {}
+        for variant, series in variant_series.items():
+            total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
+
         return ExperimentExposureQueryResponse(
-            timeseries=list(variant_series.values()),
-            total_exposures={variant: int(series.exposure_counts[-1]) for variant, series in variant_series.items()},
+            timeseries=ordered_timeseries,
+            total_exposures=total_exposures,
             date_range=self.date_range,
         )
 

@@ -186,7 +186,7 @@ async def test_postgres_source_full_refresh(
     assert res.results == TEST_DATA
 
 
-def test_postgresql_sql_source_config_loads():
+def test_postgresql__source_config_loads():
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -205,7 +205,7 @@ def test_postgresql_sql_source_config_loads():
     assert config.ssh_tunnel is None
 
 
-def test_postgresql_sql_source_config_loads_int_port():
+def test_postgresql_source_config_loads_int_port():
     job_inputs = {
         "host": "host.com",
         "port": 5432,
@@ -224,7 +224,7 @@ def test_postgresql_sql_source_config_loads_int_port():
     assert config.ssh_tunnel is None
 
 
-def test_postgresql_sql_source_config_loads_with_ssh_tunnel():
+def test_postgresql_source_config_loads_with_ssh_tunnel():
     job_inputs = {
         "host": "host.com",
         "port": "5432",
@@ -255,7 +255,7 @@ def test_postgresql_sql_source_config_loads_with_ssh_tunnel():
     assert config.ssh_tunnel.host == "other-host.com"
 
 
-def test_postgresql_sql_source_config_loads_with_nested_dict_enabled_tunnel():
+def test_postgresql_source_config_loads_with_nested_dict_enabled_tunnel():
     job_inputs = {
         "host": "host.com",
         "port": 5432,
@@ -291,7 +291,7 @@ def test_postgresql_sql_source_config_loads_with_nested_dict_enabled_tunnel():
     assert config.ssh_tunnel.auth.password == "password"
 
 
-def test_postgresql_sql_source_config_loads_with_nested_dict_disabled_tunnel():
+def test_postgresql_source_config_loads_with_nested_dict_disabled_tunnel():
     job_inputs = {
         "host": "host.com",
         "port": 5432,

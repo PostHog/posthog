@@ -84,7 +84,7 @@ class TestQueryRunner(BaseTest):
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
 
         # changes to the cache payload have a significant impact, as they'll
@@ -99,11 +99,11 @@ class TestQueryRunner(BaseTest):
                 "optimizeJoinedFilters": False,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "bounceRatePageViewMode": "count_pageviews",
+                "convertToProjectTimezone": True,
                 "sessionTableVersion": "auto",
                 "useMaterializedViews": True,
                 "sessionsV2JoinMode": "string",
                 "usePresortedEventsTable": False,
-                "convertToProjectTimezone": True,
             },
             "limit_context": "query",
             "query": {"kind": "TestQuery", "some_attr": "bla"},

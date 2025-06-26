@@ -348,7 +348,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
                             icon={<IconX />}
                         />
                     </div>
-                    <div className="text-sm text-gray-700">{description}</div>
+                    <div className="text-sm text-gray-700 dark:text-white">{description}</div>
                     {url && (
                         <div className="flex justify-end mt-4">
                             <LemonButton
@@ -407,6 +407,25 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
     ]
 }
 
+const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+        return []
+    }
+    return [
+        {
+            key: ProductTab.MARKETING,
+            label: (
+                <div className="flex items-center gap-1">
+                    Marketing
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+        },
+    ]
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -435,6 +454,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
                                 ...pageReportsTab(featureFlags),
+                                ...marketingTab(featureFlags),
                             ]}
                         />
 

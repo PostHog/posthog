@@ -414,14 +414,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }
                     }}
                     initialMaxPrompt="Show me users who "
+                    className="EditorFiltersWrapper"
                 >
                     <div
-                        className={clsx(
-                            'EditorFiltersWrapper relative flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary',
-                            {
-                                'p-4 rounded border': !embedded,
-                            }
-                        )}
+                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            'p-4 rounded border': !embedded,
+                        })}
                     >
                         {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
                             <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">

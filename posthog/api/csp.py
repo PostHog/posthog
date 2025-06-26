@@ -1,7 +1,10 @@
 import json
+import structlog
+from datetime import datetime
 from typing import Optional
 
-import structlog
+from django.http import HttpResponse
+from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
 from posthog.sampling import sample_on_property
@@ -37,16 +40,22 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
         return True
 
     document_url = properties.get("document_url", "")
-    should_ingest_report = sample_on_property(document_url, percent)
+    now = datetime.now().replace(second=0, microsecond=0)
+    time_str = now.isoformat()
+    sampling_key = f"{document_url}-{time_str}"
+
+    should_ingest_report = sample_on_property(sampling_key, percent)
 
     if add_metadata:
         properties["csp_sampled"] = should_ingest_report
         properties["csp_sample_threshold"] = percent
+        properties["csp_sampling_key"] = sampling_key
 
     if not should_ingest_report:
         logger.debug(
             "CSP report sampled out",
             document_url=document_url,
+            sampling_key=sampling_key,
             sample_rate=percent,
         )
 
@@ -142,6 +151,11 @@ def process_csp_report(request):
         # If by any chance we got this far and this is not looking like a CSP report, keep the ingestion pipeline working as it was
         # we don't want to return an error here to avoid breaking the ingestion pipeline
         if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
+            logger.warning(
+                "CSP report skipped - invalid content type",
+                content_type=request.content_type,
+                expected_types=["application/csp-report", "application/reports+json"],
+            )
             return None, None
 
         csp_data = json.loads(request.body)
@@ -161,7 +175,12 @@ def process_csp_report(request):
             properties = parse_report_uri(csp_data)
 
             if not sample_csp_report(properties, sample_rate, add_metadata=True):
-                return None, None
+                logger.warning(
+                    "CSP report sampled out - report-uri format",
+                    document_url=properties.get("document_url"),
+                    sample_rate=sample_rate,
+                )
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return (
                 build_csp_event(
@@ -185,7 +204,12 @@ def process_csp_report(request):
                     sampled_violations.append(prop)
 
             if not sampled_violations:
-                return None, None
+                logger.warning(
+                    "CSP report sampled out - report-to format",
+                    total_violations=len(violations_props),
+                    sample_rate=sample_rate,
+                )
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return [
                 build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
@@ -194,13 +218,14 @@ def process_csp_report(request):
         else:
             raise ValueError("Invalid CSP report")
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.exception("Invalid CSP report JSON format", error=e)
         return None, cors_response(
             request,
             generate_exception_response("capture", "Invalid CSP report format", code="invalid_csp_payload"),
         )
     except ValueError as e:
-        logger.exception("Invalid CSP report properties are being parsed", error=e)
+        logger.exception("Invalid CSP report properties", error=e)
         return None, cors_response(
             request,
             generate_exception_response(
@@ -208,5 +233,5 @@ def process_csp_report(request):
             ),
         )
     except Exception as e:
-        logger.exception("Error processing CSP report", error=e)
+        logger.exception("CSP report processing failed with exception", error=e)
         return None, None

@@ -115,6 +115,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
             res, params = self.get_static_cohort_condition(prop, prepend, idx)
+        elif prop.type == "dynamic-cohort":
+            res, params = self.get_dynamic_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 

@@ -14,13 +14,19 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::api::endpoints::{external_redirect_url, external_store_url, internal_redirect_url};
+use crate::{
+    api::endpoints::{external_redirect_url, external_store_url, internal_redirect_url},
+    redirect::{
+        redirect_cache::{RedirectCacheManager, RedisRedirectCacheManager},
+        redis_utils::RedisRedirectKeyPrefix,
+    },
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub db_reader_client: Arc<dyn DatabaseClient + Send + Sync>,
-    pub external_redis_client: Arc<dyn RedisClient + Send + Sync>,
-    pub internal_redis_client: Arc<dyn RedisClient + Send + Sync>,
+    pub external_link_cache: Arc<dyn RedirectCacheManager + Send + Sync>,
+    pub internal_link_cache: Arc<dyn RedirectCacheManager + Send + Sync>,
     pub default_domain_for_public_store: String,
 }
 
@@ -36,10 +42,18 @@ where
     D: DatabaseClient + Send + Sync + 'static,
     R: RedisClient + Send + Sync + 'static,
 {
+    let external_link_cache = Arc::new(RedisRedirectCacheManager::new(
+        external_redis_client,
+        RedisRedirectKeyPrefix::External,
+    ));
+    let internal_link_cache = Arc::new(RedisRedirectCacheManager::new(
+        internal_redis_client,
+        RedisRedirectKeyPrefix::Internal,
+    ));
     let state = AppState {
         db_reader_client,
-        external_redis_client,
-        internal_redis_client,
+        external_link_cache,
+        internal_link_cache,
         default_domain_for_public_store,
     };
 

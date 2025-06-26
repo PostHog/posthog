@@ -2,6 +2,7 @@ import './Playlist.scss'
 
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
@@ -9,6 +10,8 @@ import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
+
+import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -49,6 +52,7 @@ export type PlaylistProps = {
     'data-attr'?: string
     activeItemId?: string
     isCollapsed?: boolean
+    filterContent?: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
 }
 
 export function Playlist({
@@ -68,7 +72,10 @@ export function Playlist({
     onSelect,
     onChangeSections,
     'data-attr': dataAttr,
+    filterContent,
 }: PlaylistProps): JSX.Element {
+    const { isFiltersExpanded } = useValues(playlistLogic)
+
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         ?.find((s) => s.items.length > 0)?.items[0]
@@ -212,22 +219,27 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
-                <div
-                    className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                        {
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        }
-                    )}
-                >
-                    {content && (
-                        <div className="Playlist__main h-full">
-                            {' '}
-                            {typeof content === 'function' ? content({ activeItem }) : content}
-                        </div>
-                    )}
-                </div>
+                {!isFiltersExpanded && (
+                    <div
+                        className={clsx(
+                            'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                            {
+                                'Playlist--wide': size !== 'small',
+                                'Playlist--embedded': embedded,
+                            }
+                        )}
+                    >
+                        {content && (
+                            <div className="Playlist__main h-full">
+                                {' '}
+                                {typeof content === 'function' ? content({ activeItem }) : content}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {isFiltersExpanded && filterContent && (
+                    <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
+                )}
             </div>
         </>
     )

@@ -1,0 +1,38 @@
+{
+    "baseline": {
+        "key": "control",
+        "number_of_samples": 1551,
+        "sum": 176.0,
+        "sum_squares": 176.0
+    },
+    "cache_key": "cache_5bf25759681c1c4ebe4f7def286aa342",
+    "cache_target_age": "2025-06-13T15:08:39.757520Z",
+    "calculation_trigger": null,
+    "credible_intervals": null,
+    "insight": null,
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-06-12T15:08:39.757520Z",
+    "metric": null,
+    "next_allowed_client_refresh": "2025-06-12T15:09:39.757520Z",
+    "p_value": null,
+    "probability": null,
+    "query_status": null,
+    "significance_code": null,
+    "significant": null,
+    "stats_version": null,
+    "timezone": "UTC",
+    "variant_results": [
+        {
+            "confidence_interval": [-0.5713938333294022, -0.30650005734583885],
+            "key": "test",
+            "method": "frequentist",
+            "number_of_samples": 1555,
+            "p_value": 9.522627131275385e-11,
+            "significant": true,
+            "sum": 99.0,
+            "sum_squares": 99.0
+        }
+    ],
+    "variants": null
+}

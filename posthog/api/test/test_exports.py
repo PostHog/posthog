@@ -86,6 +86,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -117,6 +118,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -170,6 +172,7 @@ class TestExports(APIBaseTest):
                 "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
+                "exception": None,
                 "export_context": None,
                 "expires_after": (now() + timedelta(weeks=26))
                 .replace(hour=0, minute=0, second=0, microsecond=0)

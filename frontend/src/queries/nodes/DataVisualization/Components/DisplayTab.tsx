@@ -28,6 +28,14 @@ export const DisplayTab = (): JSX.Element => {
                         updateChartSettings({ showLegend: value })
                     }}
                 />
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Show total row"
+                    checked={chartSettings.showTotalRow ?? true}
+                    onChange={(value) => {
+                        updateChartSettings({ showTotalRow: value })
+                    }}
+                />
             </div>
 
             <div className="mt-1 mb-2 flex flex-col">

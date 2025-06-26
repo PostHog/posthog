@@ -13,10 +13,10 @@ import {
     getSessionId,
     hasStacktrace,
 } from 'lib/components/Errors/utils'
-import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { mightHaveRecording } from '../ViewRecordingButton/ViewRecordingButton'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -47,12 +47,6 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 return properties ? getExceptionList(properties) : []
             },
         ],
-        timestamp: [
-            (s) => [s.properties],
-            (properties: ErrorEventProperties) => {
-                return properties ? dayjs(properties.timestamp as string) : null
-            },
-        ],
         additionalProperties: [
             (s) => [s.properties, s.isCloudOrDev],
             (properties: ErrorEventProperties, isCloudOrDev: boolean | undefined) =>
@@ -66,6 +60,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
+        ],
+        mightHaveRecording: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties) => (properties ? mightHaveRecording(properties) : false),
         ],
         getExceptionFingerprint: [
             (s) => [s.fingerprintRecords],

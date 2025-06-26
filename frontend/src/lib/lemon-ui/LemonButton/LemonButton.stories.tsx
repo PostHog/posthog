@@ -95,7 +95,7 @@ export const TextOnly = (): JSX.Element => {
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
@@ -110,7 +110,7 @@ export const Sizes = (): JSX.Element => {
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">

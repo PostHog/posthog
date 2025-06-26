@@ -18,6 +18,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
@@ -183,7 +184,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): Required<Omit<DataTableNode, 'response'>> => {
+            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version'> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]

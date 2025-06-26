@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
 use base64::{prelude::BASE64_URL_SAFE, Engine};
+use chrono::{DateTime, Utc};
 use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,8 +11,15 @@ use serde_json::Value;
 use crate::{
     context::AppContext,
     emit::{kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter, StdoutEmitter},
+    extractor::ExtractorType,
     parse::format::FormatConfig,
-    source::{folder::FolderSource, s3::S3Source, url_list::UrlList, DataSource},
+    source::{
+        date_range_export::{AuthConfig, DateRangeExportSource},
+        folder::FolderSource,
+        s3::S3Source,
+        url_list::UrlList,
+        DataSource,
+    },
 };
 
 use super::model::JobModel;
@@ -31,6 +39,7 @@ pub enum SourceConfig {
     Folder(FolderSourceConfig),
     UrlList(UrlListConfig),
     S3(S3SourceConfig),
+    DateRangeExport(DateRangeExportSourceConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +66,48 @@ pub struct S3SourceConfig {
     bucket: String,
     prefix: String,
     region: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DateRangeExportSourceConfig {
+    base_url: String,
+    #[serde(default)]
+    extractor_type: ExtractorType,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    start_qp: String,
+    end_qp: String,
+    auth: AuthSourceConfig,
+    interval_duration: i64,
+    #[serde(default = "DateRangeExportSourceConfig::default_retries")]
+    retries: usize,
+    #[serde(default = "DateRangeExportSourceConfig::default_timeout_seconds")]
+    timeout_seconds: u64,
+    #[serde(default = "DateRangeExportSourceConfig::default_date_format")]
+    date_format: String,
+    #[serde(default)]
+    headers: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AuthSourceConfig {
+    None,
+    ApiKey {
+        header_name: String,
+        key_secret: String,
+    },
+    BearerToken {
+        token_secret: String,
+    },
+    BasicAuth {
+        username_secret: String,
+        password_secret: String,
+    },
+    // Annoyingly mixpanel does its own thing
+    MixpanelAuth {
+        secret_key_secret: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +181,9 @@ impl SourceConfig {
                 config.create_source(secrets, !is_restarting).await?,
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::DateRangeExport(config) => {
+                Ok(Box::new(config.create_source(secrets).await?))
+            }
         }
     }
 }
@@ -253,5 +307,132 @@ impl S3SourceConfig {
             self.bucket.clone(),
             self.prefix.clone(),
         ))
+    }
+}
+impl DateRangeExportSourceConfig {
+    pub async fn create_source(
+        &self,
+        secrets: &JobSecrets,
+    ) -> Result<DateRangeExportSource, Error> {
+        let auth_config = match &self.auth {
+            AuthSourceConfig::None => AuthConfig::None,
+            AuthSourceConfig::ApiKey {
+                header_name,
+                key_secret,
+            } => {
+                let key = secrets
+                    .secrets
+                    .get(key_secret)
+                    .ok_or(Error::msg(format!(
+                        "Missing API key as secret {}",
+                        key_secret
+                    )))?
+                    .as_str()
+                    .ok_or(Error::msg(format!(
+                        "API key secret {} is not a string",
+                        key_secret
+                    )))?;
+                AuthConfig::ApiKey {
+                    header_name: header_name.clone(),
+                    key: key.to_string(),
+                }
+            }
+            AuthSourceConfig::BearerToken { token_secret } => {
+                let token = secrets
+                    .secrets
+                    .get(token_secret)
+                    .ok_or(Error::msg(format!(
+                        "Missing bearer token as secret {}",
+                        token_secret
+                    )))?
+                    .as_str()
+                    .ok_or(Error::msg(format!(
+                        "Bearer token secret {} is not a string",
+                        token_secret
+                    )))?;
+                AuthConfig::BearerToken {
+                    token: token.to_string(),
+                }
+            }
+            AuthSourceConfig::BasicAuth {
+                username_secret,
+                password_secret,
+            } => {
+                let username = secrets
+                    .secrets
+                    .get(username_secret)
+                    .ok_or(Error::msg(format!(
+                        "Missing username as secret {}",
+                        username_secret
+                    )))?
+                    .as_str()
+                    .ok_or(Error::msg(format!(
+                        "Username secret {} is not a string",
+                        username_secret
+                    )))?;
+                let password = secrets
+                    .secrets
+                    .get(password_secret)
+                    .ok_or(Error::msg(format!(
+                        "Missing password as secret {}",
+                        password_secret
+                    )))?
+                    .as_str()
+                    .ok_or(Error::msg(format!(
+                        "Password secret {} is not a string",
+                        password_secret
+                    )))?;
+                AuthConfig::BasicAuth {
+                    username: username.to_string(),
+                    password: password.to_string(),
+                }
+            }
+            AuthSourceConfig::MixpanelAuth { secret_key_secret } => {
+                let secret_key = secrets
+                    .secrets
+                    .get(secret_key_secret)
+                    .ok_or(Error::msg(format!(
+                        "Missing secret key as secret {}",
+                        secret_key_secret
+                    )))?
+                    .as_str()
+                    .ok_or(Error::msg(format!(
+                        "Secret key secret {} is not a string",
+                        secret_key_secret
+                    )))?;
+                AuthConfig::MixpanelAuth {
+                    secret_key: secret_key.to_string(),
+                }
+            }
+        };
+
+        let extractor = self.extractor_type.create_extractor();
+
+        DateRangeExportSource::builder(
+            self.base_url.clone(),
+            self.start,
+            self.end,
+            self.interval_duration,
+            extractor,
+        )
+        .with_query_params(self.start_qp.clone(), self.end_qp.clone())
+        .with_timeout(Duration::from_secs(self.timeout_seconds))
+        .with_retries(self.retries)
+        .with_auth(auth_config)
+        .with_date_format(self.date_format.clone())
+        .with_headers(self.headers.clone())
+        .build()
+    }
+
+    fn default_timeout_seconds() -> u64 {
+        30
+    }
+
+    fn default_retries() -> usize {
+        3
+    }
+
+    fn default_date_format() -> String {
+        "%Y-%m-%d %H:%M:%S".to_string()
     }
 }

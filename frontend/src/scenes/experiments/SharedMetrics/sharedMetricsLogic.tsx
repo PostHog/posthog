@@ -2,11 +2,13 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
-import { isLegacySharedMetric } from '../utils'
+import { BillingType } from '~/types'
+
+import { isLegacySharedMetric, shouldUseNewQueryRunnerForNewObjects } from '../utils'
 import type { SharedMetric } from './sharedMetricLogic'
 import type { sharedMetricsLogicType } from './sharedMetricsLogicType'
 
@@ -19,7 +21,7 @@ export enum SharedMetricsTabs {
 export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     path(['scenes', 'experiments', 'sharedMetricsLogic']),
     connect(() => ({
-        values: [featureFlagsLogic, ['featureFlags']],
+        values: [featureFlagsLogic, ['featureFlags'], billingLogic, ['billing']],
     })),
     actions({
         setSharedMetricsTab: (tabKey: SharedMetricsTabs) => ({ tabKey }),
@@ -57,8 +59,8 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     })),
     selectors(() => ({
         showLegacyBadge: [
-            (s) => [featureFlagsLogic.selectors.featureFlags, s.sharedMetrics],
-            (featureFlags: FeatureFlagsSet, sharedMetrics: SharedMetric[]): boolean => {
+            (s) => [featureFlagsLogic.selectors.featureFlags, s.sharedMetrics, billingLogic.selectors.billing],
+            (featureFlags: FeatureFlagsSet, sharedMetrics: SharedMetric[], billing: BillingType): boolean => {
                 /**
                  * If the new query runner is enabled, we want to always show the legacy badge,
                  * even if all existing shared metrics are using the legacy metric format.
@@ -66,7 +68,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                  * Not ideal to use feature flags at this level, but this is how things are and
                  * it'll take a while to change.
                  */
-                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
+                if (shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)) {
                     return true
                 }
 

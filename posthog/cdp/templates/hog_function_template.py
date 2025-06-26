@@ -12,26 +12,19 @@ SubTemplateId = Literal[
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "insight-alert-firing",
 ]
 
 
+# Keep in sync with HogFunctionType
 HogFunctionTemplateType = Literal[
     "destination",
-    "internal_destination",
     "site_destination",
+    "internal_destination",
+    "source_webhook",
     "site_app",
     "transformation",
-    "shared",
-    "email",
-    "sms",
-    "push",
-    "broadcast",
-    "activity",
-    "alert",
 ]
-
-
-HogFunctionTemplateKind = Literal["messaging_campaign"]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -53,7 +46,7 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "deprecated"]
+    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"]
     free: bool
     type: HogFunctionTemplateType
     id: str
@@ -67,7 +60,6 @@ class HogFunctionTemplate:
     mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
-    kind: Optional[HogFunctionTemplateKind] = None
 
 
 class HogFunctionTemplateMigrator:

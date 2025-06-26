@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
-import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 import { splitProtocolPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -10,8 +10,6 @@ import type { pinnedFolderLogicType } from './pinnedFolderLogicType'
 export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
     path(['layout', 'panel-layout', 'PinnedFolder', 'pinnedFolderLogic']),
     actions({
-        showModal: true,
-        hideModal: true,
         setPinnedFolder: (id: string) => ({ id }),
         setSelectedFolder: (id: string) => ({ id }),
     }),
@@ -33,7 +31,7 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
     reducers(() => ({
         pinnedFolderSource: [
             'loading://',
-            { persist: true, prefix: `${getCurrentTeamId()}__${getCurrentUserId()}__` },
+            { persist: true, prefix: `${getCurrentTeamIdOrNone()}__${getCurrentUserIdOrNone()}__` },
             {
                 setPinnedFolder: (_, { id }) => id,
             },
@@ -42,14 +40,6 @@ export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
             'products://',
             {
                 setSelectedFolder: (_, { id }) => id,
-            },
-        ],
-        modalVisible: [
-            false,
-            {
-                showModal: () => true,
-                hideModal: () => false,
-                setPinnedFolder: () => false,
             },
         ],
     })),

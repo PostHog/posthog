@@ -14,6 +14,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect, useState } from 'react'
+import { RenderBatchExportIcon } from 'scenes/data-pipelines/batch-exports/BatchExportIcon'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +28,7 @@ import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
-import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
+import { usePipelineNodeMenuCommonItems, RenderApp } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { pipelineDestinationsLogic } from './destinationsLogic'
@@ -309,7 +310,7 @@ export function DestinationsTable({
                                                         ? `Data pipelines add-on is required for enabling new ${simpleName}s`
                                                         : undefined,
                                                 },
-                                                ...pipelineNodeMenuCommonItems(destination),
+                                                ...usePipelineNodeMenuCommonItems(destination),
                                                 {
                                                     label: `Delete ${simpleName}`,
                                                     status: 'danger' as const, // for typechecker happiness
@@ -362,13 +363,10 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderTransformationsModalOpen) {
-            const orders = enabledTransformations.reduce(
-                (acc, transformation) => ({
-                    ...acc,
-                    [transformation.hog_function.id]: transformation.hog_function.execution_order || 0,
-                }),
-                {} as Record<string, number>
-            )
+            const orders = enabledTransformations.reduce((acc, transformation) => {
+                acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
+                return acc
+            }, {} as Record<string, number>)
             setInitialOrders(orders)
         }
     }, [reorderTransformationsModalOpen, enabledTransformations])
@@ -392,10 +390,7 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
 
             const newTemporaryOrder = newSortedDestinations.reduce((acc, destination, index) => {
                 if (destination.hog_function?.id) {
-                    return {
-                        ...acc,
-                        [destination.hog_function.id]: index + 1,
-                    }
+                    acc[destination.hog_function.id] = index + 1
                 }
                 return acc
             }, {} as Record<string, number>)
@@ -409,10 +404,7 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
         const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
             const originalOrder = initialOrders[id]
             if (originalOrder !== newOrder) {
-                return {
-                    ...acc,
-                    [id]: newOrder,
-                }
+                acc[id] = newOrder
             }
             return acc
         }, {} as Record<string, number>)

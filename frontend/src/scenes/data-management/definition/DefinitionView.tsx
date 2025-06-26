@@ -281,16 +281,17 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
-                        logicKey="event-definitions"
                         type="destination"
-                        filters={{
-                            events: [
-                                {
-                                    id: `${definition.name}`,
-                                    type: 'events',
-                                },
-                            ],
-                        }}
+                        forceFilterGroups={[
+                            {
+                                events: [
+                                    {
+                                        id: `${definition.name}`,
+                                        type: 'events',
+                                    },
+                                ],
+                            },
+                        ]}
                     />
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>

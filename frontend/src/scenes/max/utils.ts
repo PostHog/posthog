@@ -112,3 +112,57 @@ export function formatConversationDate(updatedAt: string | null): string {
     }
     return humanFriendlyDuration(diff, { maxUnits: 1 })
 }
+
+/**
+ * Checks if a suggestion requires user input.
+ * @param suggestion - The suggestion to check.
+ * @returns True if the suggestion requires input, false otherwise.
+ */
+export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
+    const matches = suggestion.match(/<|>|…/g)
+    return !!matches && matches.length > 0
+}
+
+/**
+ * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
+ * @param suggestion - The suggestion to strip.
+ * @returns The stripped suggestion.
+ */
+export function stripSuggestionPlaceholders(suggestion: string): string {
+    return `${suggestion
+        .replace(/<[^>]*>/g, '')
+        .replace(/…$/, '')
+        .trim()} `
+}
+
+/**
+ * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
+ * @param suggestion - The suggestion to format.
+ * @returns The formatted suggestion.
+ */
+export function formatSuggestion(suggestion: string): string {
+    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
+}
+
+export function generateBurstPoints(spikeCount: number, spikiness: number): string {
+    if (spikiness < 0 || spikiness > 1) {
+        throw new Error('Spikiness must be between 0 and 1')
+    }
+    if (spikeCount < 1) {
+        throw new Error('Spikes must be at least 1')
+    }
+
+    let points = ''
+    const outerRadius = 50
+    const innerRadius = 50 * (1 - spikiness)
+
+    for (let i = 0; i < spikeCount * 2; i++) {
+        const radius = i % 2 === 0 ? outerRadius : innerRadius
+        const angle = (Math.PI * i) / spikeCount
+        const x = 50 + radius * Math.cos(angle)
+        const y = 50 + radius * Math.sin(angle)
+        points += `${x},${y} `
+    }
+
+    return points.trim()
+}

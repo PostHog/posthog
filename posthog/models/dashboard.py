@@ -54,6 +54,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
+    last_refresh = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)
@@ -115,7 +116,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Dashboards",
+            base_folder=self._get_assigned_folder("Unfiled/Dashboards"),
             type="dashboard",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",

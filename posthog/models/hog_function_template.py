@@ -9,7 +9,6 @@ import dataclasses
 from posthog.models.utils import UUIDModel
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplateType,
-    HogFunctionTemplateKind,
     HogFunctionTemplate as HogFunctionTemplateDTO,
     HogFunctionMapping,
     HogFunctionMappingTemplate,
@@ -47,6 +46,7 @@ class HogFunctionTemplate(UUIDModel):
 
     # Template Classification and Features
     category = models.JSONField(default=list)
+    # DEPRECATED: This was an idea that is no longer used
     kind = models.CharField(max_length=50, blank=True, null=True)
     free = models.BooleanField(default=False)
     icon_url = models.URLField(blank=True, null=True)
@@ -104,13 +104,8 @@ class HogFunctionTemplate(UUIDModel):
                 ).first()
             else:
                 # Get the latest sha by created_at timestamp
-                # Only include active templates (not deprecated)
-                return (
-                    cls.objects.filter(template_id=template_id)
-                    .exclude(status="deprecated")
-                    .order_by("-created_at")
-                    .first()
-                )
+                # We allow all templates to be loaded, even deprecated ones as they might still be used by customers - they just aren't listable in the UI
+                return cls.objects.filter(template_id=template_id).order_by("-created_at").first()
         except Exception as e:
             logger.error(
                 "Failed to get template from database",
@@ -139,7 +134,7 @@ class HogFunctionTemplate(UUIDModel):
             filters["type"] = template_type
 
         if not include_deprecated:
-            filters["status__in"] = ["alpha", "beta", "stable"]
+            filters["status__in"] = ["alpha", "beta", "stable", "coming_soon", "hidden"]
 
         # Get the max created_at for each template_id
         latest_created_at = (
@@ -173,8 +168,8 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_template_dict in self.mapping_templates:
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
-        # hog is only set if language is hog, otherwise None
-        hog_value = self.code if self.code_language == "hog" else ""
+        # hog is only set if language is hog or javascript, otherwise None
+        hog_value = self.code if self.code_language in ("hog", "javascript") else ""
 
         # Create the dataclass
         return HogFunctionTemplateDTO(
@@ -184,10 +179,9 @@ class HogFunctionTemplate(UUIDModel):
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
-            status=cast(Literal["alpha", "beta", "stable", "deprecated"], self.status),
+            status=cast(Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"], self.status),
             category=self.category,
             description=self.description,
-            kind=cast(HogFunctionTemplateKind, self.kind) if self.kind else None,
             filters=self.filters,
             masking=self.masking,
             icon_url=self.icon_url,
@@ -302,7 +296,6 @@ class HogFunctionTemplate(UUIDModel):
                 "type": dataclass_template.type,
                 "status": dataclass_template.status,
                 "category": dataclass_template.category,
-                "kind": dataclass_template.kind,
                 "free": dataclass_template.free,
                 "icon_url": dataclass_template.icon_url,
                 "filters": dataclass_template.filters,

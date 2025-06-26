@@ -20,6 +20,7 @@
     font-weight: 400;
     color: var(--text-primary);
     cursor: pointer;
+    user-select: none;
     border-radius: var(--radius);
 
     svg {
@@ -40,7 +41,6 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[aria-selected='true'],
         &[data-highlighted],
         &.button-primitive--active {
             background-color: var(--bg-fill-button-tertiary-active);

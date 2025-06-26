@@ -19,27 +19,30 @@ use tower_http::{
 };
 
 use crate::{
-    api::{endpoint, test_endpoint},
+    api::endpoint,
     cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdsToTrack},
+    config::{Config, TeamIdCollection},
     metrics::utils::team_id_label_filter,
 };
 
 #[derive(Clone)]
 pub struct State {
-    pub redis: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pub reader: Arc<dyn DatabaseClient + Send + Sync>,
     pub writer: Arc<dyn DatabaseClient + Send + Sync>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
-    pub team_ids_to_track: TeamIdsToTrack,
+    pub team_ids_to_track: TeamIdCollection,
     pub billing_limiter: RedisLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
+    pub config: Config,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<R, D>(
-    redis: Arc<R>,
+pub fn router<RR, RW, D>(
+    redis_reader: Arc<RR>,
+    redis_writer: Arc<RW>,
     reader: Arc<D>,
     writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
@@ -50,11 +53,13 @@ pub fn router<R, D>(
     config: Config,
 ) -> Router
 where
-    R: RedisClient + Send + Sync + 'static,
+    RR: RedisClient + Send + Sync + 'static,
+    RW: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,
 {
     let state = State {
-        redis,
+        redis_reader,
+        redis_writer,
         reader,
         writer,
         cohort_cache_manager: cohort_cache,
@@ -62,6 +67,7 @@ where
         team_ids_to_track: config.team_ids_to_track.clone(),
         billing_limiter,
         cookieless_manager,
+        config: config.clone(),
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -71,22 +77,6 @@ where
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
-
-    // for testing flag requests
-    let test_router = Router::new()
-        .route(
-            "/test_flags/black_hole",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(endpoint::options),
-        )
-        .route(
-            "/test_flags/black_hole/",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(endpoint::options),
-        )
-        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     // liveness/readiness checks
     let status_router = Router::new()
@@ -103,7 +93,6 @@ where
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
-        .merge(test_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))

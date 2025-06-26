@@ -87,7 +87,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                               intent_context: ProductIntentContext.CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON,
                           })
                       }
-                      to={urls.experiment('new', {
+                      to={urls.experiment('new', null, {
                           metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
                           name: insight.name || insight.derived_name || derivedName,
                       })}

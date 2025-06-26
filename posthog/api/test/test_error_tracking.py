@@ -1,6 +1,6 @@
 import os
 from boto3 import resource
-
+from unittest.mock import patch
 from rest_framework import status
 from freezegun import freeze_time
 from django.test import override_settings
@@ -164,6 +164,63 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one", version=0).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
+
+    def test_can_start_symbol_set_upload(self) -> None:
+        chunk_id = uuid7()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/start_upload?chunk_id={chunk_id}"
+        )
+        response_json = response.json()
+
+        assert response_json["presigned_url"] is not None
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(id=response_json["symbol_set_id"])
+        assert symbol_set.content_hash is None
+
+    def test_finish_upload_fails_if_file_not_found(self):
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
+            data={"content_hash": "this_is_a_content_hash"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_not_found"
+
+    @patch("posthog.storage.object_storage._client")
+    def test_finish_upload_fails_if_uploaded_file_is_too_large(self, patched_s3_client):
+        patched_s3_client.head_object.return_value = {"ContentLength": 1073741824}  # 1GB
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
+            data={"content_hash": "this_is_a_content_hash"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+
+    @patch("posthog.storage.object_storage._client")
+    def test_finish_upload_updates_the_content_hash(self, patched_s3_client):
+        patched_s3_client.head_object.return_value = {"ContentLength": 1048576}  # 1MB
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.pk}/finish_upload",
+            data={"content_hash": "this_is_a_content_hash"},
+        )
+
+        symbol_set.refresh_from_db()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert symbol_set.content_hash == "this_is_a_content_hash"
 
     def test_can_upload_a_source_map(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):

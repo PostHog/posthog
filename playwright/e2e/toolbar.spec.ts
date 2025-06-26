@@ -2,7 +2,7 @@ import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
     test.skip('Toolbar loads', async ({ page }) => {
-        await page.goToMenuItem('toolbarlaunch')
+        await page.goToMenuItem('toolbar')
         await page.getByText('Add authorized URL').click()
 
         const loc = await page.evaluate(() => window.location)
@@ -18,7 +18,7 @@ test.describe('Toolbar', () => {
     })
 
     test('Toolbar item in sidebar has launch options', async ({ page }) => {
-        await page.goToMenuItem('toolbarlaunch')
+        await page.goToMenuItem('toolbar')
         await page.getByText('Add authorized URL').click()
         await expect(page).toHaveURL(/.*\/toolbar/)
     })

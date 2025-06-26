@@ -59,6 +59,39 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             )
         )
 
+    def test_will_truncate_long_values(self):
+        self.run_function(
+            inputs=create_inputs(include_all_properties=True),
+            globals={
+                "event": {"event": "$pageview", "properties": {"url": "https://example.com/" + "12345" * 200}},
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://track.customer.io/api/v2/entity",
+                {
+                    "method": "POST",
+                    "headers": {
+                        "User-Agent": "PostHog Customer.io App",
+                        "Authorization": "Basic U0lURV9JRDpUT0tFTg==",
+                        "Content-Type": "application/json",
+                    },
+                    "body": {
+                        "type": "person",
+                        "action": "page",
+                        "name": None,
+                        "identifiers": {"email": "example@posthog.com"},
+                        "attributes": {
+                            "url": "https://example.com/12345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345123451234512345",
+                            "name": "example",
+                        },
+                        "timestamp": 1704067200,
+                    },
+                },
+            )
+        )
+
     def test_body_includes_all_properties_if_set(self):
         self.run_function(inputs=create_inputs(include_all_properties=False))
 

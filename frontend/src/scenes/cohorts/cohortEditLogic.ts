@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -217,6 +217,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
+                        actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {

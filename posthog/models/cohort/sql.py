@@ -47,10 +47,6 @@ SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 AS sign, %(new_
 FROM (
     {cohort_filter}
 ) as person
-UNION ALL
-SELECT person_id, cohort_id, team_id, -1, version
-FROM cohortpeople
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
 SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
 """
 

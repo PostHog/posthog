@@ -2813,7 +2813,7 @@
                 {
                     "plan_key": "free-20230117",
                     "product_key": "platform_and_support",
-                    "name": "Totally free",
+                    "name": "Free",
                     "description": "SSO, permission management, and support.",
                     "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
                     "docs_url": "https://posthog.com/docs",

@@ -27,6 +27,7 @@ class Command(BaseCommand):
 
     def should_include_python_template(self, template):
         """Determine if a Python template should be included based on test mode"""
+
         if not settings.TEST:
             return True
 
@@ -34,6 +35,7 @@ class Command(BaseCommand):
 
     def should_include_nodejs_template(self, template_data):
         """Determine if a Node.js template should be included based on test mode"""
+
         if not settings.TEST:
             return True
 

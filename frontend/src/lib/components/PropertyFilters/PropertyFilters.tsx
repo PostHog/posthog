@@ -1,6 +1,5 @@
 import './PropertyFilters.scss'
 
-import { LemonButtonProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -17,7 +16,7 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-interface PropertyFiltersProps {
+export interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
@@ -36,7 +35,7 @@ interface PropertyFiltersProps {
     addText?: string | null
     editable?: boolean
     buttonText?: string
-    buttonSize?: LemonButtonProps['size']
+    buttonSize?: 'xsmall' | 'small' | 'medium'
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean

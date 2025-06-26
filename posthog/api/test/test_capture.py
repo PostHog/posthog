@@ -40,10 +40,10 @@ from posthog.api.capture import (
     is_randomly_partitioned,
     sample_replay_data_to_object_storage,
 )
-from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -51,7 +51,6 @@ from posthog.kafka_client.topics import (
 from posthog.redis import get_client
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
-    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
 )
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -241,8 +240,7 @@ class TestCapture(BaseTest):
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
         args = patch_process_event_with_plugins.call_args[1]["data"]
-
-        return {
+        res = {
             "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
@@ -250,8 +248,12 @@ class TestCapture(BaseTest):
             "data": json.loads(args["data"]),
             "token": args["token"],
             "now": args["now"],
-            "sent_at": args["sent_at"],
         }
+
+        if "sent_at" in args:
+            res["sent_at"] = args["sent_at"]
+
+        return res
 
     def _send_original_version_session_recording_event(
         self,
@@ -368,7 +370,7 @@ class TestCapture(BaseTest):
                 )
 
             kafka_produce.assert_called_with(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION,
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=[
@@ -431,12 +433,31 @@ class TestCapture(BaseTest):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_non_numeric_offset(self, kafka_produce):
+        data = {
+            "event": "$exception",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "offset": "should_blow_up",  # only integer values may pass!
+            },
+        }
+        with self.assertNumQueries(0):  # Capture does not hit PG anymore
+            response = self.client.get(
+                "/e/?data={}".format(quote(self._to_json(data))),
+                HTTP_ORIGIN="https://localhost",
+            )
+
+        assert response.status_code == 400
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
                 "token": self.team.api_token,
+                "offset": 1234,
                 "$elements": [
                     {
                         "tag_name": "a",
@@ -540,7 +561,6 @@ class TestCapture(BaseTest):
             "data": expected_data,
             "token": self.team.api_token,
             "uuid": ANY,
-            "sent_at": "",
             "now": ANY,
         } == self._to_arguments(kafka_produce)
 
@@ -676,7 +696,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_events_503_on_kafka_produce_errors(self, kafka_produce):
-        produce_future = FutureProduceResult(topic_partition=TopicPartition(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, 1))
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(KAFKA_EVENTS_PLUGIN_INGESTION, 1))
         future = FutureRecordMetadata(
             produce_future=produce_future,
             relative_offset=0,
@@ -783,11 +803,9 @@ class TestCapture(BaseTest):
             self._to_arguments(kafka_produce),
         )
 
-    @patch("posthog.api.capture.configure_scope")
+    @patch("posthoganalytics.tag")
     @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
-    def test_capture_event_adds_library_to_sentry(self, patched_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
-
+    def test_capture_event_adds_library_to_sentry(self, patched_tag):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -817,13 +835,11 @@ class TestCapture(BaseTest):
                 HTTP_ORIGIN="https://localhost",
             )
 
-        mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
+        patched_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
-    @patch("posthog.api.capture.configure_scope")
+    @patch("posthoganalytics.tag")
     @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
-    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
-
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_tag):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -851,7 +867,7 @@ class TestCapture(BaseTest):
                 HTTP_ORIGIN="https://localhost",
             )
 
-        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
+        patched_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):
@@ -1123,7 +1139,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1217,7 +1232,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1248,7 +1262,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1278,7 +1291,6 @@ class TestCapture(BaseTest):
 
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
@@ -1413,7 +1425,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
@@ -2637,3 +2648,114 @@ class TestCapture(BaseTest):
         # Should return 400 as usual - the /e/ endpoint doesn't handle CSP content types
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "no_data"
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_enabled(self, mock_logger):
+        """Test that debug logging is enabled when debug=true parameter is present"""
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=true",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "CSP debug request"
+        assert call_args[1]["method"] == "POST"
+        assert "debug=true" in call_args[1]["url"]
+        assert call_args[1]["content_type"] == "application/csp-report"
+        assert "body" in call_args[1]
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_disabled(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
+        mock_logger.exception.assert_not_called()
+
+    @patch("posthog.api.capture.logger")
+    def test_csp_debug_logging_case_insensitive(self, mock_logger):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=TRUE",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
+
+        mock_logger.reset_mock()
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&debug=True",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_logger.exception.assert_called_once()
+
+    def test_csp_sampled_out_report_uri_does_not_return_400(self):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        # Use 0% sampling rate to ensure report is sampled out
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=0.0",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_csp_sampled_out_report_to_does_not_return_400(self):
+        report_to_format = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "effectiveDirective": "script-src",
+                },
+            }
+        ]
+
+        # Use 0% sampling rate to ensure report is sampled out
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=0.0",
+            data=json.dumps(report_to_format),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT

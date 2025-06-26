@@ -1,7 +1,10 @@
 from html import escape
 import json
+from datetime import datetime
+from unittest.mock import patch
 
 from django.test import TestCase
+from freezegun import freeze_time
 from django.test.client import RequestFactory
 
 from posthog.api.csp import (
@@ -274,8 +277,10 @@ class TestCSPModule(TestCase):
         assert event["properties"]["$session_id"] == "test-session"
         assert event["properties"]["$csp_version"] == "1"
 
+    @freeze_time("2023-01-01 12:00:00")
     def test_sample_csp_report(self):
-        # Create test properties
+        trunc_date_iso_format = datetime(2023, 1, 1, 12, 0, 0).isoformat()
+
         properties = {
             "document_url": "https://example.com/page",
             "effective_directive": "script-src",
@@ -293,11 +298,13 @@ class TestCSPModule(TestCase):
         assert sample_csp_report(properties, 0.5) is result_at_50_percent
 
         # Test with missing document_url
-        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) == sample_on_property("", 0.5)
+        assert sample_csp_report({"effective_directive": "script-src"}, 0.5) == sample_on_property(
+            f"-{trunc_date_iso_format}", 0.5
+        )
 
         # Test with only document_url
         assert sample_csp_report({"document_url": "https://example.com/page"}, 0.5) == sample_on_property(
-            "https://example.com/page", 0.5
+            f"https://example.com/page-{trunc_date_iso_format}", 0.5
         )
 
     def test_process_csp_report_with_sampling_in(self):
@@ -410,12 +417,15 @@ class TestCSPModule(TestCase):
         # All directives should have the same sampling decision for the same URL (aka: we should receive all reports for the same URL)
         # Initialize with the first directive's result
         properties = {"document_url": url, "effective_directive": directives[0]}
+        first_result = sample_csp_report(properties, rate)
 
         # Then check all directives have the same result
         for directive in directives:
             properties = {"document_url": url, "effective_directive": directive}
             result = sample_csp_report(properties, rate)
-            assert not result, "Expected same sampling decision(False) for same URL regardless of directive"
+            assert (
+                result == first_result
+            ), f"Expected same sampling decision for same URL regardless of directive, got {result} vs {first_result}"
 
     def test_edge_case_urls_and_directives(self):
         """Test sampling with edge case URLs and directives"""
@@ -444,10 +454,235 @@ class TestCSPModule(TestCase):
             result2 = sample_csp_report(case, rate)
             assert result1 == result2, f"Expected consistent sampling decision for {case}"
 
-            # Check that sampling is only based on document_url
-            if case["document_url"] == "":
-                # Empty document_url should use empty string for sampling
-                assert result1 == sample_on_property("", rate)
-            else:
-                # Non-empty document_url should use it for sampling
-                assert result1 == sample_on_property(case["document_url"], rate)
+    def test_process_csp_report_with_sampling_out(self):
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+
+        # Test with 0% sampling rate (should be sampled out)
+        result = sample_csp_report(properties, 0.0, True)
+        assert not result
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_invalid_content_type(self, mock_logger):
+        """Test that invalid content type is logged"""
+        request = self.factory.post(
+            "/report/",
+            data='{"test": "data"}',
+            content_type="application/json",  # Invalid content type
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is None
+        mock_logger.warning.assert_called_once_with(
+            "CSP report skipped - invalid content type",
+            content_type="application/json",
+            expected_types=["application/csp-report", "application/reports+json"],
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_sampling_out_report_uri(self, mock_logger):
+        """Test that sampling out is logged for report-uri format"""
+        csp_data = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "violated-directive": "default-src self",
+            }
+        }
+
+        request = self.factory.post(
+            "/report/?sample_rate=0.0",  # 0% sampling rate
+            data=json.dumps(csp_data),
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error.status_code == 204
+        mock_logger.warning.assert_called_with(
+            "CSP report sampled out - report-uri format",
+            document_url="https://example.com/foo/bar",
+            sample_rate=0.0,
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_sampling_out_report_to(self, mock_logger):
+        """Test that sampling out is logged for report-to format"""
+        report_to_data = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "effectiveDirective": "script-src",
+                },
+            }
+        ]
+
+        request = self.factory.post(
+            "/report/?sample_rate=0.0",  # 0% sampling rate
+            data=json.dumps(report_to_data),
+            content_type="application/reports+json",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error.status_code == 204
+        mock_logger.warning.assert_called_with(
+            "CSP report sampled out - report-to format",
+            total_violations=1,
+            sample_rate=0.0,
+        )
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_json_decode_error(self, mock_logger):
+        """Test that JSON decode errors are logged as exceptions"""
+        request = self.factory.post(
+            "/report/",
+            data="invalid json",
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is not None  # Should return error response
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "Invalid CSP report JSON format"
+        assert "error" in call_args[1]
+
+    @patch("posthog.api.csp.logger")
+    def test_process_csp_report_logs_value_error(self, mock_logger):
+        """Test that value errors are logged as exceptions"""
+        # Create invalid CSP data that will trigger ValueError
+        invalid_data = {"invalid": "data"}
+
+        request = self.factory.post(
+            "/report/",
+            data=json.dumps(invalid_data),
+            content_type="application/csp-report",
+        )
+
+        result, error = process_csp_report(request)
+
+        assert result is None
+        assert error is not None  # Should return error response
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        assert call_args[0][0] == "Invalid CSP report properties"
+        assert "error" in call_args[1]
+
+    def test_dynamic_sampling_with_time_component_includes_url_and_time(self):
+        """Test that the sampling key includes both URL and time component"""
+        properties = {
+            "document_url": "https://example.com/page",
+            "effective_directive": "script-src",
+        }
+
+        # First minute
+        with freeze_time("2023-01-01 12:00:00"):
+            properties_copy1 = properties.copy()
+            sample_csp_report(properties_copy1, 0.5, add_metadata=True)
+            sampling_key1 = properties_copy1.get("csp_sampling_key")
+
+        # Second minute
+        with freeze_time("2023-01-01 12:01:00"):
+            properties_copy2 = properties.copy()
+            sample_csp_report(properties_copy2, 0.5, add_metadata=True)
+            sampling_key2 = properties_copy2.get("csp_sampling_key")
+
+        # Verify sampling keys are different due to time component
+        assert sampling_key1 != sampling_key2
+        assert sampling_key1 is not None and "2023-01-01T12:00:00" in sampling_key1
+        assert sampling_key2 is not None and "2023-01-01T12:01:00" in sampling_key2
+
+        # Both should contain the URL
+        assert sampling_key1 is not None and "https://example.com/page" in sampling_key1
+        assert sampling_key2 is not None and "https://example.com/page" in sampling_key2
+
+    @freeze_time("2023-01-01 12:00:00")
+    def test_sampling_consistency_within_same_minute(self):
+        properties1 = {
+            "document_url": "https://example.com/page",
+            "effective_directive": "script-src",
+        }
+
+        properties2 = {
+            "document_url": "https://example.com/page",
+            "effective_directive": "img-src",  # Different directive, same URL
+        }
+
+        # Sample both within the same minute
+        result1 = sample_csp_report(properties1, 0.5, add_metadata=True)
+        result2 = sample_csp_report(properties2, 0.5, add_metadata=True)
+
+        # Should have the same sampling decision since it's the same URL and same minute
+        assert result1 == result2
+
+        # Should have the same sampling key (URL + time)
+        assert properties1["csp_sampling_key"] == properties2["csp_sampling_key"]
+
+    def test_same_url_different_sampling_across_time_windows(self):
+        """Test that demonstrates URLs are not permanently excluded
+
+        Uses deterministic test cases based on known hash outcomes to ensure robustness.
+        This test proves that the same URL can be both sampled in AND out across different time windows.
+        """
+
+        # Test specific URL+time combinations with known expected outcomes
+        # These were determined by calculating hash(url + "-" + timestamp) % 100
+        deterministic_test_cases = [
+            # URL, time_string, expected_result_at_50_percent, hash_mod_100
+            ("https://example.com/other", "2023-01-01 12:00:00", True, 8),  # 8 < 50 = True
+            ("https://example.com/other", "2023-01-01 12:01:00", False, 99),  # 99 >= 50 = False
+            ("https://test.com/page", "2023-01-01 12:03:00", False, 52),  # 52 >= 50 = False
+            ("https://test.com/page", "2023-01-01 12:04:00", True, 43),  # 43 < 50 = True
+            ("https://test.com/page", "2023-01-01 12:09:00", False, 98),  # 98 >= 50 = False
+        ]
+
+        for url, time_string, expected_result, expected_hash_mod in deterministic_test_cases:
+            with freeze_time(time_string):
+                properties = {"document_url": url, "effective_directive": "script-src"}
+                result = sample_csp_report(properties, 0.5)
+                assert (
+                    result == expected_result
+                ), f"Expected {expected_result} for {url} at {time_string} (hash%100={expected_hash_mod}), got {result}"
+
+        # Demonstrate the key improvement: same URL gets different sampling decisions across time
+        url = "https://test.com/page"
+        time_sampling_pairs = [
+            ("2023-01-01 12:03:00", False),  # hash%100=52 >= 50
+            ("2023-01-01 12:04:00", True),  # hash%100=43 < 50
+            ("2023-01-01 12:09:00", False),  # hash%100=98 >= 50
+        ]
+
+        sampled_in_results = []
+        sampled_out_results = []
+
+        for time_string, expected_result in time_sampling_pairs:
+            with freeze_time(time_string):
+                properties = {"document_url": url, "effective_directive": "script-src"}
+                result = sample_csp_report(properties, 0.5)
+                assert result == expected_result, f"Failed deterministic test for {url} at {time_string}"
+
+                if result:
+                    sampled_in_results.append(time_string)
+                else:
+                    sampled_out_results.append(time_string)
+
+        # This is the key assertion: same URL gets BOTH outcomes across time windows
+        assert len(sampled_in_results) > 0, f"URL {url} should be sampled IN at least once"
+        assert len(sampled_out_results) > 0, f"URL {url} should be sampled OUT at least once"
+
+        # Verify consistency within the same minute (time component doesn't change within a minute)
+        with freeze_time("2023-01-01 12:00:00"):
+            properties1 = {"document_url": "https://example.com/test", "effective_directive": "script-src"}
+            result1 = sample_csp_report(properties1.copy(), 0.5)
+            result2 = sample_csp_report(properties1.copy(), 0.5)
+
+            assert result1 == result2, "Same URL+time should produce consistent sampling results within the same minute"

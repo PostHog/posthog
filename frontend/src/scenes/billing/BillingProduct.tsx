@@ -3,7 +3,7 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -44,7 +44,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -54,19 +54,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         surveyID,
         billingProductLoading,
         isSessionReplayWithAddons,
+        visibleAddons,
     } = useValues(billingProductLogic({ product }))
-    const {
-        setShowTierBreakdown,
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        setBillingProductLoading,
-    } = useActions(billingProductLogic({ product, productRef }))
+    const { setShowTierBreakdown, toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+        billingProductLogic({ product, productRef })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
-    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
+    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -100,16 +97,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
                 <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
-                        <div>
-                            <h3 className="font-bold mb-0 flex items-center gap-x-2">
-                                {product.name}{' '}
-                                {isTemporaryFreeProduct && (
-                                    <LemonTag type="highlight">included with your plan</LemonTag>
-                                )}
-                            </h3>
-                            <div>{product.description}</div>
+                        {/* Product name and description */}
+                        <div className="flex gap-x-2">
+                            <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>
+                                <h3 className="font-bold mb-0 flex items-center gap-x-2">
+                                    {product.name}{' '}
+                                    {isTemporaryFreeProduct && (
+                                        <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                </h3>
+                                <div>{product.description}</div>
+                            </div>
                         </div>
+
+                        {/* Product actions */}
                         <div className="flex grow justify-end gap-x-2 items-center">
                             {product.docs_url && (
                                 <LemonButton
@@ -170,12 +172,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8 pb-8 sm:pb-0">
+                    {/* Exceeded limit notice */}
                     {product.percentage_usage > 1 && (
                         <LemonBanner className="mt-6" type="error">
                             You have exceeded the {hasCustomLimitSet ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
                     )}
+
+                    {/* Usage and projected usage */}
                     <div className="sm:flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
@@ -329,15 +334,36 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )
                         )}
                     </div>
+
                     {product.price_description ? (
                         <LemonBanner type="info">
                             <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
                         </LemonBanner>
                     ) : null}
+
                     {/* Table with tiers */}
                     {showTierBreakdown && <BillingProductPricingTable product={product} />}
+
+                    {/* Add-ons */}
                     {product.addons?.length > 0 && (
                         <div className="pb-8">
+                            {/* Legacy teams addon */}
+                            {product.type === 'platform_and_support' &&
+                                product.addons.find((addon) => addon.legacy_product && addon.subscribed) && (
+                                    <LemonBanner type="warning" className="my-4" hideIcon>
+                                        <p>
+                                            You're currently subscribed to our legacy{' '}
+                                            {
+                                                product.addons.find((addon) => addon.legacy_product && addon.subscribed)
+                                                    ?.name
+                                            }{' '}
+                                            add-on. If you'd like to move to one of our new add-ons please subscribe
+                                            below.
+                                        </p>
+                                    </LemonBanner>
+                                )}
+
+                            {/* Add-ons title */}
                             <h4 className="my-4">Add-ons</h4>
                             {billing?.subscription_level == 'free' && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
@@ -345,55 +371,32 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div>
                                             Add-ons are only available on paid plans. Upgrade to access these features.
                                         </div>
-                                        {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
-                                            <BillingUpgradeCTA
-                                                type="primary"
-                                                status="alt"
-                                                data-attr="billing-page-addon-cta-upgrade-cta"
-                                                disableClientSideRouting
-                                                loading={!!billingProductLoading}
-                                                onClick={() => showPaymentEntryModal()}
-                                            >
-                                                Upgrade now
-                                            </BillingUpgradeCTA>
-                                        ) : (
-                                            <BillingUpgradeCTA
-                                                to={getUpgradeProductLink({
-                                                    product,
-                                                    redirectPath,
-                                                })}
-                                                type="primary"
-                                                status="alt"
-                                                data-attr="billing-page-addon-cta-upgrade-cta"
-                                                disableClientSideRouting
-                                                loading={!!billingProductLoading}
-                                                onClick={() => setBillingProductLoading(product.type)}
-                                            >
-                                                Upgrade now
-                                            </BillingUpgradeCTA>
-                                        )}
+                                        <BillingUpgradeCTA
+                                            type="primary"
+                                            status="alt"
+                                            data-attr="billing-page-addon-cta-upgrade-cta"
+                                            disableClientSideRouting
+                                            loading={!!billingProductLoading}
+                                            onClick={() => startPaymentEntryFlow(product)}
+                                        >
+                                            Upgrade now
+                                        </BillingUpgradeCTA>
                                     </div>
                                 </LemonBanner>
                             )}
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons
-                                    // TODO: enhanced_persons: remove this filter
-                                    .filter((addon) => {
-                                        if (addon.inclusion_only) {
-                                            if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
-                                                return false
-                                            }
-                                        }
-                                        return true
-                                    })
-                                    .map((addon, i) => {
-                                        return <BillingProductAddon key={i} addon={addon} />
-                                    })}
+                                {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
+                                    return <BillingProductAddon key={i} addon={addon} />
+                                })}
                             </div>
                         </div>
                     )}
                 </div>
+
+                {/* Billing limit */}
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+
+                {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal

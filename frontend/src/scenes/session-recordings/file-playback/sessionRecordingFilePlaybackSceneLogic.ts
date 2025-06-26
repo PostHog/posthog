@@ -29,7 +29,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
         return {
             version: '2023-04-28',
             data: {
-                id: '', // This wasn't available in previous version
+                id: '', // This wasn't available in a previous version
                 person: data.data.person || undefined,
                 snapshots: Object.entries(data.data.snapshotsByWindowId)
                     .flatMap(([windowId, snapshots]) => {
@@ -51,7 +51,7 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
  *
  * This method waits for the dataLogic to be mounted and returns it
  *
- * in practice, it will only wait for 1-2 retries
+ * in practice, it will only wait for 1-2 retries,
  * but a timeout is provided to avoid waiting forever when something breaks
  */
 const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRecordingDataLogicType>> => {
@@ -138,8 +138,13 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
             const snapshots = values.sessionRecording.snapshots
 
             // Simulate a loaded source and sources so that nothing extra gets loaded
+            dataLogic.cache.snapshotsBySource = {
+                'file-file': {
+                    snapshots: snapshots,
+                    source: { source: 'file' },
+                },
+            }
             dataLogic.actions.loadSnapshotsForSourceSuccess({
-                snapshots: snapshots,
                 source: { source: 'file' },
             })
             dataLogic.actions.loadSnapshotSourcesSuccess([{ source: 'file' }])

@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -71,6 +72,8 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any }) => ({ payload }),
+        setResponseError: (hasError: boolean) => ({ hasError }),
+        clearResponseError: true,
     }),
 
     reducers({
@@ -141,6 +144,17 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 clearComparison: () => [],
             },
         ],
+        responseHasError: [
+            false as boolean,
+            {
+                submitPrompt: () => false,
+                setResponseError: (_, { hasError }) => hasError,
+                clearResponseError: () => false,
+                clearConversation: () => false,
+                setMessages: () => false,
+                addResponseToHistory: () => false,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
@@ -170,7 +184,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             const requestMessages = messagesToSend
 
             if (messagesToSend.length === 0) {
-                console.warn('SubmitPrompt called with no valid messages.')
+                lemonToast.error('Please add some messages before running the prompt')
                 actions.finalizeAssistantMessage()
                 return
             }
@@ -220,10 +234,12 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                             } else if (data.error) {
                                 console.error('LLM Error:', data.error)
                                 actions.addAssistantMessageChunk(`\n\n**LLM Error:** ${data.error}`)
+                                actions.setResponseError(true)
                             }
                         } catch (e) {
                             console.error('Error parsing stream message:', e, 'Data:', event.data)
                             actions.addAssistantMessageChunk(`\n\n**Stream Error:** Could not parse response chunk.`)
+                            actions.setResponseError(true)
                         }
                     },
                     onError: (err) => {
@@ -231,6 +247,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                         actions.addAssistantMessageChunk(
                             `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                         )
+                        actions.setResponseError(true)
                         actions.finalizeAssistantMessage()
                     },
                 })
@@ -238,6 +255,8 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             } catch (error) {
                 console.error('Submit prompt error:', error)
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
+                actions.setResponseError(true)
+                lemonToast.error('Failed to connect to LLM service. Please try again.')
                 actions.finalizeAssistantMessage()
             } finally {
                 if (startTime) {

@@ -12,6 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { loginLogic } from './loginLogic'
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
@@ -115,7 +116,10 @@ export function Login(): JSX.Element {
                             label={
                                 <div className="flex flex-1 items-center justify-between gap-2">
                                     <span>Password</span>
-                                    <Link to="/reset" data-attr="forgot-password">
+                                    <Link
+                                        to={[urls.passwordReset(), { email: login.email }]}
+                                        data-attr="forgot-password"
+                                    >
                                         Forgot your password?
                                     </Link>
                                 </div>

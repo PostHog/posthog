@@ -37,6 +37,28 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
+
+                    if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
+                        // no point in tracking memory if it's not available
+                        const hasMemory = 'memory' in window.performance
+                        if (!hasMemory) {
+                            return
+                        }
+
+                        const oneMinuteInMs = 60000
+                        setInterval(() => {
+                            // this is deprecated and not available in all browsers,
+                            // but the supposed standard at https://developer.mozilla.org/en-US/docs/Web/API/Performance/measureUserAgentSpecificMemory
+                            // isn't available in Chrome even so 🤷
+                            const memory = (window.performance as any).memory
+                            if (memory && memory.usedJSHeapSize) {
+                                loadedInstance.capture('memory_usage', {
+                                    totalJSHeapSize: memory.totalJSHeapSize,
+                                    usedJSHeapSize: memory.usedJSHeapSize,
+                                })
+                            }
+                        }, oneMinuteInMs)
+                    }
                 }
 
                 const Cypress = (window as WindowWithCypressCaptures).Cypress

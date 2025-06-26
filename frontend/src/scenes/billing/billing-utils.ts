@@ -1,8 +1,15 @@
+import equal from 'fast-deep-equal'
+import { LogicWrapper } from 'kea'
+import { routerType } from 'kea-router/lib/routerType'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
 import { BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+
+import { USAGE_TYPES } from './constants'
+import type { BillingFilters, BillingUsageInteractionProps } from './types'
 
 export const summarizeUsage = (usage: number | null): string => {
     if (usage === null) {
@@ -162,7 +169,7 @@ export const getUpgradeProductLink = ({
     product,
     redirectPath,
 }: {
-    product: BillingProductV2Type
+    product?: BillingProductV2Type
     redirectPath?: string
 }): string => {
     let url = '/api/billing/activate?'
@@ -170,7 +177,10 @@ export const getUpgradeProductLink = ({
         url += `redirect_path=${encodeURIComponent(redirectPath)}&`
     }
 
-    url += `products=all_products:&intent_product=${product.type}`
+    url += `products=all_products:`
+    if (product && product.type) {
+        url += `&intent_product=${product.type}`
+    }
 
     return url
 }
@@ -281,7 +291,10 @@ export const formatPlanStatus = (billing: BillingType | null): string => {
  * Formats a number as a currency string
  */
 export const currencyFormatter = (value: number): string => {
-    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+    }).format(value)
 }
 
 /**
@@ -294,4 +307,61 @@ export function canAccessBilling(
         return false
     }
     return currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Synchronizes URL search parameters with billing filter state.
+ * Returns the appropriate router action format for kea-router.
+ * Only updates the URL if parameters have actually changed.
+ */
+export function syncBillingSearchParams(
+    router: LogicWrapper<routerType>,
+    updateParams: (searchParams: Params) => Params
+): [string, Params, Record<string, any>, { replace: boolean }] {
+    const currentSearchParams = { ...router.values.searchParams }
+    const updatedSearchParams = updateParams(currentSearchParams)
+    if (!equal(updatedSearchParams, router.values.searchParams)) {
+        return [router.values.location.pathname, updatedSearchParams, router.values.hashParams, { replace: true }]
+    }
+    return [router.values.location.pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+}
+
+/**
+ * Updates a search parameter if the value differs from the default.
+ * Removes the parameter entirely if it matches the default to keep URLs clean.
+ */
+export function updateBillingSearchParams<T>(searchParams: Params, key: string, value: T, defaultValue: T): void {
+    if (!equal(value, defaultValue)) {
+        searchParams[key] = value
+    } else {
+        delete searchParams[key]
+    }
+}
+
+/**
+ * Builds properties for billing usage and spend interaction events
+ */
+export function buildTrackingProperties(
+    action: BillingUsageInteractionProps['action'],
+    values: {
+        filters: BillingFilters
+        dateFrom: string
+        dateTo: string
+        excludeEmptySeries: boolean
+        teamOptions: { key: string; label: string }[]
+    }
+): BillingUsageInteractionProps {
+    return {
+        action,
+        filters: values.filters,
+        date_from: values.dateFrom,
+        date_to: values.dateTo,
+        exclude_empty: values.excludeEmptySeries,
+        usage_types_count: values.filters.usage_types?.length || 0,
+        usage_types_total: USAGE_TYPES.length,
+        teams_count: values.filters.team_ids?.length || 0,
+        teams_total: values.teamOptions.length,
+        has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
+        interval: values.filters.interval || 'day',
+    }
 }

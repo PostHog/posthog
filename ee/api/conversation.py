@@ -1,10 +1,11 @@
 from typing import cast
 
 import pydantic
+import structlog
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,20 +20,27 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import HumanMessage
+from posthog.schema import FailureMessage, HumanMessage
 from posthog.utils import get_instance_region
+from uuid import uuid4
+
+
+logger = structlog.get_logger(__name__)
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=1000)
+    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
+    ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
         try:
-            message = HumanMessage(content=data["content"])
+            message_data = {"content": data["content"]}
+            if "ui_context" in data:
+                message_data["ui_context"] = data["ui_context"]
+            message = HumanMessage.model_validate(message_data)
             data["message"] = message
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")
@@ -57,17 +65,17 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
 
     def get_throttles(self):
-        if self.action == "create" and not (
+        if (
+            # Do not apply limits in local development
+            not settings.DEBUG
+            # Only for streaming
+            and self.action == "create"
             # Strict limits are skipped for select US region teams (PostHog + an active user we've chatted with)
-            get_instance_region() == "US" and self.team_id in (2, 87921)
+            and not (get_instance_region() == "US" and self.team_id in (2, 87921))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        return super().get_throttles()
 
-    def get_renderers(self):
-        if self.action == "create":
-            return [ServerSentEventRenderer()]
-        return super().get_renderers()
+        return super().get_throttles()
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -76,7 +84,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["assistant_graph"] = AssistantGraph(self.team).compile_full_graph()
+        context["assistant_graph"] = AssistantGraph(self.team, cast(User, self.request.user)).compile_full_graph()
         return context
 
     def create(self, request: Request, *args, **kwargs):
@@ -100,13 +108,32 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,
         )
-        return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
+
+        # Store original method and wrap it with error handling
+        original_stream_method = assistant._stream
+
+        def safe_stream_wrapper():
+            """Wrapper generator that ensures errors are handled gracefully."""
+            try:
+                yield from original_stream_method()
+            except Exception as e:
+                # Log the error but don't re-raise
+                logger.exception("Error in assistant stream", error=e)
+
+                # Send proper SSE-formatted error message
+                failure_message = FailureMessage(
+                    content="Oops! It looks like I'm having trouble answering this. Could you please try again?",
+                    id=str(uuid4()),
+                )
+                yield assistant._serialize_message(failure_message)
+
+        assistant._stream = safe_stream_wrapper  # type: ignore[method-assign]
+        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
-        if conversation.status == Conversation.Status.CANCELING:
-            raise ValidationError("Generation has already been cancelled.")
-        conversation.status = Conversation.Status.CANCELING
-        conversation.save()
+        if conversation.status != Conversation.Status.CANCELING:
+            conversation.status = Conversation.Status.CANCELING
+            conversation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)

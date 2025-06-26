@@ -98,7 +98,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Experiments",
+            base_folder=self._get_assigned_folder("Unfiled/Experiments"),
             type="experiment",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
@@ -131,6 +131,10 @@ class ExperimentSavedMetric(RootTeamMixin, models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     query = models.JSONField()
+
+    # Metadata for the saved metric
+    # has things like if this metric was migrated from a legacy metric
+    metadata = models.JSONField(null=True, blank=True, default=dict)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     created_at = models.DateTimeField(default=timezone.now)

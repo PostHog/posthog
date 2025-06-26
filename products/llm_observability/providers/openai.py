@@ -34,7 +34,6 @@ class OpenAIConfig:
         "o1-mini",
         "gpt-4o",
         "gpt-4o-mini",
-        "chatgpt-4o-latest",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [

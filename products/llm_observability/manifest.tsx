@@ -72,9 +72,11 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'LLM observability',
+            category: 'Analytics',
             iconType: 'ai',
             href: urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+            tags: ['beta'],
         },
     ],
 }

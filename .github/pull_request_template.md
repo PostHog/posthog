@@ -17,7 +17,7 @@
 
 <!-- Engineers are responsible for doing the first pass at documenting their features and/or code.  -->
 
-- [ ] I've added or updated the docs
+- [ ] I've [added or updated the docs](https://posthog.com/handbook/engineering/writing-docs)
 - [ ] I've reached out for help from the docs team
 - [ ] No docs needed for this change
 
