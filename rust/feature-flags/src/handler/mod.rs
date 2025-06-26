@@ -16,8 +16,9 @@ pub use types::*;
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::flag_service::FlagService,
-    metrics::consts::FLAG_REQUESTS_COUNTER,
+    metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_BILLING_RECORD_TIME},
 };
+use common_metrics::timing_guard;
 use tracing::{info, warn};
 
 /// Primary entry point for feature flag requests.
@@ -98,7 +99,9 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
         // Only record billing if flags are not disabled
         if !request.is_flags_disabled() {
+            let billing_timer = timing_guard(FLAG_BILLING_RECORD_TIME, &[]);
             billing::record_usage(&context, &filtered_flags, team.id).await;
+            billing_timer.fin();
         }
         inc(
             FLAG_REQUESTS_COUNTER,
