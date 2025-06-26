@@ -12,6 +12,8 @@ import uuid
 
 import asyncstdlib
 import deltalake
+import pyarrow as pa
+import pyarrow.compute as pc
 import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
@@ -434,6 +436,8 @@ async def materialize_model(
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
+            batch = _transform_unsupported_decimals(batch, logger)
+
             if delta_table is None:
                 delta_table = deltalake.DeltaTable.create(
                     table_uri=table_uri,
@@ -616,8 +620,60 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {printed}")
 
     async with get_client() as client:
-        async for batch, pa_schema in client.astream_query_in_batches(printed, query_parameters=context.values):
+        async for batch, pa_schema in client.astream_query_in_batches(
+            printed, query_parameters=context.values, batch_size_mb=50
+        ):
+            await logger.adebug(f"Processing 50 MB batch. Batch rows count: {len(batch)}")
             yield table_from_py_list(batch, pa_schema)
+
+
+def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogger) -> pa.Table:
+    """
+    Transform high-precision decimal columns to types supported by Delta Lake.
+    Delta Lake supports decimal types up to precision 38, but ClickHouse can return
+    Decimal256 types with 76 digit precision.
+    """
+    schema = batch.schema
+    columns_to_cast = {}
+
+    precision = 38
+    scale = 38 - 1
+
+    for field in schema:
+        if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
+            if field.type.precision > 38:
+                original_scale = field.type.scale
+                new_scale = min(original_scale, scale)
+                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
+
+    if not columns_to_cast:
+        return batch
+
+    new_columns: list[pa.ChunkedArray] = []
+    new_fields: list[pa.Field] = []
+    for field in batch.schema:
+        if field.name in columns_to_cast:
+            column_data = batch[field.name]
+            decimal128_type = columns_to_cast[field.name]
+            try:
+                cast_column_decimal = pc.cast(column_data, decimal128_type)
+                new_fields.append(field.with_type(decimal128_type))
+                new_columns.append(cast_column_decimal)
+            except Exception:
+                reduced_decimal_type = pa.decimal128(precision, scale)
+                string_column = pc.cast(column_data, pa.string())
+                truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
+                cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
+                new_fields.append(field.with_type(reduced_decimal_type))
+                new_columns.append(pa.chunked_array([cast_column_reduced]))
+        else:
+            new_fields.append(field)
+            new_columns.append(batch[field.name])
+
+    new_metadata: dict[str | bytes, str | bytes] | None = (
+        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
+    )
+    return pa.Table.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
 def _get_credentials():
