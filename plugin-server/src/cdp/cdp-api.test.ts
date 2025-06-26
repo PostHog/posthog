@@ -119,25 +119,12 @@ describe('CDP API', () => {
             errors: [],
             logs: [
                 {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
-                    message:
-                        "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                },
-                {
                     level: 'info',
                     message: "Async function 'fetch' was mocked with arguments:",
                 },
                 {
                     level: 'info',
                     message: expect.stringContaining("fetch('"),
-                },
-                {
-                    level: 'debug',
-                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -169,19 +156,6 @@ describe('CDP API', () => {
         expect(res.body).toMatchObject({
             errors: [],
             logs: [
-                {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
-                    message:
-                        "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                },
-                {
-                    level: 'debug',
-                    message: 'Resuming function',
-                },
                 {
                     level: 'info',
                     message: 'Fetch response:, {"status":201,"body":{"real":true}}',
@@ -227,19 +201,6 @@ describe('CDP API', () => {
         expect(res.body).toMatchObject({
             logs: [
                 {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
-                    message:
-                        "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                },
-                {
-                    level: 'debug',
-                    message: 'Resuming function',
-                },
-                {
                     level: 'info',
                     message: 'Fetch response:, {"status":201,"body":{"real":true}}',
                 },
@@ -266,25 +227,12 @@ describe('CDP API', () => {
         expect(res.body).toMatchObject({
             logs: [
                 {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
-                    message:
-                        "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                },
-                {
                     level: 'info',
                     message: "Async function 'fetch' was mocked with arguments:",
                 },
                 {
                     level: 'info',
                     message: expect.not.stringContaining('developer-token'),
-                },
-                {
-                    level: 'debug',
-                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -336,12 +284,6 @@ describe('CDP API', () => {
                 level: 'error',
                 message:
                     'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
-            },
-            { level: 'debug', message: 'Executing function' },
-            {
-                level: 'debug',
-                message:
-                    "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
             },
             {
                 level: 'info',

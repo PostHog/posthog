@@ -92,9 +92,6 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result.logs.map((x) => x.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1239 bytes. Event: uuid",
-                'Resuming function',
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])

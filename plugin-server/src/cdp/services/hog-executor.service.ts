@@ -173,6 +173,11 @@ export const buildGlobalsWithInputs = async (
     return newGlobals
 }
 
+export type HogExecutorExecuteOptions = {
+    functions?: Record<string, (args: unknown[]) => unknown>
+    asyncFunctionsNames?: string[]
+}
+
 export class HogExecutorService {
     private telemetryMatcher: ValueMatcher<number>
 
@@ -303,7 +308,7 @@ export class HogExecutorService {
 
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
-        options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
+        options: HogExecutorExecuteOptions = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
             invocationId: invocation.id,
@@ -316,12 +321,6 @@ export class HogExecutorService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
             queue: 'hog',
-        })
-
-        result.logs.push({
-            level: 'debug',
-            timestamp: DateTime.now(),
-            message: invocation.state.vmState ? 'Resuming function' : `Executing function`,
         })
 
         try {
@@ -419,14 +418,17 @@ export class HogExecutorService {
             try {
                 let hogLogs = 0
 
+                const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch']
+                const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
+                    acc[fn] = async () => Promise.resolve()
+                    return acc
+                }, {} as Record<string, (args: any[]) => Promise<void>>)
+
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
                     timeout: this.config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
-                    asyncFunctions: {
-                        // We need to pass these in but they don't actually do anything as it is a sync exec
-                        fetch: async () => Promise.resolve(),
-                    },
+                    asyncFunctions: asyncFunctions,
                     functions: {
                         print: (...args) => {
                             hogLogs++
@@ -534,13 +536,6 @@ export class HogExecutorService {
                     // NOTE: This shouldn't be possible so is more of a type sanity check
                     throw new Error('State should be provided for async function')
                 }
-                result.logs.push({
-                    level: 'debug',
-                    timestamp: DateTime.now(),
-                    message: `Suspending function due to async function call '${execRes.asyncFunctionName}'. Payload: ${
-                        calculateCost(execRes.state) + calculateCost(args)
-                    } bytes. Event: ${eventId}`,
-                })
 
                 if (execRes.asyncFunctionName) {
                     switch (execRes.asyncFunctionName) {
@@ -632,9 +627,12 @@ export class HogExecutorService {
 
     async executeWithAsyncFunctions(
         invocation: CyclotronJobInvocationHogFunction,
-        maxAsyncFunctions: number
+        options?: HogExecutorExecuteOptions & {
+            maxAsyncFunctions?: number
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let asyncFunctionCount = 0
+        const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
 
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
@@ -647,7 +645,7 @@ export class HogExecutorService {
                 asyncFunctionCount++
                 result = await this.executeFetch(nextInvocation)
             } else {
-                result = this.execute(nextInvocation)
+                result = await this.execute(nextInvocation, options)
             }
 
             logs.push(...result.logs)
