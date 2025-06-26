@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_no_crash_when_no_data
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_no_crash_when_no_data
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -71,7 +71,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_no_crash_when_no_source_is_selected
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_no_crash_when_no_source_is_selected
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -203,7 +203,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_country_filter
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_country_filter
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -370,7 +370,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_data
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -502,7 +502,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_data_and_date_range
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_and_date_range
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -634,7 +634,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_data_for_product_grouping
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_for_product_grouping
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -775,7 +775,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_data_with_double_grouping
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_data_with_double_grouping
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -951,7 +951,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_empty_data_range
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_empty_data_range
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -1083,7 +1083,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_events_data
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_events_data
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -1215,7 +1215,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_events_data_and_currency_aware_divider
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_events_data_and_currency_aware_divider
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -1348,7 +1348,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_product_filter
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_product_filter
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,
@@ -1489,7 +1489,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsInsightsQueryRunner.test_with_product_filter.1
+# name: TestRevenueAnalyticsGrossRevenueQueryRunner.test_with_product_filter.1
   '''
   SELECT sum(amount) AS value,
          day_start AS day_start,

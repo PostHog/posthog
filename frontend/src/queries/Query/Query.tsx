@@ -37,7 +37,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrowthRateQuery,
-    isRevenueAnalyticsInsightsQuery,
+    isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
@@ -153,7 +153,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsInsightsQuery(query)) {
+    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
         component = (
             <RevenueAnalyticsInsightsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
