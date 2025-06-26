@@ -113,32 +113,40 @@ export type HogFunctionFilterGlobals = {
     properties: Record<string, any>
     distinct_id: string
 
-    person?: {
+    person: {
         id: string
         properties: Record<string, any>
-    }
-    pdi?: {
+    } | null
+    pdi: {
         distinct_id: string
         person_id: string
         person: {
             id: string
             properties: Record<string, any>
         }
-    }
+    } | null
 
-    group_0?: {
+    // Used by groupId filters on event_metadata
+    $group_0: string | null
+    $group_1: string | null
+    $group_2: string | null
+    $group_3: string | null
+    $group_4: string | null
+
+    // Used by group property filters
+    group_0: {
         properties: Record<string, any>
     }
-    group_1?: {
+    group_1: {
         properties: Record<string, any>
     }
-    group_2?: {
+    group_2: {
         properties: Record<string, any>
     }
-    group_3?: {
+    group_3: {
         properties: Record<string, any>
     }
-    group_4?: {
+    group_4: {
         properties: Record<string, any>
     }
 }

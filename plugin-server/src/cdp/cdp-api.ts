@@ -122,11 +122,17 @@ export class CdpApi {
             }
 
             const summary = await this.hogWatcher.getState(id)
+            const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
+
+            if (!hogFunction) {
+                res.status(404).json({ error: 'Hog function not found' })
+                return
+            }
 
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(id, state)
+                await this.hogWatcher.forceStateChange(hogFunction, state)
             }
 
             // Hacky - wait for a little to give a chance for the state to change
@@ -183,8 +189,8 @@ export class CdpApi {
 
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
-                ...(hogFunction ?? {}),
-                ...(configuration ?? {}),
+                ...hogFunction,
+                ...configuration,
                 team_id: team.id,
             }
 
@@ -210,7 +216,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -279,7 +285,7 @@ export class CdpApi {
                                 response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
-                            response = this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
+                            response = await this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
                         }
 
                         logs = logs.concat(response.logs)

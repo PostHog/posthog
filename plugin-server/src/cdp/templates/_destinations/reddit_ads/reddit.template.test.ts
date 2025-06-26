@@ -10,11 +10,8 @@ describe('reddit template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('works with single product event', async () => {
@@ -67,7 +64,7 @@ describe('reddit template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -103,7 +100,7 @@ describe('reddit template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -139,7 +136,7 @@ describe('reddit template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 400, headers: {} },
             body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
         })
