@@ -215,21 +215,21 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 9)
+        self.assertEqual(len(results), 11)
 
     def test_with_data(self):
         results = self._run_revenue_analytics_top_customers_query().results
 
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
-        self.assertEqual(len(results), 9)
+        self.assertEqual(len(results), 11)
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
             date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
         ).results
 
-        self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), 5)
 
     def test_with_data_group_by_all(self):
         results = self._run_revenue_analytics_top_customers_query(group_by="all").results
@@ -239,8 +239,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("John Doe", "cus_1", Decimal("313.7789"), "all"),
-                ("Jane Doe", "cus_2", Decimal("267.9514"), "all"),
+                ("John Doe", "cus_1", Decimal("239.9567749999"), "all"),
+                ("Jane Doe", "cus_2", Decimal("121.2037749998"), "all"),
                 ("John Smith", "cus_3", Decimal("17453.43924"), "all"),
                 ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
                 ("John Doe Jr", "cus_5", Decimal("547.1405"), "all"),

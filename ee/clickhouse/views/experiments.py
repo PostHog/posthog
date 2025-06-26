@@ -250,11 +250,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag_serializer.is_valid(raise_exception=True)
             feature_flag = feature_flag_serializer.save()
 
-        if not validated_data.get("stats_config"):
+        # Ensure stats_config has a method set, preserving any other fields passed from frontend
+        stats_config = validated_data.get("stats_config", {})
+        if not stats_config.get("method"):
             # Get organization's default stats method setting
             team = Team.objects.get(id=self.context["team_id"])
             default_method = team.organization.default_experiment_stats_method
-            validated_data["stats_config"] = {"method": default_method}
+            stats_config["method"] = default_method
+            validated_data["stats_config"] = stats_config
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data

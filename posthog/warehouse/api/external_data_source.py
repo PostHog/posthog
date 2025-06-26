@@ -39,6 +39,11 @@ from posthog.temporal.data_imports.pipelines.google_ads import (
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
+from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+    GoogleSheetsServiceAccountSourceConfig,
+    get_schemas as get_google_sheets_schemas,
+    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.hubspot.auth import (
     get_hubspot_access_token_from_code,
 )
@@ -499,6 +504,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.MONGO:
             new_source_model, mongo_schemas = self._handle_mongo_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            new_source_model, google_sheets_schemas = self._handle_google_sheets_source(request, *args, **kwargs)
         else:
             raise NotImplementedError(f"Source type {source_type} not implemented")
 
@@ -520,6 +527,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = google_ads_schemas
         elif source_type == ExternalDataSource.Type.DOIT:
             default_schemas = doit_schemas
+        elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            default_schemas = google_sheets_schemas
         else:
             default_schemas = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type])
 
@@ -718,6 +727,36 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reports = doit_list_reports(DoItSourceConfig(api_key=api_key))
 
         return new_source_model, [name for name, _ in reports]
+
+    def _handle_google_sheets_source(
+        self, request: Request, *args: Any, **kwargs: Any
+    ) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        spreadsheet_url = payload.get("spreadsheet_url", "")
+
+        if len(spreadsheet_url) == 0:
+            raise Exception("Missing spreadsheet_url")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "spreadsheet_url": spreadsheet_url,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_google_sheets_schemas(GoogleSheetsServiceAccountSourceConfig(spreadsheet_url=spreadsheet_url))
+
+        return new_source_model, [name for name, _ in schemas]
 
     def _handle_zendesk_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
@@ -1146,6 +1185,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1188,19 +1228,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
             )
-            incremental_fields = get_google_ads_incremental_fields()
+
+            ads_incremental_fields = get_google_ads_incremental_fields()
 
             result_mapped_to_options = [
                 {
                     "table": name,
                     "should_sync": False,
                     "incremental_fields": [
-                        {"label": column_name, "type": column_name, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in incremental_fields.get(name, [])
+                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
+                        for column_name, column_type in ads_incremental_fields.get(name, [])
                     ],
                     "incremental_available": True,
-                    "incremental_field": incremental_fields[name][0]
-                    if len(incremental_fields.get(name, [])) > 0
+                    "append_available": True,
+                    "incremental_field": ads_incremental_fields[name][0][0]
+                    if len(ads_incremental_fields.get(name, [])) > 0
                     else None,
                     "sync_type": None,
                 }
@@ -1224,11 +1266,36 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "table": name,
                     "should_sync": False,
                     "incremental_fields": DOIT_INCREMENTAL_FIELDS,
-                    "incremental_available": False,
+                    "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": None,
                     "sync_type": None,
                 }
                 for name, _ in reports
+            ]
+
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            spreadsheet_url = request.data.get("spreadsheet_url")
+
+            if not spreadsheet_url:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required input: 'spreadsheet_url'"},
+                )
+
+            google_sheets_config = GoogleSheetsServiceAccountSourceConfig(spreadsheet_url=spreadsheet_url)
+            sheets = get_google_sheets_schemas(google_sheets_config)
+            result_mapped_to_options = [
+                {
+                    "table": name,
+                    "should_sync": False,
+                    "incremental_fields": get_google_sheets_schema_incremental_fields(google_sheets_config, name),
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for name, _ in sheets
             ]
 
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
@@ -1409,6 +1476,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1576,6 +1644,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         for column_name, column_type in columns
                     ],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": columns[0][0] if len(columns) > 0 and len(columns[0]) > 0 else None,
                     "sync_type": None,
                 }
@@ -1607,7 +1676,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     }
                     for field in incremental_fields.get(row, [])
                 ],
-                "incremental_available": row in incremental_schemas,
+                "incremental_available": source_type != ExternalDataSource.Type.STRIPE and row in incremental_schemas,
+                "append_available": row in incremental_schemas,
                 "incremental_field": (
                     incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
                 ),

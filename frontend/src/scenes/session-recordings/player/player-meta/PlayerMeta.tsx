@@ -45,7 +45,7 @@ export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isVa
     try {
         new URL(urlToUse)
         isValidUrl = true
-    } catch (_e) {
+    } catch {
         // no valid url
     }
 
