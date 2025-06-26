@@ -8,7 +8,7 @@ use std::time::Duration;
 /// with the wrong quota resource type. It always uses QuotaResource::FeatureFlags.
 ///
 /// # Example
-/// ```rust
+/// ```
 /// // This is the only way to create a feature flags limiter:
 /// let limiter = FeatureFlagsLimiter::new(ttl, redis_client, cache_key, None)?;
 ///
@@ -48,7 +48,7 @@ impl FeatureFlagsLimiter {
 /// with the wrong quota resource type. It always uses QuotaResource::Recordings.
 ///
 /// # Example
-/// ```rust
+/// ```
 /// // This is the only way to create a session replay limiter:
 /// let limiter = SessionReplayLimiter::new(ttl, redis_client, cache_key, None)?;
 ///
