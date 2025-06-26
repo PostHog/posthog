@@ -1,0 +1,129 @@
+name: chdb ClickHouse v25 Compatibility Test
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'posthog/warehouse/**'
+            - 'posthog/hogql_queries/web_analytics/external/**'
+            - 'dags/web_preaggregated_asset_checks.py'
+            - 'pyproject.toml'
+            - 'docker/test-chdb-v25/**'
+            - '.github/workflows/ci-chdb-v25-compatibility.yml'
+    pull_request:
+        paths:
+            - 'posthog/warehouse/**'
+            - 'posthog/hogql_queries/web_analytics/external/**'
+            - 'dags/web_preaggregated_asset_checks.py'
+            - 'pyproject.toml'
+            - 'docker/test-chdb-v25/**'
+            - '.github/workflows/ci-chdb-v25-compatibility.yml'
+    schedule:
+        # Run weekly on Sundays at 9 AM UTC to catch version updates
+        - cron: '0 9 * * 0'
+    workflow_dispatch:
+
+env:
+    DISPLAY: ':99.0'
+
+jobs:
+    chdb-compatibility-test:
+        name: chdb v25 Compatibility Test
+        runs-on: ubuntu-latest
+        # This test is informational only - don't block PRs if it fails
+        continue-on-error: true
+        
+        strategy:
+            matrix:
+                clickhouse-version: ['25.1.1.1', '24.8.14.39']
+                
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744
+              with:
+                  fetch-depth: 1
+
+            - name: Build chdb test image
+              run: |
+                  docker build -t chdb-v25-test -f docker/test-chdb-v25/Dockerfile docker/test-chdb-v25/
+
+            - name: Run standalone chdb tests
+              run: |
+                  echo "Running chdb compatibility tests without external ClickHouse..."
+                  docker run --rm chdb-v25-test
+
+            - name: Start ClickHouse ${{ matrix.clickhouse-version }}
+              run: |
+                  echo "Starting ClickHouse ${{ matrix.clickhouse-version }} for integration tests..."
+                  docker run -d \
+                    --name clickhouse-test \
+                    -p 8123:8123 \
+                    -p 9000:9000 \
+                    --ulimit nofile=262144:262144 \
+                    clickhouse/clickhouse-server:${{ matrix.clickhouse-version }}
+
+            - name: Wait for ClickHouse to be ready
+              run: |
+                  echo "Waiting for ClickHouse to be ready..."
+                  for i in {1..30}; do
+                    if curl -s http://localhost:8123/ping > /dev/null; then
+                      echo "ClickHouse is ready!"
+                      break
+                    fi
+                    echo "Waiting for ClickHouse... ($i/30)"
+                    sleep 2
+                  done
+                  
+                  # Verify ClickHouse is responding
+                  curl -s http://localhost:8123/ -d "SELECT version()" || exit 1
+
+            - name: Run chdb tests with ClickHouse integration
+              run: |
+                  echo "Running chdb compatibility tests with ClickHouse ${{ matrix.clickhouse-version }}..."
+                  docker run --rm \
+                    --network host \
+                    -e CLICKHOUSE_HOST=localhost \
+                    -e CLICKHOUSE_PORT=8123 \
+                    chdb-v25-test
+
+            - name: Clean up ClickHouse container
+              if: always()
+              run: |
+                  docker stop clickhouse-test || true
+                  docker rm clickhouse-test || true
+
+    report-results:
+        name: Report Compatibility Results
+        runs-on: ubuntu-latest
+        needs: chdb-compatibility-test
+        if: always()
+        
+        steps:
+            - name: Report test results
+              run: |
+                  echo "## chdb ClickHouse v25 Compatibility Test Results" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  
+                  if [ "${{ needs.chdb-compatibility-test.result }}" == "success" ]; then
+                    echo "✅ **PASSED**: chdb is compatible with ClickHouse v25" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "Migration to ClickHouse v25 should be safe for PostHog's chdb usage." >> $GITHUB_STEP_SUMMARY
+                  elif [ "${{ needs.chdb-compatibility-test.result }}" == "failure" ]; then
+                    echo "⚠️ **FAILED**: chdb compatibility issues detected" >> $GITHUB_STEP_SUMMARY
+                    echo "" >> $GITHUB_STEP_SUMMARY
+                    echo "Review the test logs before migrating to ClickHouse v25." >> $GITHUB_STEP_SUMMARY
+                    echo "This may require updating chdb version or PostHog code." >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "❓ **UNKNOWN**: Test status unclear" >> $GITHUB_STEP_SUMMARY
+                  fi
+                  
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Affected PostHog Components:" >> $GITHUB_STEP_SUMMARY
+                  echo "- Data Warehouse (S3 table queries)" >> $GITHUB_STEP_SUMMARY
+                  echo "- Web Analytics (external queries)" >> $GITHUB_STEP_SUMMARY
+                  echo "- Web Preaggregated Exports (AggregateFunction types)" >> $GITHUB_STEP_SUMMARY
+                  echo "- Session Replay (complex aggregate states)" >> $GITHUB_STEP_SUMMARY
+                  echo "- Export verification (Dagster assets)" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "_This test is non-blocking and runs for informational purposes._" >> $GITHUB_STEP_SUMMARY 
