@@ -73,8 +73,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -157,8 +157,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -194,8 +194,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -231,8 +231,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
+            status: 400,
+            body: { status: 'Something went wrong', message: 'Invalid event properties' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -271,8 +271,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -330,8 +330,8 @@ describe('snapchat template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
