@@ -15,6 +15,9 @@ from pydantic import ValidationError, Field, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
+from posthog.hogql.ai import SCHEMA_MESSAGE
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
 
 from .prompts import (
     QUERY_PLANNER_STATIC_SYSTEM_PROMPT,
@@ -219,12 +222,29 @@ class QueryPlannerNode(AssistantNode):
         """
         if not state.query_planner_previous_response_id:
             # Initial conversation setup
+            database = create_hogql_database(team=self._team)
+            serialized_database = serialize_database(
+                HogQLContext(team=self._team, enable_select_queries=True, database=database)
+            )
+            hogql_schema_description = "\n\n".join(
+                (
+                    f"Table `{table_name}` with fields:\n"
+                    + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                    for table_name, table in serialized_database.items()
+                    # Only the most important core tables, plus all warehouse tables
+                    if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                )
+            )
             conversation = ChatPromptTemplate(
                 [
                     (
                         "system",
                         [
                             {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
+                            {
+                                "type": "text",
+                                "text": SCHEMA_MESSAGE.format(schema_description=hogql_schema_description),
+                            },
                             {"type": "text", "text": CORE_MEMORY_PROMPT},
                             {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
                             {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},

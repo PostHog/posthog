@@ -47,7 +47,7 @@ Important HogQL differences versus other SQL dialects:
 """
 
 SCHEMA_MESSAGE = """
-This project's schema is:
+This project's SQL schema is:
 
 {schema_description}
 
