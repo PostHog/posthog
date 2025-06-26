@@ -97,7 +97,7 @@ class RateLimit:
         team_id: Optional[int] = kwargs.get("team_id", None)
 
         max_concurrency = self.max_concurrency
-        in_beta = kwargs.get("is_api") and team_id in settings.API_QUERIES_PER_TEAM
+        in_beta = kwargs.get("is_api") and (team_id in settings.API_QUERIES_PER_TEAM)
         if in_beta:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
@@ -122,7 +122,7 @@ class RateLimit:
                 result = "allow" if bypass else "block"
                 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                     task_name=task_name,
-                    team_id=team_id,
+                    team_id=str(team_id),
                     limit=max_concurrency,
                     limit_name=self.limit_name,
                     result=result,
@@ -137,7 +137,7 @@ class RateLimit:
                     limit_name=self.limit_name,
                     result="retry",
                 ).inc()
-                self.sleep(backoff(attempt=count))
+                self.sleep(backoff(count))
                 count += 1
                 continue
 
