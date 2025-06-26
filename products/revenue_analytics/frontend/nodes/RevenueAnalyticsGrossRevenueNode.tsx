@@ -29,7 +29,7 @@ const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
 }
 
 let uniqueNode = 0
-export function RevenueAnalyticsInsightsNode(props: {
+export function RevenueAnalyticsGrossRevenueNode(props: {
     query: RevenueAnalyticsGrossRevenueQuery
     cachedResults?: AnyResponseType
     context: QueryContext
@@ -38,7 +38,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `RevenueAnalyticsInsights.${uniqueNode++}`)
+    const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
         key,
