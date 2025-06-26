@@ -1,0 +1,147 @@
+#
+# Comprehensive CI Dockerfile - optimized for all PostHog tests
+# This image includes frontend, backend, plugin-server dependencies pre-installed
+#
+
+FROM node:18.19.1-bookworm-slim AS frontend-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY frontend/package.json frontend/
+COPY frontend/bin/ frontend/bin/
+COPY bin/ bin/
+COPY patches/ patches/
+COPY common/hogvm/typescript/ common/hogvm/typescript/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/tailwind/ common/tailwind/
+COPY products/ products/
+COPY ee/frontend/ ee/frontend/
+
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store
+
+COPY frontend/ frontend/
+RUN bin/turbo --filter=@posthog/frontend build
+# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
+# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
+RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
+
+#
+# ---------------------------------------------------------
+#
+FROM python:3.11.9-slim-bookworm AS ci-base
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Install system dependencies needed for CI
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        "build-essential" \
+        "git" \
+        "libpq-dev" \
+        "libxmlsec1" \
+        "libxmlsec1-dev" \
+        "libxml2-dev" \
+        "libffi-dev" \
+        "zlib1g-dev" \
+        "pkg-config" \
+        "curl" \
+        "ca-certificates" \
+        "sudo" \
+        "make" \
+        "g++" \
+        "gcc" \
+        "libssl-dev" \
+        "chromium" \
+        "chromium-driver" \
+        "gettext-base" && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+RUN pip install uv~=0.7.0 --no-cache-dir
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install Python dependencies (both dev and prod for comprehensive testing)
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --dev --no-cache --compile-bytecode
+
+# Set up Python environment
+ENV PATH=/opt/venv/bin:$PATH \
+    PYTHONPATH=/opt/venv \
+    PYTHONUNBUFFERED=1
+
+# Install Node.js 18 for plugin transpiler and frontend tests
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs
+
+# Install pnpm
+RUN npm install -g pnpm@latest
+
+# Copy package files for Node.js dependencies
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ./bin/turbo ./bin/turbo
+COPY ./patches ./patches
+COPY ./rust ./rust
+COPY ./common/esbuilder/ ./common/esbuilder/
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
+
+# Install all Node.js dependencies for comprehensive testing
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
+
+# Copy plugin-server source for building
+COPY ./plugin-server/src/ ./plugin-server/src/
+COPY ./plugin-server/tests/ ./plugin-server/tests/
+
+# Build cyclotron and plugin server
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build && \
+    NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
+
+# Copy application code
+COPY manage.py manage.py
+COPY common/ common/
+COPY posthog/ posthog/
+COPY products/ products/
+COPY ee/ ee/
+COPY bin/ bin/
+COPY dags/ dags/
+
+# Copy the frontend assets from the frontend-build stage
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+
+# Create needed directories and files
+RUN mkdir -p frontend/dist && \
+    touch frontend/dist/index.html && \
+    touch frontend/dist/layout.html && \
+    touch frontend/dist/exporter.html
+
+# Download GeoIP database
+RUN ./bin/download-mmdb
+
+# Run Django collectstatic to prepare static files
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+# Set Chrome environment variables for tests
+ENV CHROME_BIN=/usr/bin/chromium \
+    CHROME_PATH=/usr/lib/chromium/ \
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
+    NODE_ENV=development
+
+# Set the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
+# Add a non-root user for CI
+RUN groupadd -g 1001 ci && \
+    useradd -r -g ci -u 1001 ci && \
+    chown -R ci:ci /code /opt/venv
+
+USER ci
