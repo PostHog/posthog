@@ -7,7 +7,13 @@ import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
 import { BaseMathType, EntityTypes, FilterType, PropertyMathType } from '~/types'
 
-import { ConversionGoalSchema, UTM_CAMPAIGN_NAME_SCHEMA_FIELD, UTM_SOURCE_NAME_SCHEMA_FIELD } from '../../../utils'
+import {
+    ConversionGoalSchema,
+    DISTINCT_ID_FIELD_SCHEMA_FIELD,
+    TIMESTAMP_FIELD_SCHEMA_FIELD,
+    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+    UTM_SOURCE_NAME_SCHEMA_FIELD,
+} from '../../../utils'
 
 interface ConversionGoalDropdownProps {
     value: ConversionGoalFilter
@@ -16,11 +22,48 @@ interface ConversionGoalDropdownProps {
 }
 
 export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionGoalDropdownProps): JSX.Element {
+    // Create a proper ActionFilter-compatible filter object
+    const currentFilter = {
+        events:
+            value.kind === 'EventsNode'
+                ? [
+                      {
+                          ...value,
+                          type: 'events',
+                          id: value.event || '',
+                          math: value.math || BaseMathType.TotalCount,
+                      },
+                  ]
+                : [],
+        actions:
+            value.kind === 'ActionsNode'
+                ? [
+                      {
+                          ...value,
+                          type: 'actions',
+                          id: (value as any).id || '',
+                          math: value.math || BaseMathType.TotalCount,
+                      },
+                  ]
+                : [],
+        data_warehouse:
+            value.kind === 'DataWarehouseNode'
+                ? [
+                      {
+                          ...value,
+                          type: 'data_warehouse',
+                          id: (value as any).table_name || '',
+                          math: value.math || BaseMathType.TotalCount,
+                      },
+                  ]
+                : [],
+    }
+
     return (
         <ActionFilter
             bordered
             allowedMathTypes={[BaseMathType.TotalCount, BaseMathType.UniqueUsers, PropertyMathType.Sum]}
-            filters={{ events: [value] }}
+            filters={currentFilter}
             mathAvailability={MathAvailability.All}
             setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                 const series = actionsAndEventsToSeries(
@@ -29,21 +72,26 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     MathAvailability.All
                 )
 
-                const firstSerie = series[0]
+                const firstSerie = series[0] || value
 
                 const newFilter: ConversionGoalFilter = {
                     ...value,
                     ...firstSerie,
+                    // Preserve the existing schema to keep UTM mappings
+                    schema: {
+                        ...value.schema,
+                        ...((firstSerie as any).schema || {}),
+                    },
                 }
 
+                // Override the schema with the schema from the data warehouse
                 if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
+                    const schema = data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>
                     const overrideSchema: Record<ConversionGoalSchema, string> = {
-                        utm_campaign_name: (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                            UTM_CAMPAIGN_NAME_SCHEMA_FIELD
-                        ],
-                        utm_source_name: (data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>)[
-                            UTM_SOURCE_NAME_SCHEMA_FIELD
-                        ],
+                        utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
+                        utm_source_name: schema[UTM_SOURCE_NAME_SCHEMA_FIELD],
+                        timestamp_field: schema[TIMESTAMP_FIELD_SCHEMA_FIELD],
+                        distinct_id_field: schema[DISTINCT_ID_FIELD_SCHEMA_FIELD],
                     }
                     newFilter.schema = overrideSchema
                 }

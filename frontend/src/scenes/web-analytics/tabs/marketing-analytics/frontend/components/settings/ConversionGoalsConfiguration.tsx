@@ -171,6 +171,12 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                                 <div className="text-xs text-muted">
                                     <div>Campaign: {goal.schema.utm_campaign_name}</div>
                                     <div>Source: {goal.schema.utm_source_name}</div>
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema.timestamp_field && (
+                                        <div>Timestamp: {goal.schema.timestamp_field}</div>
+                                    )}
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema.distinct_id_field && (
+                                        <div>Distinct ID: {goal.schema.distinct_id_field}</div>
+                                    )}
                                 </div>
                             ),
                         },
