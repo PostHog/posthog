@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 impl FlagPropertyGroup {
     /// Returns true if the group is rolled out to some percentage greater than 0.0
-    pub fn is_rolled_out_to_to_some(&self) -> bool {
+    pub fn is_rolled_out_to_some(&self) -> bool {
         self.rollout_percentage_unwrapped() > 0.0
     }
 
@@ -18,7 +18,7 @@ impl FlagPropertyGroup {
     /// This is true if the group is rolled out to some percentage greater than 0.0
     /// and all the properties in the group require DB properties to be evaluated.
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
-        self.is_rolled_out_to_to_some()
+        self.is_rolled_out_to_some()
             && self.properties.as_ref().map_or(false, |properties| {
                 properties
                     .iter()
@@ -35,7 +35,7 @@ impl FlagPropertyGroup {
 
     /// Returns true if the group is rolled out to some percentage greater than 0.0 and has a cohort filter.
     pub fn requires_cohort_filters(&self) -> bool {
-        self.is_rolled_out_to_to_some() && self.has_cohort_filters()
+        self.is_rolled_out_to_some() && self.has_cohort_filters()
     }
 }
 
@@ -66,7 +66,7 @@ mod tests {
             rollout_percentage,
             variant: None,
         };
-        assert_eq!(group.is_rolled_out_to_to_some(), expected);
+        assert_eq!(group.is_rolled_out_to_some(), expected);
     }
 
     #[test]
