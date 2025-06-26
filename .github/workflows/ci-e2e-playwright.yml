@@ -83,9 +83,10 @@ jobs:
         name: Playwright E2E tests (${{ matrix.shard }}/3)
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-latest-arm-4
         timeout-minutes: 30
         strategy:
+            fail-fast: false
             matrix:
                 shard: [1, 2, 3]
         permissions:
