@@ -725,8 +725,8 @@ class ClickHouseClient:
             query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
             query_parameters: Optional query parameters to interpolate.
             query_id: Optional ClickHouse query ID.
-            batch_size: The number of rows per batch to yield. Either `batch_size` or `batch_size_mb` must be set.
-            batch_size_mb: The max size of the batch to yield. Either `batch_size` or `batch_size_mb` must be set.
+            batch_size: The number of rows per batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
+            batch_size_mb: The max size of the batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
             line_separator: The line separator used in the response (default: newline).
 
         Yields:
