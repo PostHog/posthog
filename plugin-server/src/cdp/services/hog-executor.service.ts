@@ -583,7 +583,6 @@ export class HogExecutorService {
                                 headers,
                             }
 
-                            result.invocation.queue = 'fetch' // TODO: Once we have moved away from the queue types then this will swap to "hog" queue
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
