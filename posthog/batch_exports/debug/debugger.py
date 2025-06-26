@@ -180,11 +180,17 @@ class BatchExportsDebugger:
 
     @get_batch_export.register
     def _(self, batch_export: str) -> BatchExport:
-        return next(be for be in self.loaded_batch_exports if str(be.id) == batch_export or be.name == batch_export)
+        try:
+            return next(be for be in self.loaded_batch_exports if str(be.id) == batch_export or be.name == batch_export)
+        except StopIteration:
+            raise ValueError(f"No batch export found with name: '{batch_export}'")
 
     @get_batch_export.register
     def _(self, batch_export: uuid.UUID) -> BatchExport:
-        return next(be for be in self.loaded_batch_exports if be.id == batch_export)
+        try:
+            return next(be for be in self.loaded_batch_exports if be.id == batch_export)
+        except StopIteration:
+            raise ValueError(f"No batch export found with id: '{batch_export}'")
 
     @get_batch_export.register
     def _(self, batch_export: int) -> BatchExport:
@@ -308,10 +314,10 @@ class BatchExportsDebugger:
         column_name: str,
     ) -> ColumnDebugStatistics | None:
         """Compute debug statistics for column using S3 data."""
-        column_stats = None
+        column_stats: ColumnDebugStatistics | None = None
         for record_batch in self.iter_run_record_batches_from_s3(batch_export_run):
             if column_stats is None:
-                column_stats = ColumnDebugStatistics.from_record_batch(column_name, record_batch)
+                column_stats = ColumnDebugStatistics.from_record_batch(record_batch, column_name=column_name)
             else:
                 column_stats += record_batch
 
@@ -419,7 +425,7 @@ class BatchExportsDebugger:
         column_name: str,
     ) -> ColumnDebugStatistics | None:
         """Compute debug statistics for column using clickhouse data."""
-        column_stats = None
+        column_stats: ColumnDebugStatistics | None = None
         for record_batch in self.iter_run_record_batches_from_clickhouse(batch_export_run):
             if column_stats is None:
                 column_stats = ColumnDebugStatistics.from_record_batch(record_batch, column_name=column_name)
