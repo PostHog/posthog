@@ -230,25 +230,7 @@ export type HogFunctionQueueParametersFetchRequest = {
     headers?: Record<string, string>
 }
 
-export type HogFunctionQueueParametersFetchResponse = {
-    type: 'fetch-response'
-    /** An error message to indicate something went wrong and the invocation should be stopped */
-    error?: any
-    /** On success, the fetch worker returns only the successful response */
-    response?: {
-        status: number
-        headers: Record<string, string>
-    } | null
-    /** On failure, the fetch worker returns a list of info about the attempts made*/
-    trace?: CyclotronFetchFailureInfo[]
-    body?: string | null // Both results AND failures can have a body
-    timings?: HogFunctionTiming[]
-    logs?: MinimalLogEntry[]
-}
-
-export type CyclotronInvocationQueueParameters =
-    | HogFunctionQueueParametersFetchRequest
-    | HogFunctionQueueParametersFetchResponse
+export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
 
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
