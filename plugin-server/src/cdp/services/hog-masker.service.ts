@@ -45,12 +45,19 @@ export class HogMaskerService {
         for (const item of invocationsWithMasker) {
             if (item.hogFunction.masking) {
                 // TODO: Catch errors
-                const value = await execHog(item.hogFunction.masking.bytecode, {
+                const execHogResult = await execHog(item.hogFunction.masking.bytecode, {
                     globals: item.state.globals,
                     timeout: 50,
                 })
+
+                if (!execHogResult.execResult?.result) {
+                    continue
+                }
                 // What to do if it is null....
-                const hash = createHash('md5').update(String(value.execResult)).digest('hex').substring(0, 32)
+                const hash = createHash('md5')
+                    .update(String(execHogResult.execResult.result))
+                    .digest('hex')
+                    .substring(0, 32)
                 const hashKey = `${item.hogFunction.id}:${hash}`
                 masks[hashKey] = masks[hashKey] || {
                     hash,

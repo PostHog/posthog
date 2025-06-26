@@ -33,6 +33,13 @@ const setupFetchResponse = (
     }
 }
 
+const cleanLogs = (logs: string[]): string[] => {
+    // Replaces the function time with a fixed value to simplify testing
+    return logs.map((log) => {
+        return log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms')
+    })
+}
+
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorService
@@ -267,7 +274,7 @@ describe('Hog Executor', () => {
             const invocation = createExampleInvocation(fn)
             const result = await executor.execute(invocation)
 
-            expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(result.logs.map((x) => x.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "test",
@@ -275,7 +282,7 @@ describe('Hog Executor', () => {
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
                   "substring: ***REDACTED***",
                   "{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","null":null,"bool":false},"secret_input_3":"***REDACTED***"}",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -333,13 +340,13 @@ describe('Hog Executor', () => {
 
             expect(secondResult.finished).toBe(true)
             expect(secondResult.error).toBeUndefined()
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -352,13 +359,13 @@ describe('Hog Executor', () => {
             const secondResult = await executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
@@ -383,7 +390,7 @@ describe('Hog Executor', () => {
             const secondResult = await executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
@@ -391,7 +398,7 @@ describe('Hog Executor', () => {
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
                   "Resuming function",
                   "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
