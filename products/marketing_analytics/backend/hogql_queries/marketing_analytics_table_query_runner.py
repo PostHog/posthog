@@ -29,7 +29,6 @@ from .constants import (
 )
 from .utils import (
     get_marketing_analytics_columns_with_conversion_goals,
-    get_global_property_conditions,
     convert_team_conversion_goals_to_objects,
 )
 from .adapters.factory import MarketingSourceFactory
@@ -70,7 +69,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         context = QueryContext(
             date_range=self.query_date_range,
             team=self.team,
-            global_filters=get_global_property_conditions(self.query, self.team),
             base_currency=self.team.base_currency,
         )
         return MarketingSourceFactory(context=context)
@@ -414,7 +412,6 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             date_field = processor.get_date_field()
             additional_conditions = self._get_where_conditions(
                 include_date_range=True,
-                include_global_filters=True,
                 date_field=date_field,
                 use_date_not_datetime=True,  # Conversion goals use toDate instead of toDateTime
             )
@@ -460,10 +457,9 @@ FROM {CAMPAIGN_COST_CTE_NAME}
         self,
         base_conditions=None,
         include_date_range=True,
-        include_global_filters=True,
         date_field="timestamp",
         use_date_not_datetime=False,
-    ):
+    ) -> list[ast.Expr]:
         """Build WHERE conditions with common patterns using AST internally"""
         conditions = base_conditions or []
 
@@ -482,7 +478,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
                     left=date_field_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast
                 )
 
-                conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
+                conditions.extend([gte_condition, lte_condition])
             else:
                 # Build AST for regular datetime conditions
                 if date_field != "timestamp":
@@ -504,9 +500,6 @@ FROM {CAMPAIGN_COST_CTE_NAME}
                     left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_datetime_ast
                 )
 
-                conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
-
-        if include_global_filters:
-            conditions.extend(get_global_property_conditions(self.query, self.team))
+                conditions.extend([gte_condition, lte_condition])
 
         return conditions

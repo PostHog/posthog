@@ -2,8 +2,6 @@
 
 import structlog
 
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.printer import to_printed_hogql
 from posthog.schema import NodeKind
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
 
@@ -49,23 +47,6 @@ def get_marketing_config_value(config, key, default=None):
             return dict(config).get(key, default)
         except (TypeError, AttributeError):
             return default
-
-
-def get_global_property_conditions(query, team):
-    """Extract global property filter conditions"""
-    conditions = []
-    global_properties = getattr(query, "properties", [])
-    if global_properties and isinstance(global_properties, list) and len(global_properties) > 0:
-        try:
-            global_property_expr = property_to_expr(global_properties, team=team, scope="event")
-            if global_property_expr:
-                global_property_condition = to_printed_hogql(global_property_expr, team)
-                conditions.append(f"({global_property_condition})")
-        except (IndexError, TypeError, AttributeError):
-            pass
-        except Exception as e:
-            logger.exception("Error applying global property filters", error=str(e))
-    return conditions
 
 
 def convert_team_conversion_goals_to_objects(team_conversion_goals, team_pk):

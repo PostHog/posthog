@@ -257,11 +257,11 @@ class ConversionGoalProcessor:
         else:
             return "timestamp"
 
-    def generate_cte_query(self, additional_conditions: list | None = None) -> str:
+    def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> str:
         """Generate the complete CTE query for this conversion goal"""
         from .constants import UNKNOWN_CAMPAIGN, UNKNOWN_SOURCE
 
-        # Get all required components
+        # Get all required components as AST
         cte_name = self.get_cte_name()
         table = self.get_table_name()
         select_field_ast = self.get_select_field()
@@ -273,33 +273,31 @@ class ConversionGoalProcessor:
         # Apply conversion goal specific property filters (returns AST)
         where_conditions_ast = add_conversion_goal_property_filters(where_conditions_ast, self.goal, self.team)
 
-        # Add any additional conditions (like date range and global filters - these are strings)
-        if additional_conditions:
-            # Convert string conditions to mixed list for backward compatibility
-            mixed_conditions = [cond.to_hogql() if hasattr(cond, 'to_hogql') else cond for cond in where_conditions_ast]
-            mixed_conditions.extend(additional_conditions)
-            where_clause = ' AND '.join(mixed_conditions)
-        else:
-            # Pure AST conditions
-            where_clause = ' AND '.join(cond.to_hogql() if hasattr(cond, 'to_hogql') else str(cond) for cond in where_conditions_ast)
+        where_conditions_ast.extend(additional_conditions)
 
-        # Build coalesce expressions for UTM fields
-        campaign_coalesce = ast.Call(
+        # Build coalesce expressions for UTM fields as AST
+        campaign_coalesce_ast = ast.Call(
             name="coalesce",
             args=[utm_campaign_expr_ast, ast.Constant(value=UNKNOWN_CAMPAIGN)]
         )
-        source_coalesce = ast.Call(
+        source_coalesce_ast = ast.Call(
             name="coalesce", 
             args=[utm_source_expr_ast, ast.Constant(value=UNKNOWN_SOURCE)]
         )
+
+        # Convert to HogQL only at the end
+        campaign_select = campaign_coalesce_ast.to_hogql()
+        source_select = source_coalesce_ast.to_hogql()
+        value_select = select_field_ast.to_hogql()
+        where_clause = ' AND '.join(cond.to_hogql() for cond in where_conditions_ast)
 
         # Build the CTE query
         cte_query = f"""
 {cte_name} AS (
     SELECT
-        {campaign_coalesce.to_hogql()} as {MarketingSourceAdapter.campaign_name_field},
-        {source_coalesce.to_hogql()} as {MarketingSourceAdapter.source_name_field},
-        {select_field_ast.to_hogql()} as {CONVERSION_GOAL_PREFIX}{self.index}
+        {campaign_select} as {MarketingSourceAdapter.campaign_name_field},
+        {source_select} as {MarketingSourceAdapter.source_name_field},
+        {value_select} as {CONVERSION_GOAL_PREFIX}{self.index}
     FROM {table}
     WHERE {where_clause}
     GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.source_name_field}
