@@ -2282,7 +2282,7 @@ class Migration(migrations.Migration):
             field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
         ),
         migrations.RunSQL(
-            sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_person_email ON posthog_person((properties->>'email'));",
+            sql="CREATE INDEX IF NOT EXISTS posthog_person_email ON posthog_person((properties->>'email'));",
             reverse_sql='DROP INDEX "posthog_person_email";',
         ),
         migrations.AddField(
@@ -3388,7 +3388,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql=[
                 "SET statement_timeout = 600000000;",
-                "CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_per_team_id_bec4e5_idx ON posthog_person(team_id, id DESC);",
+                "CREATE INDEX IF NOT EXISTS posthog_per_team_id_bec4e5_idx ON posthog_person(team_id, id DESC);",
             ],
             reverse_sql='DROP INDEX "posthog_per_team_id_bec4e5_idx";',
         ),
@@ -3894,7 +3894,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_persondistinctid_team_id_46330ec9";',
+                    sql='DROP INDEX IF EXISTS "posthog_persondistinctid_team_id_46330ec9";',
                     reverse_sql="CREATE INDEX posthog_persondistinctid_team_id_46330ec9 ON public.posthog_persondistinctid USING btree (team_id);",
                 ),
             ],
@@ -4058,8 +4058,8 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY "unique_dashboard_tagged_item" ON "posthog_taggeditem" ("tag_id", "dashboard_id")\n                WHERE "dashboard_id" is NOT NULL\n            ',
-            reverse_sql='\n                DROP INDEX CONCURRENTLY IF EXISTS\n                "unique_dashboard_tagged_item";\n            ',
+            sql='\n                CREATE UNIQUE INDEX "unique_dashboard_tagged_item" ON "posthog_taggeditem" ("tag_id", "dashboard_id")\n                WHERE "dashboard_id" is NOT NULL\n            ',
+            reverse_sql='\n                DROP INDEX IF EXISTS\n                "unique_dashboard_tagged_item";\n            ',
             state_operations=[
                 migrations.AddConstraint(
                     model_name="taggeditem",
@@ -4072,8 +4072,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY "unique_insight_tagged_item" ON "posthog_taggeditem" ("tag_id", "insight_id")\n                WHERE "insight_id" is NOT NULL\n            ',
-            reverse_sql='\n                DROP INDEX CONCURRENTLY IF EXISTS\n                "unique_insight_tagged_item";\n            ',
+            sql='\n                CREATE UNIQUE INDEX "unique_insight_tagged_item" ON "posthog_taggeditem" ("tag_id", "insight_id")\n                WHERE "insight_id" is NOT NULL\n            ',
+            reverse_sql='\n                DROP INDEX IF EXISTS\n                "unique_insight_tagged_item";\n            ',
             state_operations=[
                 migrations.AddConstraint(
                     model_name="taggeditem",
@@ -4086,8 +4086,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY "unique_event_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "event_definition_id")\n                WHERE "event_definition_id" is NOT NULL\n            ',
-            reverse_sql='\n                DROP INDEX CONCURRENTLY IF EXISTS\n                "unique_event_definition_tagged_item"\n            ',
+            sql='\n                CREATE UNIQUE INDEX "unique_event_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "event_definition_id")\n                WHERE "event_definition_id" is NOT NULL\n            ',
+            reverse_sql='\n                DROP INDEX IF EXISTS\n                "unique_event_definition_tagged_item"\n            ',
             state_operations=[
                 migrations.AddConstraint(
                     model_name="taggeditem",
@@ -4100,8 +4100,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY "unique_property_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "property_definition_id")\n                WHERE "property_definition_id" is NOT NULL\n            ',
-            reverse_sql='\n                DROP INDEX CONCURRENTLY IF EXISTS\n                "unique_property_definition_tagged_item";\n            ',
+            sql='\n                CREATE UNIQUE INDEX "unique_property_definition_tagged_item" ON "posthog_taggeditem" ("tag_id", "property_definition_id")\n                WHERE "property_definition_id" is NOT NULL\n            ',
+            reverse_sql='\n                DROP INDEX IF EXISTS\n                "unique_property_definition_tagged_item";\n            ',
             state_operations=[
                 migrations.AddConstraint(
                     model_name="taggeditem",
@@ -4114,8 +4114,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunSQL(
-            sql='\n                CREATE UNIQUE INDEX CONCURRENTLY "unique_action_tagged_item" ON "posthog_taggeditem" ("tag_id", "action_id")\n                WHERE "action_id" is NOT NULL\n            ',
-            reverse_sql='\n                DROP INDEX CONCURRENTLY IF EXISTS\n                "unique_action_tagged_item";\n            ',
+            sql='\n                CREATE UNIQUE INDEX "unique_action_tagged_item" ON "posthog_taggeditem" ("tag_id", "action_id")\n                WHERE "action_id" is NOT NULL\n            ',
+            reverse_sql='\n                DROP INDEX IF EXISTS\n                "unique_action_tagged_item";\n            ',
             state_operations=[
                 migrations.AddConstraint(
                     model_name="taggeditem",
@@ -5095,7 +5095,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="insightcachingstate",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=True,
                 expression="(insight_id, coalesce(dashboard_tile_id, -1))",
                 name="unique_insight_tile_idx",
             ),
@@ -5114,8 +5113,8 @@ class Migration(migrations.Migration):
             field=models.BooleanField(blank=True, null=True),
         ),
         migrations.RunSQL(
-            sql="\n            -- not-null-ignore\n            CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_insightcachingstate_lookup ON posthog_insightcachingstate (\n                last_refresh DESC NULLS LAST,\n                last_refresh_queued_at DESC NULLS LAST,\n                target_cache_age_seconds,\n                refresh_attempt,\n                team_id,\n                cache_key,\n                id\n            )\n            WHERE (target_cache_age_seconds IS NOT NULL) AND (refresh_attempt < 2)\n            ",
-            reverse_sql='DROP INDEX CONCURRENTLY IF EXISTS "posthog_insightcachingstate_lookup"',
+            sql="\n            -- not-null-ignore\n            CREATE INDEX IF NOT EXISTS posthog_insightcachingstate_lookup ON posthog_insightcachingstate (\n                last_refresh DESC NULLS LAST,\n                last_refresh_queued_at DESC NULLS LAST,\n                target_cache_age_seconds,\n                refresh_attempt,\n                team_id,\n                cache_key,\n                id\n            )\n            WHERE (target_cache_age_seconds IS NOT NULL) AND (refresh_attempt < 2)\n            ",
+            reverse_sql='DROP INDEX IF EXISTS "posthog_insightcachingstate_lookup"',
         ),
         migrations.AlterField(
             model_name="sessionrecordingplaylist",
@@ -5371,7 +5370,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=True,
                 expression="(team_id, name, type, coalesce(group_type_index, -1))",
                 name="posthog_propertydefinition_uniq",
             ),
@@ -5436,7 +5434,7 @@ class Migration(migrations.Migration):
                 to="posthog.dashboard",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(
                 models.F("team_id"),
@@ -6208,7 +6206,7 @@ class Migration(migrations.Migration):
             name="autocapture_exceptions_errors_to_ignore",
             field=models.JSONField(blank=True, null=True),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(fields=["team_id", "type", "is_numerical"], name="posthog_pro_team_id_eac36d_idx"),
         ),
@@ -6511,8 +6509,8 @@ class Migration(migrations.Migration):
             field=models.IntegerField(null=True),
         ),
         migrations.RunSQL(
-            sql="\n            CREATE UNIQUE INDEX CONCURRENTLY idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count\n            ON posthog_messagingrecord (email_hash, campaign_key, campaign_count);\n            ",
-            reverse_sql='\n            DROP INDEX CONCURRENTLY "idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count";\n            ',
+            sql="\n            CREATE UNIQUE INDEX idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count\n            ON posthog_messagingrecord (email_hash, campaign_key, campaign_count);\n            ",
+            reverse_sql='\n            DROP INDEX "idx_messagingrecord_unique_on_email_hash_campaign_key_campaign_count";\n            ',
         ),
         migrations.AlterField(
             model_name="batchexport",
@@ -7566,7 +7564,7 @@ class Migration(migrations.Migration):
             name="scheduled_at",
             field=models.DateTimeField(),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="scheduledchange",
             index=models.Index(fields=["scheduled_at", "executed_at"], name="posthog_sch_schedul_c3687e_idx"),
         ),
@@ -7876,8 +7874,8 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_cohort_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_experiment_exposure_cohort_id_19450b9e" ON "posthog_experiment" ("exposure_cohort_id");\n                    ',
-                    reverse_sql='\n                        DROP INDEX CONCURRENTLY IF EXISTS "posthog_experiment_exposure_cohort_id_19450b9e";\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_experiment_exposure_cohort_id_19450b9e" ON "posthog_experiment" ("exposure_cohort_id");\n                    ',
+                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_experiment_exposure_cohort_id_19450b9e";\n                    ',
                 ),
             ],
             state_operations=[
@@ -7976,7 +7974,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunSQL(
-            sql="CREATE INDEX CONCURRENTLY posthog_eventproperty_team_id_and_property_r32khd9s ON posthog_eventproperty(team_id, property)",
+            sql="CREATE INDEX posthog_eventproperty_team_id_and_property_r32khd9s ON posthog_eventproperty(team_id, property)",
             reverse_sql='DROP INDEX "posthog_eventproperty_team_id_and_property_r32khd9s"',
         ),
         migrations.CreateModel(
@@ -8041,7 +8039,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_pluginconfig" DROP COLUMN IF EXISTS "match_action_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_pluginconfig_match_action_id_1cbf8562" ON "posthog_pluginconfig" ("match_action_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_pluginconfig_match_action_id_1cbf8562" ON "posthog_pluginconfig" ("match_action_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_pluginconfig_match_action_id_1cbf8562";\n                    ',
                 ),
             ],
@@ -8066,7 +8064,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_survey" DROP COLUMN IF EXISTS "internal_targeting_flag_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_survey_internal_targeting_flag_id_b3911925" ON "posthog_survey" ("internal_targeting_flag_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_survey_internal_targeting_flag_id_b3911925" ON "posthog_survey" ("internal_targeting_flag_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_survey_internal_targeting_flag_id_b3911925";\n                    ',
                 ),
             ],
@@ -8308,7 +8306,7 @@ class Migration(migrations.Migration):
                 fields=("team", "distinct_id"), name="unique personless distinct_id for team"
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="dashboard",
             index=models.Index(
                 condition=models.Q(("deleted", False)),
@@ -8500,7 +8498,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_annotation" DROP COLUMN IF EXISTS "dashboard_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_annotation_dashboard_id_91ef4125" ON "posthog_annotation" ("dashboard_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_annotation_dashboard_id_91ef4125" ON "posthog_annotation" ("dashboard_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_annotation_dashboard_id_91ef4125";\n                    ',
                 ),
             ],
@@ -8595,7 +8593,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT IF EXISTS "posthog_plugin_url_bccac89d_uniq";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_plugin_url_bccac89d_like" ON "posthog_plugin" ("url" varchar_pattern_ops);\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_plugin_url_bccac89d_like";\n                    ',
                 ),
             ],
@@ -8662,7 +8660,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "logo_media_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_organization_logo_media_id_1c12c9dc" ON "posthog_organization" ("logo_media_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_organization_logo_media_id_1c12c9dc" ON "posthog_organization" ("logo_media_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_organization_logo_media_id_1c12c9dc";\n                    ',
                 ),
             ],
@@ -9288,7 +9286,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                    ALTER TABLE "posthog_datawarehousesavedquery" DROP COLUMN IF EXISTS "table_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_datawarehousesavedquery_table_id_96fdb4f5" ON "posthog_datawarehousesavedquery" ("table_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_datawarehousesavedquery_table_id_96fdb4f5" ON "posthog_datawarehousesavedquery" ("table_id");\n                    ',
                     reverse_sql='\n                    DROP INDEX IF EXISTS "posthog_datawarehousesavedquery_table_id_96fdb4f5";\n                    ',
                 ),
             ],
@@ -9483,7 +9481,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "holdout_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_experiment_holdout_id_ffd173dd_fk_posthog_e" ON "posthog_experiment" ("holdout_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_experiment_holdout_id_ffd173dd_fk_posthog_e" ON "posthog_experiment" ("holdout_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_experiment_holdout_id_ffd173dd_fk_posthog_e";\n                    ',
                 ),
             ],
@@ -9657,7 +9655,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                    ALTER TABLE "posthog_grouptypemapping" DROP COLUMN IF EXISTS "project_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_grouptypemapping_project_id_239c0515" ON "posthog_grouptypemapping" ("project_id");',
+                    sql='\n                    CREATE INDEX "posthog_grouptypemapping_project_id_239c0515" ON "posthog_grouptypemapping" ("project_id");',
                     reverse_sql='\n                    DROP INDEX IF EXISTS "posthog_grouptypemapping_project_id_239c0515";',
                 ),
             ],
@@ -9725,11 +9723,11 @@ class Migration(migrations.Migration):
                 check=models.Q(("project_id__isnull", False)), name="group_type_project_id_is_not_null"
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="grouptypemapping",
             index=models.Index(fields=["project", "group_type"], name="posthog_group_type_proj_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="grouptypemapping",
             index=models.Index(fields=["project", "group_type_index"], name="posthog_group_type_i_proj_idx"),
         ),
@@ -9903,7 +9901,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                    ALTER TABLE "posthog_survey" DROP COLUMN IF EXISTS "internal_response_sampling_flag_id";\n                ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_survey_internal_response_sampling_flag_id_e682f708" ON "posthog_survey" ("internal_response_sampling_flag_id")\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_survey_internal_response_sampling_flag_id_e682f708" ON "posthog_survey" ("internal_response_sampling_flag_id")\n                    ',
                     reverse_sql='\n                       DROP INDEX IF EXISTS "posthog_survey_internal_response_sampling_flag_id_e682f708";\n                   ',
                 ),
             ],
@@ -9977,7 +9975,7 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="hogfunction",
             index=models.Index(fields=["type", "enabled", "team"], name="posthog_hog_type_6f8967_idx"),
         ),
@@ -10026,15 +10024,15 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventdefinition",
             index=models.Index(fields=["project"], name="posthog_eve_proj_id_f93fcbb0"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(
                 models.F("project_id"),
@@ -10045,19 +10043,19 @@ class Migration(migrations.Migration):
                 name="index_property_def_query_proj",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(fields=["project_id", "type", "is_numerical"], name="posthog_pro_project_3583d2_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(fields=["project"], name="posthog_eve_proj_id_dd2337d2"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(fields=["project", "event"], name="posthog_eve_proj_id_22de03_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(fields=["project", "property"], name="posthog_eve_proj_id_26dbfb_idx"),
         ),
@@ -10091,23 +10089,23 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        django.contrib.postgres.operations.RemoveIndexConcurrently(
+        migrations.RemoveIndex(
             model_name="eventproperty",
             name="posthog_eve_proj_id_22de03_idx",
         ),
-        django.contrib.postgres.operations.RemoveIndexConcurrently(
+        migrations.RemoveIndex(
             model_name="eventproperty",
             name="posthog_eve_proj_id_26dbfb_idx",
         ),
-        django.contrib.postgres.operations.RemoveIndexConcurrently(
+        migrations.RemoveIndex(
             model_name="propertydefinition",
             name="index_property_def_query_proj",
         ),
-        django.contrib.postgres.operations.RemoveIndexConcurrently(
+        migrations.RemoveIndex(
             model_name="propertydefinition",
             name="posthog_pro_project_3583d2_idx",
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -10115,7 +10113,7 @@ class Migration(migrations.Migration):
                 name="posthog_eve_proj_id_22de03_idx",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -10123,7 +10121,7 @@ class Migration(migrations.Migration):
                 name="posthog_eve_proj_id_26dbfb_idx",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -10134,7 +10132,7 @@ class Migration(migrations.Migration):
                 name="index_property_def_query_proj",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="propertydefinition",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -10146,13 +10144,12 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="eventdefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=True, expression="(coalesce(project_id, team_id), name)", name="event_definition_proj_uniq"
+                expression="(coalesce(project_id, team_id), name)", name="event_definition_proj_uniq"
             ),
         ),
         migrations.AddConstraint(
             model_name="eventproperty",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=True,
                 expression="(coalesce(project_id, team_id), event, property)",
                 name="posthog_event_property_unique_proj_event_property",
             ),
@@ -10160,7 +10157,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=True,
                 expression="(coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))",
                 name="posthog_propdef_proj_uniq",
             ),
@@ -10457,11 +10453,11 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_taggeditem" DROP COLUMN IF EXISTS "experiment_saved_metric_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_taggeditem_experiment_saved_metric_id_b6af2199" ON "posthog_taggeditem" ("experiment_saved_metric_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_taggeditem_experiment_saved_metric_id_b6af2199" ON "posthog_taggeditem" ("experiment_saved_metric_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_taggeditem_experiment_saved_metric_id_b6af2199";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY "unique_experiment_saved_metric_tagged_item" ON "posthog_taggeditem" ("tag_id", "experiment_saved_metric_id") WHERE "experiment_saved_metric_id" IS NOT NULL; -- not-null-ignore\n                    ',
+                    sql='\n                    CREATE UNIQUE INDEX "unique_experiment_saved_metric_tagged_item" ON "posthog_taggeditem" ("tag_id", "experiment_saved_metric_id") WHERE "experiment_saved_metric_id" IS NOT NULL; -- not-null-ignore\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "unique_experiment_saved_metric_tagged_item";\n                    ',
                 ),
                 migrations.RunSQL(
@@ -10473,8 +10469,8 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq" UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq"; -- existing-table-constraint-ignore\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id");\n                    ',
-                    reverse_sql='\n                        CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id");\n                    ',
+                    sql='\n                    CREATE UNIQUE INDEX IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id");\n                    ',
+                    reverse_sql='\n                        CREATE UNIQUE INDEX IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id");\n                    ',
                 ),
                 migrations.RunSQL(
                     sql='\n                    ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq"; -- existing-table-constraint-ignore\n                    ',
@@ -10669,7 +10665,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_batchexportrun" DROP COLUMN IF EXISTS "backfill_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_batchexportrun_backfill_id_9243c0f7" ON "posthog_batchexportrun" ("backfill_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_batchexportrun_backfill_id_9243c0f7" ON "posthog_batchexportrun" ("backfill_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_batchexportrun_backfill_id_9243c0f7";\n                    ',
                 ),
             ],
@@ -10748,7 +10744,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="hostdefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                concurrently=False,
                 expression="(coalesce(project_id, team_id), host)",
                 name="hostdefinition_coalesced_idx",
             ),
@@ -10940,11 +10935,11 @@ class Migration(migrations.Migration):
             name="last_counted_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="sessionrecordingplaylist",
             index=models.Index(fields=["deleted", "last_counted_at"], name="deleted_n_last_count_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="sessionrecordingplaylist",
             index=models.Index(fields=["deleted", "-last_modified_at"], name="deleted_n_last_mod_desc_idx"),
         ),
@@ -11056,7 +11051,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_grouptypemapping" DROP COLUMN IF EXISTS "detail_dashboard_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_grouptypemapping_detail_dashboard_id_54b0edbb" ON "posthog_grouptypemapping" ("detail_dashboard_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_grouptypemapping_detail_dashboard_id_54b0edbb" ON "posthog_grouptypemapping" ("detail_dashboard_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_grouptypemapping_detail_dashboard_id_54b0edbb";\n                    ',
                 ),
             ],
@@ -11118,7 +11113,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_filesystem" DROP COLUMN IF EXISTS "project_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_filesystem_project_id_767c1359_239c0515" ON "posthog_filesystem" ("project_id");',
+                    sql='\n                    CREATE INDEX "posthog_filesystem_project_id_767c1359_239c0515" ON "posthog_filesystem" ("project_id");',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_filesystem_project_id_767c1359_239c0515";',
                 ),
             ],
@@ -11132,15 +11127,15 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="filesystem",
             index=models.Index(fields=["project"], name="posthog_fil_project_840481_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="filesystem",
             index=models.Index(fields=["team"], name="posthog_fil_team_id_4941ed_idx"),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -11148,7 +11143,7 @@ class Migration(migrations.Migration):
                 name="posthog_fs_project_path",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -11156,7 +11151,7 @@ class Migration(migrations.Migration):
                 name="posthog_fs_project_depth",
             ),
         ),
-        django.contrib.postgres.operations.AddIndexConcurrently(
+        migrations.AddIndex(
             model_name="filesystem",
             index=models.Index(
                 django.db.models.functions.comparison.Coalesce(models.F("project_id"), models.F("team_id")),
@@ -11177,7 +11172,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_action" DROP COLUMN IF EXISTS "project_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_action_project_id_4taf4ZLMhR8D_utgqv8kQuJmp" ON "posthog_action" ("project_id");',
+                    sql='\n                    CREATE INDEX "posthog_action_project_id_4taf4ZLMhR8D_utgqv8kQuJmp" ON "posthog_action" ("project_id");',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_action_project_id_4taf4ZLMhR8D_utgqv8kQuJmp";',
                 ),
             ],
@@ -11259,7 +11254,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_uploadedmedia" DROP COLUMN IF EXISTS "project_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_uploadedmedia_project_id_uzTGNcheyj_WxVp79RtER" ON "posthog_uploadedmedia" ("project_id");',
+                    sql='\n                    CREATE INDEX "posthog_uploadedmedia_project_id_uzTGNcheyj_WxVp79RtER" ON "posthog_uploadedmedia" ("project_id");',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_uploadedmedia_project_id_uzTGNcheyj_WxVp79RtER";',
                 ),
             ],
@@ -11280,7 +11275,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_datacolortheme" DROP COLUMN IF EXISTS "project_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_datacolortheme_project_id_CZYFwmeeLU_Rvzb4NfvcS" ON "posthog_datacolortheme" ("project_id");',
+                    sql='\n                    CREATE INDEX "posthog_datacolortheme_project_id_CZYFwmeeLU_Rvzb4NfvcS" ON "posthog_datacolortheme" ("project_id");',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_datacolortheme_project_id_CZYFwmeeLU_Rvzb4NfvcS";',
                 ),
             ],
@@ -11306,7 +11301,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_dashboard" DROP COLUMN IF EXISTS "data_color_theme_id";\n                    ',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_dashboard_data_color_theme_id_0084ccbf" ON "posthog_dashboard" ("data_color_theme_id");\n                    ',
+                    sql='\n                    CREATE INDEX "posthog_dashboard_data_color_theme_id_0084ccbf" ON "posthog_dashboard" ("data_color_theme_id");\n                    ',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_dashboard_data_color_theme_id_0084ccbf";\n                    ',
                 ),
             ],
@@ -11332,7 +11327,7 @@ class Migration(migrations.Migration):
                     reverse_sql='\n                        ALTER TABLE "posthog_team" DROP COLUMN IF EXISTS "parent_team_id";',
                 ),
                 migrations.RunSQL(
-                    sql='\n                    CREATE INDEX CONCURRENTLY "posthog_team_parent_team_id_bkr8e799nE_TkKe5yC3C5" ON "posthog_team" ("parent_team_id");',
+                    sql='\n                    CREATE INDEX "posthog_team_parent_team_id_bkr8e799nE_TkKe5yC3C5" ON "posthog_team" ("parent_team_id");',
                     reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_team_parent_team_id_bkr8e799nE_TkKe5yC3C5";',
                 ),
             ],
