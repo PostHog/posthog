@@ -66,7 +66,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
             >
                 <Combobox>
-                    <Combobox.Search placeholder="Search projects..." />
+                    <Combobox.Search placeholder="Filter projects..." />
                     <Combobox.Content className="max-h-[calc(90vh-100px)]">
                         <Label intent="menu" className="px-2">
                             Projects

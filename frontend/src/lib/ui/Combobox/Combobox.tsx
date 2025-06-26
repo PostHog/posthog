@@ -132,7 +132,6 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 onChange={(e) => context.setSearchValue(e.target.value)}
                 className={className}
                 placeholder={placeholder}
-                size="sm"
                 autoFocus={autoFocus}
                 role="combobox"
                 aria-controls="combobox-listbox"
