@@ -433,6 +433,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             await breakpoint(300)
 
             props.updateBreakdownFilter?.({
+                ...values.breakdownFilter,
                 breakdown_limit: value,
             })
         },

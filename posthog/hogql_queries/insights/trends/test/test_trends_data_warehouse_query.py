@@ -526,6 +526,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
     def test_trends_data_warehouse_all_time(self):
         table_name = self.setup_data_warehouse()
 
@@ -561,6 +562,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         self.assertEqual("2023-01-01", response.results[0]["days"][0])
 
     @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
     def test_trends_events_and_data_warehouse_all_time(self):
         table_name = self.setup_data_warehouse()
 

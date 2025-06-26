@@ -4,7 +4,6 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { PlayerSidebarDebuggerTab } from './PlayerSidebarDebuggerTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarSessionSummaryTab } from './PlayerSidebarSessionSummaryTab'
@@ -17,8 +16,6 @@ export function PlayerSidebarTab(): JSX.Element | null {
             return <PlayerSidebarOverviewTab />
         case SessionRecordingSidebarTab.INSPECTOR:
             return <PlayerInspector />
-        case SessionRecordingSidebarTab.DEBUGGER:
-            return <PlayerSidebarDebuggerTab />
         case SessionRecordingSidebarTab.NETWORK_WATERFALL:
             return <NetworkView />
         case SessionRecordingSidebarTab.SESSION_SUMMARY:
