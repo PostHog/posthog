@@ -1,8 +1,8 @@
-import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
+import { IconBug, IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +16,8 @@ import { AvailableFeature, BillingFeatureType, BillingType, ProductKey, SidePane
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -180,6 +182,17 @@ export function SidePanelSupport(): JSX.Element {
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
+
+    const isCloud = preflight?.cloud
+    const region = preflight?.region
+    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const bugReportURL =
+        'https://github.com/PostHog/posthog/issues/new?template=bug_report.yml' +
+        (isCloud
+            ? `&debug-info=${encodeURIComponent(getPublicSupportSnippet(region, currentOrganization, currentTeam))}`
+            : '')
 
     const canEmail =
         billing?.subscription_level === 'paid' ||
@@ -389,6 +402,17 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to={bugReportURL}
+                                            icon={<IconBug />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
