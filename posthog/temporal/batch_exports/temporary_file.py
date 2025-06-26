@@ -703,6 +703,7 @@ class CSVBatchExportWriter(BatchExportWriter):
 
 def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
     """Convert list to str and replace ends with curly braces."""
+    # NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
     str_list = str(v)
     return f"{{{str_list[1:len(str_list)-1]}}}"
 
