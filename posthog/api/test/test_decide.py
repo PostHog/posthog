@@ -2504,11 +2504,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=8)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2580,7 +2580,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
+<<<<<<< HEAD
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
+=======
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=8)
+>>>>>>> dfd184acb7 (fix tests)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2650,7 +2654,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
+<<<<<<< HEAD
         response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
+=======
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=8)
+>>>>>>> dfd184acb7 (fix tests)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2680,7 +2688,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
+<<<<<<< HEAD
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=7)
+=======
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
+>>>>>>> dfd184acb7 (fix tests)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2831,7 +2843,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 2. Select 99999 cohort
         # 3. Select deleted cohort
         # 4. Select cohort from other team
+<<<<<<< HEAD
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
+=======
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=11)
+>>>>>>> dfd184acb7 (fix tests)
         self.assertEqual(
             response.json()["featureFlags"],
             {
@@ -2881,11 +2897,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
+<<<<<<< HEAD
         response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=2)
+=======
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=8)
+>>>>>>> dfd184acb7 (fix tests)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=1)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
@@ -4435,7 +4455,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_founder")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -4453,7 +4473,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -4471,7 +4491,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
