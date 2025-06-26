@@ -150,7 +150,7 @@ class BatchExportsDebugger:
         paused: bool | None = None,
     ) -> tuple[BatchExport, ...]:
         """Filter batch exports in the debugger context."""
-        filters = {}
+        filters: dict[str, int | bool | str] = {}
         if deleted is not None:
             filters["deleted"] = deleted
 
@@ -226,7 +226,7 @@ class BatchExportsDebugger:
     def iter_run_s3_data(self, batch_export_run: BatchExportRun) -> collections.abc.Generator[pa.Table, None, None]:
         folder = _get_s3_staging_folder(
             batch_export_run.batch_export.id,
-            batch_export_run.data_interval_start.isoformat(),
+            batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
             batch_export_run.data_interval_end.isoformat(),
         )
         file_selector = fs.FileSelector(
@@ -255,8 +255,8 @@ class BatchExportsDebugger:
         }
         team_id = batch_export_run.batch_export.team.id
 
-        extra_query_parameters = {}
-        filters = batch_export_run.batch_export.model.get("filters", None)
+        extra_query_parameters: dict[str, str] = {}
+        filters = batch_export_run.batch_export.filters
 
         if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = compose_filters_clause(
@@ -268,7 +268,7 @@ class BatchExportsDebugger:
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         is_backfill = batch_export_run.backfill is not None
 
-        if batch_export_run.batch_export.model["name"] == "persons":
+        if batch_export_run.batch_export.model == BatchExport.Model.PERSONS:
             if is_backfill and full_range[0] is None:
                 query = SELECT_FROM_PERSONS_BACKFILL
             else:
