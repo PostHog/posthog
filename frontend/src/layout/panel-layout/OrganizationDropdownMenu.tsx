@@ -40,6 +40,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         className="max-w-[210px]"
                         iconOnly={isLayoutNavCollapsed ? true : false}
                         data-attr="tree-navbar-organization-dropdown-button"
+                        size="sm"
                     >
                         {currentOrganization ? (
                             <UploadedLogo
