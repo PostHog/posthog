@@ -87,7 +87,7 @@ export const projectLogic = kea<projectLogicType>([
                 createProject: async ({ name }: { name: string }) => {
                     try {
                         return await api.create('api/projects/', { name })
-                    } catch (error: any) {
+                    } catch {
                         lemonToast.error('Failed to create project')
                         return values.currentProject
                     }

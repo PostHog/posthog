@@ -1,4 +1,8 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
+import {
+    ErrorTrackingRule,
+    ErrorTrackingRuleType,
+} from '@posthog/products-error-tracking/frontend/configuration/rules/types'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -6,8 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ErrorTrackingRule, ErrorTrackingRuleType } from 'products/error_tracking/frontend/configuration/rules/types'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -36,7 +39,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -86,7 +89,6 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
-    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -106,6 +108,7 @@ import {
     NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
+    type OAuthApplicationPublicMetadata,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -261,7 +264,7 @@ export function getCookie(name: string): string | null {
 export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
-    } catch (e) {
+    } catch {
         return null
     }
 }
@@ -1304,6 +1307,10 @@ export class ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
 
+    public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
+        return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -2337,13 +2344,9 @@ const api = {
         async list({
             filter_groups,
             types,
-            kinds,
-            excludeKinds,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
             types?: HogFunctionTypeType[]
-            kinds?: HogFunctionKind[]
-            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2351,8 +2354,6 @@ const api = {
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
-                    ...(kinds ? { kind: kinds.join(',') } : {}),
-                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2364,9 +2365,6 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
-        },
-        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
-            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
         },
         async logs(
             id: HogFunctionType['id'],
@@ -2674,7 +2672,7 @@ const api = {
                 if (textLines) {
                     return textLines.split('\n')
                 }
-            } catch (e) {
+            } catch {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
             return []
@@ -2887,13 +2885,13 @@ const api = {
             return await new ApiRequest()
                 .batchExport(id)
                 .withAction('run_test_step')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
         async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
                 .withAction('run_test_step_new')
-                .create({ data: { ...{ step: step }, ...data } })
+                .create({ data: { step: step, ...data } })
         },
     },
 
@@ -3460,6 +3458,11 @@ const api = {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
+    oauthApplication: {
+        async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
+            return await new ApiRequest().oauthApplicationPublicMetadata(clientId).get()
+        },
+    },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
             return await new ApiRequest().hogFlows().get()
@@ -3475,6 +3478,18 @@ const api = {
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
+        },
+        async createTestInvocation(
+            hogFlowId: HogFlow['id'],
+            data: {
+                configuration: Record<string, any>
+                mock_async_functions: boolean
+                globals?: any
+                clickhouse_event?: any
+                invocation_id?: string
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
     },
 
@@ -3521,11 +3536,11 @@ const api = {
             queryParams?: Omit<HogQLQuery, 'kind' | 'query'>
         }
     ): Promise<HogQLQueryResponse<T>> {
-        const hogQLQuery: HogQLQuery = {
+        const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
             ...queryOptions?.queryParams,
             kind: NodeKind.HogQLQuery,
             query,
-        }
+        })
         return await new ApiRequest().query().create({
             ...queryOptions?.requestOptions,
             data: {
