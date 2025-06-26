@@ -1,12 +1,19 @@
 import { ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
+import RE2 from 're2'
 
 import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { execHog } from '../services/hog-executor.service'
-import { HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
+import {
+    HogFunctionFilterGlobals,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    LogEntry,
+    MinimalAppMetric,
+} from '../types'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -21,6 +28,143 @@ interface HogFilterResult {
     error?: unknown
     logs: LogEntry[]
     metrics: MinimalAppMetric[]
+}
+
+function getElementsChainHref(elementsChain: string): string {
+    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
+    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
+    const hrefMatch = hrefRegex.exec(elementsChain)
+    return hrefMatch ? hrefMatch[1] : ''
+}
+
+function getElementsChainTexts(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
+    const textMatches = new Set<string>()
+    let textMatch
+    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
+        textMatches.add(textMatch[1])
+    }
+    return Array.from(textMatches)
+}
+
+function getElementsChainIds(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
+    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
+    const idMatches = new Set<string>()
+    let idMatch
+    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
+        idMatches.add(idMatch[1])
+    }
+    return Array.from(idMatches)
+}
+
+function getElementsChainElements(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
+    const elementMatches = new Set<string>()
+    let elementMatch
+    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
+        elementMatches.add(elementMatch[1])
+    }
+    return Array.from(elementMatches)
+}
+
+export function convertToHogFunctionFilterGlobal(
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups'>
+): HogFunctionFilterGlobals {
+    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
+
+    const response: HogFunctionFilterGlobals = {
+        event: globals.event.event,
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
+        timestamp: globals.event.timestamp,
+        properties: globals.event.properties,
+        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : null,
+        pdi: globals.person
+            ? {
+                  distinct_id: globals.event.distinct_id,
+                  person_id: globals.person.id,
+                  person: { id: globals.person.id, properties: globals.person.properties },
+              }
+            : null,
+        distinct_id: globals.event.distinct_id,
+        $group_0: null,
+        $group_1: null,
+        $group_2: null,
+        $group_3: null,
+        $group_4: null,
+        group_0: {
+            properties: {},
+        },
+        group_1: {
+            properties: {},
+        },
+        group_2: {
+            properties: {},
+        },
+        group_3: {
+            properties: {},
+        },
+        group_4: {
+            properties: {},
+        },
+    }
+
+    for (const group of Object.values(globals.groups || {})) {
+        // Find the group information and update the relevant properties - NOTE: The typing is tricky here hence the any cast
+        const groupKey = `group_${group.index}`
+
+        if (groupKey in response) {
+            ;(response as any)[groupKey] = {
+                properties: group.properties,
+            }
+        }
+
+        const groupIdKey = `$group_${group.index}`
+
+        if (groupIdKey in response) {
+            ;(response as any)[groupIdKey] = group.id
+        }
+    }
+
+    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+    // We use the same formula to calculate them here.
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
+    }
+
+    return response
 }
 
 /**

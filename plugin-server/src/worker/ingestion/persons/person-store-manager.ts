@@ -158,6 +158,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             this.secondaryStore.setCachedPersonForUpdate(teamId, distinctId, null)
         }
 
+        if (mainResult) {
+            this.updateFinalState(teamId, distinctId, mainResult.uuid, mainResult, false, 'fetchForUpdate')
+        }
+
         return mainResult
     }
 
@@ -277,6 +281,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Clear cache for the person
         this.secondaryStore.clearCache(person.team_id, distinctId)
+        this.secondaryStore.clearCacheByUuid(person.team_id, person.uuid)
         this.updateFinalState(person.team_id, distinctId, person.uuid, null, false, 'deletePerson')
 
         return kafkaMessages
@@ -437,6 +442,14 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Compare each person we tracked in finalStates with what's in the batch cache
         for (const [key, mainUpdate] of this.finalStates.entries()) {
+            // Skip entries that only have fetchForUpdate operations (read-only, no modifications)
+            if (mainUpdate && mainUpdate.operations.length > 0) {
+                const hasNonFetchOperations = mainUpdate.operations.some((op) => op.type !== 'fetchForUpdate')
+                if (!hasNonFetchOperations) {
+                    continue // Skip this entry as it's only fetch operations
+                }
+            }
+
             // Parse the key to extract teamId and personUuid
             const [teamIdStr, personUuid] = key.split(':')
             const teamId = parseInt(teamIdStr, 10)
