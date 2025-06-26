@@ -91,10 +91,6 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def is_draft(self):
         return not self.start_date
 
-    def get_latest_generated_summary(self) -> "ExperimentGeneratedSummary | None":
-        """Get the most recent AI-generated summary for this experiment"""
-        return self.experimentgeneratedsummary_set.first()
-
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
@@ -158,25 +154,3 @@ class ExperimentToSavedMetric(models.Model):
 
     def __str__(self):
         return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"
-
-class ExperimentGeneratedSummary(models.Model):
-    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
-    # AI generated summary of the experiment results
-    summary = models.TextField()
-
-    # Metadata for the generated summary. Including a snapshot of the
-    # experiment results.
-    experiment_results_snapshot = models.JSONField()
-    llm_model = models.CharField(max_length=255)
-    llm_tokens_used = models.IntegerField(null=True, blank=True)
-
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["experiment_id"]),
-        ]
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"{self.experiment.name} - {self.summary}"
