@@ -95,14 +95,14 @@ class BatchExportsDebugger:
        `load_batch_exports` and load a new (narrower) set of batch exports.
     4. If we know which batch export we want work with, set it by calling
        `BatchExportsDebugger.set_batch_export_from_loaded` with the ID, name,
-       or index of the batch export. By default, the debugger will  the first
+       or index of the batch export. By default, the debugger will use the first
        batch export in `loaded_batch_exports`, so if you managed to narrow
        down `loaded_batch_exports` to just one, you don't need to set anything.
     5. We are done with the setup, and the next steps will depend on your
        specific debugging needs: Check the batch export latest run with
        `get_latest_run`, load the data for the run in the staging S3 bucket with
-       `load_s3_files`, compare that with the data you get from ClickHouse using
-       `load_data_from_clickhouse`.
+       `load_run_s3_data`, compare that with the data you get from ClickHouse
+       using `load_run_clickhouse_data`, or load statistics for both datasets.
 
     Attributes:
         team_id: The ID of the team we are debugging.
