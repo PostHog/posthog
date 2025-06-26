@@ -55,10 +55,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
-            heatmapDataLogic,
+            heatmapDataLogic({ context: 'in-app' }),
             ['heatmapEmpty'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setHrefMatchType']],
+        actions: [heatmapDataLogic({ context: 'in-app' }), ['loadHeatmap', 'setHref', 'setHrefMatchType']],
     })),
 
     actions({
@@ -284,8 +284,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     listeners(({ actions, cache, props, values }) => ({
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
-                // we don't want to use the toolbar fetch or the iframe message approach
-                actions.setFetchFn('native')
                 actions.setHref(replayIframeData.url)
                 // TODO we need to be able to handle regex values
                 actions.setHrefMatchType('exact')
@@ -330,12 +328,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
-            // if we've got valid replay iframe data we don't want to init and communicate with the embedded toolbar
-            // TODO this seems not fire with srcdoc
-            if (values.hasValidReplayIframeData) {
-                actions.loadHeatmap()
-                return
-            }
+            // it should be impossible to load an iframe without a browserUrl
+            // right?!
+            actions.setHref(values.browserUrl ?? '')
+            actions.loadHeatmap()
+            return
+
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
             // but there's no slam dunk way to do that
@@ -418,8 +416,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setReplayIframeDataURL: async ({ url }, breakpoint) => {
             await breakpoint(150)
             if (url?.trim().length) {
-                // we don't want to use the toolbar fetch or the iframe message approach
-                actions.setFetchFn('native')
                 actions.setHref(url)
                 // TODO we need to be able to handle regex values
                 actions.setHrefMatchType('exact')

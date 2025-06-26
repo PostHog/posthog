@@ -2,24 +2,6 @@ import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { HeatmapFilters } from 'lib/components/heatmaps/types'
 import { dateMapping } from 'lib/utils'
 
-export enum PostHogAppToolbarEvent {
-    PH_TOOLBAR_INIT = 'ph-toolbar-init',
-    PH_TOOLBAR_READY = 'ph-toolbar-ready',
-    PH_APP_INIT = 'ph-app-init',
-    PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
-    PH_PATCH_HEATMAP_FILTERS = 'ph-patch-heatmap-filters',
-    PH_HEATMAPS_FIXED_POSITION_MODE = 'ph-heatmaps-fixed-position-mode',
-    PH_HEATMAPS_COLOR_PALETTE = 'ph-heatmaps-color-palette',
-    PH_HEATMAPS_COMMON_FILTERS = 'ph-heatmaps-common-filters',
-    PH_TOOLBAR_HEATMAP_LOADING = 'ph-toolbar-heatmap-loading',
-    PH_TOOLBAR_HEATMAP_LOADED = 'ph-toolbar-heatmap-loaded',
-    PH_TOOLBAR_HEATMAP_FAILED = 'ph-toolbar-heatmap-failed',
-    PH_ELEMENT_SELECTOR = 'ph-element-selector',
-    PH_NEW_ACTION_NAME = 'ph-new-action-name',
-    PH_NEW_ACTION_CREATED = 'ph-new-action-created',
-    PH_TOOLBAR_NAVIGATED = 'ph-toolbar-navigated',
-}
-
 export const DEFAULT_HEATMAP_FILTERS: HeatmapFilters = {
     enabled: true,
     type: 'click',
