@@ -143,6 +143,12 @@ class BatchExportsDebugger:
             output_format_arrow_string_as_string="true",
         )
 
+    def switch_teams(self, team_id: int):
+        """Re-use this debugger for a different team."""
+        self.team_id = team_id
+        self.loaded_batch_exports = tuple(BatchExport.objects.filter(team_id=team_id))
+        self._batch_export = None
+
     @property
     def batch_export(self) -> BatchExport:
         """Working batch export."""
