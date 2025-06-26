@@ -704,7 +704,7 @@ class CSVBatchExportWriter(BatchExportWriter):
 def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
     """Convert list to str and replace ends with curly braces."""
     str_list = str(v)
-    return f"{{{str(v)[1:len(str_list)-1]}}}"
+    return f"{{{str_list[1:len(str_list)-1]}}}"
 
 
 class ParquetBatchExportWriter(BatchExportWriter):
