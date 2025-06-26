@@ -36,8 +36,9 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
     const { selectedNode } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(campaignLogic)
-    const { sampleGlobals, isTestInvocationSubmitting, testResult, canLoadSampleGlobals, testInvocationLoading } =
-        useValues(hogFlowEditorTestLogic(logicProps))
+    const { sampleGlobals, isTestInvocationSubmitting, testResult, shouldLoadSampleGlobals } = useValues(
+        hogFlowEditorTestLogic(logicProps)
+    )
     const { submitTestInvocation, setTestResult, loadSampleGlobals } = useActions(hogFlowEditorTestLogic(logicProps))
 
     const display = asDisplay(sampleGlobals?.person)
@@ -56,7 +57,7 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
             props={logicProps}
             formKey="testInvocation"
             enableFormOnSubmit
-            className="flex overflow-y-scroll flex-col flex-1 w-180"
+            className="flex overflow-hidden flex-col flex-1 w-180"
         >
             {/* Header */}
             <div className="flex justify-between items-center px-2 my-2 w-full">
@@ -210,7 +211,9 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                                     type="secondary"
                                     onClick={() => loadSampleGlobals()}
                                     tooltip="Find the last event matching the trigger event filters, and use it to populate the globals for a test run."
-                                    disabledReason={!canLoadSampleGlobals ? 'Must configure trigger event' : undefined}
+                                    disabledReason={
+                                        !shouldLoadSampleGlobals ? 'Must configure trigger event' : undefined
+                                    }
                                     icon={<IconRedo />}
                                 >
                                     Load new event
@@ -221,7 +224,7 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                                     data-attr="test-workflow-panel-new"
                                     onClick={() => submitTestInvocation()}
                                     icon={<IconPlay />}
-                                    loading={testInvocationLoading}
+                                    loading={isTestInvocationSubmitting}
                                     disabledReason={sampleGlobals ? undefined : 'Must load event to run test'}
                                 >
                                     Run test

@@ -22,6 +22,7 @@ import { PropertyGroupFilter } from '~/types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 import { CampaignLogicProps } from '../../campaignLogic'
 import { campaignLogic } from '../../campaignLogic'
+import { HogFlow } from '../types'
 
 export interface HogflowTestInvocation {
     globals: string
@@ -158,21 +159,21 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
         ],
     })),
-    selectors(({ values }) => ({
-        canLoadSampleGlobals: [
-            () => [],
-            (): boolean => {
+    selectors(() => ({
+        shouldLoadSampleGlobals: [
+            (s) => [s.campaign],
+            (campaign: HogFlow): boolean => {
                 return (
-                    !!values.campaign.trigger?.filters?.events?.length ||
-                    !!values.campaign.trigger?.filters?.actions?.length ||
-                    !!values.campaign.trigger?.filters?.data_warehouse?.length
+                    !!campaign.trigger?.filters?.events?.length ||
+                    !!campaign.trigger?.filters?.actions?.length ||
+                    !!campaign.trigger?.filters?.data_warehouse?.length
                 )
             },
         ],
         // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
-            () => [],
-            (): PropertyGroupFilter => {
+            (s) => [s.campaign],
+            (campaign: HogFlow): PropertyGroupFilter => {
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -181,8 +182,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = values.campaign.trigger.filters?.events ?? []
-                const allPossibleActionFilters = values.campaign.trigger.filters?.actions ?? []
+                const allPossibleEventFilters = campaign.trigger.filters?.events ?? []
+                const allPossibleActionFilters = campaign.trigger.filters?.actions ?? []
 
                 for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
@@ -216,12 +217,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         values: actionProperties,
                     })
                 }
-                if ((values.campaign.trigger.filters?.properties?.length ?? 0) > 0) {
+                if ((campaign.trigger.filters?.properties?.length ?? 0) > 0) {
                     const globalProperties: PropertyGroupFilterValue = {
                         type: FilterLogicalOperator.And,
                         values: [],
                     }
-                    for (const property of values.campaign.trigger.filters?.properties ?? []) {
+                    for (const property of campaign.trigger.filters?.properties ?? []) {
                         globalProperties.values.push(property as AnyPropertyFilter)
                     }
                     properties.values.push(globalProperties)
