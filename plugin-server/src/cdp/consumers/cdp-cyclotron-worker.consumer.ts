@@ -106,6 +106,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                     return null
                 }
 
+                if (!hogFunction.enabled || hogFunction.deleted) {
+                    logger.info('⚠️', 'Skipping invocation due to hog function being deleted or disabled', {
+                        id: item.functionId,
+                    })
+
+                    failedInvocations.push(item)
+
+                    return null
+                }
+
                 loadedInvocations.push({
                     ...item,
                     state: item.state as CyclotronJobInvocationHogFunction['state'],

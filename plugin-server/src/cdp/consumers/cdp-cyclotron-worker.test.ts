@@ -185,6 +185,22 @@ describe('CdpCyclotronWorker', () => {
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
         })
 
+        it('should skip a loaded function if it is disabled', async () => {
+            const fn2 = await insertHogFunction(
+                hub.postgres,
+                team.id,
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    enabled: false,
+                })
+            )
+
+            const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
+            expect(results).toEqual([])
+        })
+
         describe('thread relief', () => {
             jest.setTimeout(10000)
             let interval: NodeJS.Timeout
