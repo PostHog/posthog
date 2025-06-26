@@ -24,12 +24,13 @@ import {
     HogFunctionType,
     LogEntry,
     MinimalAppMetric,
+    MinimalLogEntry,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
-import { cdpHttpRequests } from './fetch-executor.service'
+import { cdpHttpRequests, isFetchResponseRetriable } from './fetch-executor.service'
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -645,41 +646,40 @@ export class HogExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let asyncFunctionCount = 0
 
-        const finalResult = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'hog',
-        })
-
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
+        const metrics: MinimalAppMetric[] = []
+        const logs: MinimalLogEntry[] = []
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queueParameters?.type === 'fetch') {
                 asyncFunctionCount++
-
-                if (asyncFunctionCount > maxAsyncFunctions) {
-                    logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
-
-                    // TODO: Check if this is correct?
-                    break
-                }
-
                 result = await this.executeFetch(nextInvocation)
             } else {
                 result = this.execute(nextInvocation)
             }
 
-            if (result.finished || result.invocation.queueScheduledAt) {
-                break
-            }
+            logs.push(...result.logs)
+            metrics.push(...result.metrics)
 
             await new Promise((resolve) => process.nextTick(resolve))
 
-            finalResult.logs = [...finalResult.logs, ...result.logs]
-            finalResult.metrics = [...finalResult.metrics, ...result.metrics]
+            if (result && asyncFunctionCount > maxAsyncFunctions) {
+                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
+                break
+            }
+
+            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
+            if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
+                break
+            }
         }
 
-        return finalResult
+        result.logs = logs
+        result.metrics = metrics
+
+        return result
     }
 
     async executeFetch(
@@ -689,12 +689,19 @@ export class HogExecutorService {
             throw new Error('Bad invocation')
         }
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'hog',
-        })
+        const params = invocation.queueParameters
+
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {
+                queue: 'hog',
+            },
+            {
+                finished: false,
+            }
+        )
 
         const start = performance.now()
-        const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
         const method = params.method.toUpperCase()
         const fetchParams: FetchOptions = {
             method,
@@ -714,22 +721,51 @@ export class HogExecutorService {
             duration_ms: duration,
         })
 
+        result.invocation.state.attempts++
+
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
+            const backoffMs = Math.min(
+                this.config.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
+                    Math.floor(Math.random() * this.config.CDP_FETCH_BACKOFF_BASE_MS),
+                this.config.CDP_FETCH_BACKOFF_MAX_MS
+            )
+
+            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
+
             result.logs.push({
                 level: 'warn',
                 timestamp: DateTime.now(),
-                message: `HTTP fetch failed with status code ${fetchResponse?.status ?? '(none)'}`,
+                message:
+                    `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
+                        fetchResponse?.status ?? '(none)'
+                    }.` + (canRetry ? ` Retrying in ${backoffMs}ms.` : ''),
             })
+
+            if (canRetry && result.invocation.state.attempts <= this.config.CDP_FETCH_RETRIES) {
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `Scheduling fetch retry in ${backoffMs}ms`,
+                })
+
+                result.invocation.queue = 'hog'
+                result.invocation.queueParameters = params
+                result.invocation.queuePriority = invocation.queuePriority + 1
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+
+                return result
+            }
         }
 
-        // TODO: Early break with retry if necessary here...
+        // Reset the attempts as we are done
+        result.invocation.state.attempts = 0
 
         const hogVmResponse: {
             status: number
             body: unknown
         } = {
-            status: fetchResponse.status,
-            body: fetchResponse.body,
+            status: fetchResponse?.status ?? 500,
+            body: (await fetchResponse?.text()) ?? null,
         }
 
         if (typeof hogVmResponse.body === 'string') {
@@ -741,7 +777,17 @@ export class HogExecutorService {
         }
 
         // Finally we create the response object as the VM expects
-        nextInvocation.state.vmState!.stack.push(hogVmResponse)
+        result.invocation.state.vmState!.stack.push(hogVmResponse)
+
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.hogFunction.id,
+            metric_kind: 'other',
+            metric_name: 'fetch',
+            count: 1,
+        })
+
+        return result
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {
