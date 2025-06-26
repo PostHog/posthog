@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 
     lc_team_id Int64, -- comment 'log_comment[team_id]',
     lc_user_id Int64, -- comment 'log_comment[user_id]',
-    lc_org_id UUID, -- comment 'log_comment[org_id]',
+    lc_org_id String, -- comment 'log_comment[org_id]',
     lc_workflow LowCardinality(String), -- comment 'log_comment[workflow]',
     lc_dashboard_id Int64, -- comment 'log_comment[dashboard_id]',
     lc_insight_id Int64, -- comment 'log_comment[insight_id]',
