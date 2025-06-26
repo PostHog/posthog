@@ -746,43 +746,35 @@ export function ProjectTree({
                             </ButtonPrimitive>
                         ) : null}
 
-                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                        <ButtonPrimitive
+                            onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
+                            tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                            iconOnly
+                            data-attr="tree-panel-enable-multi-select-button"
+                            size="sm"
+                            active={selectMode === 'multi'}
+                            aria-pressed={selectMode === 'multi'}
+                        >
+                            <IconCheckbox
+                                className={cn('size-3', {
+                                    'text-tertiary': selectMode === 'default',
+                                    'text-primary': selectMode === 'multi',
+                                })}
+                            />
+                        </ButtonPrimitive>
+
+                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' && (
                             <ButtonPrimitive
-                                onClick={() => setSelectMode('multi')}
-                                tooltip="Enable multi-select"
-                                iconOnly
-                                data-attr="tree-panel-enable-multi-select-button"
+                                onClick={() => {
+                                    setCheckedItems({})
+                                    setSelectMode('default')
+                                }}
+                                tooltip="Clear selected and disable multi-select"
+                                data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
                                 size="sm"
                             >
-                                <IconCheckbox className="text-tertiary size-3" />
+                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                             </ButtonPrimitive>
-                        ) : (
-                            <>
-                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                    <ButtonPrimitive
-                                        onClick={() => {
-                                            setCheckedItems({})
-                                            setSelectMode('default')
-                                        }}
-                                        tooltip="Clear selected and disable multi-select"
-                                        data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
-                                        size="sm"
-                                    >
-                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                    </ButtonPrimitive>
-                                ) : (
-                                    <ButtonPrimitive
-                                        onClick={() => setSelectMode('default')}
-                                        tooltip="Disable multi-select"
-                                        iconOnly
-                                        data-attr="tree-panel-disable-multi-select-button"
-                                        size="sm"
-                                        active
-                                    >
-                                        <IconCheckbox className="text-primary size-3" />
-                                    </ButtonPrimitive>
-                                )}
-                            </>
                         )}
                     </>
                 ) : null

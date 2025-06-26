@@ -117,6 +117,7 @@ export function PanelLayoutPanel({
                             data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                             active={isLayoutPanelPinned}
                             size="sm"
+                            aria-pressed={isLayoutPanelPinned}
                         >
                             {isLayoutPanelPinned ? (
                                 <IconPinFilled className="size-3 text-primary" />
