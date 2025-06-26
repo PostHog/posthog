@@ -102,7 +102,7 @@ jobs:
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest
 
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -249,69 +249,171 @@ jobs:
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [20]
-                group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+                concurrency: [40]
+                group:
+                    [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14,
+                        15,
+                        16,
+                        17,
+                        18,
+                        19,
+                        20,
+                        21,
+                        22,
+                        23,
+                        24,
+                        25,
+                        26,
+                        27,
+                        28,
+                        29,
+                        30,
+                        31,
+                        32,
+                        33,
+                        34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
+                    ]
                 include:
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 5
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 6
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 7
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 8
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 9
+                    - segment: 'Core'
+                      person-on-events: true
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 10
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
                       clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
                       python-version: '3.11.9'
-                      concurrency: 5
+                      concurrency: 10
                       group: 5
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 6
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 7
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 8
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 9
+                    - segment: 'Temporal'
+                      person-on-events: false
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:24.8.7.41'
+                      python-version: '3.11.9'
+                      concurrency: 10
+                      group: 10
 
         steps:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
@@ -491,6 +593,7 @@ jobs:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
+                  set +e
                   pytest ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
@@ -504,6 +607,14 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
@@ -533,11 +644,20 @@ jobs:
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
               run: |
+                  set +e
                   pytest posthog/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard, this is expected when splitting tests"
+                      exit 0
+                  else
+                      exit $exit_code
+                  fi
 
             # Post tests
             - name: Show docker compose logs on failure
@@ -598,7 +718,7 @@ jobs:
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
