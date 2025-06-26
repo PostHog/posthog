@@ -194,7 +194,7 @@ jobs:
             - name: Run Playwright tests
               env:
                   START_PLAYWRIGHT: '1'
-              run: pnpm --filter=@posthog/playwright test
+              run: pnpm --filter=@posthog/playwright exec playwright test
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
