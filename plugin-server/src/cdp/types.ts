@@ -225,7 +225,6 @@ export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
     body?: string
-    return_queue: CyclotronJobQueueKind
     max_tries?: number
     headers?: Record<string, string>
 }

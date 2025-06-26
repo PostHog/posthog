@@ -849,7 +849,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'GET',
                 body: 'test body',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -897,7 +896,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
                 max_tries: 2,
             })
 
@@ -948,7 +946,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: 'http://non-existent-host-name',
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -969,7 +966,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: 'http://localhost',
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -996,7 +992,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             // Set a very short timeout
@@ -1029,7 +1024,6 @@ describe('Hog Executor', () => {
                 headers: {
                     'X-Test': 'test',
                 },
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1061,7 +1055,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'POST',
                 body: 'test body',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1086,7 +1079,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)

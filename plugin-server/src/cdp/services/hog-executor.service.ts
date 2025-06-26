@@ -576,14 +576,13 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const fetchQueueParameters = this.enrichFetchRequest({
+                            const fetchQueueParameters: HogFunctionQueueParametersFetchRequest = {
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers,
-                                return_queue: 'hog',
-                            })
+                            }
 
                             result.invocation.queue = 'fetch' // TODO: Once we have moved away from the queue types then this will swap to "hog" queue
                             result.invocation.queueParameters = fetchQueueParameters
@@ -794,18 +793,4 @@ export class HogExecutorService {
 
         return request
     }
-
-    public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        if (request.headers && request.headers['developer-token'] === this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
-            delete request.headers['developer-token']
-        }
-
-        return request
-    }
-}
-
-function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
-    return `Fetch failure of kind ${failure.kind} with status ${failure.status ?? '(none)'} and message ${
-        failure.message
-    }`
 }
