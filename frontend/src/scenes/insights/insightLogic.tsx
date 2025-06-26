@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -45,7 +45,6 @@ import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
-import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -79,10 +78,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['featureFlags'],
             sceneLogic,
             ['activeScene'],
-            sceneLayoutLogic,
-            ['fileActions'],
         ],
-        actions: [tagsModel, ['loadTags'], savedInsightsLogic, ['duplicateInsight'], sceneLayoutLogic, ['setAddFileActions']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
     })),
 
@@ -436,7 +433,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
                 dashboardLogic.findMounted({ id: dashboard_id })?.actions.loadDashboard({
                     action: 'update',
-                    refresh: 'lazy_async',
+                    manualDashboardRefresh: false,
                 })
             )
 
@@ -509,44 +506,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (values.insight && values.insight.id && values.insight.query) {
                 maxContextLogic.findMounted()?.actions.addOrUpdateActiveInsight(values.insight, values.isInViewMode)
             }
-        },
-        loadInsightSuccess: () => {
-            const insight = values.insight
-            // console.log('loadInsightSuccess', insight)
-            // // Now the insight is loaded and we can set the actions
-            // actions.setAddFileActions([
-            //     {
-            //         id: 'duplicate-insight',
-            //         title: 'Duplicate',
-            //         onClick: () => {
-            //             void (async () => {
-            //                 // We do not want to duplicate the dashboard filters that might be included in this insight
-            //                 // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
-            //                 // irreversibly in apply_dashboard_filters and return that to the front-end
-            //                 if (insight.short_id) {
-            //                     const cleanInsight = await insightsApi.getByShortId(
-            //                         insight.short_id
-            //                     )
-            //                     if (cleanInsight) {
-            //                         actions.duplicateInsight(cleanInsight, true)
-            //                         return
-            //                     }
-            //                 }
-            //                 // Fallback to original behavior if load failed
-            //                 duplicateInsight(insight as QueryBasedInsightModel, true)
-            //             })()
-            //         },
-            //     },
-            //     {
-            //         id: 'add-insight-to-favorites',
-            //         title: insight.favorited ? 'Remove from favorites' : 'Add to favorites',
-            //         onClick: () => {
-            //             actions.setInsightMetadata({
-            //                 favorited: !insight.favorited,
-            //             })
-            //         },
-            //     },
-            // ])
         },
     })),
     events(({ props, actions }) => ({

@@ -48,16 +48,16 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         fileActions: [
             [] as SceneHeaderItemProps[],
             {
-                setAddFileActions: (_, {actions}) => actions,
+                setAddFileActions: (_, { actions }) => actions,
             },
         ],
-        editActions: [[] as SceneHeaderItemProps[], { setAddEditActions: (_, {actions}) => actions }],
+        editActions: [[] as SceneHeaderItemProps[], { setAddEditActions: (_, { actions }) => actions }],
         viewActions: [
             [] as SceneHeaderItemProps[],
             {
-                setAddViewActions: (_, {actions}) => actions,
+                setAddViewActions: (_, { actions }) => actions,
             },
         ],
-        helpActions: [[] as SceneHeaderItemProps[], { setAddHelpActions: (_, {actions}) => actions }],
+        helpActions: [[] as SceneHeaderItemProps[], { setAddHelpActions: (_, { actions }) => actions }],
     }),
 ])
