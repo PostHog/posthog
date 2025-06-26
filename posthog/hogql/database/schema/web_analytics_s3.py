@@ -6,6 +6,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WEB_BOUNCES_SPECIFIC_FIELDS,
 )
 from django.conf import settings
+from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
@@ -13,7 +14,14 @@ from posthog.settings.object_storage import (
 )
 
 
-def get_s3_url(team_id: int, table_name: str) -> str:
+def get_s3_function_args(s3_path: str) -> str:
+    if DEBUG:
+        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
+    else:
+        return f"'{s3_path}', 'Native'"
+
+
+def get_s3_url(table_name: str, team_id: int | None = None) -> str:
     if settings.DEBUG:
         s3_endpoint = "http://objectstorage:19000"
         bucket = "posthog"
@@ -22,7 +30,7 @@ def get_s3_url(team_id: int, table_name: str) -> str:
 
     base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com"
 
-    return f"{base_url}/{table_name}"
+    return f"{base_url}/{team_id}/{table_name}" if team_id else f"{base_url}/{table_name}"
 
 
 def get_s3_web_stats_structure() -> str:
@@ -68,7 +76,7 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 
 
 def create_s3_web_stats_table(team_id: int) -> S3Table:
-    url = get_s3_url(team_id, "web_stats_daily_export.native")
+    url = get_s3_url(table_name="web_stats_daily_export.native", team_id=team_id)
 
     return S3Table(
         name="web_stats_daily_s3",
@@ -82,7 +90,7 @@ def create_s3_web_stats_table(team_id: int) -> S3Table:
 
 
 def create_s3_web_bounces_table(team_id: int) -> S3Table:
-    url = get_s3_url(team_id, "web_bounces_daily_export.native")
+    url = get_s3_url(table_name="web_bounces_daily_export.native", team_id=team_id)
 
     return S3Table(
         name="web_bounces_daily_s3",

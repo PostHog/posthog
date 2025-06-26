@@ -1,6 +1,5 @@
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,16 +15,19 @@ import { ExperimentStatsMethod, ProgressStatus } from '~/types'
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
+import { modalsLogic } from '../modalsLogic'
 import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
-import { modalsLogic } from '../modalsLogic'
 
 export function Info(): JSX.Element {
     const {
         experiment,
         featureFlags,
         legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        primaryMetricsResults,
+        secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
@@ -49,7 +51,13 @@ export function Info(): JSX.Element {
         return <></>
     }
 
-    const lastRefresh = legacyPrimaryMetricsResults?.[0]?.last_refresh
+    // Get the last refresh timestamp from either legacy or new results format
+    // Check both primary and secondary metrics for the most recent timestamp
+    const lastRefresh =
+        legacyPrimaryMetricsResults?.[0]?.last_refresh ||
+        legacySecondaryMetricsResults?.[0]?.last_refresh ||
+        primaryMetricsResults?.[0]?.last_refresh ||
+        secondaryMetricsResults?.[0]?.last_refresh
 
     return (
         <div>

@@ -84,6 +84,7 @@ export const appScenes: Record<Scene | string, () => any> = {
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
+    [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.DataPipelines]: () => import('./data-pipelines/DataPipelinesScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
