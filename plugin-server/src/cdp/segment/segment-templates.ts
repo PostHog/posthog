@@ -410,55 +410,55 @@ const getIconUrl = (id: string, slug: string | undefined) => {
 
 // hide all destinations for now
 const APPROVED_DESTINATIONS: string[] = [
-    'segment-mixpanel',
-    'segment-amplitude',
-    'segment-launchdarkly',
-    'segment-canny',
-    'segment-fullstory-cloud',
-    'segment-drip',
-    'segment-pipedrive',
+    'segment-actions-mixpanel',
+    'segment-actions-amplitude',
+    'segment-actions-launchdarkly',
+    'segment-actions-canny',
+    'segment-actions-fullstory-cloud',
+    'segment-actions-drip',
+    'segment-actions-pipedrive',
     'segment-inleads-ai',
-    'segment-koala-cloud',
-    'segment-pushwoosh',
-    'segment-schematic',
-    'segment-usermotion',
-    'segment-accoil-analytics',
+    'segment-actions-koala-cloud',
+    'segment-actions-pushwoosh',
+    'segment-actions-schematic',
+    'segment-actions-usermotion',
+    'segment-actions-accoil-analytics',
 ]
 
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
-    'segment-snap-conversions',
+    'segment-actions-snap-conversions',
     'segment-hubspot-cloud',
     'segment-june-actions',
     'segment-intercom-cloud',
-    'segment-avo',
+    'segment-actions-avo',
     'segment-loops',
-    'segment-reddit-conversions-api',
-    'segment-customerio',
+    'segment-actions-reddit-conversions-api',
+    'segment-actions-customerio',
     'segment-slack',
     'segment-webhook',
     'segment-webhook-extensible',
     'segment-attio',
-    'segment-braze-cloud',
-    'segment-klaviyo',
+    'segment-actions-braze-cloud',
+    'segment-actions-klaviyo',
     'segment-tiktok-conversions',
     'segment-tiktok-conversions-sandbox',
-    'segment-tiktok-offline-conversions',
-    'segment-tiktok-offline-conversions-sandbox',
+    'segment-actions-tiktok-offline-conversions',
+    'segment-actions-tiktok-offline-conversions-sandbox',
     'segment-facebook-conversions-api',
-    'segment-google-enhanced-conversions',
+    'segment-actions-google-enhanced-conversions',
     'segment-gleap-cloud-actions',
 
     // broken destinations
-    'segment-apolloio',
-    'segment-toplyne-cloud',
-    'segment-heap-cloud',
+    'segment-actions-apolloio',
+    'segment-actions-toplyne-cloud',
+    'segment-actions-heap-cloud',
 
     // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
-    'segment-equals',
-    'segment-gainsight-px-cloud',
-    'segment-iqm',
-    'segment-movable-ink',
+    'segment-actions-equals',
+    'segment-actions-gainsight-px-cloud',
+    'segment-actions-iqm',
+    'segment-actions-movable-ink',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -466,8 +466,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         if (HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences')) {
             return false
         }
@@ -482,8 +481,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .map(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
 
         return {
