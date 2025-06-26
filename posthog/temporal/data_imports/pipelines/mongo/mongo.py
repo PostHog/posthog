@@ -105,7 +105,11 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
     """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
-        return MongoClient(connection_string, serverSelectionTimeoutMS=5000)
+        client = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
+        try:
+            yield client
+        finally:
+            client.close()
 
     # For regular connections
     connection_kwargs = {
