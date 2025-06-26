@@ -226,8 +226,6 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
                     "types": {"$addToSet": {"$type": "$arrayofkeyvalue.v"}},
                 }
             },
-            # Sort by field name for consistent output
-            {"$sort": {"_id": 1}},
         ]
 
         result = list(collection.aggregate(pipeline))
