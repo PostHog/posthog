@@ -1790,6 +1790,45 @@ async fn test_config_analytics_enabled() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_config_analytics_enabled_by_default() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let distinct_id = "user_distinct_id".to_string();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    println!("json_data: {:?}", json_data);
+
+    assert!(json_data["analytics"].is_object());
+    assert_eq!(json_data["analytics"]["endpoint"], json!("/i/v0/e"));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.debug = FlexBool(true); // Debug mode disables analytics
