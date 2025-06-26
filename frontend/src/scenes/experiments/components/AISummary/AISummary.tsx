@@ -12,17 +12,26 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { ExperimentIdType } from '~/types'
 import { experimentSummaryLogic } from './experimentSummaryLogic'
 
-export const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element | null => {
+/**
+ * This is a temporary wrapper component to handle the feature flag visibility
+ * and to guarantee nothing leaks into the experiment page, like mounted logics.
+ */
+const AISummaryWrapper = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element | null => {
     const isAISummaryEnabled = useFeatureFlag('EXPERIMENTS_AI_SUMMARY')
-    const { experiment } = useValues(experimentLogic({ experimentId }))
-
-    const { isGenerating, summary } = useValues(experimentSummaryLogic({ experimentId }))
-    const { generateSummary, resetSummary } = useActions(experimentSummaryLogic({ experimentId }))
-    // const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     if (!isAISummaryEnabled) {
         return null
     }
+
+    return <AISummary experimentId={experimentId} />
+}
+
+const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.Element | null => {
+    const { experiment } = useValues(experimentLogic({ experimentId }))
+
+    const { isGenerating, summary } = useValues(experimentSummaryLogic({ experimentId }))
+    const { generateSummary } = useActions(experimentSummaryLogic({ experimentId }))
+    // const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     return (
         <AIConsentPopoverWrapper showArrow placement="bottom-start">
@@ -34,12 +43,8 @@ export const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }):
                         experiment_data: experiment,
                         experiment_id: experimentId,
                     }}
-                    callback={() => {
-                        console.log('callback')
-                    }}
-                    onMaxOpen={() => {
-                        console.log('onMaxOpen')
-                    }}
+                    callback={() => {}}
+                    onMaxOpen={() => {}}
                 >
                     <LemonCard hoverEffect={false}>
                         <div className="flex flex-row gap-2">
@@ -73,3 +78,5 @@ export const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }):
         </AIConsentPopoverWrapper>
     )
 }
+
+export { AISummaryWrapper as AISummary }
