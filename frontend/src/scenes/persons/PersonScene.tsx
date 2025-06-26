@@ -7,7 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -219,7 +219,7 @@ export function PersonScene(): JSX.Element | null {
                                 query={{
                                     kind: NodeKind.DataTableNode,
                                     full: true,
-                                    hiddenColumns: ['person'],
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
                                     source: {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
@@ -277,7 +277,7 @@ export function PersonScene(): JSX.Element | null {
                                     kind: NodeKind.DataTableNode,
                                     full: true,
                                     showEventFilter: false,
-                                    hiddenColumns: ['person'],
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
                                     source: {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),

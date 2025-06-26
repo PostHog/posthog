@@ -177,6 +177,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'snapshotsRaw',
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
@@ -1285,7 +1286,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON(type)
+                const payload = type === 'raw' ? values.snapshotsRaw : values.createExportJSON(type)
                 const suffix = type === 'rrweb' ? 'rrweb-recording' : 'ph-recording'
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],

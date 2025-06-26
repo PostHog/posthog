@@ -1,25 +1,34 @@
 import json
+from datetime import datetime
 from typing import cast
+
 from django.test import override_settings
+from freezegun import freeze_time
+from parameterized import parameterized
 from pytest import mark
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    ExperimentQueryRunner,
+)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
+    ExperimentQueryRunnerBaseTest,
+)
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
 )
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from rest_framework.exceptions import ValidationError
 from posthog.models.action.action import Action
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
     EventsNode,
+    ExperimentFunnelMetric,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
     FunnelConversionWindowTimeUnit,
     LegacyExperimentQueryResponse,
     PersonsOnEventsMode,
-    ExperimentFunnelMetric,
     PropertyOperator,
     StepOrderValue,
 )
@@ -30,10 +39,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
-from datetime import datetime
 from posthog.test.test_journeys import journeys_for
-from parameterized import parameterized
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -43,7 +49,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_query_runner_funnel_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -290,7 +295,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2020, 1, 1),
             end_date=datetime(2020, 1, 31),
         )
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -428,7 +432,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -496,7 +499,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -655,7 +657,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_custom_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -815,7 +816,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_action(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -998,7 +998,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_duplicate_events(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1219,7 +1218,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_events_out_of_order(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1406,7 +1404,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_many_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1535,7 +1532,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_step_property_filter(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1652,7 +1648,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_multiple_similar_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1764,7 +1759,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_unordered_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1933,7 +1927,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"

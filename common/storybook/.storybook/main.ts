@@ -22,6 +22,9 @@ const config: StorybookConfig = {
         const mainConfig = createEntry('main')
         return {
             ...config,
+            cache: {
+                type: 'filesystem',
+            },
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],

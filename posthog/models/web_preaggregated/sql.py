@@ -2,11 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
-from posthog.settings.base_variables import DEBUG
+from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
 CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
@@ -188,13 +184,6 @@ def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
 
 def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
-
-
-def get_s3_function_args(s3_path):
-    if DEBUG:
-        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
-    else:
-        return f"'{s3_path}', 'Native'"
 
 
 def get_team_filters(team_ids):
