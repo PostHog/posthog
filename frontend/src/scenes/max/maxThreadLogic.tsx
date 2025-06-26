@@ -110,7 +110,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     actions({
-        askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
+        // null prompt means continuing previous generation
+        askMax: (prompt: string | null, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -278,7 +279,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     // Empty message in askMax effectively means "just resume generation with current context"
-                                    await values.toolMap[toolName]?.callback(toolResult, () => actions.askMax(''))
+                                    await values.toolMap[toolName]?.callback(toolResult, () => actions.askMax(null))
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
                                         parsedResponse.content = parsedResponse.content.replace(

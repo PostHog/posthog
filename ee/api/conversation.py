@@ -29,7 +29,11 @@ logger = structlog.get_logger(__name__)
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, allow_blank=True, max_length=40000)  ## roughly 10k tokens
+    content = serializers.CharField(
+        required=True,
+        allow_null=True,  # Null content means we're continuing previous generation
+        max_length=40000,  # Roughly 10k tokens
+    )
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
