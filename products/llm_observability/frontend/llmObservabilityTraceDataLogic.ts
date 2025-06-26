@@ -13,6 +13,7 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import { formatLLMUsage } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -215,6 +216,10 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
+        enrichedTree: [
+            (s) => [s.filteredTree],
+            (filteredTree: TraceTreeNode[]): EnrichedTraceTreeNode[] => filteredTree.map(enrichNode),
+        ],
     }),
 ])
 
@@ -224,12 +229,37 @@ export interface TraceTreeNode {
     aggregation?: SpanAggregation
 }
 
+export interface EnrichedTraceTreeNode extends TraceTreeNode {
+    children?: EnrichedTraceTreeNode[]
+    displayTotalCost: number
+    displayLatency: number
+    displayUsage: string | null
+}
+
 export interface SpanAggregation {
     totalCost: number
     totalLatency: number
     inputTokens: number
     outputTokens: number
     hasGenerationChildren: boolean
+}
+
+function extractTotalCost(event: LLMTraceEvent): number {
+    return event.properties.$ai_total_cost_usd || 0
+}
+
+function extractLatency(event: LLMTraceEvent): number {
+    return event.properties.$ai_latency || 0
+}
+
+function enrichNode(node: TraceTreeNode): EnrichedTraceTreeNode {
+    return {
+        ...node,
+        children: node.children?.map(enrichNode),
+        displayTotalCost: node.aggregation?.totalCost ?? extractTotalCost(node.event),
+        displayLatency: node.aggregation?.totalLatency ?? extractLatency(node.event),
+        displayUsage: node.aggregation ? formatLLMUsage(node.aggregation) : formatLLMUsage(node.event),
+    }
 }
 
 function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {

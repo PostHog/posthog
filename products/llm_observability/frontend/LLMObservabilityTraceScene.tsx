@@ -35,7 +35,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
-import { llmObservabilityTraceDataLogic, TraceTreeNode, SpanAggregation } from './llmObservabilityTraceDataLogic'
+import { llmObservabilityTraceDataLogic, EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import {
     formatLLMCost,
@@ -65,7 +65,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmObservabilityTraceLogic)
-    const { tree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
+    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
         useValues(llmObservabilityTraceDataLogic)
 
     return (
@@ -84,8 +84,8 @@ function TraceSceneWrapper(): JSX.Element {
                         feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                     />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} tree={tree} />
-                        <EventContent event={event} tree={tree} />
+                        <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                        <EventContent event={event} tree={enrichedTree} />
                     </div>
                 </div>
             )}
@@ -170,7 +170,7 @@ function TraceSidebar({
 }: {
     trace: LLMTrace
     eventId?: string | null
-    tree: TraceTreeNode[]
+    tree: EnrichedTraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { searchQuery, mostRelevantEvent } = useValues(llmObservabilityTraceDataLogic)
@@ -208,7 +208,16 @@ function TraceSidebar({
                 />
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
-                <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
+                <TreeNode
+                    topLevelTrace={trace}
+                    node={{
+                        event: trace,
+                        displayTotalCost: trace.totalCost || 0,
+                        displayLatency: trace.totalLatency || 0,
+                        displayUsage: formatLLMUsage(trace),
+                    }}
+                    isSelected={!eventId || eventId === trace.id}
+                />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
             </ul>
         </aside>
@@ -244,31 +253,19 @@ function NestingGroup({
 
 const TreeNode = React.memo(function TraceNode({
     topLevelTrace,
-    item,
+    node,
     isSelected,
-    aggregation,
 }: {
     topLevelTrace: LLMTrace
-    item: LLMTrace | LLMTraceEvent
+    node:
+        | EnrichedTraceTreeNode
+        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
-    aggregation?: SpanAggregation
 }): JSX.Element {
-    const totalCost =
-        aggregation?.totalCost ?? ('properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost)
-    const latency =
-        aggregation?.totalLatency ?? ('properties' in item ? item.properties.$ai_latency : item.totalLatency)
-
-    let usage: string | null = null
-    if (aggregation) {
-        usage =
-            aggregation.inputTokens > 0 || aggregation.outputTokens > 0
-                ? `${aggregation.inputTokens} → ${aggregation.outputTokens} (∑ ${
-                      aggregation.inputTokens + aggregation.outputTokens
-                  })`
-                : null
-    } else {
-        usage = formatLLMUsage(item)
-    }
+    const totalCost = node.displayTotalCost
+    const latency = node.displayLatency
+    const usage = node.displayUsage
+    const item = node.event
 
     const children = [
         isLLMTraceEvent(item) && item.properties.$ai_is_error && (
@@ -340,7 +337,7 @@ function TreeNodeChildren({
     trace,
     selectedEventId,
 }: {
-    tree: TraceTreeNode[]
+    tree: EnrichedTraceTreeNode[]
     trace: LLMTrace
     selectedEventId?: string | null
 }): JSX.Element {
@@ -353,9 +350,8 @@ function TreeNodeChildren({
                     <React.Fragment key={node.event.id}>
                         <TreeNode
                             topLevelTrace={trace}
-                            item={node.event}
+                            node={node}
                             isSelected={!!selectedEventId && selectedEventId === node.event.id}
-                            aggregation={node.aggregation}
                         />
                         {node.children && (
                             <TreeNodeChildren tree={node.children} trace={trace} selectedEventId={selectedEventId} />
@@ -417,13 +413,13 @@ function EventContentDisplay({
     )
 }
 
-function findAggregationForEvent(tree: TraceTreeNode[], eventId: string): SpanAggregation | null {
+function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
     for (const node of tree) {
-        if (node.event.id === eventId && node.aggregation) {
-            return node.aggregation
+        if (node.event.id === eventId) {
+            return node
         }
         if (node.children) {
-            const result = findAggregationForEvent(node.children, eventId)
+            const result = findNodeForEvent(node.children, eventId)
             if (result) {
                 return result
             }
@@ -433,11 +429,12 @@ function findAggregationForEvent(tree: TraceTreeNode[], eventId: string): SpanAg
 }
 
 const EventContent = React.memo(
-    ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: TraceTreeNode[] }): JSX.Element => {
+    ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
 
-        const aggregation = event && isLLMTraceEvent(event) ? findAggregationForEvent(tree, event.id) : null
+        const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
+        const aggregation = node?.aggregation || null
 
         const showPlaygroundButton =
             event &&
