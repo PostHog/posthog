@@ -1,7 +1,8 @@
+# ruff: noqa: T201
 import json
 from dataclasses import dataclass
-from structlog import get_logger
-import posthoganalytics
+from posthog.ph_client import get_client
+from posthoganalytics import Posthog
 from posthog.event_usage import groups
 from posthog.models import (
     User,
@@ -22,8 +23,6 @@ from posthog.models import (
 from posthog.models.organization import OrganizationMembership
 from django.db import transaction, IntegrityError
 
-logger = get_logger(__name__)
-
 
 @dataclass
 class RollbackEventContext:
@@ -34,7 +33,7 @@ class RollbackEventContext:
 
 
 def _capture_environments_rollback_event(
-    event_name: str, context: RollbackEventContext, additional_properties: dict | None = None
+    event_name: str, context: RollbackEventContext, posthog_client: Posthog, additional_properties: dict | None = None
 ) -> None:
     properties = {
         "environment_mappings": json.dumps(context.environment_mappings),
@@ -46,14 +45,13 @@ def _capture_environments_rollback_event(
     if additional_properties:
         properties.update(additional_properties)
 
-    posthoganalytics.capture(
+    posthog_client.capture(
         str(context.user.distinct_id),
         event_name,
         properties=properties,
         groups=groups(context.organization),
     )
-
-    posthoganalytics.flush()
+    posthog_client.flush()
 
 
 def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
@@ -62,6 +60,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
     The source and target environments must be in the same project.
     """
     try:
+        posthog_client = get_client()
         organization = Organization.objects.get(id=organization_id)
         user = User.objects.get(id=user_id)
         membership = user.organization_memberships.get(organization=organization)
@@ -129,6 +128,7 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                     _capture_environments_rollback_event(
                         "organization environments rollback project id conflict",
                         context,
+                        posthog_client,
                         {
                             "conflicting_project_id": source_team.id,
                             "source_team_name": source_team.name,
@@ -139,20 +139,20 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                 source_team.project = new_project
                 source_team.save()
 
-        _capture_environments_rollback_event("organization environments rollback completed", context)
+        _capture_environments_rollback_event("organization environments rollback completed", context, posthog_client)
 
-        logger.info(
-            "Environments rollback migration completed successfully",
-            organization_id=organization_id,
-            environment_mappings=environment_mappings,
+        print(
+            f"Environments rollback migration completed successfully - "
+            f"organization_id={organization_id}, environment_mappings={environment_mappings}"
         )
 
     except Exception as e:
-        logger.exception(
-            "Environments rollback migration failed",
-            organization_id=organization_id,
-            environment_mappings=environment_mappings,
-            error=str(e),
+        print(
+            f"Environments rollback migration failed - "
+            f"organization_id={organization_id}, environment_mappings={environment_mappings}, error={str(e)}"
         )
 
         raise
+
+    finally:
+        posthog_client.shutdown()
