@@ -371,17 +371,11 @@ export function OverViewTab({
                     onChange={(status) => {
                         const { active, ...restFilters } = filters
                         if (status === 'all') {
-                            if (filters) {
-                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                            }
+                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                         } else if (status === 'STALE') {
-                            if (filters) {
-                                setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
-                            }
+                            setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
                         } else {
-                            if (filters) {
-                                setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
-                            }
+                            setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                         }
                     }}
                     options={[
