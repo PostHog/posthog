@@ -306,6 +306,51 @@ export class HogExecutorService {
         }
     }
 
+    async executeWithAsyncFunctions(
+        invocation: CyclotronJobInvocationHogFunction,
+        options?: HogExecutorExecuteOptions & {
+            maxAsyncFunctions?: number
+        }
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        let asyncFunctionCount = 0
+        const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
+
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
+        const metrics: MinimalAppMetric[] = []
+        const logs: MinimalLogEntry[] = []
+
+        while (!result || !result.finished) {
+            const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
+
+            if (nextInvocation.queueParameters?.type === 'fetch') {
+                asyncFunctionCount++
+                result = await this.executeFetch(nextInvocation)
+            } else {
+                result = await this.execute(nextInvocation, options)
+            }
+
+            logs.push(...result.logs)
+            metrics.push(...result.metrics)
+
+            await new Promise((resolve) => process.nextTick(resolve))
+
+            if (result && asyncFunctionCount > maxAsyncFunctions) {
+                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
+                break
+            }
+
+            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
+            if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
+                break
+            }
+        }
+
+        result.logs = logs
+        result.metrics = metrics
+
+        return result
+    }
+
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {}
@@ -625,51 +670,6 @@ export class HogExecutorService {
         return result
     }
 
-    async executeWithAsyncFunctions(
-        invocation: CyclotronJobInvocationHogFunction,
-        options?: HogExecutorExecuteOptions & {
-            maxAsyncFunctions?: number
-        }
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        let asyncFunctionCount = 0
-        const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
-
-        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
-        const metrics: MinimalAppMetric[] = []
-        const logs: MinimalLogEntry[] = []
-
-        while (!result || !result.finished) {
-            const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
-
-            if (nextInvocation.queueParameters?.type === 'fetch') {
-                asyncFunctionCount++
-                result = await this.executeFetch(nextInvocation)
-            } else {
-                result = await this.execute(nextInvocation, options)
-            }
-
-            logs.push(...result.logs)
-            metrics.push(...result.metrics)
-
-            await new Promise((resolve) => process.nextTick(resolve))
-
-            if (result && asyncFunctionCount > maxAsyncFunctions) {
-                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
-                break
-            }
-
-            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
-                break
-            }
-        }
-
-        result.logs = logs
-        result.metrics = metrics
-
-        return result
-    }
-
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
@@ -730,12 +730,6 @@ export class HogExecutorService {
             })
 
             if (canRetry && result.invocation.state.attempts <= this.config.CDP_FETCH_RETRIES) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `Scheduling fetch retry in ${backoffMs}ms`,
-                })
-
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
