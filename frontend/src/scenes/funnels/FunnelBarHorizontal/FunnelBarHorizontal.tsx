@@ -94,6 +94,7 @@ export function FunnelBarHorizontal({
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
+                                {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}

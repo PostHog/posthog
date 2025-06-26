@@ -3,7 +3,7 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconQuestion, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -652,13 +652,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math !== undefined}
-                                            />
-                                            <LemonBadge
-                                                size="small"
-                                                content={<IconQuestion />}
-                                                position="bottom-right"
-                                                visible={isStepOptional(index + 1)}
+                                                visible={math !== undefined || isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>
