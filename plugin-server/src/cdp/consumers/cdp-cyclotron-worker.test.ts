@@ -124,6 +124,7 @@ describe('CdpCyclotronWorker', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://posthog.com",
                 }
             `)
