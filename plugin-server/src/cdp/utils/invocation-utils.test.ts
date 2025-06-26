@@ -59,6 +59,7 @@ describe('Invocation utils', () => {
                 queueMetadata: { foo: 'bar' },
                 queueScheduledAt: DateTime.utc(),
                 queueParameters: {
+                    type: 'fetch-response',
                     response: {
                         headers: {},
                         status: 200,

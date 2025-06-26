@@ -246,11 +246,11 @@ export class TemplateTester {
     }
     invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: HogFunctionQueueParametersFetchResponse
+        response: Omit<HogFunctionQueueParametersFetchResponse, 'type'>
     ) {
         const modifiedInvocation = cloneInvocation(invocation, {
             queue: 'hog' as const,
-            queueParameters: response,
+            queueParameters: { type: 'fetch-response', ...response },
         })
 
         return this.executor.execute(modifiedInvocation)

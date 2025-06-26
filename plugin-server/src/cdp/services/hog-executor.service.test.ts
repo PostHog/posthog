@@ -3,7 +3,11 @@ import { DateTime } from 'luxon'
 import { truth } from '~/tests/helpers/truth'
 
 import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionQueueParametersFetchResponse,
+    HogFunctionType,
+} from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
@@ -14,10 +18,11 @@ import { EXTEND_OBJECT_KEY } from './hog-executor.service'
 
 const setupFetchResponse = (
     invocation: CyclotronJobInvocationHogFunction,
-    options?: Partial<CyclotronJobInvocationHogFunction['queueParameters']>
+    options?: Partial<HogFunctionQueueParametersFetchResponse>
 ): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
+        type: 'fetch-response',
         timings: [
             {
                 kind: 'async_function',

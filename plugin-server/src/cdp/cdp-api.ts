@@ -253,7 +253,11 @@ export class CdpApi {
                                     invocation,
                                     {
                                         queue: 'hog',
-                                        queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
+                                        queueParameters: {
+                                            type: 'fetch-response',
+                                            response: { status: 200, headers: {} },
+                                            body: '{}',
+                                        },
                                     },
                                     {
                                         finished: false,
