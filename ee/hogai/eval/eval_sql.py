@@ -56,12 +56,14 @@ class SQLSyntaxCorrectness(Scorer):
 
 class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        await super()._run_eval_async(
+        return await super()._run_eval_async(
             output["query"].query if output and output.get("query") else None, expected, **kwargs
         )
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        super()._run_eval_sync(output["query"].query if output and output.get("query") else None, expected, **kwargs)
+        return super()._run_eval_sync(
+            output["query"].query if output and output.get("query") else None, expected, **kwargs
+        )
 
 
 @pytest.mark.django_db
