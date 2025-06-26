@@ -575,7 +575,8 @@ export function ProjectTree({
                             const width = header.width || 0
                             const offset = header.offset || 0
                             const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
-
+                            const isFolder =
+                                (item.children && item.children.length > 0) || item.record?.type === 'folder'
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
                             const offsetAdjusted = index === 0 ? offset : offset - 12
@@ -602,7 +603,15 @@ export function ProjectTree({
                                         }
                                         placement="top-start"
                                     >
-                                        <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
+                                        <span
+                                            className={cn(
+                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                {
+                                                    'font-semibold':
+                                                        index === 0 && isFolder && item.type !== 'empty-folder',
+                                                }
+                                            )}
+                                        >
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
