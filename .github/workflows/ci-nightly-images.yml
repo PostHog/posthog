@@ -4,9 +4,6 @@ on:
     schedule:
         # Run nightly at 2 AM UTC
         - cron: '0 2 * * *'
-    pull_request:
-        branches:
-            - 'nightly-image'
     workflow_dispatch:
         inputs:
             force_rebuild:
@@ -18,7 +15,7 @@ on:
 jobs:
     build-ci-image:
         name: Build Nightly CI Images
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         permissions:
             # Allow issuing OIDC tokens for this workflow run
