@@ -17,7 +17,7 @@ export const getPathFromUrl = (urlOrPath: string): string => {
     try {
         const url = new URL(urlOrPath)
         return url.pathname + url.search + url.hash
-    } catch (e) {
+    } catch {
         return urlOrPath
     }
 }

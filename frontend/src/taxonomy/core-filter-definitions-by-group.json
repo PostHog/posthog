@@ -3847,6 +3847,26 @@
             "label": "Country",
             "type": "String"
         },
+        "coupon": {
+            "description": "The name of the coupon on the revenue event.",
+            "label": "Coupon",
+            "type": "String"
+        },
+        "coupon_id": {
+            "description": "The ID of the coupon on the revenue event.",
+            "label": "Coupon ID",
+            "type": "String"
+        },
+        "initial_coupon": {
+            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "label": "Initial coupon",
+            "type": "String"
+        },
+        "initial_coupon_id": {
+            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "label": "Initial coupon ID",
+            "type": "String"
+        },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
@@ -4058,12 +4078,6 @@
             "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
             "examples": ["2.2"],
             "label": "Web vitals LCP"
-        }
-    },
-    "max_ai_context": {
-        "Current page": {
-            "description": "Give Max context about the current dashboard or insight you are working on",
-            "label": "Current page"
         }
     }
 }

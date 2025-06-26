@@ -87,7 +87,12 @@ SQS_QUEUES = {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
         "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
         "type": "usage_reports",
-    }
+    },
+    "billing": {
+        "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_BILLING_REGION", "us-east-1", optional=True),
+        "type": "billing",
+    },
 }
 
 AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)

@@ -46,7 +46,7 @@ export function Animation({
             try {
                 const source = await getAnimationSource(type)
                 !unmounted && setSource(source)
-            } catch (e) {
+            } catch {
                 !unmounted && setShowFallbackSpinner(true)
             }
         }

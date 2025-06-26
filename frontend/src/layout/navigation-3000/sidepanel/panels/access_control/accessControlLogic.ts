@@ -79,7 +79,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     try {
                         const response = await api.get<AccessControlResponseType>(values.endpoint)
                         return response
-                    } catch (error) {
+                    } catch {
                         // Return empty access controls
                         return {
                             access_controls: [],

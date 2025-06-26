@@ -7,6 +7,8 @@ import json
 import ssl
 import typing
 import uuid
+import decimal
+import ipaddress
 from urllib.parse import urljoin
 
 import aiohttp
@@ -14,7 +16,11 @@ import pyarrow as pa
 import requests
 import structlog
 from django.conf import settings
+from temporalio import activity
 
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, TemporalTags
+from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -86,6 +92,83 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{str_data}{quote_char}".encode()
 
 
+def parse_clickhouse_value(value: str, ch_type: str) -> typing.Any:
+    if value == "\\N":
+        return None
+
+    try:
+        if ch_type.startswith("Int") or ch_type.startswith("UInt"):
+            return int(value)
+        if ch_type.startswith("Float"):
+            return float(value)
+        if ch_type in ("String", "FixedString"):
+            return value
+        if ch_type == "UUID":
+            return uuid.UUID(value)
+        if ch_type.startswith("DateTime"):
+            return dt.datetime.fromisoformat(value)
+        if ch_type.startswith("Date"):
+            return dt.date.fromisoformat(value)
+        if ch_type.startswith("Nullable("):
+            inner_type = ch_type[9:-1]
+            return parse_clickhouse_value(value, inner_type)
+        if ch_type.startswith("LowCardinality("):
+            return parse_clickhouse_value(value, ch_type[15:-1])
+        if ch_type.startswith("Decimal"):
+            return decimal.Decimal(value)
+        if ch_type == "IPv4":
+            return ipaddress.IPv4Address(value)
+        if ch_type == "IPv6":
+            return ipaddress.IPv6Address(value)
+        if ch_type.startswith("Enum"):
+            return value
+
+    except Exception as e:
+        capture_exception(e)
+
+        return value
+
+    return value
+
+
+def clickhouse_types_to_arrow_schema(types: dict[str, str]) -> pa.Schema:
+    fields: list[pa.Field] = []
+
+    def parse_ch_type(name: str, ch_type: str, nullable: bool = False) -> pa.Field:
+        if ch_type.startswith("Int") or ch_type.startswith("UInt"):
+            return pa.field(name, pa.int64(), nullable)
+        if ch_type.startswith("Float"):
+            return pa.field(name, pa.float64(), nullable)
+        if ch_type in ("String", "FixedString"):
+            return pa.field(name, pa.string(), nullable)
+        if ch_type == "UUID":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type.startswith("DateTime"):
+            return pa.field(name, pa.timestamp(unit="us"), nullable)
+        if ch_type.startswith("Date"):
+            return pa.field(name, pa.date32(), nullable)
+        if ch_type.startswith("Nullable("):
+            inner_type = ch_type[9:-1]
+            return parse_ch_type(name=name, ch_type=inner_type, nullable=True)
+        if ch_type.startswith("LowCardinality("):
+            return parse_ch_type(name=name, ch_type=ch_type[15:-1])
+        if ch_type.startswith("Decimal"):
+            return pa.field(name, pa.decimal256(scale=32, precision=76), nullable)
+        if ch_type == "IPv4":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type == "IPv6":
+            return pa.field(name, pa.string(), nullable)
+        if ch_type.startswith("Enum"):
+            return pa.field(name, pa.string(), nullable)
+
+        return pa.field(name, pa.string())
+
+    for key, ch_type in types.items():
+        fields.append(parse_ch_type(key, ch_type))
+
+    return pa.schema(fields)
+
+
 class ClickHouseQueryStatus(enum.StrEnum):
     FINISHED = "Finished"
     RUNNING = "Running"
@@ -154,6 +237,36 @@ class ClickHouseQueryNotFound(ClickHouseError):
     def __init__(self, query, query_id: str):
         self.query_id = query_id
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
+
+
+def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
+    """
+    Updates query_tags with a temporal workflow's properties.
+
+    :param query_tags: QueryTags object to update, if None, then the global object is updated.
+    :return:
+    """
+    if not activity.in_activity():
+        return
+    if not query_tags:
+        query_tags = get_query_tags()
+    info = activity.info()
+    temporal_tags = TemporalTags(
+        workflow_namespace=info.workflow_namespace,
+        workflow_type=info.workflow_type,
+        workflow_id=info.workflow_id,
+        workflow_run_id=info.workflow_run_id,
+        activity_type=info.activity_type,
+        activity_id=info.activity_id,
+        attempt=info.attempt,
+    )
+    query_tags.with_temporal(temporal_tags)
+
+
+def add_log_comment_param(params: dict[str, typing.Any]):
+    query_tags = query_tagging.get_query_tags().model_copy()
+    update_query_tags_with_temporal_info(query_tags)
+    params["log_comment"] = query_tags.to_json()
 
 
 class ClickHouseClient:
@@ -325,6 +438,8 @@ class ClickHouseClient:
                 if key in query:
                     params[f"param_{key}"] = str(value)
 
+        add_log_comment_param(params)
+
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
@@ -364,6 +479,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         request_data = self.prepare_request_data(data)
 
@@ -421,6 +537,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         with requests.Session() as s:
             response = s.post(
@@ -468,11 +585,11 @@ class ClickHouseClient:
                 failed.
         """
         query = """
-        SELECT type, exception
-        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-        WHERE query_id = {{query_id:String}}
-        FORMAT JSONEachRow
-        """
+                SELECT type, exception
+                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+                WHERE query_id = {{query_id:String}}
+                    FORMAT JSONEachRow \
+                """
 
         resp = await self.read_query(
             query,
@@ -588,6 +705,86 @@ class ClickHouseClient:
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchProducer(ChunkBytesAsyncStreamIterator(response.content))
             await reader.produce(queue=queue)
+
+    async def astream_query_in_batches(
+        self,
+        query: str,
+        *data,
+        query_parameters: dict[str, typing.Any] | None = None,
+        query_id: str | None = None,
+        batch_size: int = 5000,
+        line_separator: bytes = b"\n",
+    ) -> typing.AsyncGenerator[tuple[list[dict[str, typing.Any]], pa.Schema], None]:
+        """Stream typed rows from a ClickHouse query using FORMAT TabSeparatedWithNamesAndTypes.
+
+        Converts string results into native Python types based on ClickHouse column types.
+
+        Arguments:
+            query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
+            query_parameters: Optional query parameters to interpolate.
+            query_id: Optional ClickHouse query ID.
+            batch_size: The number of rows per batch to yield.
+            line_separator: The line separator used in the response (default: newline).
+
+        Yields:
+            Batches of parsed rows, each row as a dict[str, Any].
+        """
+        buffer = b""
+        headers: list[str] | None = None
+        types: list[str] | None = None
+        rows: list[dict[str, typing.Any]] = []
+        line_index = 0
+
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            pa_schema: pa.Schema | None = None
+
+            async for chunk in response.content.iter_any():
+                parts = chunk.split(line_separator)
+                parts[0] = buffer + parts[0]
+                buffer = parts.pop(-1)
+
+                for line in parts:
+                    decoded = line.decode("utf-8").rstrip("\n")
+                    if line_index == 0:
+                        headers = decoded.split("\t")
+                    elif line_index == 1:
+                        types = decoded.split("\t")
+                    else:
+                        assert headers and types
+
+                        if pa_schema is None:
+                            pa_schema = clickhouse_types_to_arrow_schema(dict(zip(headers, types)))
+
+                        raw_values = decoded.split("\t")
+                        parsed = {
+                            key: parse_clickhouse_value(value, ch_type)
+                            for key, value, ch_type in zip(headers, raw_values, types)
+                        }
+                        rows.append(parsed)
+
+                        if len(rows) >= batch_size:
+                            yield (rows, pa_schema)
+                            rows = []
+
+                    line_index += 1
+
+            # Final flush
+            if buffer:
+                decoded = buffer.decode("utf-8").strip()
+                if decoded:
+                    raw_values = decoded.split("\t")
+                    if headers and types:
+                        if pa_schema is None:
+                            pa_schema = clickhouse_types_to_arrow_schema(dict(zip(headers, types)))
+
+                        parsed = {
+                            key: parse_clickhouse_value(value, ch_type)
+                            for key, value, ch_type in zip(headers, raw_values, types)
+                        }
+                        rows.append(parsed)
+            if rows:
+                assert pa_schema
+                yield (rows, pa_schema)
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

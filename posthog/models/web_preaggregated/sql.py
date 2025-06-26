@@ -2,11 +2,7 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.settings.object_storage import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-)
-from posthog.settings.base_variables import DEBUG
+from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
 CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
@@ -188,13 +184,6 @@ def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
 
 def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
-
-
-def get_s3_function_args(s3_path):
-    if DEBUG:
-        return f"'{s3_path}', '{OBJECT_STORAGE_ACCESS_KEY_ID}', '{OBJECT_STORAGE_SECRET_ACCESS_KEY}', 'Native'"
-    else:
-        return f"'{s3_path}', 'Native'"
 
 
 def get_team_filters(team_ids):
@@ -392,6 +381,7 @@ def WEB_BOUNCES_INSERT_SQL(
     settings="",
     table_name="web_bounces_daily",
     granularity="daily",
+    select_only=False,
 ):
     params = get_insert_params(team_ids, granularity)
     team_filter = params["team_filter"]
@@ -399,8 +389,7 @@ def WEB_BOUNCES_INSERT_SQL(
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
 
-    return f"""
-    INSERT INTO {table_name}
+    query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -432,30 +421,30 @@ def WEB_BOUNCES_INSERT_SQL(
     FROM
     (
         SELECT
-            any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id,
+            argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id), e.timestamp) AS person_id,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
-            events__session.entry_pathname AS entry_pathname,
-            events__session.end_pathname AS end_pathname,
-            events__session.referring_domain AS referring_domain,
-            events__session.entry_utm_source AS utm_source,
-            events__session.entry_utm_medium AS utm_medium,
-            events__session.entry_utm_campaign AS utm_campaign,
-            events__session.entry_utm_term AS utm_term,
-            events__session.entry_utm_content AS utm_content,
-            events__session.country_code AS country_code,
-            events__session.city_name AS city_name,
-            events__session.region_code AS region_code,
-            events__session.region_name AS region_name,
-            e.mat_$host AS host,
-            e.mat_$device_type AS device_type,
-            e.mat_$browser AS browser,
-            e.mat_$os AS os,
-            e.mat_$viewport_width AS viewport_width,
-            e.mat_$viewport_height AS viewport_height,
-            events__session.session_id AS session_id,
+            any(events__session.entry_pathname) AS entry_pathname,
+            any(events__session.end_pathname) AS end_pathname,
+            any(events__session.referring_domain) AS referring_domain,
+            any(events__session.entry_utm_source) AS utm_source,
+            any(events__session.entry_utm_medium) AS utm_medium,
+            any(events__session.entry_utm_campaign) AS utm_campaign,
+            any(events__session.entry_utm_term) AS utm_term,
+            any(events__session.entry_utm_content) AS utm_content,
+            any(events__session.country_code) AS country_code,
+            any(events__session.city_name) AS city_name,
+            any(events__session.region_code) AS region_code,
+            any(events__session.region_name) AS region_name,
+            any(e.mat_$host) AS host,
+            any(e.mat_$device_type) AS device_type,
+            any(e.mat_$browser) AS browser,
+            any(e.mat_$os) AS os,
+            any(e.mat_$viewport_width) AS viewport_width,
+            any(e.mat_$viewport_height) AS viewport_height,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
-            sum(toUInt64(1)) AS total_session_count_state,
+            toUInt64(1) AS total_session_count_state,
+            events__session.session_id AS session_id,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
         FROM events AS e
@@ -509,25 +498,7 @@ def WEB_BOUNCES_INSERT_SQL(
             AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
         GROUP BY
             session_id,
-            team_id,
-            host,
-            device_type,
-            entry_pathname,
-            end_pathname,
-            referring_domain,
-            utm_source,
-            utm_medium,
-            utm_campaign,
-            utm_term,
-            utm_content,
-            country_code,
-            city_name,
-            region_code,
-            region_name,
-            browser,
-            os,
-            viewport_width,
-            viewport_height
+            team_id
     )
     GROUP BY
         period_bucket,
@@ -550,8 +521,13 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
-    SETTINGS {settings}
+    {"SETTINGS " + settings if settings and not select_only else ""}
     """
+
+    if select_only:
+        return query
+    else:
+        return f"INSERT INTO {table_name}\n{query}"
 
 
 def WEB_STATS_EXPORT_SQL(

@@ -93,6 +93,7 @@ const UniversalSearch = (): JSX.Element => {
                     onChange={setSearchQuery}
                     size="small"
                     fullWidth
+                    docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
                 />
             </LemonDropdown>
         </BindLogic>

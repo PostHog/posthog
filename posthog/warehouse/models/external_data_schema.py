@@ -52,6 +52,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     class SyncType(models.TextChoices):
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
+        APPEND = "append", "append"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -91,6 +92,14 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
+
+    @property
+    def is_append(self):
+        return self.sync_type == self.SyncType.APPEND
+
+    @property
+    def should_use_incremental_field(self):
+        return self.is_incremental or self.is_append
 
     @property
     def incremental_field(self) -> str | None:

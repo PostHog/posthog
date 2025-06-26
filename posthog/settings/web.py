@@ -100,6 +100,7 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthog.middleware.Fix204Middleware",
+    "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
 if DEBUG:
@@ -200,6 +201,8 @@ SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
@@ -485,7 +488,7 @@ OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n"
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
-    "PKCE_REQUIRED": True,
+    "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
     "SCOPES": {
         "openid": "OpenID Connect scope",
@@ -495,10 +498,16 @@ OAUTH2_PROVIDER = {
         **get_scope_descriptions(),
     },
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
-    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
+    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
+    "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    # The default grace period where a client can attempt to use the same refresh token
+    # Using a refresh token after this will revoke all refresh and access tokens
+    "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 60 * 2,
 }
 
 

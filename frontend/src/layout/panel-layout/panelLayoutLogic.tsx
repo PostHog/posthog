@@ -4,7 +4,14 @@ import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'Data'
+export type PanelLayoutNavIdentifier =
+    | 'Project'
+    | 'Products'
+    | 'People'
+    | 'Games'
+    | 'Shortcuts'
+    | 'DataManagement'
+    | 'Database'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
@@ -30,6 +37,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWidth: (width: number) => ({ width }),
         setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
+        resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -136,6 +144,21 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 actions.showLayoutPanel(false)
                 actions.clearActivePanelIdentifier()
                 actions.setPanelWidth(PANEL_LAYOUT_MIN_WIDTH)
+            }
+        },
+        resetPanelLayout: ({ keyboardAction = false }) => {
+            // Hide the panel if it's not pinned and clear active panel identifier
+            if (!values.isLayoutPanelPinned) {
+                actions.clearActivePanelIdentifier()
+                actions.showLayoutPanel(false)
+            }
+            // Hide the navbar if it's mobile and navbar is visible (which is an overlay on mobile)
+            if (values.mobileLayout && values.isLayoutNavbarVisible) {
+                actions.showLayoutNavBar(false)
+            }
+            // Focus the main content if it's a keyboard action
+            if (keyboardAction && values.mainContentRef?.current) {
+                values.mainContentRef?.current?.focus()
             }
         },
     })),

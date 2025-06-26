@@ -5,6 +5,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
+    AnthropicThinkingMessage,
     AnthropicToolCallMessage,
     AnthropicToolResultMessage,
     CompatMessage,
@@ -113,6 +114,10 @@ export function isAnthropicToolCallMessage(output: unknown): output is Anthropic
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
+export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'thinking'
+}
+
 export function isAnthropicToolResultMessage(output: unknown): output is AnthropicToolResultMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_result'
 }
@@ -196,7 +201,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
     // Tool call completion
     if (isAnthropicToolCallMessage(output)) {
         return [
@@ -216,7 +220,15 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
+    // Thinking
+    if (isAnthropicThinkingMessage(output)) {
+        return [
+            {
+                role: 'assistant (thinking)',
+                content: output.thinking,
+            },
+        ]
+    }
     // Tool result completion
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
@@ -228,7 +240,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
                     tool_call_id: output.tool_use_id,
                 }))
         }
-
         return [
             {
                 role,
@@ -253,6 +264,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
+    console.warn('Unsupported AI message type', output)
     return [
         {
             role: 'user',

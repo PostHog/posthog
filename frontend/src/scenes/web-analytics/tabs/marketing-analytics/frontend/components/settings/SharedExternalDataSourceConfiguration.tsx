@@ -9,12 +9,11 @@ import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { MAX_ITEMS_TO_SHOW } from '../../logic/utils'
 import { AddSourceDropdown } from './AddSourceDropdown'
 import { ColumnMappingModal } from './ColumnMappingModal'
 import { ItemName, PaginationControls } from './PaginationControls'
 import { StatusIcon } from './StatusIcon'
-
-const MAX_TABLES_TO_SHOW = 3
 
 export type SimpleDataWarehouseTable = {
     name: string
@@ -97,7 +96,7 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
         setShowAll,
     } = useSortedPaginatedList({
         items: tables,
-        maxItemsToShow: MAX_TABLES_TO_SHOW,
+        maxItemsToShow: MAX_ITEMS_TO_SHOW,
         getId: (table) => table.id,
         isItemConfigured: isTableFullyConfigured,
     })
@@ -146,7 +145,7 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                 onToggleShowAll={() => setShowAll(!showAll)}
                 totalCount={tablesToUse.length}
                 itemName={ItemName.Tables}
-                maxItemsToShow={MAX_TABLES_TO_SHOW}
+                maxItemsToShow={MAX_ITEMS_TO_SHOW}
                 additionalControls={<AddSourceDropdown<T> sources={validSources} onSourceAdd={onSourceAdd} />}
             />
             <LemonTable

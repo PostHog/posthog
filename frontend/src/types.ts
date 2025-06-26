@@ -24,7 +24,7 @@ import {
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/Workflows/types'
+import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
@@ -42,7 +42,6 @@ import type {
     CurrencyCode,
     DashboardFilter,
     DatabaseSchemaField,
-    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -373,6 +372,7 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
     interactions_enabled: boolean
     controls_enabled: boolean
     party_mode_enabled: boolean
+    fixed_direction?: 'left' | 'right'
 }
 
 export interface NotificationSettings {
@@ -751,7 +751,7 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterBaseValue = string | number | bigint | ErrorTrackingIssueAssignee
+export type PropertyFilterBaseValue = string | number | bigint
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
@@ -1148,7 +1148,6 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
-    DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
 }
 
@@ -1780,6 +1779,7 @@ export type BillingFeatureType = {
     key: AvailableFeatureUnion
     name: string
     description?: string | null
+    category?: string | null
     docsUrl?: string | null
     limit?: number | null
     note?: string | null
@@ -2062,6 +2062,11 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+    /**
+     * The last time the dashboard was refreshed.
+     * Used to block the dashboard refresh button.
+     */
+    last_refresh?: string | null
 }
 
 export interface DashboardTemplateListParams {
@@ -3059,6 +3064,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    is_publicly_shareable?: boolean | null
     _create_in_folder?: string | null
 }
 
@@ -3226,6 +3232,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage?: number | null
     variant?: string | null
     users_affected?: number
+    sort_key?: string | null // Client-side only stable id for sorting.
 }
 
 export interface MultivariateFlagVariant {
@@ -4287,6 +4294,20 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'warehouse_table'
 
+export type APIScopeAction = 'read' | 'write'
+
+export type APIScope = {
+    key: APIScopeObject
+    objectPlural: string
+    info?: string | JSX.Element
+    disabledActions?: APIScopeAction[]
+    disabledWhenProjectScoped?: boolean
+    description?: string
+    warnings?: Partial<Record<APIScopeAction, string | JSX.Element>>
+}
+
+export type APIScopePreset = { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }
+
 export enum AccessControlLevel {
     None = 'none',
     Member = 'member',
@@ -4597,7 +4618,12 @@ export interface SimpleExternalDataSourceSchema {
     last_synced_at?: Dayjs
 }
 
-export type SchemaIncrementalFieldsResponse = IncrementalField[]
+export type SchemaIncrementalFieldsResponse = {
+    incremental_fields: IncrementalField[]
+    incremental_available: boolean
+    append_available: boolean
+    full_refresh_available: boolean
+}
 
 export interface IncrementalField {
     label: string
@@ -4613,15 +4639,16 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
+    append_available: boolean
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
@@ -5209,15 +5236,10 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
-    | 'broadcast'
-    | 'messaging_campaign'
-
-export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
@@ -5272,7 +5294,7 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'kind' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
@@ -5526,6 +5548,10 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export type OAuthApplicationPublicMetadata = {
+    name: string
+    client_id: string
+}
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
     dnsRecords: (

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import re
 import structlog
 from typing import Any
+from django.core.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -315,8 +316,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             tokens = search_tokenizer(self.query.searchQuery)
             and_exprs: list[ast.Expr] = []
 
-            if len(tokens) > 10:
-                raise ValueError("Too many search tokens")
+            if len(tokens) > 100:
+                raise ValidationError("Too many search tokens")
 
             for token in tokens:
                 if not token:
@@ -412,12 +413,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         | {
                             "last_seen": result_dict.get("last_seen"),
                             "library": result_dict.get("library"),
-                            "first_event": self.extract_event(result_dict.get("first_event"))
-                            if self.query.withFirstEvent
-                            else None,
-                            "aggregations": self.extract_aggregations(result_dict)
-                            if self.query.withAggregations
-                            else None,
+                            "first_event": (
+                                self.extract_event(result_dict.get("first_event"))
+                                if self.query.withFirstEvent
+                                else None
+                            ),
+                            "aggregations": (
+                                self.extract_aggregations(result_dict) if self.query.withAggregations else None
+                            ),
                         }
                     )
 
@@ -471,11 +474,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else (
-                    queryset.filter(assignment__role_id=self.query.assignee.id)
-                    if self.query.assignee.type == "role"
-                    else queryset.filter(assignment__user_group_id=self.query.assignee.id)
-                )
+                else queryset.filter(assignment__role_id=self.query.assignee.id)
             )
 
         for filter in self.issue_properties:
@@ -488,7 +487,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             "description",
             "first_seen",
             "assignment__user_id",
-            "assignment__user_group_id",
             "assignment__role_id",
         )
 
@@ -504,13 +502,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
             }
 
             assignment_user_id = issue.get("assignment__user_id")
-            assignment_user_group_id = issue.get("assignment__user_group_id")
             assignment_role_id = issue.get("assignment__role_id")
 
-            if assignment_user_id or assignment_user_group_id or assignment_role_id:
+            if assignment_user_id or assignment_role_id:
                 result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_user_group_id) or str(assignment_role_id),
-                    "type": ("user" if assignment_user_id else "user_group" if assignment_user_group_id else "role"),
+                    "id": assignment_user_id or str(assignment_role_id),
+                    "type": ("user" if assignment_user_id else "role"),
                 }
 
             results[issue["id"]] = result
@@ -528,11 +525,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             # If we have an issueId, we should just use that
             return [self.query.issueId]
 
-        objects = ErrorTrackingIssue.objects
-        if self.query.dateRange.date_from:
-            objects = objects.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
-
-        queryset = objects.select_related("assignment").filter(team=self.team)
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team)
 
         if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True
@@ -543,11 +536,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else (
-                    queryset.filter(assignment__role_id=str(self.query.assignee.id))
-                    if self.query.assignee.type == "role"
-                    else queryset.filter(assignment__user_group_id=str(self.query.assignee.id))
-                )
+                else queryset.filter(assignment__role_id=str(self.query.assignee.id))
             )
 
         for filter in self.issue_properties:

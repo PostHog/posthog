@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.documentation import extend_schema
-from posthog.api.insight import InsightViewSet
+from posthog.api.insight import InsightViewSet, capture_legacy_api_call
 from posthog.decorators import cached_by_filters
 from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
@@ -41,6 +41,8 @@ class EnterpriseInsightsViewSet(InsightViewSet):
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         result = self.calculate_funnel_correlation(request)
         return Response(result)
 

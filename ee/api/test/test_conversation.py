@@ -162,19 +162,47 @@ class TestConversation(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_streaming_error_handling(self):
-        def raise_error():
-            yield "some content"
-            raise Exception("Streaming error")
+    def test_streaming_error_after_content_yields_proper_message(self):
+        """Test that errors occurring after streaming content yield proper SSE-formatted error messages."""
 
-        with patch.object(Assistant, "_stream", side_effect=raise_error):
+        def stream_then_error():
+            yield 'event: message\ndata: {"type": "human", "content": "Hello"}\n\n'
+            yield 'event: message\ndata: {"type": "assistant", "content": "Hi there"}\n\n'
+            raise RuntimeError("Backend processing error")
+
+        with patch.object(Assistant, "_stream", side_effect=stream_then_error):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {"content": "test query", "trace_id": str(uuid.uuid4())},
             )
-            with self.assertRaises(Exception) as context:
-                b"".join(response.streaming_content)
-            self.assertTrue("Streaming error" in str(context.exception))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Get all streaming content
+            content = self._get_streaming_content(response).decode("utf-8")
+
+            # Should contain original messages
+            self.assertIn('{"type": "human", "content": "Hello"}', content)
+            self.assertIn('{"type": "assistant", "content": "Hi there"}', content)
+
+            # Should contain error message at the end
+            self.assertIn("event: message", content)
+            self.assertIn('"type":"ai/failure"', content)
+            self.assertIn("It looks like I'm having trouble answering this", content)
+
+            # Verify the error message is the last thing the client sees
+            # Split content into lines and find the last message event
+            lines = content.strip().split("\n")
+            last_message_event = None
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].startswith("event: message"):
+                    # Find the corresponding data line
+                    if i + 1 < len(lines) and lines[i + 1].startswith("data: "):
+                        last_message_event = lines[i + 1]
+                        break
+
+            self.assertIsNotNone(last_message_event, "Should have a last message event")
+            self.assertIn('"type":"ai/failure"', last_message_event)
+            self.assertIn("It looks like I'm having trouble answering this", last_message_event)
 
     def test_cancel_conversation(self):
         conversation = Conversation.objects.create(

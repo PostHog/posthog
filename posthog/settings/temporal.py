@@ -82,3 +82,4 @@ BATCH_EXPORT_OBJECT_STORAGE_REGION: str = os.getenv("BATCH_EXPORT_OBJECT_STORAGE
 BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
 # The number of partitions controls how many files ClickHouse writes to concurrently
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 5, type_cast=int)
+BATCH_EXPORT_TRANSFORMER_MAX_WORKERS: int = get_from_env("BATCH_EXPORT_TRANSFORMER_MAX_WORKERS", 2, type_cast=int)

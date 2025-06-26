@@ -115,7 +115,6 @@ export class PluginServer {
                     { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
                     { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
                     { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
-                    { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
                 ]
 
                 for (const consumerOption of consumersOptions) {

@@ -85,6 +85,50 @@ describe('getTotalCountQuery', () => {
         const result = getTotalCountQuery(mockMetric, experiment, null)
         expect(result.filterTestAccounts).toBe(false)
     })
+
+    it('preserves device type filters and other properties in metric source', () => {
+        const metricWithFilters = {
+            ...mockMetric,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test_event',
+                math: CountPerActorMathType.Average,
+                properties: [
+                    {
+                        key: '$device_type',
+                        value: ['Desktop'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
+        }
+        const result = getTotalCountQuery(metricWithFilters, mockExperiment, null)
+        expect(result.series[1]).toMatchObject({
+            kind: NodeKind.EventsNode,
+            event: 'test_event',
+            properties: [
+                {
+                    key: '$device_type',
+                    value: ['Desktop'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+                {
+                    key: '$browser',
+                    value: ['Chrome'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        })
+    })
 })
 
 describe('getSumQuery', () => {
@@ -180,6 +224,42 @@ describe('getSumQuery', () => {
             },
         }
         expect(() => getSumQuery(metric, mockExperiment, mockEventConfig)).toThrow('Unsupported metric type: count')
+    })
+
+    it('preserves device type filters and other properties in sum query', () => {
+        const metricWithFilters = {
+            ...mockMetric,
+            metric_type: 'mean',
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test_event',
+                math: CountPerActorMathType.Average,
+                math_property: 'revenue',
+                properties: [
+                    {
+                        key: '$device_type',
+                        value: ['Mobile', 'Tablet'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
+        }
+        const result = getSumQuery(metricWithFilters, mockExperiment, null)
+        expect(result.series[1]).toMatchObject({
+            kind: NodeKind.EventsNode,
+            event: 'test_event',
+            math: 'sum',
+            math_property: 'revenue',
+            properties: [
+                {
+                    key: '$device_type',
+                    value: ['Mobile', 'Tablet'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        })
     })
 })
 
