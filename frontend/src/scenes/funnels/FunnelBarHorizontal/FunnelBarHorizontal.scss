@@ -13,6 +13,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         padding-left: 1rem;
     }
 
+    // When there are optional steps, indent all content to make room for the layout
+    &.has-optional-steps {
+        .funnel-step {
+            padding-left: $series_container_width + 1.5rem; // Extra space for optional step positioning
+        }
+    }
+
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
@@ -56,6 +63,25 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .graph-series-glyph {
                 user-select: none;
+            }
+
+            // Optional step positioning
+            &.optional-step {
+                // Move the step number to the right
+                .graph-series-glyph {
+                    margin-left: 1rem;
+                }
+            }
+
+            .optional-connector {
+                position: absolute;
+                top: calc(#{$glyph_height} / 2);
+                left: calc(#{$series_container_width} / 2 - 1px);
+                z-index: 1;
+                width: 1rem;
+                height: 1px;
+                background: var(--border-primary);
+                opacity: 0.5;
             }
 
             .funnel-series-linebox {
