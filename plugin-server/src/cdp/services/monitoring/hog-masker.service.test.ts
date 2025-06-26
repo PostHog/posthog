@@ -11,7 +11,7 @@ import { createExampleInvocation, createHogExecutionGlobals, createHogFunction }
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { HogFunctionType } from '../../types'
-import { BASE_REDIS_KEY, HogMaskerService } from '../hog-masker.service'
+import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
