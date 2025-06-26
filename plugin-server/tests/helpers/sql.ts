@@ -56,7 +56,7 @@ BEGIN
     DELETE FROM posthog_persondistinctid CASCADE;
     DELETE FROM posthog_person CASCADE;
     DELETE FROM posthog_team CASCADE;
-    
+
     -- Then handle remaining tables
     FOR r IN (
         SELECT tablename
@@ -411,7 +411,8 @@ export const updateOrganizationAvailableFeatures = async (
 export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
-    token?: string
+    token?: string,
+    teamSettings?: Record<string, any>
 ): Promise<number> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
@@ -466,6 +467,7 @@ export const createTeam = async (
         person_display_name_properties: [],
         access_control: false,
         base_currency: 'USD',
+        ...teamSettings,
     })
     return id
 }
