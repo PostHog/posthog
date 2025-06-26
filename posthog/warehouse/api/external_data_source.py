@@ -95,6 +95,7 @@ from posthog.warehouse.models.external_data_schema import (
 from posthog.temporal.data_imports.pipelines.mongo import (
     MongoSourceConfig,
     get_schemas as get_mongo_schemas,
+    filter_mongo_incremental_fields,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -1553,7 +1554,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Failed to connect to MongoDB database"},
                 )
 
-            filtered_results = [(collection_name, columns) for collection_name, columns in result.items()]
+            filtered_results = [
+                (collection_name, filter_mongo_incremental_fields(columns, connection_string, collection_name))
+                for collection_name, columns in result.items()
+            ]
 
             result_mapped_to_options = [
                 {

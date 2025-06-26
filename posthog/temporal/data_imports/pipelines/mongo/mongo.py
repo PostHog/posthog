@@ -95,7 +95,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = {incremental_field: {"$gt": ObjectId(db_incremental_field_last_value), "$exists": True}}
+    query = {incremental_field: {"$gt": ObjectId(str(db_incremental_field_last_value)), "$exists": True}}
 
     return query
 
