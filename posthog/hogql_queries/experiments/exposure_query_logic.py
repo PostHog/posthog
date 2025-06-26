@@ -67,7 +67,6 @@ def get_test_accounts_filter(team: Team, exposure_criteria: Optional[dict] = Non
     Args:
         team: The team object
         exposure_criteria: Experiment exposure criteria configuration
-        filter_test_accounts_attr: Attribute name to check for test account filtering
     """
     filter_test_accounts = False
 
