@@ -770,7 +770,7 @@ export function ProjectTree({
                                         iconOnly
                                         data-attr="tree-panel-disable-multi-select-button"
                                         size="sm"
-                                        active={selectMode !== 'default'}
+                                        active
                                     >
                                         <IconCheckbox className="text-primary size-3" />
                                     </ButtonPrimitive>
