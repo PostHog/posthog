@@ -250,7 +250,7 @@ def test_column_debug_statistics():
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
     names = ["n_legs", "animals"]
 
-    record_batch = pa.RecordBatch.from_arrays([n_legs, animals], names=names)
+    record_batch = pa.RecordBatch.from_arrays([n_legs, animals], names=names)  # type: ignore
     stats = ColumnDebugStatistics.from_record_batch(record_batch, column_name="n_legs")
 
     assert stats.count == 6
