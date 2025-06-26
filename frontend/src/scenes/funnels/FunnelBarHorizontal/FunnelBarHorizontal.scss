@@ -95,27 +95,16 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                     background: var(--border-primary);
                     opacity: 0.5;
                 }
-
-                &::after {
-                    position: absolute;
-                    top: calc(#{$glyph_height} / 2 - 2rem);
-                    left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
-                    z-index: 1;
-                    width: 2px;
-                    height: calc(3.5rem + #{$glyph_height} + 3px);
-                    content: '';
-                    background: var(--border-primary);
-                    opacity: 0.5;
-                }
             }
 
             .optional-connector {
                 position: absolute;
-                top: calc(#{$glyph_height} / 2 + 3rem);
-                left: calc(#{$series_container_width} / 2 - 1px);
+                top: calc(#{$glyph_height} / 2 - 2rem);
+                left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
                 z-index: 1;
-                width: 1.5rem;
-                height: 2px;
+                width: 2px;
+                height: calc(1rem + #{$glyph_height});
+                content: '';
                 background: var(--border-primary);
                 opacity: 0.5;
             }
