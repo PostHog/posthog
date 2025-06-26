@@ -84,7 +84,7 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
-    query = {}
+    query: dict[str, Any] = {}
 
     if not should_use_incremental_field:
         return query
@@ -105,11 +105,12 @@ def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> I
     """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
-        client = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
+        client: MongoClient = MongoClient(connection_string, serverSelectionTimeoutMS=10000)
         try:
             yield client
         finally:
             client.close()
+        return
 
     # For regular connections
     connection_kwargs = {
@@ -213,7 +214,7 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
     """Infer schema from MongoDB collection using aggregation to get all document keys and types."""
     try:
         # Use aggregation pipeline to get all unique keys and their types
-        pipeline = [
+        pipeline: list[dict[str, Any]] = [
             # Convert each document to an array of key-value pairs
             {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
             # Unwind the array to get individual key-value pairs
@@ -388,7 +389,7 @@ def mongo_source(
                     else:
                         processed_doc[key] = value
 
-                result = {
+                result: dict[str, Any] = {
                     "_id": str(doc["_id"]),
                 }
                 # extract incremental field from the document if it exists
