@@ -33,12 +33,15 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
         // Optional step styling - make it translucent to indicate it's not a real funnel step
         &.funnel-step--optional {
-            opacity: 0.6;
-
-            .funnel-step-title,
+            // Don't apply opacity to the whole step, target specific elements instead
+            header,
             .funnel-bar-wrapper,
             .funnel-conversion-metadata {
-                opacity: 0.8;
+                opacity: 0.6;
+            }
+
+            .graph-series-glyph {
+                opacity: 0.7;
             }
         }
 
