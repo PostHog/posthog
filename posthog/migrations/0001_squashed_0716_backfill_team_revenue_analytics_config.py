@@ -1065,14 +1065,44 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("tag_name", models.CharField(blank=True, max_length=400, null=True)),
                 ("text", models.CharField(blank=True, max_length=400, null=True)),
-                ("href", models.CharField(blank=True, max_length=400, null=True)),
-                ("selector", models.CharField(blank=True, max_length=400, null=True)),
-                ("url", models.CharField(blank=True, max_length=400, null=True)),
+                ("href", models.CharField(blank=True, max_length=65535, null=True)),
+                ("selector", models.CharField(blank=True, max_length=65535, null=True)),
+                ("url", models.CharField(blank=True, max_length=65535, null=True)),
+                (
+                    "url_matching",
+                    models.CharField(
+                        blank=True,
+                        choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                        default="contains",
+                        max_length=400,
+                        null=True,
+                    ),
+                ),
+                ("event", models.CharField(blank=True, max_length=400, null=True)),
+                ("properties", models.JSONField(blank=True, default=list, null=True)),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
                 (
                     "action",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="steps", to="posthog.action"
+                        on_delete=django.db.models.deletion.CASCADE, related_name="action_steps", to="posthog.action"
+                    ),
+                ),
+                (
+                    "href_matching",
+                    models.CharField(
+                        blank=True,
+                        choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                        max_length=400,
+                        null=True,
+                    ),
+                ),
+                (
+                    "text_matching",
+                    models.CharField(
+                        blank=True,
+                        choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
+                        max_length=400,
+                        null=True,
                     ),
                 ),
             ],
@@ -1163,11 +1193,6 @@ class Migration(migrations.Migration):
             model_name="user",
             name="email",
             field=models.EmailField(max_length=254, unique=True, verbose_name="email address"),
-        ),
-        migrations.AddField(
-            model_name="actionstep",
-            name="event",
-            field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddField(
             model_name="user",
@@ -1284,13 +1309,6 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(blank=True, max_length=200, null=True), default=list, size=None
             ),
         ),
-        migrations.AddField(
-            model_name="actionstep",
-            name="url_matching",
-            field=models.CharField(
-                choices=[("exact", "exact"), ("contains", "contains")], default="contains", max_length=400
-            ),
-        ),
         migrations.RemoveField(
             model_name="team",
             name="app_url",
@@ -1312,17 +1330,6 @@ class Migration(migrations.Migration):
             model_name="user",
             name="email_opt_in",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="url_matching",
-            field=models.CharField(
-                blank=True,
-                choices=[("exact", "exact"), ("contains", "contains")],
-                default="contains",
-                max_length=400,
-                null=True,
-            ),
         ),
         migrations.AddField(
             model_name="action",
@@ -1456,11 +1463,6 @@ class Migration(migrations.Migration):
             model_name="action",
             name="is_calculating",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="actionstep",
-            name="properties",
-            field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True),
         ),
         migrations.AddField(
             model_name="action",
@@ -1645,17 +1647,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="ingested_event",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="url_matching",
-            field=models.CharField(
-                blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
-                default="contains",
-                max_length=400,
-                null=True,
-            ),
         ),
         migrations.AddField(
             model_name="team",
@@ -2103,21 +2094,6 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="href",
-            field=models.CharField(blank=True, max_length=65535, null=True),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="selector",
-            field=models.CharField(blank=True, max_length=65535, null=True),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="url",
-            field=models.CharField(blank=True, max_length=65535, null=True),
         ),
         migrations.AlterField(
             model_name="organizationmembership",
@@ -2994,11 +2970,6 @@ class Migration(migrations.Migration):
             model_name="user",
             name="uuid",
             field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="properties",
-            field=models.JSONField(blank=True, default=list, null=True),
         ),
         migrations.AlterField(
             model_name="cohort",
@@ -4037,6 +4008,7 @@ class Migration(migrations.Migration):
                 ),
                 ("team_id", models.PositiveIntegerField(null=True)),
                 ("organization_id", models.UUIDField(null=True)),
+                ("is_system", models.BooleanField(null=True)),
                 ("activity", models.CharField(max_length=79)),
                 ("item_id", models.CharField(max_length=72, null=True)),
                 ("scope", models.CharField(max_length=79)),
@@ -4053,6 +4025,7 @@ class Migration(migrations.Migration):
                         null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
                     ),
                 ),
+                ("was_impersonated", models.BooleanField(null=True)),
             ],
             options={
                 "indexes": [
@@ -4627,11 +4600,6 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
             ),
-        ),
-        migrations.AddField(
-            model_name="activitylog",
-            name="is_system",
-            field=models.BooleanField(null=True),
         ),
         migrations.AlterField(
             model_name="dashboardtile",
@@ -5510,26 +5478,6 @@ class Migration(migrations.Migration):
             options={
                 "unique_together": {("team", "short_id")},
             },
-        ),
-        migrations.AddField(
-            model_name="actionstep",
-            name="href_matching",
-            field=models.CharField(
-                blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
-                max_length=400,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="actionstep",
-            name="text_matching",
-            field=models.CharField(
-                blank=True,
-                choices=[("contains", "contains"), ("regex", "regex"), ("exact", "exact")],
-                max_length=400,
-                null=True,
-            ),
         ),
         migrations.CreateModel(
             name="BatchExportDestination",
@@ -7365,11 +7313,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="activitylog",
-            name="was_impersonated",
-            field=models.BooleanField(null=True),
-        ),
-        migrations.AddField(
             model_name="team",
             name="session_replay_config",
             field=models.JSONField(blank=True, null=True),
@@ -7704,13 +7647,6 @@ class Migration(migrations.Migration):
             model_name="action",
             name="steps_json",
             field=models.JSONField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="actionstep",
-            name="action",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="action_steps", to="posthog.action"
-            ),
         ),
         migrations.RunSQL(
             sql="CREATE INDEX posthog_eventproperty_team_id_and_property_r32khd9s ON posthog_eventproperty(team_id, property)",
