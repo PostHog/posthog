@@ -57,10 +57,7 @@ mod tests {
     #[case(Some(1.0), true)]
     #[case(Some(0.0), false)]
     #[case(None, true)] // If no rollout percentage is set, we assume it's 100%
-    fn test_is_rolled_out_to_to_some(
-        #[case] rollout_percentage: Option<f64>,
-        #[case] expected: bool,
-    ) {
+    fn test_is_rolled_out_to_some(#[case] rollout_percentage: Option<f64>, #[case] expected: bool) {
         let group = FlagPropertyGroup {
             properties: None,
             rollout_percentage,
