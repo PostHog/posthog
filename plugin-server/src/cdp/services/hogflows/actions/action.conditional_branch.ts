@@ -10,10 +10,10 @@ import { findNextAction } from './utils'
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
 export class HogFlowActionRunnerConditionalBranch {
-    run(
+    async run(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): HogFlowActionResult {
+    ): Promise<HogFlowActionResult> {
         const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},
@@ -22,7 +22,7 @@ export class HogFlowActionRunnerConditionalBranch {
         // the index is used to find the right edge
         for (const [index, condition] of action.config.conditions.entries()) {
             // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
-            const filterResults = filterFunctionInstrumented({
+            const filterResults = await filterFunctionInstrumented({
                 fn: invocation.hogFlow,
                 filters: condition.filters,
                 filterGlobals,
@@ -60,11 +60,11 @@ export class HogFlowActionRunnerConditionalBranch {
     }
 
     // NOTE: Wait until condition is a special case of conditional branch, so we reuse the same logic
-    runWaitUntilCondition(
+    async runWaitUntilCondition(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
-    ): HogFlowActionResult {
-        return this.run(invocation, {
+    ): Promise<HogFlowActionResult> {
+        return await this.run(invocation, {
             ...action,
             type: 'conditional_branch',
             config: {

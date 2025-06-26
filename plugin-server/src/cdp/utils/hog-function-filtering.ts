@@ -5,8 +5,8 @@ import { Histogram } from 'prom-client'
 import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
-import { execHog } from '../services/hog-executor.service'
 import { HogFunctionFilterGlobals, HogFunctionType, LogEntry, MinimalAppMetric } from '../types'
+import { execHog } from './hog-exec'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -27,7 +27,7 @@ interface HogFilterResult {
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
-export function filterFunctionInstrumented(options: {
+export async function filterFunctionInstrumented(options: {
     fn: HogFunctionType | HogFlow
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
@@ -36,7 +36,7 @@ export function filterFunctionInstrumented(options: {
     enabledTelemetry?: boolean
     /** The event UUID to use for logging */
     eventUuid?: string
-}): HogFilterResult {
+}): Promise<HogFilterResult> {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
@@ -56,16 +56,16 @@ export function filterFunctionInstrumented(options: {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        execResult = execHog(filters.bytecode, {
+        const execHogOutcome = await execHog(filters.bytecode, {
             globals: filterGlobals,
             telemetry: enabledTelemetry,
         })
 
-        if (execResult.error) {
-            throw execResult.error
+        if (!execHogOutcome.result || execHogOutcome.error || execHogOutcome.result.error) {
+            throw execHogOutcome.error ?? execHogOutcome.result?.error ?? new Error('Unknown error')
         }
 
-        result.match = typeof execResult.result === 'boolean' && execResult.result
+        result.match = typeof execHogOutcome.result === 'boolean' && execHogOutcome.result
 
         if (!result.match) {
             metrics.push({

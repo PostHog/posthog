@@ -65,7 +65,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -146,7 +146,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -181,7 +181,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -216,7 +216,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 400, headers: {} },
             body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
         })
@@ -254,7 +254,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -297,7 +297,7 @@ describe('tiktok template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })

@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 
 import { CdpRedis } from '../redis'
 import { CyclotronJobInvocationHogFunction } from '../types'
-import { execHog } from './hog-executor.service'
+import { execHog } from '../utils/hog-exec'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -42,10 +42,10 @@ export class HogMaskerService {
         const masks: Record<string, MaskContext> = {}
 
         // We find all functions that have a mask and we load their masking from redis
-        invocationsWithMasker.forEach((item) => {
+        for (const item of invocationsWithMasker) {
             if (item.hogFunction.masking) {
                 // TODO: Catch errors
-                const value = execHog(item.hogFunction.masking.bytecode, {
+                const value = await execHog(item.hogFunction.masking.bytecode, {
                     globals: item.state.globals,
                     timeout: 50,
                 })
@@ -67,7 +67,7 @@ export class HogMaskerService {
                 masks[hashKey]!.increment++
                 item.masker = masks[hashKey]
             }
-        })
+        }
 
         if (Object.keys(masks).length === 0) {
             return { masked: [], notMasked: invocations }
