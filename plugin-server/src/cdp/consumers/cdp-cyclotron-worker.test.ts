@@ -141,13 +141,10 @@ describe('CdpCyclotronWorker', () => {
                   "tries": 1,
                 }
             `)
-            expect(result.logs.map((x) => x.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1239 bytes. Event: uuid",
-            ])
+            // No logs from initial invoke
+            expect(result.logs.map((x) => x.message)).toEqual([])
 
             // Now invoke the result again
-
             const results2 = await processor.processInvocations([result.invocation])
             const result2 = results2[0]
 
@@ -165,7 +162,6 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result2.logs.map((x) => x.message)).toEqual([
-                'Resuming function',
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])

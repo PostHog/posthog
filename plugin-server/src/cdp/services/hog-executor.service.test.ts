@@ -151,6 +151,7 @@ describe('Hog Executor', () => {
                             },
                         ],
                         vmState: expect.any(Object),
+                        attempts: 0,
                     },
                     id: expect.any(String),
                     teamId: 1,
@@ -208,6 +209,7 @@ describe('Hog Executor', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
             `)
@@ -247,6 +249,7 @@ describe('Hog Executor', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
             `)
@@ -254,24 +257,7 @@ describe('Hog Executor', () => {
             expect(result.error).toBeUndefined()
         })
 
-        it('collects logs from the function', async () => {
-            const invocation = createExampleInvocation(hogFunction)
-            const result = await executor.execute(invocation)
-            expect(result.logs).toMatchObject([
-                {
-                    timestamp: expect.any(DateTime),
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    timestamp: expect.any(DateTime),
-                    level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                },
-            ])
-        })
-
-        it('redacts secret values from the logs', async () => {
+        it('collects and redacts secret values from the logs', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.input_printer,
                 ...HOG_INPUTS_EXAMPLES.secret_inputs,
@@ -281,7 +267,6 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(result.logs.map((x) => x.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "test",
                   "{"nested":{"foo":"***REDACTED***","null":null,"bool":false}}",
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
@@ -827,7 +812,6 @@ describe('Hog Executor', () => {
             expect(result.error).toContain('Execution timed out after 0.55 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
-                'Executing function',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
@@ -901,9 +885,12 @@ describe('Hog Executor', () => {
             } as any)
             const result = await executor.execute(createExampleInvocation(fn, globals))
             expect(result?.capturedPostHogEvents).toEqual([])
-            expect(result?.logs[1].message).toMatchInlineSnapshot(
-                `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
-            )
+            expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toMatchInlineSnapshot(`
+                [
+                  "postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 104 bytes. Ops: 15. Event: 'http://localhost:8000/events/1'",
+                ]
+            `)
         })
     })
 })

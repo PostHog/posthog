@@ -8,7 +8,6 @@ import { delay, UUID, UUIDT } from '../utils/utils'
 import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
-import { FetchExecutorService } from './services/fetch-executor.service'
 import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
@@ -25,7 +24,6 @@ export class CdpApi {
     private hogFunctionManager: HogFunctionManagerService
     private hogFlowManager: HogFlowManagerService
     private hogFlowExecutor: HogFlowExecutorService
-    private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -37,7 +35,6 @@ export class CdpApi {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(hub)
-        this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
