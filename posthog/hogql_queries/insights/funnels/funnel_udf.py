@@ -49,8 +49,8 @@ class FunnelUDFMixin:
             return "[argMaxIf(prop_basic, timestamp, isNotNull(prop_basic))]"
 
         if (
-                self.context.breakdownAttributionType == BreakdownAttributionType.STEP
-                and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+            self.context.breakdownAttributionType == BreakdownAttributionType.STEP
+            and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
         ):
             prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
         else:
@@ -135,8 +135,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         prop_arg = "prop"
         if self._query_has_array_breakdown() and self.context.breakdownAttributionType in (
-                BreakdownAttributionType.FIRST_TOUCH,
-                BreakdownAttributionType.LAST_TOUCH,
+            BreakdownAttributionType.FIRST_TOUCH,
+            BreakdownAttributionType.LAST_TOUCH,
         ):
             assert isinstance(self.context.breakdown, list)
             prop_arg = f"""[empty(prop) ? [{",".join(["''"] * len(self.context.breakdown))}] : prop]"""
@@ -184,8 +184,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
                     raise ValidationError("Partial Exclusions not allowed in unordered funnels")
             if (
-                    funnelsFilter.breakdownAttributionType == BreakdownAttributionType.STEP
-                    and funnelsFilter.breakdownAttributionValue != 0
+                funnelsFilter.breakdownAttributionType == BreakdownAttributionType.STEP
+                and funnelsFilter.breakdownAttributionValue != 0
             ):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
@@ -312,9 +312,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def _get_funnel_person_step_events(self) -> list[ast.Expr]:
         if (
-                hasattr(self.context, "actorsQuery")
-                and self.context.actorsQuery is not None
-                and self.context.actorsQuery.includeRecordings
+            hasattr(self.context, "actorsQuery")
+            and self.context.actorsQuery is not None
+            and self.context.actorsQuery.includeRecordings
         ):
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel, 1 indexed
@@ -361,8 +361,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             return []
 
     def actor_query(
-            self,
-            extra_fields: Optional[list[str]] = None,
+        self,
+        extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
@@ -381,6 +381,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             where=where,
             settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
+
 
 def _format_single_funnel(self, results, with_breakdown=False):
     max_steps = self.context.max_steps
@@ -410,7 +411,7 @@ def _format_single_funnel(self, results, with_breakdown=False):
             }
         )
     else:
-    serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+        serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
     # # Construct converted and dropped people URLs
     # funnel_step = step.index + 1
@@ -418,18 +419,18 @@ def _format_single_funnel(self, results, with_breakdown=False):
     # dropped_people_filter = self._filter.shallow_clone({"funnel_step": -funnel_step})
 
     if with_breakdown:
-    # breakdown will return a display ready value
-    # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
-    serialized_result.update(
-        {
-            "breakdown": (
-                get_breakdown_cohort_name(breakdown_value)
-                if self.context.breakdownFilter.breakdown_type == "cohort"
-                else breakdown_value
-            ),
-            "breakdown_value": breakdown_value,
-        }
-    )
+        # breakdown will return a display ready value
+        # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
+        serialized_result.update(
+            {
+                "breakdown": (
+                    get_breakdown_cohort_name(breakdown_value)
+                    if self.context.breakdownFilter.breakdown_type == "cohort"
+                    else breakdown_value
+                ),
+                "breakdown_value": breakdown_value,
+            }
+        )
     # important to not try and modify this value any how - as these
     # are keys for fetching persons
 
