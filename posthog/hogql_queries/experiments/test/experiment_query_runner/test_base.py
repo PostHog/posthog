@@ -34,6 +34,7 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     FunnelConversionWindowTimeUnit,
     LegacyExperimentQueryResponse,
+    MultipleVariantHandling,
     PropertyOperator,
 )
 from posthog.test.base import (
@@ -2061,3 +2062,205 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Verify the exposure counts (users who have been exposed to the variant)
         self.assertEqual(control_variant.absolute_exposure, 1)  # Only user_control
         self.assertEqual(test_variant.absolute_exposure, 1)  # Only user_test
+
+    @parameterized.expand(
+        [
+            [
+                "exclude",
+                MultipleVariantHandling.EXCLUDE,
+                {"control_count": 1, "test_count": 1, "control_exposure": 1, "test_exposure": 1},
+            ],
+            [
+                "first_seen",
+                MultipleVariantHandling.FIRST_SEEN,
+                {"control_count": 4, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
+            ],
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        # Set the multiple_variant_handling configuration
+        experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="$pageview"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # User who sees only control variant
+        _create_person(distinct_ids=["user_control_only"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_only",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_control_only",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # User who sees only test variant
+        _create_person(distinct_ids=["user_test_only"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test_only",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_test_only",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        # User who sees control first, then test (for testing first_seen vs last_seen)
+        _create_person(distinct_ids=["user_multiple_control_first"], team_id=self.team.pk)
+        # First exposure: control (earlier timestamp)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple_control_first",
+            timestamp="2020-01-02T11:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Second exposure: test (later timestamp)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple_control_first",
+            timestamp="2020-01-02T13:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Events for both variants
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple_control_first",
+            timestamp="2020-01-02T11:30:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple_control_first",
+            timestamp="2020-01-02T12:30:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple_control_first",
+            timestamp="2020-01-02T13:30:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        # User who sees test first, then control (for testing first_seen vs last_seen)
+        _create_person(distinct_ids=["user_multiple_test_first"], team_id=self.team.pk)
+        # First exposure: test (earlier timestamp)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple_test_first",
+            timestamp="2020-01-02T10:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Second exposure: control (later timestamp)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple_test_first",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # Events for both variants
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple_test_first",
+            timestamp="2020-01-02T10:30:00Z",
+            properties={feature_flag_property: "test"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple_test_first",
+            timestamp="2020-01-02T14:30:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Verify the expected behavior based on multiple_variant_handling setting
+        self.assertEqual(
+            control_variant.count, expected_results["control_count"], f"Control count mismatch for {name} handling"
+        )
+        self.assertEqual(test_variant.count, expected_results["test_count"], f"Test count mismatch for {name} handling")
+        self.assertEqual(
+            control_variant.absolute_exposure,
+            expected_results["control_exposure"],
+            f"Control exposure mismatch for {name} handling",
+        )
+        self.assertEqual(
+            test_variant.absolute_exposure,
+            expected_results["test_exposure"],
+            f"Test exposure mismatch for {name} handling",
+        )
