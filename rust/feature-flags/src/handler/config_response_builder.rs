@@ -11,6 +11,8 @@ use axum::http::HeaderMap;
 use limiters::redis::QuotaResource;
 use std::{collections::HashMap, sync::Arc};
 
+use crate::billing_limiters::SessionReplayLimiter;
+
 use super::{error_tracking, session_recording, types::RequestContext};
 
 /// Isolates the specific fields needed to build config responses from a RequestContext.
@@ -20,7 +22,7 @@ pub struct ConfigContext {
     pub config: Config,
     pub reader: Arc<dyn common_database::Client + Send + Sync>,
     pub redis: Arc<dyn common_redis::Client + Send + Sync>,
-    pub billing_limiter: limiters::redis::RedisLimiter,
+    pub session_replay_billing_limiter: SessionReplayLimiter,
     pub headers: HeaderMap,
 }
 
@@ -30,7 +32,7 @@ impl ConfigContext {
             config: context.state.config.clone(),
             reader: context.state.reader.clone(),
             redis: context.state.redis_reader.clone(),
-            billing_limiter: context.state.billing_limiter.clone(),
+            session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }
     }
@@ -39,14 +41,14 @@ impl ConfigContext {
         config: Config,
         reader: Arc<dyn common_database::Client + Send + Sync>,
         redis: Arc<dyn common_redis::Client + Send + Sync>,
-        billing_limiter: limiters::redis::RedisLimiter,
+        session_replay_billing_limiter: SessionReplayLimiter,
         headers: HeaderMap,
     ) -> Self {
         Self {
             config,
             reader,
             redis,
-            billing_limiter,
+            session_replay_billing_limiter,
             headers,
         }
     }
@@ -74,7 +76,10 @@ async fn apply_config_fields(
 ) -> Result<(), FlagError> {
     // Check for recordings quota limits only if enabled
     let is_recordings_limited = if context.config.flags_session_replay_quota_check {
-        context.billing_limiter.is_limited(&team.api_token).await
+        context
+            .session_replay_billing_limiter
+            .is_limited(&team.api_token)
+            .await
     } else {
         false
     };
