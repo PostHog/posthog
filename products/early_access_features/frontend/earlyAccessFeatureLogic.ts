@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
@@ -24,6 +25,7 @@ import {
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
@@ -97,18 +99,20 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     // :KRUDGE: Should try and get this to work with a single query in the future
                     const results = await Promise.all(
                         ['true', 'false'].map((value) =>
-                            performQuery<ActorsQuery>({
-                                kind: NodeKind.ActorsQuery,
-                                properties: [
-                                    {
-                                        key: values.featureEnrollmentKey,
-                                        type: PropertyFilterType.Person,
-                                        operator: PropertyOperator.Exact,
-                                        value: [value],
-                                    },
-                                ],
-                                select: ['count()'],
-                            })
+                            performQuery<ActorsQuery>(
+                                setLatestVersionsOnQuery({
+                                    kind: NodeKind.ActorsQuery,
+                                    properties: [
+                                        {
+                                            key: values.featureEnrollmentKey,
+                                            type: PropertyFilterType.Person,
+                                            operator: PropertyOperator.Exact,
+                                            value: [value],
+                                        },
+                                    ],
+                                    select: ['count()'],
+                                })
+                            )
                         )
                     )
                     breakpoint()

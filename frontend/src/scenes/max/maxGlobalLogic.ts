@@ -34,13 +34,16 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        actions: [organizationLogic, ['updateOrganization']],
         values: [organizationLogic, ['currentOrganization']],
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
+        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
+        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
+        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
         toolMap: [
@@ -68,6 +71,36 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
+        isFloatingMaxExpanded: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
+            },
+        ],
+        floatingMaxPosition: [
+            null as { x: number; y: number; side: 'left' | 'right' } | null,
+            {
+                persist: true,
+            },
+            {
+                setFloatingMaxPosition: (_, { position }) => position,
+            },
+        ],
+        showFloatingMaxSuggestions: [
+            false,
+            {
+                setShowFloatingMaxSuggestions: (_, { value }) => value,
+            },
+        ],
+        floatingMaxDragState: [
+            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
+            {
+                setFloatingMaxDragState: (_, { dragState }) => dragState,
+            },
+        ],
     }),
     subscriptions(({ values, actions }) => ({
         [router.actionTypes.locationChanged]: ({ pathname }) => {
@@ -77,9 +110,11 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
     })),
-    listeners(({ actions }) => ({
-        acceptDataProcessing: ({ testOnlyOverride }) => {
-            actions.updateOrganization({ is_ai_data_processing_approved: testOnlyOverride ?? true })
+    listeners(() => ({
+        acceptDataProcessing: async ({ testOnlyOverride }) => {
+            await organizationLogic.asyncActions.updateOrganization({
+                is_ai_data_processing_approved: testOnlyOverride ?? true,
+            })
         },
     })),
     selectors({

@@ -83,8 +83,8 @@ class MaterializedColumn:
                 ch_user=ClickHouseUser.HOGQL,
             )
 
-            for name, comment, is_nullable in rows:
-                yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
+        for name, comment, is_nullable in rows:
+            yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
 
     @staticmethod
     def get(table: TablesWithMaterializedColumns, column_name: ColumnName) -> MaterializedColumn:

@@ -12,12 +12,13 @@ export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
 
 export function DataWarehouseIntegrationChoice({
     sourceConfig,
+    integration,
     ...props
 }: DataWarehouseIntegrationChoice): JSX.Element {
     return (
         <IntegrationChoice
             {...props}
-            integration={sourceConfig.name.toLowerCase()}
+            integration={integration ?? sourceConfig.name.toLowerCase()}
             redirectUrl={urls.pipelineNodeNew(PipelineStage.Source, { source: sourceConfig.name })}
         />
     )

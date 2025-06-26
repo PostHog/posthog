@@ -439,15 +439,17 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 }
 
 const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
+    const logic = dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
+
     const {
         syncMethodModalIsOpen,
         currentSyncMethodModalSchema,
         schemaIncrementalFields,
         schemaIncrementalFieldsLoading,
         saveButtonIsLoading,
-    } = useValues(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+    } = useValues(logic)
     const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
-        useActions(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+        useActions(logic)
 
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
@@ -497,8 +499,9 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
-                        incremental_available: !!schemaIncrementalFields.length,
-                        incremental_fields: schemaIncrementalFields,
+                        incremental_available: schemaIncrementalFields.incremental_available,
+                        append_available: schemaIncrementalFields.append_available,
+                        incremental_fields: schemaIncrementalFields.incremental_fields,
                     }}
                     onClose={() => {
                         resetSchemaIncrementalFields()

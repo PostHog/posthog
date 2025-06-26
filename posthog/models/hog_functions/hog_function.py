@@ -55,11 +55,6 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.SOURCE_WEBHOOK,
 )
-TYPES_WITH_COMPILED_FILTERS = (
-    HogFunctionType.DESTINATION,
-    HogFunctionType.INTERNAL_DESTINATION,
-    HogFunctionType.TRANSFORMATION,
-)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
@@ -228,7 +223,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         from posthog.cdp.filters import compile_filters_bytecode
 
         self.move_secret_inputs()
-        if self.type in TYPES_WITH_COMPILED_FILTERS:
+        if self.type not in TYPES_WITH_TRANSPILED_FILTERS:
             self.filters = compile_filters_bytecode(self.filters, self.team)
 
         return super().save(*args, **kwargs)
