@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
@@ -770,8 +770,9 @@ export function ProjectTree({
                                         iconOnly
                                         data-attr="tree-panel-disable-multi-select-button"
                                         size="sm"
+                                        active={selectMode !== 'default'}
                                     >
-                                        <IconX className="text-tertiary size-3" />
+                                        <IconCheckbox className="text-primary size-3" />
                                     </ButtonPrimitive>
                                 )}
                             </>
@@ -785,6 +786,7 @@ export function ProjectTree({
                 onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
                 className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
                 data-attr="tree-panel-switch-view-button"
+                iconOnly
             >
                 <IconChevronRight
                     className={cn('size-3', {
