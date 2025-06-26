@@ -282,12 +282,12 @@ class BatchExportsDebugger:
                 query = SELECT_FROM_PERSONS
         else:
             if batch_export_run.batch_export.destination.config.get("exclude_events", None):
-                parameters["exclude_events"] = list(parameters["exclude_events"])
+                parameters["exclude_events"] = list(batch_export_run.batch_export.destination.config["exclude_events"])
             else:
                 parameters["exclude_events"] = []
 
             if batch_export_run.batch_export.destination.config.get("include_events", None):
-                parameters["include_events"] = list(parameters["include_events"])
+                parameters["include_events"] = list(batch_export_run.batch_export.destination.config["include_events"])
             else:
                 parameters["include_events"] = []
 
