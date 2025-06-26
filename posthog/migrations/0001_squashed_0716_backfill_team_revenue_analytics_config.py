@@ -1041,7 +1041,7 @@ class Migration(migrations.Migration):
                 ("timestamp", models.DateTimeField(auto_now_add=True)),
                 ("ip", models.GenericIPAddressField(blank=True, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("distinct_id", models.CharField(default="fake-id-that-shouldnt-exist", max_length=200)),
+                ("distinct_id", models.CharField(max_length=200)),
             ],
         ),
         migrations.CreateModel(
@@ -9211,7 +9211,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-                ("code_name", models.CharField(blank=True, default=None, max_length=400, null=True)),
+                ("code_name", models.CharField(blank=True, max_length=400, null=True)),
             ],
             options={
                 "abstract": False,
