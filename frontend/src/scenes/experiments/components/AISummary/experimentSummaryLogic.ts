@@ -63,38 +63,71 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
             }
 
             try {
-                // Use the standardized /max_tools endpoint with the experiment_results_summary tool
-                const response = await api.create(`/api/environments/@current/max_tools/experiment_results_summary/`, {
-                    experiment_id: props.experimentId.toString(),
-                })
-
-                // Parse the response to extract the summary content
-                if (response && Array.isArray(response)) {
-                    let summaryContent = ''
-                    for (const message of response) {
-                        if (message.type === 'message' && message.data?.content) {
-                            summaryContent += message.data.content + '\n'
-                        } else if (message.type === 'ai' && message.content) {
-                            summaryContent += message.content + '\n'
+                // Use api.stream() which handles CSRF automatically
+                await api.stream(`/api/environments/@current/max_tools/experiment_results_summary/`, {
+                    method: 'POST',
+                    data: {
+                        experiment_id: props.experimentId.toString(),
+                    },
+                    onMessage: (event) => {
+                        try {
+                            const data = JSON.parse(event.data)
+                            if (data.content) {
+                                actions.updateSummary(data.content)
+                            }
+                            if (data === '[DONE]') {
+                                lemonToast.success('Summary generated successfully!')
+                                return
+                            }
+                        } catch (e) {
+                            console.error('Error generating summary:', e)
+                            lemonToast.error('Failed to generate summary')
                         }
-                    }
-
-                    if (summaryContent.trim()) {
-                        actions.updateSummary(summaryContent.trim())
-                        lemonToast.success('Summary generated successfully!')
-                    } else {
-                        lemonToast.error('No summary content received')
-                        actions.resetSummary()
-                    }
-                } else {
-                    lemonToast.error('Unexpected response format')
-                    actions.resetSummary()
-                }
+                    },
+                    onError: (error) => {
+                        console.error('Error generating summary:', error)
+                        lemonToast.error('Failed to generate summary')
+                    },
+                })
             } catch (error) {
                 console.error('Error generating summary:', error)
                 lemonToast.error('Failed to generate summary')
                 actions.resetSummary()
             }
+
+            // try {
+            //     // Use the standardized /max_tools endpoint with the experiment_results_summary tool
+            //     const response = await api.create(`/api/environments/@current/max_tools/experiment_results_summary/`, {
+            //         experiment_id: props.experimentId.toString(),
+            //     })
+
+            //     // Parse the response to extract the summary content
+            //     if (response && Array.isArray(response)) {
+            //         let summaryContent = ''
+            //         for (const message of response) {
+            //             if (message.type === 'message' && message.data?.content) {
+            //                 summaryContent += message.data.content + '\n'
+            //             } else if (message.type === 'ai' && message.content) {
+            //                 summaryContent += message.content + '\n'
+            //             }
+            //         }
+
+            //         if (summaryContent.trim()) {
+            //             actions.updateSummary(summaryContent.trim())
+            //             lemonToast.success('Summary generated successfully!')
+            //         } else {
+            //             lemonToast.error('No summary content received')
+            //             actions.resetSummary()
+            //         }
+            //     } else {
+            //         lemonToast.error('Unexpected response format')
+            //         actions.resetSummary()
+            //     }
+            // } catch (error) {
+            //     console.error('Error generating summary:', error)
+            //     lemonToast.error('Failed to generate summary')
+            //     actions.resetSummary()
+            // }
         },
     })),
 ])

@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
-
+from django.http import StreamingHttpResponse
 
 from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import SafeJSONRenderer
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -57,7 +57,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = Conversation.objects.all()
 
     permission_classes = [IsAuthenticated]
-    renderer_classes = [SafeJSONRenderer]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication]
 
@@ -105,4 +105,4 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tool_call_partial_state=serializer.validated_data["state"],
         )
 
-        return Response(assistant.generate())
+        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
