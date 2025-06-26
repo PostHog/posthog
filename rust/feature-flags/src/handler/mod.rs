@@ -79,7 +79,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             let property_overrides = properties::prepare_overrides(&context, &request)?;
 
             // Evaluate flags (this will return empty if is_flags_disabled is true)
-            flags::evaluate_for_request(
+            let response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
                 team.project_id,
@@ -92,37 +92,31 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 context.request_id,
                 request.is_flags_disabled(),
             )
-            .await
+            .await;
+
+            // Only record billing if flags are not disabled
+            if !request.is_flags_disabled() {
+                billing::record_usage(&context, &filtered_flags, team.id).await;
+            }
+            inc(
+                FLAG_REQUESTS_COUNTER,
+                &[
+                    (
+                        "flags_disabled".to_string(),
+                        request.is_flags_disabled().to_string(),
+                    ),
+                    ("team_id".to_string(), team.id.to_string()),
+                ],
+                1,
+            );
+
+            response
         };
 
         // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
         // beyond just feature flags
         let response =
             config_response_builder::build_response(flags_response, &context, &team).await?;
-
-        // Only record billing if flags are not disabled and not quota limited
-        if !request.is_flags_disabled()
-            && !response.quota_limited.as_ref().map_or(false, |q| {
-                q.contains(&ServiceName::FeatureFlags.as_string())
-            })
-        {
-            // Re-fetch filtered flags for billing if we evaluated them
-            let filtered_flags =
-                flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta)
-                    .await?;
-            billing::record_usage(&context, &filtered_flags, team.id).await;
-        }
-        inc(
-            FLAG_REQUESTS_COUNTER,
-            &[
-                (
-                    "flags_disabled".to_string(),
-                    request.is_flags_disabled().to_string(),
-                ),
-                ("team_id".to_string(), team.id.to_string()),
-            ],
-            1,
-        );
 
         let total_duration = start_time.elapsed();
 
