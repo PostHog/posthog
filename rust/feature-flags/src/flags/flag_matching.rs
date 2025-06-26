@@ -501,14 +501,16 @@ impl FeatureFlagMatcher {
         let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
             HashMap::new();
 
+        let flags_to_evaluate = flags
+            .iter()
+            .filter(|flag| {
+                !flag.deleted && !evaluated_flags_map.contains_key(&flag.key) && flag.active
+            })
+            .collect::<Vec<&FeatureFlag>>();
+
         // Pre-compute property overrides for all flags upfront
         // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
-        for flag in flags {
-            // Skip disabled or deleted flags early, or flags that have already been evaluated
-            if !flag.active || flag.deleted || evaluated_flags_map.contains_key(&flag.key) {
-                continue;
-            }
-
+        for flag in &flags_to_evaluate {
             let relevant_property_overrides = match flag.get_group_type_index() {
                 Some(group_type_index) => {
                     // For group flags, extract the relevant group overrides
@@ -534,10 +536,12 @@ impl FeatureFlagMatcher {
         // Evaluate flags with cached properties using pre-computed overrides
         let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
-        let flags_map: HashMap<&String, &FeatureFlag> =
-            flags.iter().map(|flag| (&flag.key, flag)).collect();
+        let flags_map: HashMap<&String, &FeatureFlag> = flags_to_evaluate
+            .iter()
+            .map(|flag| (&flag.key, *flag))
+            .collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
             .par_iter()
             .map(|flag| {
                 // If the overrides for this flag are not in the pre-computed map, assume no overrides
