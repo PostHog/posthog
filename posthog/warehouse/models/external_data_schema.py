@@ -288,7 +288,7 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if field_type == IncrementalFieldType.Date:
         return parser.parse(value).date()
 
-    if field_type == IncrementalFieldType.String:
+    if field_type == IncrementalFieldType.ObjectID:
         return str(value)
 
 

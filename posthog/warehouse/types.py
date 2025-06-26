@@ -8,7 +8,8 @@ class IncrementalFieldType(StrEnum):
     DateTime = "datetime"
     Date = "date"
     Timestamp = "timestamp"
-    String = "string"
+    # MongoDB specific
+    ObjectID = "objectid"
 
 
 class IncrementalField(typing.TypedDict):

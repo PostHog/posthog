@@ -73,7 +73,7 @@ def filter_mongo_incremental_fields(
         elif type == "integer":
             results.append((column_name, IncrementalFieldType.Integer))
         elif column_name == "_id" and type == "string":
-            results.append((column_name, IncrementalFieldType.String))
+            results.append((column_name, IncrementalFieldType.ObjectID))
 
     return results
 
@@ -95,7 +95,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = {incremental_field: {"$gte": db_incremental_field_last_value, "$exists": True}}
+    query = {incremental_field: {"$gte": ObjectId(db_incremental_field_last_value), "$exists": True}}
 
     return query
 
