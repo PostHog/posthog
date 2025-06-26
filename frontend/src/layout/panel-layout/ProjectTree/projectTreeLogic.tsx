@@ -817,6 +817,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setActivePanelIdentifier: () => {
             // clear search term when changing panel
             actions.clearSearch()
+            actions.setProjectTreeMode('tree')
         },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {

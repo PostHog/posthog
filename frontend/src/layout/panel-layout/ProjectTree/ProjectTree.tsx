@@ -779,28 +779,29 @@ export function ProjectTree({
                 ) : null
             }
         >
-            <ButtonPrimitive
-                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
-                data-attr="tree-panel-switch-view-button"
-                iconOnly
-            >
-                <IconChevronRight
-                    className={cn('size-3', {
-                        'rotate-180': projectTreeMode === 'table',
-                        'rotate-0': projectTreeMode === 'tree',
-                    })}
-                />
-            </ButtonPrimitive>
-
-            {showRecents ? (
+            {root === 'project://' && (
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    data-attr="tree-panel-switch-view-button"
+                    iconOnly
+                >
+                    <IconChevronRight
+                        className={cn('size-3', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            )}
+            {showRecents && (
                 <>
                     <div role="status" aria-live="polite" className="sr-only">
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
                     </div>
                 </>
-            ) : null}
+            )}
 
             {tree}
         </PanelLayoutPanel>
