@@ -44,21 +44,11 @@ from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
-    "engage",
-    "track",
-    "capture",
-    "batch",
-    "e",
-    "s",
     "static",
     "_health",
     "flags",
     "messaging-preferences",
 ]
-
-if DEBUG:
-    # /i/ is the new root path for capture endpoints
-    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -69,7 +59,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track", "flags"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags"}
 
 
 class AllowIPMiddleware:
@@ -88,7 +78,7 @@ class AllowIPMiddleware:
     def get_forwarded_for(self, request: HttpRequest):
         forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",")]
+            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 

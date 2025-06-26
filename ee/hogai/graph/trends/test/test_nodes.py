@@ -15,7 +15,7 @@ from posthog.test.base import BaseTest
 
 class TestTrendsPlannerNode(BaseTest):
     def test_trends_planner_prompt_has_tools(self):
-        node = TrendsPlannerNode(self.team)
+        node = TrendsPlannerNode(self.team, self.user)
         with patch.object(TrendsPlannerNode, "_model") as model_mock:
 
             def assert_prompt(prompt):
@@ -34,7 +34,7 @@ class TestTrendsGeneratorNode(BaseTest):
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
-        node = TrendsGeneratorNode(self.team)
+        node = TrendsGeneratorNode(self.team, self.user)
         with patch.object(TrendsGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: TrendsSchemaGeneratorOutput(query=self.schema).model_dump()

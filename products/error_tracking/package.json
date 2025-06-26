@@ -17,7 +17,7 @@
         "kea-loaders": "*",
         "kea-router": "*",
         "kea-subscriptions": "*",
-        "posthog-js": "*",
+        "posthog-js": "catalog:",
         "react": "*",
         "react-transition-group": "*",
         "ts-pattern": "*",

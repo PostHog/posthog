@@ -1,11 +1,9 @@
 import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ReplayActiveScreensTable } from 'scenes/session-recordings/components/ReplayActiveScreensTable'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -188,15 +186,13 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
-            <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP} match="templates">
-                <div className="flex flex-col gap-2 w-full">
-                    <div className="flex flex-row gap-2 w-full">
-                        <ReplayActiveUsersTable />
-                        <ReplayActiveScreensTable />
-                    </div>
-                    <ReplayActiveHoursHeatMap />
+            <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-row gap-2 w-full">
+                    <ReplayActiveUsersTable />
+                    <ReplayActiveScreensTable />
                 </div>
-            </FlaggedFeature>
+                <ReplayActiveHoursHeatMap />
+            </div>
             <h2 className="mt-4">Filter templates</h2>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,

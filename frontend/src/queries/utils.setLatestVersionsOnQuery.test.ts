@@ -93,6 +93,18 @@ describe('setLatestVersionsOnQuery', () => {
             version: 7,
         })
     })
+
+    it('does not set version for nodes with a kind that is not a NodeKind', () => {
+        const query = {
+            key: 'some string',
+            kind: 'currency',
+        }
+
+        expect(setLatestVersionsOnQuery(query)).toEqual({
+            key: 'some string',
+            kind: 'currency',
+        })
+    })
 })
 
 export {}
