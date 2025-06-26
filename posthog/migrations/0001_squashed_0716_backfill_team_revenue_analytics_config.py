@@ -2156,9 +2156,21 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=False)),
                 ("order", models.IntegerField(blank=True, null=True)),
                 ("config", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
-                ("error", django.contrib.postgres.fields.jsonb.JSONField(default=None, null=True)),
+                ("error", models.JSONField(blank=True, default=None, null=True)),
+                ("web_token", models.CharField(default=None, max_length=64, null=True)),
+                (
+                    "created_at",
+                    models.DateTimeField(auto_now_add=True, default=datetime.datetime(2020, 1, 1, 0, 0)),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(auto_now=True),
+                ),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
                 ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("deleted", models.BooleanField(default=False, null=True)),
+                ("description", models.CharField(blank=True, max_length=1000, null=True)),
+                ("name", models.CharField(blank=True, max_length=400, null=True)),
             ],
         ),
         migrations.AddField(
@@ -2444,17 +2456,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="plugin",
-            name="updated_at",
-            field=models.DateTimeField(auto_now=True),
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="created_at",
-            field=models.DateTimeField(auto_now_add=True, default=datetime.datetime(2020, 1, 1, 0, 0)),
-            preserve_default=False,
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
             name="updated_at",
             field=models.DateTimeField(auto_now=True),
         ),
@@ -4804,31 +4805,32 @@ class Migration(migrations.Migration):
                 ),
                 ("filename", models.CharField(max_length=200)),
                 ("source", models.TextField(blank=True, null=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[("LOCKED", "locked"), ("TRANSPILED", "transpiled"), ("ERROR", "error")],
+                        max_length=20,
+                        null=True,
+                    ),
+                ),
+                (
+                    "transpiled",
+                    models.TextField(blank=True, null=True),
+                ),
+                (
+                    "error",
+                    models.TextField(blank=True, null=True),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(blank=True, null=True),
+                ),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
             ],
         ),
         migrations.AddConstraint(
             model_name="pluginsourcefile",
             constraint=models.UniqueConstraint(fields=("plugin_id", "filename"), name="unique_filename_for_plugin"),
-        ),
-        migrations.AddField(
-            model_name="pluginsourcefile",
-            name="error",
-            field=models.TextField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="pluginsourcefile",
-            name="status",
-            field=models.CharField(
-                choices=[("LOCKED", "locked"), ("TRANSPILED", "transpiled"), ("ERROR", "error")],
-                max_length=20,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="pluginsourcefile",
-            name="transpiled",
-            field=models.TextField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="InstanceSetting",
@@ -5221,11 +5223,6 @@ class Migration(migrations.Migration):
             model_name="notificationviewed",
             constraint=models.UniqueConstraint(fields=("user",), name="posthog_user_unique_viewed_date"),
         ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="web_token",
-            field=models.CharField(default=None, max_length=64, null=True),
-        ),
         migrations.AddIndex(
             model_name="pluginconfig",
             index=models.Index(fields=["web_token"], name="posthog_plu_web_tok_ac760a_idx"),
@@ -5331,11 +5328,6 @@ class Migration(migrations.Migration):
                 ),
                 name="dash_tile_exactly_one_related_object",
             ),
-        ),
-        migrations.AddField(
-            model_name="pluginsourcefile",
-            name="updated_at",
-            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboardtile",
@@ -6054,11 +6046,6 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"
             ),
-        ),
-        migrations.AlterField(
-            model_name="pluginconfig",
-            name="error",
-            field=models.JSONField(blank=True, default=None, null=True),
         ),
         migrations.CreateModel(
             name="PersonOverrideMapping",
@@ -7189,21 +7176,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="externaldatasource",
             name="destination_id",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="deleted",
-            field=models.BooleanField(default=False, null=True),
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="description",
-            field=models.CharField(blank=True, max_length=1000, null=True),
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="name",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AlterField(
@@ -8550,6 +8522,7 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.AddField(model_name="pluginconfig", name="filters", field=models.JSONField(blank=True, null=True)),
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
@@ -8601,11 +8574,6 @@ class Migration(migrations.Migration):
             field=models.PositiveSmallIntegerField(
                 choices=[(1, "member"), (8, "administrator"), (15, "owner")], default=1
             ),
-        ),
-        migrations.AddField(
-            model_name="pluginconfig",
-            name="filters",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.RunSQL(
             sql='ALTER TABLE "posthog_organization" DROP COLUMN "available_features" CASCADE -- drop-column-ignore',
