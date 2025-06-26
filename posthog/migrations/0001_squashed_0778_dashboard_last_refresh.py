@@ -35,6 +35,299 @@ import posthog.warehouse.models.modeling
 import uuid
 
 
+def migration_0310_create_starter_template(apps, schema_editor):
+    DashboardTemplate = apps.get_model("posthog", "DashboardTemplate")
+    DashboardTemplate.objects.create(
+        template_name="Product analytics",
+        dashboard_description="High-level overview of your product including daily active users, weekly active users, retention, and growth accounting.",
+        dashboard_filters={},
+        tiles=[
+            {
+                "name": "Daily active users (DAUs)",
+                "type": "INSIGHT",
+                "color": "blue",
+                "filters": {
+                    "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "date_from": "-30d",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                },
+                "description": "Shows the number of unique users that use your app every day.",
+            },
+            {
+                "name": "Weekly active users (WAUs)",
+                "type": "INSIGHT",
+                "color": "green",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": "dau",
+                            "type": "events",
+                        }
+                    ],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "week",
+                    "date_from": "-90d",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                },
+                "description": "Shows the number of unique users that use your app every week.",
+            },
+            {
+                "name": "Retention",
+                "type": "INSIGHT",
+                "color": "blue",
+                "filters": {
+                    "period": "Week",
+                    "insight": "RETENTION",
+                    "target_entity": {"id": "$pageview", "type": "events"},
+                    "retention_type": "retention_first_time",
+                    "returning_entity": {"id": "$pageview", "type": "events"},
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                },
+                "description": "Weekly retention of your users.",
+            },
+            {
+                "name": "Growth accounting",
+                "type": "INSIGHT",
+                "color": "purple",
+                "filters": {
+                    "events": [{"id": "$pageview", "type": "events"}],
+                    "insight": "LIFECYCLE",
+                    "interval": "week",
+                    "shown_as": "Lifecycle",
+                    "date_from": "-30d",
+                    "entity_type": "events",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3},
+                },
+                "description": "How many of your users are new, returning, resurrecting, or dormant each week.",
+            },
+            {
+                "name": "Referring domain (last 14 days)",
+                "type": "INSIGHT",
+                "color": "black",
+                "filters": {
+                    "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                    "display": "ActionsBarValue",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "breakdown": "$referring_domain",
+                    "date_from": "-14d",
+                    "breakdown_type": "event",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3},
+                },
+                "description": "Shows the most common referring domains for your users over the past 14 days.",
+            },
+            {
+                "name": "Pageview funnel, by browser",
+                "type": "INSIGHT",
+                "color": "green",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "custom_name": "First page view",
+                        },
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 1,
+                            "custom_name": "Second page view",
+                        },
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 2,
+                            "custom_name": "Third page view",
+                        },
+                    ],
+                    "layout": "horizontal",
+                    "display": "FunnelViz",
+                    "insight": "FUNNELS",
+                    "interval": "day",
+                    "exclusions": [],
+                    "breakdown_type": "event",
+                    "breakdown": "$browser",
+                    "funnel_viz_type": "steps",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3},
+                },
+                "description": "This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
+            },
+        ],
+        tags=[],
+    )
+
+
+def migration_0328_create_starter_template(apps, schema_editor):
+    DashboardTemplate = apps.get_model("posthog", "DashboardTemplate")
+    DashboardTemplate.objects.create(
+        template_name="Flagged Feature Usage",
+        dashboard_description="Overview of engagement with the flagged feature including daily active users and weekly active users.",
+        dashboard_filters={},
+        tiles=[
+            {
+                "name": "Daily active users (DAUs)",
+                "type": "INSIGHT",
+                "color": "blue",
+                "filters": {
+                    "events": ["{ENGAGEMENT}"],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "day",
+                    "date_from": "-30d",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                },
+                "description": "Shows the number of unique users that use your feature every day.",
+            },
+            {
+                "name": "Weekly active users (WAUs)",
+                "type": "INSIGHT",
+                "color": "green",
+                "filters": {
+                    "events": ["{ENGAGEMENT}"],
+                    "display": "ActionsLineGraph",
+                    "insight": "TRENDS",
+                    "interval": "week",
+                    "date_from": "-90d",
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                },
+                "description": "Shows the number of unique users that use your feature every week.",
+            },
+        ],
+        tags=[],
+        variables=[
+            {
+                "id": "ENGAGEMENT",
+                "name": "Engagement",
+                "type": "event",
+                "default": {"name": "$pageview", "id": "$pageview"},
+                "required": True,
+                "description": "The event you use to define a user using the new feature",
+            }
+        ],
+        scope="feature_flag",
+    )
+
+
+def migration_0501_create_billing_team_group(apps, schema_editor):
+    from django.contrib.auth.models import Group
+
+    Group.objects.get_or_create(name="Billing Team")
+
+
+def migration_0501_reverse_create_billing_team_group(apps, schema_editor):
+    from django.contrib.auth.models import Group
+
+    Group.objects.filter(name="Billing Team").delete()
+
+
+def migration_0530_update_filters_to_queries(apps, schema_editor):
+    from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+    from posthog.schema import InsightVizNode
+
+    DashboardTemplate = apps.get_model("posthog", "DashboardTemplate")
+
+    for template in DashboardTemplate.objects.all():
+        for tile in template.tiles:
+            if "filters" in tile:
+                source = filter_to_query(tile["filters"], allow_variables=True)
+                query = InsightVizNode(source=source)
+                tile["query"] = query.model_dump(exclude_none=True)
+                del tile["filters"]
+        template.save()
+
+
+def migration_0537_add_default_themes(apps, schema_editor):
+    DataColorTheme = apps.get_model("posthog", "DataColorTheme")
+
+    DataColorTheme.objects.create(
+        name="Default Theme",
+        colors=[
+            "#1d4aff",
+            "#621da6",
+            "#42827e",
+            "#ce0e74",
+            "#f14f58",
+            "#7c440e",
+            "#529a0a",
+            "#0476fb",
+            "#fe729e",
+            "#35416b",
+            "#41cbc4",
+            "#b64b02",
+            "#e4a604",
+            "#a56eff",
+            "#30d5c8",
+        ],
+    )
+
+
+def migration_0545_migrate_insight_filters_to_query(apps, schema_editor):
+    from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+    from posthog.models import Insight
+    from posthog.schema import InsightVizNode
+    from django.db.models import Q
+    import logging
+
+    logger = logging.getLogger(__name__)
+    insights = Insight.objects.filter(Q(filters__insight__isnull=False) & Q(query__kind__isnull=True))
+    migrated_at = datetime.now()
+
+    for insight in insights.iterator(chunk_size=100):
+        try:
+            source = filter_to_query(insight.filters)
+            query = InsightVizNode(source=source)
+            insight.query = query.model_dump(exclude_none=True)
+
+            # add a migrated_at as filter, so that we can find migrated insights for rolling back
+            insight.filters["migrated_at"] = str(migrated_at)
+            insight.save()
+        except Exception:
+            logger.error(f"Error converting insight with id {insight.pk}")  # noqa: TRY400
+
+
+def migration_0545_rollback_insight_filters_to_query(apps, schema_editor):
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE posthog_dashboarditem
+            SET query = NULL, filters = filters - 'migrated_at'
+            WHERE filters->>'migrated_at' IS NOT NULL
+            """
+        )
+
+
 class Migration(migrations.Migration):
     replaces = [
         ("posthog", "0001_initial"),
@@ -5314,29 +5607,29 @@ class Migration(migrations.Migration):
             name="variables",
             field=models.JSONField(blank=True, null=True),
         ),
-        posthog.AlterField(
+        migrations.AlterField(
             model_name="dashboardtemplate",
             name="dashboard_description",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        posthog.AlterField(
+        migrations.AlterField(
             model_name="dashboardtemplate",
             name="dashboard_filters",
             field=models.JSONField(blank=True, null=True),
         ),
-        posthog.AlterField(
+        migrations.AlterField(
             model_name="dashboardtemplate",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
                 base_field=models.CharField(max_length=255), blank=True, null=True, size=None
             ),
         ),
-        posthog.AlterField(
+        migrations.AlterField(
             model_name="dashboardtemplate",
             name="template_name",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        posthog.AlterField(
+        migrations.AlterField(
             model_name="dashboardtemplate",
             name="tiles",
             field=models.JSONField(blank=True, null=True),
@@ -5440,7 +5733,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(blank=True, null=True),
         ),
         migrations.RunPython(
-            code=posthog.migrations["0310_add_starter_dashboard_template"].create_starter_template,
+            code=migration_0310_create_starter_template,
             reverse_code=django.db.migrations.operations.special.RunPython.noop,
         ),
         migrations.AddField(
@@ -5915,7 +6208,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(
-            code=posthog.migrations["0328_add_starter_feature_flag_template"].create_starter_template,
+            code=migration_0328_create_starter_template,
             reverse_code=django.db.migrations.operations.special.RunPython.noop,
         ),
         migrations.CreateModel(
@@ -9376,8 +9669,8 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(fields=("team_id", "raw_id"), name="unique_raw_id_per_team"),
         ),
         migrations.RunPython(
-            code=posthog.migrations["0501_create_group_billing_team"].create_billing_team_group,
-            reverse_code=posthog.migrations["0501_create_group_billing_team"].reverse_create_billing_team_group,
+            code=migration_0501_create_billing_team_group,
+            reverse_code=migration_0501_reverse_create_billing_team_group,
         ),
         migrations.AddField(
             model_name="team",
@@ -9850,8 +10143,8 @@ class Migration(migrations.Migration):
             field=models.JSONField(blank=True, null=True),
         ),
         migrations.RunPython(
-            code=posthog.migrations["0530_convert_dashboard_templates_to_queries"].update_filters_to_queries,
-            reverse_code=posthog.migrations["0530_convert_dashboard_templates_to_queries"].revert_queries_to_filters,
+            code=migration_0530_update_filters_to_queries,
+            reverse_code=django.db.migrations.operations.special.RunPython.noop,
         ),
         migrations.AlterField(
             model_name="hogfunction",
@@ -10002,8 +10295,8 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.RunPython(
-            code=posthog.migrations["0537_data_color_themes"].add_default_themes,
-            reverse_code=posthog.migrations["0537_data_color_themes"].remove_default_themes,
+            code=migration_0537_add_default_themes,
+            reverse_code=django.db.migrations.operations.special.RunPython.noop,
         ),
         migrations.AddField(
             model_name="team",
@@ -10149,8 +10442,8 @@ class Migration(migrations.Migration):
             field=models.BooleanField(blank=True, default=False, null=True),
         ),
         migrations.RunPython(
-            code=posthog.migrations["0545_insight_filters_to_query"].migrate_insight_filters_to_query,
-            reverse_code=posthog.migrations["0545_insight_filters_to_query"].rollback_insight_filters_to_query,
+            code=migration_0545_migrate_insight_filters_to_query,
+            reverse_code=migration_0545_rollback_insight_filters_to_query,
         ),
         migrations.RunSQL(
             sql="\n            UPDATE posthog_dashboard\n            SET creation_mode = 'template'\n            WHERE name LIKE 'Generated Dashboard: % Usage'\n            AND description LIKE 'This dashboard was generated by the feature flag with key (%)'\n            AND creation_mode = 'default'\n            ",
