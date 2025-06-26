@@ -442,6 +442,14 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Compare each person we tracked in finalStates with what's in the batch cache
         for (const [key, mainUpdate] of this.finalStates.entries()) {
+            // Skip entries that only have fetchForUpdate operations (read-only, no modifications)
+            if (mainUpdate && mainUpdate.operations.length > 0) {
+                const hasNonFetchOperations = mainUpdate.operations.some((op) => op.type !== 'fetchForUpdate')
+                if (!hasNonFetchOperations) {
+                    continue // Skip this entry as it's only fetch operations
+                }
+            }
+
             // Parse the key to extract teamId and personUuid
             const [teamIdStr, personUuid] = key.split(':')
             const teamId = parseInt(teamIdStr, 10)

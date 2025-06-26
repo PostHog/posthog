@@ -116,9 +116,7 @@ cd ..
 
 if [ -n "$3" ]
 then
-export TLS_BLOCK="{
-acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-}"
+export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
 fi
 
 if [ "$REGISTRY_URL" == "" ]
@@ -126,9 +124,18 @@ then
 export REGISTRY_URL="posthog/posthog"
 fi
 
-# Set Caddy environment variables
-export CADDY_DOMAIN="$DOMAIN, http://, https://"
-export LIVESTREAM_PROXY="reverse_proxy http://livestream:8666"
+# rewrite caddyfile
+rm -f Caddyfile
+envsubst > Caddyfile <<EOF
+{
+$TLS_BLOCK
+}
+$DOMAIN, http://, https:// {
+encode gzip zstd
+reverse_proxy http://web:8000
+reverse_proxy http://livestream:8666
+}
+EOF
 
 # Write .env file
 envsubst > .env <<EOF
