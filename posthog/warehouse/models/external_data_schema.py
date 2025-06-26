@@ -275,7 +275,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             self.save()
 
 
-def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
 
@@ -288,7 +288,8 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if field_type == IncrementalFieldType.Date:
         return parser.parse(value).date()
 
-    return None
+    if field_type == IncrementalFieldType.String:
+        return str(value)
 
 
 @database_sync_to_async
