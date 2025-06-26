@@ -347,9 +347,6 @@ describe('Hog Executor', () => {
             expect(secondResult.error).toBeUndefined()
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                  "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -366,9 +363,6 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                  "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -397,11 +391,8 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
-                  "Resuming function",
                   "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -782,7 +773,6 @@ describe('Hog Executor', () => {
             expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
-                'Resuming function',
                 'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })

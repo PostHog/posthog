@@ -246,13 +246,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                         .sort()
                 )
             ).toEqual([
-                'Executing function',
                 'Fetch failed after 2 attempts',
                 'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
                 'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
                 'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
-                'Resuming function',
-                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
             ])
         })
     })
