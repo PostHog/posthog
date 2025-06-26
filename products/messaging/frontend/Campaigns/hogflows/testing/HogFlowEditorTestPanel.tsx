@@ -56,7 +56,7 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
             props={logicProps}
             formKey="testInvocation"
             enableFormOnSubmit
-            className="flex overflow-hidden flex-col flex-1 w-180"
+            className="flex overflow-y-scroll flex-col flex-1 w-180"
         >
             {/* Header */}
             <div className="flex justify-between items-center px-2 my-2 w-full">
