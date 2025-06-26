@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Iterator
+import contextlib
 from typing import Any, Optional
 import math
 
@@ -43,11 +44,11 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
     """Get all indexes for a MongoDB collection."""
     try:
         connection_params = _parse_connection_string(connection_string)
-        client = _create_mongo_client(connection_string, connection_params)
-        db = client[connection_params["database"]]
-        collection = db[collection_name]
+        with mongo_client(connection_string, connection_params) as client:
+            db = client[connection_params["database"]]
+            collection = db[collection_name]
 
-        index_cursor = collection.list_indexes()
+            index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
     except Exception:
         return []
@@ -97,8 +98,9 @@ def _build_query(
     return query
 
 
-def _create_mongo_client(connection_string: str, connection_params: dict[str, Any]) -> MongoClient:
-    """Create a MongoDB client with the given parameters."""
+@contextlib.contextmanager
+def mongo_client(connection_string: str, connection_params: dict[str, Any]) -> Iterator[MongoClient]:
+    """Yield a MongoDB client with the given parameters."""
     # For SRV connections, use the full connection string
     if connection_params["is_srv"]:
         return MongoClient(connection_string, serverSelectionTimeoutMS=5000)
@@ -122,7 +124,12 @@ def _create_mongo_client(connection_string: str, connection_params: dict[str, An
     if connection_params["tls"]:
         connection_kwargs["tls"] = True
 
-    return MongoClient(**connection_kwargs)
+    client = MongoClient(**connection_kwargs)
+
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 def _get_partition_settings(
@@ -281,24 +288,22 @@ def get_schemas(config: MongoSourceConfig) -> dict[str, list[tuple[str, str]]]:
 
     connection_params = _parse_connection_string(config.connection_string)
 
-    client = _create_mongo_client(config.connection_string, connection_params)
+    with mongo_client(config.connection_string, connection_params) as client:
+        if not connection_params["database"]:
+            raise ValueError("Database name is required in connection string")
 
-    if not connection_params["database"]:
-        raise ValueError("Database name is required in connection string")
+        db = client[connection_params["database"]]
+        schema_list = collections.defaultdict(list)
 
-    db = client[connection_params["database"]]
-    schema_list = collections.defaultdict(list)
+        # Get collection names
+        collection_names = db.list_collection_names()
 
-    # Get collection names
-    collection_names = db.list_collection_names()
+        for collection_name in collection_names:
+            collection = db[collection_name]
+            # Use aggregation query to get all document keys and types
+            schema_info = _get_schema_from_query(collection)
+            schema_list[collection_name].extend(schema_info)
 
-    for collection_name in collection_names:
-        collection = db[collection_name]
-        # Use aggregation query to get all document keys and types
-        schema_info = _get_schema_from_query(collection)
-        schema_list[collection_name].extend(schema_info)
-
-    client.close()
     return schema_list
 
 
@@ -337,34 +342,30 @@ def mongo_source(
         raise ValueError("Database name is required in connection string")
 
     # Create MongoDB client
-    client = _create_mongo_client(connection_string, connection_params)
+    with mongo_client(connection_string, connection_params) as client:
+        db = client[connection_params["database"]]
+        collection = db[collection_name]
 
-    db = client[connection_params["database"]]
-    collection = db[collection_name]
+        query = _build_query(
+            should_use_incremental_field,
+            incremental_field,
+            incremental_field_type,
+            db_incremental_field_last_value,
+        )
 
-    query = _build_query(
-        should_use_incremental_field,
-        incremental_field,
-        incremental_field_type,
-        db_incremental_field_last_value,
-    )
-
-    # Get collection metadata
-    primary_keys = _get_primary_keys(collection, collection_name)
-    partition_settings = _get_partition_settings(collection, collection_name) if should_use_incremental_field else None
-    rows_to_sync = _get_rows_to_sync(collection, query, logger)
-
-    client.close()
+        # Get collection metadata
+        primary_keys = _get_primary_keys(collection, collection_name)
+        partition_settings = (
+            _get_partition_settings(collection, collection_name) if should_use_incremental_field else None
+        )
+        rows_to_sync = _get_rows_to_sync(collection, query, logger)
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        read_client = _create_mongo_client(connection_string, connection_params)
+        with mongo_client(connection_string, connection_params) as read_client:
+            read_db = read_client[connection_params["database"]]
+            read_collection = read_db[collection_name]
 
-        read_db = read_client[connection_params["database"]]
-        read_collection = read_db[collection_name]
-
-        # TODO: update to pymongoarrow when pyarrow major version is bumped
-        try:
             cursor = read_collection.find({})
 
             for doc in cursor:
@@ -396,9 +397,6 @@ def mongo_source(
                 result["data"] = processed_doc
 
                 yield result
-
-        finally:
-            read_client.close()
 
     name = NamingConvention().normalize_identifier(collection_name)
 
