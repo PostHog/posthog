@@ -531,18 +531,11 @@ impl FeatureFlagMatcher {
             precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
         }
 
-        // Evaluate remaining flags with cached properties using pre-computed overrides
+        // Evaluate flags with cached properties using pre-computed overrides
         let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
         let flags_map: HashMap<&String, &FeatureFlag> =
             flags.iter().map(|flag| (&flag.key, flag)).collect();
-
-        if !flags_map.is_empty() {
-            println!(
-                "FLAGS NEED DB PROPERTIES!!!!!!flags_map: {:?}",
-                flags_map.keys().collect::<Vec<_>>()
-            );
-        }
 
         let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags
             .par_iter()
