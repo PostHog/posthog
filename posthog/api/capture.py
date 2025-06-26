@@ -5,7 +5,8 @@ from random import random
 
 import structlog
 import time
-import requests
+from requests import Response, Session
+from requests.adapters import HTTPAdapter, Retry
 from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
@@ -926,7 +927,7 @@ class CaptureInternalError(Exception):
     pass
 
 
-def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]) -> dict[str, Any]:
+def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]) -> Response:
     """
     new_capture_internal submits a single-event capture request payload to
     PostHog (capture-rs backend) rather than pushing directly to Kafka and
@@ -938,14 +939,20 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
 
     event_payload = prepare_capture_payload(token, distinct_id, raw_event)
 
-    # OBVIOUSLY NOT CORRECT ATM: goal: do what posthog-python does, but allow for:
-    # 1. supplying the API token on the fly representing the right PostHog team
-    # 2. stay internal to PH network in this hop from Django -> capture-rs if we can
-    return requests.post(
-        "https://app.posthog.com/i/v0/e/",
-        json=event_payload,
-        timeout=5,
-    )
+    with Session() as s:
+        s.mount(
+            "https://app.posthog.com",
+            HTTPAdapter(
+                max_retries=Retry(
+                    total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
+                )
+            ),
+        )
+        return s.post(
+            "https://app.posthog.com/i/v0/e/",
+            json=event_payload,
+            timeout=1,
+        )
 
 
 # prep payload for new_capture_internal to POST to capture-rs
@@ -958,12 +965,12 @@ def prepare_capture_payload(
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
-    if token is None or len(token) == 0:
+    if token is None:
         token = raw_event.pop("api_token", raw_event.pop("token", None))
     if token is None:
         raise CaptureInternalError("capture_internal: API token is required")
 
-    if distinct_id is None or len(distinct_id) == 0:
+    if distinct_id is None:
         distinct_id = raw_event.pop("distinct_id", None)
     if distinct_id is None:
         distinct_id = properties.pop("distinct_id", None)
