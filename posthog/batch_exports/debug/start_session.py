@@ -23,7 +23,7 @@ def make_parser():
     parser = argparse.ArgumentParser(
         prog="Batch exports debug session", description="Enter a debug session for batch exports"
     )
-    _ = parser.add_argument("TEAM_ID", type=int, help="The ID of the team we are debugging.")
+    _ = parser.add_argument("team_id", type=int, help="The ID of the team we are debugging.")
     _ = parser.add_argument(
         "-b",
         "--batch-export-id",
@@ -35,7 +35,7 @@ def make_parser():
     return parser
 
 
-def start_session(team_id: int, batch_export_id: str):
+def start_session(team_id: int, batch_export_id: str | None = None):
     """Start a debugging session with a debugger in an IPython shell."""
     from posthog.batch_exports.debug.debugger import BatchExportsDebugger
     from posthog.models import BatchExport

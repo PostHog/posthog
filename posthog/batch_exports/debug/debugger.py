@@ -137,14 +137,16 @@ class BatchExportsDebugger:
     def _(self, batch_export: uuid.UUID) -> BatchExport:
         return next(be for be in self.loaded_batch_exports if be.id == batch_export)
 
-    @functools.singledispatchmethod
-    def _(self, batch_export: int) -> collections.abc.Generator[BatchExportRun, None, None]:
-        yield from BatchExportRun.objects.filter(batch_export=self.loaded_batch_exports[batch_export])
+    @get_batch_export.register
+    def _(self, batch_export: int) -> BatchExport:
+        return self.loaded_batch_exports[batch_export]
 
     def load_batch_exports(
         self,
         id: str | None = None,
         deleted: bool | None = False,
+        model: str | None = None,
+        interval: str | None = None,
         name: str | None = None,
         destination: str | None = None,
         paused: bool | None = None,
@@ -153,6 +155,12 @@ class BatchExportsDebugger:
         filters: dict[str, int | bool | str] = {}
         if deleted is not None:
             filters["deleted"] = deleted
+
+        if model is not None:
+            filters["model__iexact"] = model
+
+        if interval is not None:
+            filters["interval__iexact"] = interval
 
         if name is not None:
             filters["name"] = name
