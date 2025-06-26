@@ -192,7 +192,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     return (
                         await api.hogFunctions.list({
                             types: destinationTypes,
-                            excludeKinds: ['messaging_campaign'],
                         })
                     ).results
                 },

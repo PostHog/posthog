@@ -24,7 +24,6 @@ import {
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils'
 import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createMailjetRequest } from '../utils/hog-mailjet-request'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
 
@@ -435,7 +434,6 @@ export class HogExecutorService {
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
                         fetch: async () => Promise.resolve(),
-                        sendEmail: async () => Promise.resolve(),
                     },
                     functions: {
                         print: (...args) => {
@@ -575,32 +573,6 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers,
-                                return_queue: 'hog',
-                            })
-
-                            result.invocation.queue = 'fetch'
-                            result.invocation.queueParameters = fetchQueueParameters
-                            break
-                        }
-                        case 'sendEmail': {
-                            // Sanitize the args
-                            const [inputs] = args
-
-                            if (!inputs) {
-                                throw new Error('sendEmail: Invalid inputs')
-                            }
-
-                            const { auth, email } = inputs
-
-                            if (!auth) {
-                                throw new Error('sendEmail: Must provide a mail integration')
-                            }
-
-                            const fetchQueueParameters = this.enrichFetchRequest({
-                                ...createMailjetRequest(email, auth, {
-                                    api_key: this.config.MAILJET_PUBLIC_KEY,
-                                    secret_key: this.config.MAILJET_SECRET_KEY,
-                                }),
                                 return_queue: 'hog',
                             })
 

@@ -50,17 +50,22 @@ export function ManagedMigration(): JSX.Element {
                         {
                             value: 's3',
                             label: 'S3',
-                            icon: <img src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico" />,
+                            icon: (
+                                <img
+                                    src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
+                                    className="w-4 h-4"
+                                />
+                            ),
                         },
                         {
                             value: 'mixpanel',
                             label: 'Mixpanel',
-                            icon: <img src="https://mixpanel.com/favicon.ico" />,
+                            icon: <img src="https://mixpanel.com/favicon.ico" className="w-4 h-4" />,
                         },
                         {
                             value: 'amplitude',
                             label: 'Amplitude',
-                            icon: <img src="https://amplitude.com/favicon.ico" />,
+                            icon: <img src="https://amplitude.com/favicon.ico" className="w-4 h-4" />,
                         },
                     ]}
                 />
@@ -310,9 +315,9 @@ export function ManagedMigrations(): JSX.Element {
                         align: 'right',
                     },
                     {
-                        title: 'Error',
-                        dataIndex: 'error',
-                        render: (_: any, migration: ManagedMigration) => migration.error || '-',
+                        title: 'Status Message',
+                        dataIndex: 'status_message',
+                        render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
                     },
                 ]}
                 emptyState="No migrations found. Create a new migration to get started."

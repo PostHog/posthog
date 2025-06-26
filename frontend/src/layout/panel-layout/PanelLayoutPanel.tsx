@@ -105,7 +105,7 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 bg-surface-tertiary">
+            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
                 <ProjectDropdownMenu />
 
                 <div className="flex gap-px items-center justify-end shrink-0">

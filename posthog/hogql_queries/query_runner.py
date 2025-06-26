@@ -834,6 +834,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 posthoganalytics.tag("insight_id", str(insight_id))
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
+            if tags := getattr(self.query, "tags", None):
+                if tags.productKey:
+                    posthoganalytics.tag("product_key", tags.productKey)
+                if tags.scene:
+                    posthoganalytics.tag("scene", tags.scene)
 
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
@@ -961,9 +966,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
     def get_cache_payload(self) -> dict:
+        # remove the tags key, these are used in the query log comment but shouldn't break caching
+        query = to_dict(self.query)
+        query.pop("tags", None)
+
         return {
             "query_runner": self.__class__.__name__,
-            "query": to_dict(self.query),
+            "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
             "limit_context": self._limit_context_aliased_for_cache,

@@ -6,7 +6,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isRevenueAnalyticsPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -23,7 +22,13 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
     {
         key: 'Month to date',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('m').format(DATE_FORMAT),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart', 'mEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('m')),
         defaultInterval: 'day',
     },
     {
@@ -32,6 +37,12 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         defaultInterval: 'day',
+    },
+    {
+        key: 'This year',
+        values: ['yStart', 'yEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('y')),
+        defaultInterval: 'month',
     },
     {
         key: 'Year to date',
@@ -62,8 +73,6 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
 
     const { setDates, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 
-    const revenueAnalyticsFiltersEnabled = useFeatureFlag('REVENUE_ANALYTICS_FILTERS')
-
     return (
         <div
             className={cn(
@@ -84,16 +93,14 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                         dateOptions={DATE_FILTER_DATE_OPTIONS}
                     />
 
-                    {revenueAnalyticsFiltersEnabled && (
-                        <PropertyFilters
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
-                            onChange={(filters) =>
-                                setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
-                            }
-                            propertyFilters={revenueAnalyticsFilter}
-                            pageKey="revenue-analytics"
-                        />
-                    )}
+                    <PropertyFilters
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                        onChange={(filters) =>
+                            setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                        }
+                        propertyFilters={revenueAnalyticsFilter}
+                        pageKey="revenue-analytics"
+                    />
                 </div>
 
                 <RevenueAnalyticsBreakdownBy />

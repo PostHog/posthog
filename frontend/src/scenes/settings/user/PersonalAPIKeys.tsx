@@ -4,7 +4,6 @@ import {
     LemonBanner,
     LemonDialog,
     LemonInput,
-    LemonInputSelect,
     LemonLabel,
     LemonMenu,
     LemonModal,
@@ -21,11 +20,13 @@ import { Form } from 'kea-forms'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
 function EditKeyModal(): JSX.Element {
     const {
@@ -36,7 +37,6 @@ function EditKeyModal(): JSX.Element {
         allAccessSelected,
         editingKey,
         allTeams,
-        allTeamsLoading,
         allOrganizations,
     } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes } = useActions(personalAPIKeysLogic)
@@ -74,127 +74,11 @@ function EditKeyModal(): JSX.Element {
                     <LemonField name="label" label="Label">
                         <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
-
-                    <LemonField name="access_type" className="mt-4 mb-2">
-                        {({ value, onChange }) => (
-                            <div className="flex items-center justify-between gap-2">
-                                <LemonLabel>Organization & project access</LemonLabel>
-                                <LemonSegmentedButton
-                                    onChange={onChange}
-                                    value={value}
-                                    options={[
-                                        { label: 'All access', value: 'all' },
-                                        {
-                                            label: 'Organizations',
-                                            value: 'organizations',
-                                        },
-                                        {
-                                            label: 'Projects',
-                                            value: 'teams',
-                                        },
-                                    ]}
-                                    size="small"
-                                />
-                            </div>
-                        )}
-                    </LemonField>
-
-                    {editingKey.access_type === 'all' ? (
-                        <p className="mb-0">
-                            This API key will allow access to all organizations and projects you're in.
-                        </p>
-                    ) : editingKey.access_type === 'organizations' ? (
-                        <>
-                            <p className="mb-2">
-                                This API key will only allow access to selected organizations and all project within
-                                them.
-                            </p>
-
-                            <LemonField name="scoped_organizations">
-                                <LemonInputSelect
-                                    mode="multiple"
-                                    data-attr="organizations"
-                                    options={
-                                        allOrganizations.map((org) => ({
-                                            key: `${org.id}`,
-                                            label: org.name,
-                                            labelComponent: (
-                                                <Tooltip
-                                                    title={
-                                                        <div>
-                                                            <div className="font-semibold">{org.name}</div>
-                                                            <div className="text-xs whitespace-nowrap">
-                                                                ID: {org.id}
-                                                            </div>
-                                                        </div>
-                                                    }
-                                                >
-                                                    <span className="flex-1 font-semibold">{org.name}</span>
-                                                </Tooltip>
-                                            ),
-                                        })) ?? []
-                                    }
-                                    placeholder="Select organizations..."
-                                />
-                            </LemonField>
-                        </>
-                    ) : editingKey.access_type === 'teams' ? (
-                        <>
-                            <p className="mb-2">This API key will only allow access to selected projects.</p>
-                            <LemonField name="scoped_teams">
-                                {({ value, onChange }) => (
-                                    <LemonInputSelect
-                                        mode="multiple"
-                                        data-attr="teams"
-                                        value={value.map((x: number) => String(x))}
-                                        onChange={(val: string[]) => onChange(val.map((x) => parseInt(x)))}
-                                        options={
-                                            allTeams?.map((team) => ({
-                                                key: `${team.id}`,
-                                                label: team.name,
-                                                labelComponent: (
-                                                    <Tooltip
-                                                        title={
-                                                            <div>
-                                                                <div className="font-semibold">{team.name}</div>
-                                                                <div className="text-xs whitespace-nowrap">
-                                                                    Token: {team.api_token}
-                                                                </div>
-                                                                <div className="text-xs whitespace-nowrap">
-                                                                    Organization ID: {team.organization}
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                    >
-                                                        {allOrganizations.length > 1 ? (
-                                                            <span>
-                                                                <span>
-                                                                    {
-                                                                        allOrganizations.find(
-                                                                            (org) => org.id === team.organization
-                                                                        )?.name
-                                                                    }
-                                                                </span>
-                                                                <span className="text-secondary mx-1">/</span>
-                                                                <span className="flex-1 font-semibold">
-                                                                    {team.name}
-                                                                </span>
-                                                            </span>
-                                                        ) : (
-                                                            <span>{team.name}</span>
-                                                        )}
-                                                    </Tooltip>
-                                                ),
-                                            })) ?? []
-                                        }
-                                        loading={allTeamsLoading}
-                                        placeholder="Select projects..."
-                                    />
-                                )}
-                            </LemonField>
-                        </>
-                    ) : null}
-
+                    <ScopeAccessSelector
+                        accessType={editingKey.access_type}
+                        organizations={allOrganizations}
+                        teams={allTeams ?? undefined}
+                    />
                     <div className="flex items-center justify-between mt-4 mb-2">
                         <LemonLabel>Scopes</LemonLabel>
                         <LemonField name="preset">
@@ -239,7 +123,7 @@ function EditKeyModal(): JSX.Element {
                                     </LemonBanner>
                                 ) : (
                                     <div>
-                                        {APIScopes.map(
+                                        {API_SCOPES.map(
                                             ({ key, disabledActions, warnings, disabledWhenProjectScoped, info }) => {
                                                 const disabledDueToProjectScope =
                                                     disabledWhenProjectScoped && editingKey.access_type === 'teams'
