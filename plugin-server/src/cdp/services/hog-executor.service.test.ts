@@ -1014,10 +1014,7 @@ describe('Hog Executor', () => {
         })
 
         it('handles failure status and retries', async () => {
-            let attempts = 0
-
             mockRequest.mockImplementation((req: any, res: any) => {
-                attempts++
                 res.writeHead(500, { 'Content-Type': 'text/plain' })
                 res.end('test server error body')
             })
