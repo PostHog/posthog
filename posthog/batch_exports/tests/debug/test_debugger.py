@@ -238,7 +238,6 @@ def test_debugger_get_latest_run(team):
     latest = bedbg.get_latest_run(status="failed")
     assert latest == failed_runs[0]
 
-    failed_runs = [run for run in runs if run.status == BatchExportRun.Status.FAILED]
     failed_runs.sort(key=get_created_at, reverse=True)
 
     latest = bedbg.get_latest_run(status="failed", order_by="created_at")
