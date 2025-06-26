@@ -1,4 +1,4 @@
-import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconChevronLeft, IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -117,9 +117,9 @@ export function PanelLayoutPanel({
                             data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
                         >
                             {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-[14px] text-tertiary" />
+                                <IconPinFilled className="size-3 text-tertiary" />
                             ) : (
-                                <IconPin className="size-[14px] text-tertiary" />
+                                <IconPin className="size-3 text-tertiary" />
                             )}
                         </ButtonPrimitive>
                     )}
@@ -135,7 +135,7 @@ export function PanelLayoutPanel({
                         iconOnly
                         data-attr="tree-panel-close-panel-button"
                     >
-                        <IconX className="text-tertiary size-4" />
+                        <IconChevronLeft className="text-tertiary size-3" />
                     </ButtonPrimitive>
                 </div>
             </div>

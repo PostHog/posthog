@@ -733,8 +733,9 @@ export function ProjectTree({
                                 tooltip="New root folder"
                                 iconOnly
                                 data-attr="tree-panel-new-root-folder-button"
+                                size="sm"
                             >
-                                <IconFolderPlus className="text-tertiary" />
+                                <IconFolderPlus className="text-tertiary size-3" />
                             </ButtonPrimitive>
                         ) : null}
 
@@ -744,8 +745,9 @@ export function ProjectTree({
                                 tooltip="Enable multi-select"
                                 iconOnly
                                 data-attr="tree-panel-enable-multi-select-button"
+                                size="sm"
                             >
-                                <IconCheckbox className="text-tertiary size-4" />
+                                <IconCheckbox className="text-tertiary size-3" />
                             </ButtonPrimitive>
                         ) : (
                             <>
@@ -757,6 +759,7 @@ export function ProjectTree({
                                         }}
                                         tooltip="Clear selected and disable multi-select"
                                         data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
+                                        size="sm"
                                     >
                                         <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                                     </ButtonPrimitive>
@@ -766,8 +769,9 @@ export function ProjectTree({
                                         tooltip="Disable multi-select"
                                         iconOnly
                                         data-attr="tree-panel-disable-multi-select-button"
+                                        size="sm"
                                     >
-                                        <IconX className="text-tertiary size-4" />
+                                        <IconX className="text-tertiary size-3" />
                                     </ButtonPrimitive>
                                 )}
                             </>
@@ -783,7 +787,7 @@ export function ProjectTree({
                 data-attr="tree-panel-switch-view-button"
             >
                 <IconChevronRight
-                    className={cn('size-4', {
+                    className={cn('size-3', {
                         'rotate-180': projectTreeMode === 'table',
                         'rotate-0': projectTreeMode === 'tree',
                     })}
