@@ -363,13 +363,10 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderTransformationsModalOpen) {
-            const orders = enabledTransformations.reduce(
-                (acc, transformation) => ({
-                    ...acc,
-                    [transformation.hog_function.id]: transformation.hog_function.execution_order || 0,
-                }),
-                {} as Record<string, number>
-            )
+            const orders = enabledTransformations.reduce((acc, transformation) => {
+                acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
+                return acc
+            }, {} as Record<string, number>)
             setInitialOrders(orders)
         }
     }, [reorderTransformationsModalOpen, enabledTransformations])
@@ -393,10 +390,7 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
 
             const newTemporaryOrder = newSortedDestinations.reduce((acc, destination, index) => {
                 if (destination.hog_function?.id) {
-                    return {
-                        ...acc,
-                        [destination.hog_function.id]: index + 1,
-                    }
+                    acc[destination.hog_function.id] = index + 1
                 }
                 return acc
             }, {} as Record<string, number>)
@@ -410,10 +404,7 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
         const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
             const originalOrder = initialOrders[id]
             if (originalOrder !== newOrder) {
-                return {
-                    ...acc,
-                    [id]: newOrder,
-                }
+                acc[id] = newOrder
             }
             return acc
         }, {} as Record<string, number>)

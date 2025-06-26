@@ -341,7 +341,7 @@ order by count() desc
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Something went wrong when trying to select a file.')
             }
 

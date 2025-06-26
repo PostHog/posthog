@@ -17,14 +17,11 @@
         "common/hogvm/__tests__/__snapshots__"
     ],
     "rules": {
-        "no-useless-spread": "off",
-        "no-useless-fallback-in-spread": "off",
         "no-constant-condition": "off",
         "no-prototype-builtins": "off",
         "no-irregular-whitespace": "off",
         "require-await": "off",
         "no-await-in-loop": "off",
-        "no-accumulating-spread": "off",
         "react/prop-types": "off",
         "react/react-in-jsx-scope": "off",
         "react/no-unescaped-entities": "off",
@@ -34,12 +31,15 @@
         "@typescript-eslint/ban-ts-comment": "off",
         "@typescript-eslint/no-explicit-any": "off",
         "no-unused-vars": [
-            "off",
+            "error",
             {
                 "ignoreRestSiblings": true,
                 "destructuredArrayIgnorePattern": "^_$"
             }
         ],
+        "no-useless-spread": "error",
+        "no-accumulating-spread": "error",
+        "no-useless-fallback-in-spread": "error",
         "react-hooks/exhaustive-deps": "warn",
         "no-else-return": "warn",
         "react-hooks/rules-of-hooks": "error",

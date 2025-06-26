@@ -4,10 +4,9 @@ import { useActions } from 'kea'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-
-import { experimentLogic } from '../../experimentLogic'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export const MetricHeader = ({
     metricIndex,
@@ -36,7 +35,7 @@ export const MetricHeader = ({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-    } = useActions(experimentLogic)
+    } = useActions(modalsLogic)
 
     return (
         <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
