@@ -656,11 +656,7 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
                 cast_column_decimal = pc.cast(column_data, decimal128_type)
                 new_fields.append(field.with_type(decimal128_type))
                 new_columns.append(cast_column_decimal)
-            except Exception as e:
-                logger.ainfo(
-                    f"Could not to cast column {field.name} to decimal128 type {decimal128_type}: {e} on 1st try"
-                )
-
+            except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
                 string_column = pc.cast(column_data, pa.string())
                 truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
