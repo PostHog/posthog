@@ -893,13 +893,6 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         betaSource: true,
     },
-    MetaAds: {
-        name: 'MetaAds',
-        label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
     MongoDB: {
         name: 'MongoDB',
         label: 'MongoDB',
@@ -918,6 +911,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: 'mongodb://username:password@host:port/database?authSource=admin',
             },
         ],
+        betaSource: true,
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
+        caption: '',
+        fields: [],
+        unreleasedSource: true,
     },
     Klaviyo: {
         name: 'Klaviyo',
