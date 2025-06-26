@@ -287,7 +287,7 @@ def migration_0545_migrate_insight_filters_to_query(apps, schema_editor):
 
     logger = logging.getLogger(__name__)
     insights = Insight.objects.filter(Q(filters__insight__isnull=False) & Q(query__kind__isnull=True))
-    migrated_at = datetime.now()
+    migrated_at = datetime.datetime.now()
 
     for insight in insights.iterator(chunk_size=100):
         try:
@@ -3172,9 +3172,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={
-                "unique_together": {("team", "name")},
-            },
         ),
         migrations.AddField(
             model_name="dashboard",
@@ -6594,34 +6591,6 @@ class Migration(migrations.Migration):
             name="external_data_workspace_last_synced_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='\n                    SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id"; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" DROP NOT NULL;\n                    ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        SET CONSTRAINTS "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" IMMEDIATE;\n                        ALTER TABLE "posthog_experiment" DROP CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id";\n                        ALTER TABLE "posthog_experiment" ALTER COLUMN "created_by_id" SET NOT NULL;\n                        ALTER TABLE "posthog_experiment" ADD CONSTRAINT "posthog_experiment_created_by_id_b40aea95_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id"; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" DROP NOT NULL;\n                    ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        SET CONSTRAINTS "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" IMMEDIATE;\n                        ALTER TABLE "posthog_featureflag" DROP CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id";\n                        ALTER TABLE "posthog_featureflag" ALTER COLUMN "created_by_id" SET NOT NULL;\n                        ALTER TABLE "posthog_featureflag" ADD CONSTRAINT "posthog_featureflag_created_by_id_4571fe1a_fk_posthog_user_id" FOREIGN KEY ("created_by_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED NOT VALID;\n                        -- existing-table-constraint-ignore\n                    ',
-                ),
-            ],
-            state_operations=[
-                migrations.AlterField(
-                    model_name="experiment",
-                    name="created_by",
-                    field=models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-                migrations.AlterField(
-                    model_name="featureflag",
-                    name="created_by",
-                    field=models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-            ],
-        ),
         migrations.AlterField(
             model_name="action",
             name="created_by",
@@ -7321,9 +7290,7 @@ class Migration(migrations.Migration):
                 ("updated_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "created_by",
-                    models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
+                    models.ForeignKey(on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
@@ -9649,6 +9616,22 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
+            name="UserGroup",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
+                ("name", models.TextField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+            ],
+            options={
+                "abstract": False,
+            },
+        ),
+        migrations.CreateModel(
             name="ErrorTrackingIssueAssignment",
             fields=[
                 (
@@ -9660,18 +9643,27 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "issue",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingissue"),
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignment",
+                        to="posthog.errortrackingissue",
+                    ),
                 ),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
+                (
+                    "user",
+                    models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
+                (
+                    "user_group",
+                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"),
+                ),
             ],
         ),
         migrations.AddConstraint(
             model_name="errortrackingissuefingerprintv2",
             constraint=models.UniqueConstraint(fields=("team", "fingerprint"), name="unique_fingerprint_for_team"),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingissueassignment",
-            constraint=models.UniqueConstraint(fields=("issue", "user"), name="unique_on_user_and_issue"),
         ),
         migrations.AlterField(
             model_name="dashboardtemplate",
@@ -10127,22 +10119,6 @@ class Migration(migrations.Migration):
             field=models.BooleanField(blank=True, default=False, null=True),
         ),
         migrations.CreateModel(
-            name="UserGroup",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                    ),
-                ),
-                ("name", models.TextField()),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-            ],
-            options={
-                "abstract": False,
-            },
-        ),
-        migrations.CreateModel(
             name="UserGroupMembership",
             fields=[
                 (
@@ -10171,55 +10147,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="usergroupmembership",
             constraint=models.UniqueConstraint(fields=("group", "user"), name="unique_per_user_per_group"),
-        ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='\n                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "unique_on_user_and_issue";\n                    ',
-                    reverse_sql='\n                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "unique_on_user_and_issue" UNIQUE ("issue_id", "user_id");\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    ALTER TABLE "posthog_errortrackingissueassignment" ADD COLUMN "user_group_id" uuid NULL CONSTRAINT "posthog_errortrackin_user_group_id_459a0006_fk_posthog_u" REFERENCES "posthog_usergroup"("id") DEFERRABLE INITIALLY DEFERRED;\n                    SET CONSTRAINTS "posthog_errortrackin_user_group_id_459a0006_fk_posthog_u" IMMEDIATE;\n                    ',
-                    reverse_sql='\n                        ALTER TABLE "posthog_errortrackingissueassignment" DROP COLUMN "user_group_id" CASCADE;\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE;\n                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";\n                    DROP INDEX IF EXISTS "posthog_errortrackingissueassignment_issue_id_d9cce9cb";\n                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackingissueassignment_issue_id_d9cce9cb_uniq" UNIQUE ("issue_id"); -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        SET CONSTRAINTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" IMMEDIATE;\n                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";\n                        CREATE INDEX "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");\n                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE;\n                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u";\n                    ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" DROP NOT NULL;\n                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        SET CONSTRAINTS "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" IMMEDIATE;\n                        ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u";\n                        ALTER TABLE "posthog_errortrackingissueassignment" ALTER COLUMN "user_id" SET NOT NULL;\n                        ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_user_id_83f2e696_fk_posthog_u" FOREIGN KEY ("user_id") REFERENCES "posthog_user" ("id") DEFERRABLE INITIALLY DEFERRED;\n                    ',
-                ),
-            ],
-            state_operations=[
-                migrations.RemoveConstraint(
-                    model_name="errortrackingissueassignment",
-                    name="unique_on_user_and_issue",
-                ),
-                migrations.AddField(
-                    model_name="errortrackingissueassignment",
-                    name="user_group",
-                    field=models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"
-                    ),
-                ),
-                migrations.AlterField(
-                    model_name="errortrackingissueassignment",
-                    name="issue",
-                    field=models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="assignment",
-                        to="posthog.errortrackingissue",
-                    ),
-                ),
-                migrations.AlterField(
-                    model_name="errortrackingissueassignment",
-                    name="user",
-                    field=models.ForeignKey(
-                        null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-            ],
         ),
         migrations.AlterField(
             model_name="batchexportdestination",
@@ -10831,20 +10758,6 @@ class Migration(migrations.Migration):
                 ],
                 default="active",
             ),
-        ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql="ALTER TABLE posthog_eventdefinition DROP CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq",
-                    reverse_sql="ALTER TABLE posthog_eventdefinition ADD CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq UNIQUE (team_id, name)",
-                ),
-            ],
-            state_operations=[
-                migrations.AlterUniqueTogether(
-                    name="eventdefinition",
-                    unique_together=set(),
-                ),
-            ],
         ),
         migrations.AlterField(
             model_name="featureflag",
