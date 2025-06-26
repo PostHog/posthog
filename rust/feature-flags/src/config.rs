@@ -296,7 +296,7 @@ mod tests {
         );
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
-        assert_eq!(config.flags_session_replay_quota_check, false);
+        assert!(!config.flags_session_replay_quota_check);
     }
 
     #[test]

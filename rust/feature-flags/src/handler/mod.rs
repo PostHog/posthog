@@ -18,7 +18,6 @@ use crate::{
     flags::flag_service::FlagService,
     metrics::consts::FLAG_REQUESTS_COUNTER,
 };
-use limiters::redis::ServiceName;
 use tracing::{info, warn};
 
 /// Primary entry point for feature flag requests.
