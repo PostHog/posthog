@@ -260,8 +260,6 @@ describe('CdpCyclotronWorker', () => {
 
                 const total = timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
 
-                console.log('timings', timings)
-
                 // Timings is semi random so we can't test for exact values
                 expect(total).toBeGreaterThan(200 * numberToTest)
                 expect(total).toBeLessThan(300 * numberToTest) // the hog exec limiter isn't exact
