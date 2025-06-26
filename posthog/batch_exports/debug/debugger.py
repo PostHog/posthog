@@ -257,13 +257,11 @@ class BatchExportsDebugger:
         self,
         batch_export_run: BatchExportRun,
     ) -> collections.abc.Generator[pa.Table, None, None]:
-        include_events = batch_export_run.batch_export.destination.config["include_events"]
-        exclude_events = batch_export_run.batch_export.destination.config["exclude_events"]
-        parameters = {
-            "include_events": include_events,
-            "exclude_events": exclude_events,
-        }
         team_id = batch_export_run.batch_export.team.id
+        full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
+        parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}
+        if full_range[0]:
+            parameters["interval_start"] = full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f")
 
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.batch_export.filters
@@ -275,7 +273,6 @@ class BatchExportsDebugger:
         else:
             filters_str, extra_query_parameters = "", extra_query_parameters
 
-        full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         is_backfill = batch_export_run.backfill is not None
 
         if batch_export_run.batch_export.model == BatchExport.Model.PERSONS:
@@ -284,12 +281,12 @@ class BatchExportsDebugger:
             else:
                 query = SELECT_FROM_PERSONS
         else:
-            if parameters.get("exclude_events", exclude_events):
+            if batch_export_run.batch_export.destination.config.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])
             else:
                 parameters["exclude_events"] = []
 
-            if parameters.get("include_events", include_events):
+            if batch_export_run.batch_export.destination.config.get("include_events", None):
                 parameters["include_events"] = list(parameters["include_events"])
             else:
                 parameters["include_events"] = []
@@ -341,7 +338,6 @@ class BatchExportsDebugger:
 
             query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
 
-        parameters["team_id"] = team_id
         parameters = {**parameters, **extra_query_parameters}
 
         for record_batch in self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters):
