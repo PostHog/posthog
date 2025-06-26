@@ -16,6 +16,9 @@ import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneLayout } from '../scenes/SceneLayout'
 
 export function Navigation({
     children,
@@ -28,6 +31,9 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const useMinimalSceneLayout = featureFlags[FEATURE_FLAGS.MINIMAL_SCENE_LAYOUT]
 
     if (mode !== 'full') {
         return (
@@ -54,25 +60,33 @@ export function Navigation({
             <PanelLayout mainRef={mainRef} />
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
-                {/* {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <SceneHeader />} */}
-                {/* {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />} */}
-                <div
-                    className={clsx(
-                        'Navigation3000__scene',
-                        // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                        sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
-                        sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
-                    )}
-                >
-                    {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                        <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                            {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                            {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                        </div>
-                    )}
 
-                    {children}
-                </div>
+                {useMinimalSceneLayout ? (
+                    <SceneLayout showHeader={sceneConfig?.layout !== 'app-raw-no-header'}>
+                        {children}
+                    </SceneLayout>
+                ) : (
+                    <>
+                        {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
+                        <div
+                            className={clsx(
+                                'Navigation3000__scene',
+                                // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
+                                sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
+                                sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
+                            )}
+                        >
+                            {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                                </div>
+                            )}
+
+                            {children}
+                        </div>
+                    </>
+                )}
             </main>
             <SidePanel />
             <CommandBar />

@@ -18,6 +18,7 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
 import { SceneLayout } from '~/layout/scenes/SceneLayout'
+import { useEffect } from 'react'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
@@ -65,7 +66,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <SceneLayout className="Insight">
+            <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {dashboardOverridesExist && (
@@ -103,7 +104,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                     filtersOverride={filtersOverride}
                     variablesOverride={variablesOverride}
                 />
-            </SceneLayout>
+            </div>
         </BindLogic>
     )
 }

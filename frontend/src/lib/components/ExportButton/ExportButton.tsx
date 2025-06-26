@@ -7,6 +7,9 @@ import { forwardRef } from 'react'
 import { ExporterFormat, OnlineExportContext } from '~/types'
 
 import { TriggerExportProps } from './exporter'
+import { DropdownMenu, DropdownMenuItem, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { IconDownload, IconShare } from '@posthog/icons'
 
 export interface ExportButtonItem {
     title?: string | React.ReactNode
@@ -32,58 +35,47 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
         }
 
         return (
-            <LemonButtonWithDropdown
-                ref={ref}
-                data-attr="export-button"
-                {...buttonProps}
-                dropdown={{
-                    actionable: true,
-                    placement: 'right-start',
-                    closeParentPopoverOnClickInside: true,
-                    overlay: (
-                        <>
-                            <h5>File type</h5>
-                            <LemonDivider />
-                            {items.map(({ title, ...triggerExportProps }, i) => {
-                                const exportFormatExtension = Object.keys(ExporterFormat)
-                                    .find((key) => ExporterFormat[key as any] === triggerExportProps.export_format)
-                                    ?.toLowerCase()
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive fullWidth>
+                        <IconShare />
+                        Export
+                        <DropdownMenuOpenIndicator />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    {items.map(({ title, ...triggerExportProps }, i) => {
+                        const exportFormatExtension = Object.keys(ExporterFormat)
+                            .find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === triggerExportProps.export_format)
+                            ?.toLowerCase()
 
-                                let target: string
-                                let exportBody: string = ''
-                                if (triggerExportProps.insight) {
-                                    target = `insight-${triggerExportProps.insight}`
-                                } else if (triggerExportProps.dashboard) {
-                                    target = `dashboard-${triggerExportProps.dashboard}`
-                                } else if ('path' in (triggerExportProps.export_context || {})) {
-                                    target =
-                                        (triggerExportProps.export_context as OnlineExportContext)?.path || 'unknown'
-                                    exportBody =
-                                        (triggerExportProps.export_context as OnlineExportContext)?.body || 'unknown'
-                                } else {
-                                    target = 'unknown'
-                                }
-
-                                return (
-                                    <LemonButton
-                                        key={i}
-                                        fullWidth
-                                        onClick={() => void onExportClick(triggerExportProps)}
-                                        data-attr={`export-button-${exportFormatExtension}`}
-                                        data-ph-capture-attribute-export-target={target}
-                                        data-ph-capture-attribute-export-body={
-                                            exportBody.length ? JSON.stringify(exportBody) : null
-                                        }
-                                    >
-                                        {title ? title : `.${exportFormatExtension}`}
-                                    </LemonButton>
-                                )
-                            })}
-                        </>
-                    ),
-                }}
-            >
-                {buttonCopy ?? 'Export'}
-            </LemonButtonWithDropdown>
+                        let target: string
+                        let exportBody: string = ''
+                        if (triggerExportProps.insight) {
+                            target = `insight-${triggerExportProps.insight}`
+                        } else if (triggerExportProps.dashboard) {
+                            target = `dashboard-${triggerExportProps.dashboard}`
+                        } else if ('path' in (triggerExportProps.export_context || {})) {
+                            target =
+                                (triggerExportProps.export_context as OnlineExportContext)?.path || 'unknown'
+                            exportBody =
+                                (triggerExportProps.export_context as OnlineExportContext)?.body || 'unknown'
+                        } else {
+                            target = 'unknown'
+                        }
+                        return <DropdownMenuItem key={i} asChild>
+                            <ButtonPrimitive 
+                                fullWidth 
+                                data-attr={`export-button-${exportFormatExtension}`} 
+                                data-ph-capture-attribute-export-target={target} 
+                                data-ph-capture-attribute-export-body={exportBody.length ? JSON.stringify(exportBody) : null}
+                                onClick={() => void onExportClick(triggerExportProps)}
+                            >
+                                <IconDownload/> {title ? title : `.${exportFormatExtension}`}
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    })}
+                </DropdownMenuContent>
+            </DropdownMenu>
         )
     })

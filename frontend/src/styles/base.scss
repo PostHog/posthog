@@ -437,6 +437,10 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-danger-highlight-5: color-mix(in oklab, var(--color-red-500) 5%, transparent);
+    --bg-fill-danger-highlight-10: color-mix(in oklab, var(--color-red-500) 10%, transparent);
+    --bg-fill-danger-highlight-15: color-mix(in oklab, var(--color-red-500) 15%, transparent);
+    --bg-fill-danger-highlight-20: color-mix(in oklab, var(--color-red-500) 20%, transparent);
     --bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
     --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
     --bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
@@ -472,6 +476,8 @@
     --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
+    --bg-fill-button-danger-hover: var(--bg-fill-danger-highlight-10);
+    --bg-fill-button-danger-active: var(--bg-fill-danger-highlight-5);
 
     // Inputs
     --bg-fill-input: var(--color-white);
@@ -546,6 +552,7 @@
     --breakpoint-lg: 992px;
     --breakpoint-xl: 1200px;
     --breakpoint-xxl: 1600px;
+    --scene-layout-panel-static: 830px;
 
     // Brand colors
     // //////////////////////////////////////////////////////////

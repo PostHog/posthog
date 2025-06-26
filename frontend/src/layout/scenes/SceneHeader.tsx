@@ -1,289 +1,239 @@
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import './SceneHeader.scss'
+
+import { IconChevronDown, IconX } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
+import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
+import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
-import { TextInputPrimitive } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { CSSProperties, ReactNode, useEffect, useRef, useState } from 'react'
-import { urls } from 'scenes/urls'
+import React, { useState } from 'react'
 
-import { SceneHeaderChildItemProps, SceneHeaderItemProps, sceneHeaderLogic } from './sceneHeaderLogic'
-import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 
-function renderChildItem(item: SceneHeaderChildItemProps): JSX.Element {
-    if (item.type === 'link') {
-        return (
-            <DropdownMenuItem asChild key={item.id}>
-                <Link
-                    to={item.to}
-                    buttonProps={{
-                        menuItem: true,
-                        ...item.buttonProps,
-                    }}
-                    onClick={item.onClick}
-                >
-                    {item.icon}
-                    {item.title}
-                </Link>
-            </DropdownMenuItem>
-        )
-    }
-    if (item.type === 'submenu') {
-        return (
-            <DropdownMenuSub key={item.id}>
-                <DropdownMenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
-                        {item.icon}
-                        {item.title}
-                        <IconChevronRight className="ml-auto size-3 text-tertiary" />
-                    </ButtonPrimitive>
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>{item.children?.map((child) => renderChildItem(child))}</DropdownMenuSubContent>
-            </DropdownMenuSub>
-        )
-    }
-    return (
-        <DropdownMenuItem asChild key={item.id}>
-            <ButtonPrimitive menuItem onClick={item.onClick} {...item.buttonProps}>
-                {item.icon}
-                {item.title}
-            </ButtonPrimitive>
-        </DropdownMenuItem>
-    )
-}
+/** Sync with --breadcrumbs-height-compact. */
+export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
-interface Breadcrumb {
-    name: ReactNode
-    to: string
-    id: string
-    icon?: ReactNode
-    iconColor?: string
-}
-interface SceneHeaderProps {
-    pageTitle: string
-    pageIcon?: ReactNode
-    navItems: SceneHeaderItemProps[]
-    children?: ReactNode
-    pageTitleEditable?: boolean
-    onPageTitleSubmit?: (title: string) => void
-    handlePageTitleSubmit?: (title: string) => void
-    breadcrumbs: Breadcrumb[]
-}
-export function SceneHeader({
-    pageTitle,
-    pageIcon,
-    navItems,
-    children,
-    onPageTitleSubmit,
-    pageTitleEditable = false,
-    handlePageTitleSubmit,
-    breadcrumbs,
-}: SceneHeaderProps): JSX.Element {
-    // const { loadedSceneSettingsSectionId } = useValues(topBarSettingsButtonLogic)
-    // const { openSettingsPanel, closeSettingsPanel } = useActions(sidePanelSettingsLogic)
-    // const { isOpen: isSettingsPanelOpen } = useValues(sidePanelSettingsLogic)
-    // const { fileNewProps } = useValues(sceneHeaderLogic)
-    const { setFileNewContainer } = useActions(sceneHeaderLogic)
-    const headerRef = useRef<HTMLElement>(null)
-    const sentinelRef = useRef<HTMLDivElement>(null)
-    const [isSticky, setIsSticky] = useState(true)
-    const [isPageTitleClicked, setIsPageTitleClicked] = useState(false)
-    const [pageTitleValue, setPageTitleValue] = useState(pageTitle)
-    const pageTitleEditableButtonRef = useRef<HTMLButtonElement>(null)
-    const canSubmitPageTitleForm = pageTitleValue !== pageTitle
-    const fontSizeClass = isSticky ? 'text-[16px]' : 'text-[18px]'
-    // const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
+export function SceneHeader(): JSX.Element | null {
+    const { mobileLayout } = useValues(navigationLogic)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { setActionsContainer } = useActions(breadcrumbsLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
+    // const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    // const { openMoveToModal } = useActions(moveToLogic)
+    // const [compactionRate, setCompactionRate] = useState(0)
+    // const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
+    // const { addShortcutItem } = useActions(projectTreeDataLogic)
+    // Always show in full on mobile, as there we are very constrained in width, but not so much height
+    // const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
+    const isOnboarding = router.values.location.pathname.includes('/onboarding/')
+    // const hasRenameState = !!renameState
 
-    console.log('isSticky', isSticky)
-    console.log('breadcrumbs', breadcrumbs)
+    // useLayoutEffect(() => {
+    //     function handleScroll(): void {
+    //         const mainElement = document.getElementsByTagName('main')[0]
+    //         const mainScrollTop = mainElement.scrollTop
+    //         const compactionDistance = Math.min(
+    //             // This ensures that scrolling to the bottom of the scene will always result in the compact top bar state
+    //             // even if there's just a few pixels of scroll room. Otherwise, the top bar would be halfway-compact then
+    //             mainElement.scrollHeight - mainElement.clientHeight,
+    //             BREADCRUMBS_HEIGHT_COMPACT
+    //         )
+    //         // To avoid flickering effect we need to wait for the element to be visible
+    //         const completionRateTransfer = 0.9
+    //         const newCompactionRate = compactionDistance > 0 ? Math.min(mainScrollTop / compactionDistance, 1) : 0
+    //         setCompactionRate((compactionRate) => {
+    //             if (
+    //                 hasRenameState &&
+    //                 ((newCompactionRate > completionRateTransfer && compactionRate <= completionRateTransfer) ||
+    //                     (newCompactionRate <= completionRateTransfer && compactionRate > completionRateTransfer))
+    //             ) {
+    //                 // Transfer selection from the outgoing input to the incoming one
+    //                 const [source, target] =
+    //                     newCompactionRate > completionRateTransfer ? ['large', 'small'] : ['small', 'large']
+    //                 const sourceEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${source}"]`)
+    //                 const targetEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${target}"]`)
+    //                 if (sourceEl && targetEl) {
+    //                     targetEl.focus()
+    //                     targetEl.setSelectionRange(sourceEl.selectionStart || 0, sourceEl.selectionEnd || 0)
+    //                 }
+    //             }
+    //             return newCompactionRate
+    //         })
+    //     }
 
+    //     const main = document.getElementsByTagName('main')[0]
+    //     main.addEventListener('scroll', handleScroll)
+    //     return () => main.removeEventListener('scroll', handleScroll)
+    // }, [hasRenameState])
 
-    useEffect(() => {
-        const mainContent = document.getElementById('main-content')
-        const sentinel = sentinelRef.current
-
-        if (!mainContent || !sentinel) {
-            return
-        }
-        const observer = new IntersectionObserver(
-            ([entry]) => {
-                setIsSticky(!entry.isIntersecting)
-            },
-            {
-                root: mainContent,
-                threshold: 0,
-                rootMargin: '-5px 0px 0px 0px',
-            }
-        )
-        observer.observe(sentinel)
-
-        return () => {
-            observer.disconnect()
-        }
-    }, [])
-
-    function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
-        e.preventDefault()
-        const data = new FormData(e.target as HTMLFormElement)
-        onPageTitleSubmit?.(data.get('page-title') as string)
-        setIsPageTitleClicked(false)
-        handlePageTitleSubmit?.(data.get('page-title') as string)
-    }
-
-    function handleResetPageTitle(): void {
-        setPageTitleValue(pageTitle)
-        setIsPageTitleClicked(false)
-        setTimeout(() => {
-            pageTitleEditableButtonRef.current?.focus()
-        }, 0)
-    }
-
-    function handlePageTitleInputBlur(): void {
-        if (pageTitleValue !== pageTitle) {
-            handlePageTitleSubmit?.(pageTitleValue)
-        } else {
-            handleResetPageTitle()
-        }
-    }
-
-    function Title(): JSX.Element {
-        console.log('pageTitle', pageTitle)
-        return <h1 className={cn('font-semibold m-0 truncate max-w-[300px]', fontSizeClass)}>{pageTitle}</h1>
-    }
-
-    function RenderPageTitle(): JSX.Element {
-        if (pageTitleEditable && isPageTitleClicked) {
-            return (
-                <form className="flex gap-1 w-full" onSubmit={handleSubmit}>
-                    <TextInputPrimitive
-                        name="page-title"
-                        defaultValue={pageTitleValue}
-                        onChange={(e) => setPageTitleValue(e.target.value)}
-                        className={cn(
-                            buttonPrimitiveVariants(),
-                            'cursor-text font-semibold m-0 min-w-[300px]',
-                            fontSizeClass
-                        )}
-                        autoFocus
-                        onBlur={handlePageTitleInputBlur}
+    return breadcrumbs.length || projectTreeRefEntry ? (
+        <div
+            className={cn(
+                'py-2 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary',
+            )}
+        >
+            <div className="flex items-center gap-2">
+                {mobileLayout && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                        icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                        className="TopBar3000__hamburger"
                     />
-                    <div className="flex gap-px">
-                        <ButtonPrimitive type="submit" disabled={!canSubmitPageTitleForm} iconOnly>
-                            <IconCheck />
-                        </ButtonPrimitive>
-                        <ButtonPrimitive type="button" onClick={handleResetPageTitle} iconOnly>
-                            <IconX />
-                        </ButtonPrimitive>
+                )}
+                <div className="TopBar3000__breadcrumbs">
+                    {breadcrumbs.length > 0 && (
+                        <div className="TopBar3000__trail">
+                            {breadcrumbs.map((breadcrumb, index) => (
+                                <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
+                                    <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
+                                    {index < breadcrumbs.length - 1 && (
+                                        <div className="TopBar3000__separator">
+                                            <IconSlash fontSize="1rem" />
+                                        </div>
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <FlaggedFeature flag="metalytics">
+                    <div className="shrink-1">
+                        <MetalyticsSummary />
                     </div>
-                </form>
-            )
-        }
-        if (pageTitleEditable) {
-            return (
-                <ButtonPrimitive
-                    onClick={() => {
-                        if (pageTitleEditable) {
-                            setIsPageTitleClicked(!isPageTitleClicked)
-                        }
-                    }}
-                    tooltip="Click to edit page title"
-                    tooltipPlacement="top"
-                    ref={pageTitleEditableButtonRef}
-                >
-                    <Title />
-                </ButtonPrimitive>
-            )
-        }
-        return <Title />
+                </FlaggedFeature>
+                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
+                <div className="shrink-1">
+                    <TopBarSettingsButton />
+                </div>
+            </div>
+        </div>
+    ) : null
+}
+
+interface BreadcrumbProps {
+    breadcrumb: IBreadcrumb
+    here?: boolean
+    isOnboarding?: boolean
+}
+
+function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
+    const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const [popoverShown, setPopoverShown] = useState(false)
+
+    const joinedKey = joinBreadcrumbKey(breadcrumb.key)
+
+    const breadcrumbName = isOnboarding && here ? 'Onboarding' : (breadcrumb.name as string)
+
+    let nameElement: JSX.Element
+    if (breadcrumb.symbol) {
+        nameElement = breadcrumb.symbol
+    } else {
+        nameElement = (
+            <span className="flex items-center gap-1.5">
+                {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
+                {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
+            </span>
+        )
     }
 
-    return (
-        <>
-            <div ref={sentinelRef} className="h-px" />
-            <header
-                className={cn('sticky top-0 z-50 py-2 bg-surface-secondary border-b border-primary px-4 -mx-4 mb-4', {
-                    'h-[54px]': isSticky,
-                    'h-[69px]': !isSticky,
-                })}
-                ref={headerRef}
-                style={{
-                    '--product-color': breadcrumbs && breadcrumbs.length ? breadcrumbs[0].iconColor : 'var(--bg-fill-button-tertiary-active)', 
-                } as CSSProperties}
-            >
-                <div className="flex justify-center">
-                    <div className="flex gap-[6px] flex-1 items-center">
-                            <Link
-                                to={breadcrumbs[0].to}
-                                buttonProps={{
-                                    size: 'base',
-                                    className: cn(
-                                        'size-[52px] bg-[var(--product-color)] hover:bg-[var(--product-color)] rounded flex justify-center items-center',
-                                        isSticky && 'size-[30px]'
-                                    ),
-                                }}
-                            >
-                                <span
-                                    className={cn(
-                                        '[&_svg]:fill-white [&_svg]:size-[30px]',
-                                        isSticky && '[&_svg]:size-[20px]'
-                                    )}
-                                >
-                                    {pageIcon}
-                                    </span>
-                            </Link>
-                        <div className={cn('relative flex-col gap-px items-center')}>
-                            {!isSticky && (
-                                <div className="flex items-center gap-1">
-                                    {breadcrumbs.map((breadcrumb, index) => (
-                                        <>
-                                            {index > 0 && <IconChevronRight className="size-3 text-tertiary" />}
-                                            <Link key={breadcrumb.id} to={breadcrumb.to} className="text-sm px-2 text-secondary hover:underline">
-                                                {breadcrumb.name}
-                                            </Link>
-                                        </>
-                                    ))}
-                                </div>
-                            )}
-                            <RenderPageTitle />
-
-                            {/* <ul className={cn('list flex gap-1 w-full flex-row')}>
-                                {navItems.map((item) => (
-                                    <li key={item.id}>
-                                        {navItems.length > 0 && (
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <ButtonPrimitive>{item.title}</ButtonPrimitive>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent
-                                                    loop
-                                                    align="start"
-                                                    side="bottom"
-                                                    className="max-w-[250px]"
-                                                    ref={setFileNewContainer}
-                                                >
-                                                    {item.children?.map((child) => renderChildItem(child))}
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        )}
-                                    </li>
-                                ))}
-                            </ul> */}
-                        </div>
-                    </div>
-                    <div className="flex-1 flex justify-end items-center">
-                        {children}
-                    </div>
-                </div>
-            </header>
-        </>
+    const isProjectTreeFolder = Boolean(
+        breadcrumb.name && breadcrumb.path && 'type' in breadcrumb && breadcrumb.type === 'folder'
     )
+
+    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'div'
+    const breadcrumbContent = (
+        <Component
+            onClick={() => {
+                breadcrumb.popover && setPopoverShown(!popoverShown)
+                if (isProjectTreeFolder && breadcrumb.path) {
+                    assureVisibility({ type: 'folder', ref: breadcrumb.path })
+                    showLayoutPanel(true)
+                    setActivePanelIdentifier('Project')
+                }
+            }}
+            data-attr={`breadcrumb-${joinedKey}`}
+            to={breadcrumb.path}
+            className={cn(
+                'text-secondary text-base',
+                {
+                    'font-bold': here,
+                }
+            )}
+        >
+            {nameElement}
+            {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}
+        </Component>
+    )
+
+    return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
+}
+
+interface HereProps {
+    breadcrumb: IBreadcrumb
+    isOnboarding?: boolean
+}
+
+function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
+    // const { renameState } = useValues(breadcrumbsLogic)
+    // const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+
+    // const joinedKey = joinBreadcrumbKey(breadcrumb.key)
+    const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
+
+    return (
+        <h1 className="TopBar3000__here" data-attr="top-bar-name">
+            {breadcrumb.name == null ? (
+                <LemonSkeleton className="w-40 h-4" />
+            // ) : breadcrumb.onRename ? (
+            //     <EditableField
+            //         name="item-name-large"
+            //         value={renameState && renameState[0] === joinedKey ? renameState[1] : hereName}
+            //         onChange={(newName) => {
+            //             tentativelyRename(joinedKey, newName)
+            //             if (breadcrumb.forceEditMode) {
+            //                 // In this case there's no "Save" button, we update on input
+            //                 void breadcrumb.onRename?.(newName)
+            //             }
+            //         }}
+            //         onSave={(newName) => {
+            //             void breadcrumb.onRename?.(newName)
+            //         }}
+            //         mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
+            //         onModeToggle={(newMode) => {
+            //             if (newMode === 'edit') {
+            //                 tentativelyRename(joinedKey, hereName)
+            //             } else {
+            //                 finishRenaming()
+            //             }
+            //         }}
+            //         saveOnBlur={breadcrumb.forceEditMode}
+            //         placeholder="Unnamed"
+            //         compactButtons="xsmall"
+            //         editingIndication="underlined"
+            //         autoFocus
+            //     />
+            ) : (
+                <span>{hereName}</span>
+            )}
+        </h1>
+    )
+}
+
+function joinBreadcrumbKey(key: IBreadcrumb['key']): string {
+    return Array.isArray(key) ? key.map(String).join(':') : String(key)
 }

@@ -21,6 +21,7 @@ import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
 import { panelLayoutLogic } from './panelLayoutLogic'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 export function OrganizationDropdownMenu(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -61,7 +62,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}
                                 </span>
-                                <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                                <DropdownMenuOpenIndicator />
                             </>
                         )}
                     </ButtonPrimitive>

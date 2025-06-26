@@ -414,10 +414,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }
                     }}
                     initialMaxPrompt="Show me users who "
-                    className="EditorFiltersWrapper"
+                    className="EditorFiltersWrapper @container/editor-filters"
                 >
                     <div
-                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                        className={clsx('flex flex-col @[var(--scene-layout-panel-static)]/editor-filters:flex-row flex-wrap gap-8 bg-surface-primary', {
                             'p-4 rounded border': !embedded,
                         })}
                     >

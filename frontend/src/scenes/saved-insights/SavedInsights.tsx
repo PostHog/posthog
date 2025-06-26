@@ -56,8 +56,6 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneHeader } from '~/layout/scenes/SceneHeader'
-import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
@@ -72,6 +70,7 @@ import {
 
 import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -747,10 +746,10 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneLayout
+        <div
             className="saved-insights"
         >
-            <SceneHeader
+            {/* <SceneHeader
                 pageTitle="Insights"
                 pageIcon={<IconGraph />}
                 pageTitleEditable={true}
@@ -805,8 +804,8 @@ export function SavedInsights(): JSX.Element {
                 ]}
             >
                 <NewInsightButton dataAttr="saved-insights-create-new-insight" />
-            </SceneHeader>
-            {/* <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} /> */}
+            </SceneHeader> */}
+            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
 
             <LemonTabs
                 activeKey={tab}
@@ -890,6 +889,6 @@ export function SavedInsights(): JSX.Element {
                     )}
                 </>
             )}
-        </SceneLayout>
+        </div>
     )
 }
