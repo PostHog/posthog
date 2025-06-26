@@ -10,11 +10,8 @@ describe('reddit template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('works with single product event', async () => {
