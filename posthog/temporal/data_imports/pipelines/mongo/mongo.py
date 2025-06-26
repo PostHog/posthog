@@ -378,11 +378,9 @@ def mongo_source(
                 for key, value in doc.items():
                     if isinstance(value, ObjectId):
                         processed_doc[key] = str(value)
-                    elif isinstance(value, dict):
+                    elif isinstance(value, dict) or isinstance(value, list):
                         # Keep nested objects as they are, but convert ObjectIds within them
                         processed_doc[key] = _process_nested_value(value)
-                    elif isinstance(value, list):
-                        processed_doc[key] = [_process_nested_value(item) for item in value]
                     else:
                         processed_doc[key] = value
 
