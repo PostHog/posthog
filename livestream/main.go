@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/labstack/echo-contrib/echoprometheus"
@@ -13,8 +16,10 @@ import (
 	"github.com/posthog/posthog/livestream/events"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/handlers"
+	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 )
 
 func main() {
@@ -25,6 +30,20 @@ func main() {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Handle shutdown gracefully and set up OpenTelemetry
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	otelShutdown, err := metrics.SetupOTelSDK(ctx, &config.Otel)
+	if err != nil {
+		log.Fatalf("failed to initialize OpenTelemetry SDK: %v", err)
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			log.Printf("Error shutting down OpenTelemetry SDK: %v", err)
+		}
+	}()
 
 	geolocator, err := geo.NewMaxMindGeoLocator(config.MMDB.Path)
 	if err != nil {
@@ -60,6 +79,7 @@ func main() {
 	e := echo.New()
 
 	// Middleware
+	e.Use(otelecho.Middleware("livestream"))
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{

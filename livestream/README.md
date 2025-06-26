@@ -30,9 +30,20 @@ curl https://mmdbcdn.posthog.net/ | brotli -d > mmdb.db
 
 Config the configs in `configs/config.yml`. You can take a peak at the examples in `configs/configs.example.yml`
 
+### Create Kafka Topic
+
+Before running the application, ensure the Kafka topic specified in your `configs/configs.yml` (default is `topic`) exists in Redpanda.
+You can create it using the `rpk` command by exec-ing into the Redpanda container. Make sure your Docker Compose services are running (e.g., `docker compose up -d redpanda` or `docker compose up` in a separate terminal).
+
+```bash
+docker compose exec redpanda rpk topic create <yourTopicNameFromConfig>
+```
+
 Run it!
 
 ```bash
+docker compose up -d 
+docker compose exec redpanda rpk topic create <yourTopicNameFromConfig>
 go run .
 ```
 
