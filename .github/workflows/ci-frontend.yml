@@ -103,69 +103,6 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js -f github
 
-    frontend-build-and-typegen:
-        name: Frontend build and typegen
-        needs: changes
-        runs-on: depot-ubuntu-24.04-8 # kea typegen needs a lot of oomph
-        steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-            - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
-
-            - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
-              with:
-                  node-version: 18.12.1
-                  cache: 'pnpm'
-
-            - name: Get pnpm cache directory path
-              if: needs.changes.outputs.frontend == 'true'
-              id: pnpm-cache-dir
-              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              if: needs.changes.outputs.frontend == 'true'
-              id: pnpm-cache
-              with:
-                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-pnpm-cypress-
-
-            - name: Cache .typegen
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-typegen-
-
-            - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Build products
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend build:products
-
-            - name: Kea typegen
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend typegen:write
-
-            - name: Upload frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              with:
-                  name: frontend-build
-                  path: |
-                      **/*Type.ts
-                      frontend/src/products.tsx
-                  retention-days: 1
-
     frontend-toolbar-checks:
         name: Frontend toolbar checks
         needs: [changes]
@@ -224,16 +161,10 @@ jobs:
 
     frontend-typescript-checks:
         name: Frontend typechecking
-        needs: [changes, frontend-build-and-typegen]
-        runs-on: depot-ubuntu-24.04
+        needs: [changes]
+        runs-on: depot-ubuntu-24.04-8
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-            - name: Download frontend build artifacts
-              if: needs.changes.outputs.frontend == 'true'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
-              with:
-                  name: frontend-build
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -264,6 +195,22 @@ jobs:
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Cache .typegen
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-typegen-
+
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Kea typegen
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typegen:write
 
             - name: Run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
