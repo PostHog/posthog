@@ -993,8 +993,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
 
             connection_params = _parse_connection_string(connection_string)
-        except Exception as e:
-            raise Exception(f"Invalid connection string: {str(e)}")
+        except Exception:
+            raise Exception(f"Invalid connection string")
 
         if not connection_params.get("database"):
             raise Exception("Database name is required in connection string")
@@ -1540,10 +1540,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": "No collections found in database"},
                     )
-            except MongoOperationFailure as e:
+            except MongoOperationFailure:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"MongoDB authentication failed: {str(e)}"},
+                    data={"message": f"MongoDB authentication failed"},
                 )
             except Exception as e:
                 capture_exception(e)
