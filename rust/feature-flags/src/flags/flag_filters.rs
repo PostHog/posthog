@@ -7,19 +7,19 @@ use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
 impl FlagFilters {
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
         self.aggregation_group_type_index.is_some()
-            || requires_db_properties(Some(&self.groups), overrides)
-            || requires_db_properties(self.super_groups.as_ref(), overrides)
-            || requires_db_properties(self.holdout_groups.as_ref(), overrides)
+            || any_group_requires_db_properties(Some(&self.groups), overrides)
+            || any_group_requires_db_properties(self.super_groups.as_ref(), overrides)
+            || any_group_requires_db_properties(self.holdout_groups.as_ref(), overrides)
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
-        requires_cohort_filters(Some(&self.groups))
-            || requires_cohort_filters(self.super_groups.as_ref())
-            || requires_cohort_filters(self.holdout_groups.as_ref())
+        any_group_requires_cohort_filters(Some(&self.groups))
+            || any_group_requires_cohort_filters(self.super_groups.as_ref())
+            || any_group_requires_cohort_filters(self.holdout_groups.as_ref())
     }
 }
 
-fn requires_db_properties(
+fn any_group_requires_db_properties(
     groups: Option<&Vec<FlagPropertyGroup>>,
     overrides: &HashMap<String, Value>,
 ) -> bool {
@@ -30,7 +30,7 @@ fn requires_db_properties(
     })
 }
 
-fn requires_cohort_filters(groups: Option<&Vec<FlagPropertyGroup>>) -> bool {
+fn any_group_requires_cohort_filters(groups: Option<&Vec<FlagPropertyGroup>>) -> bool {
     groups.map_or(false, |groups| {
         groups.iter().any(|group| group.requires_cohort_filters())
     })
@@ -174,7 +174,7 @@ mod tests {
         {
             let overrides =
                 HashMap::from([("some_key".to_string(), Value::String("value".to_string()))]);
-            assert!(requires_db_properties(Some(&groups), &overrides));
+            assert!(any_group_requires_db_properties(Some(&groups), &overrides));
         }
         {
             let overrides = HashMap::from([
@@ -188,7 +188,7 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(!requires_db_properties(Some(&groups), &overrides));
+            assert!(!any_group_requires_db_properties(Some(&groups), &overrides));
         }
     }
 
@@ -230,7 +230,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(requires_db_properties(Some(&groups), &overrides));
+            assert!(any_group_requires_db_properties(Some(&groups), &overrides));
         }
 
         {
@@ -247,7 +247,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!requires_db_properties(Some(&groups), &overrides));
+            assert!(!any_group_requires_db_properties(Some(&groups), &overrides));
         }
     }
 }
