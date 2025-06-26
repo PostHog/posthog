@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
 from posthog.sampling import sample_on_property
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 from posthog.models.utils import uuid7
 
 from django.utils.html import escape
@@ -180,7 +180,7 @@ def process_csp_report(request):
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
                 )
-                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+                return None, cors_response_allow_all(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return (
                 build_csp_event(
@@ -209,7 +209,7 @@ def process_csp_report(request):
                     total_violations=len(violations_props),
                     sample_rate=sample_rate,
                 )
-                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+                return None, cors_response_allow_all(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return [
                 build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
@@ -220,13 +220,13 @@ def process_csp_report(request):
 
     except json.JSONDecodeError as e:
         logger.exception("Invalid CSP report JSON format", error=e)
-        return None, cors_response(
+        return None, cors_response_allow_all(
             request,
             generate_exception_response("capture", "Invalid CSP report format", code="invalid_csp_payload"),
         )
     except ValueError as e:
         logger.exception("Invalid CSP report properties", error=e)
-        return None, cors_response(
+        return None, cors_response_allow_all(
             request,
             generate_exception_response(
                 "capture", "Invalid CSP report properties provided", code="invalid_csp_payload"

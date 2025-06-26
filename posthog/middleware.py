@@ -40,7 +40,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
-from .utils_cors import cors_response
+from .utils_cors import cors_response_allow_all
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -404,7 +404,7 @@ class ShortCircuitMiddleware:
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
                 else:
-                    return cors_response(
+                    return cors_response_allow_all(
                         request,
                         generate_exception_response(
                             "decide",

@@ -47,7 +47,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 from posthog.models.surveys.util import (
     SurveyFeatureFlags,
     get_unique_survey_event_uuids_sql_subquery,
@@ -1359,10 +1359,10 @@ def get_surveys_response(team: Team):
 def surveys(request: Request):
     token = get_token(None, request)
     if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+        return cors_response_allow_all(request, HttpResponse(""))
 
     if not token:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "surveys",
@@ -1375,7 +1375,7 @@ def surveys(request: Request):
 
     team = Team.objects.get_team_from_cache_or_token(token)
     if team is None:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "surveys",
@@ -1386,7 +1386,7 @@ def surveys(request: Request):
             ),
         )
 
-    return cors_response(request, JsonResponse(get_surveys_response(team)))
+    return cors_response_allow_all(request, JsonResponse(get_surveys_response(team)))
 
 
 @contextmanager

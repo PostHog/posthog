@@ -33,7 +33,7 @@ KNOWN_ORIGINS = {
 }
 
 
-def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
+def cors_response_allow_all(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     """
     Returns a HttpResponse with CORS headers set to allow all origins.
     Only use this for endpoints that get called by the PostHog JS SDK.

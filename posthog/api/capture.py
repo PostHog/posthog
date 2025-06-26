@@ -48,7 +48,7 @@ from posthog.session_recordings.session_recording_helpers import (
 )
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 
 logger = structlog.get_logger(__name__)
 
@@ -306,7 +306,7 @@ def _get_sent_at(data, request) -> tuple[Optional[datetime], Any]:
         logger.exception(f"Invalid sent_at value", error=error)
         return (
             None,
-            cors_response(
+            cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "capture",
@@ -440,7 +440,7 @@ def lib_version_from_query_params(request) -> str:
 def get_csp_event(request):
     # we want to handle this as early as possible and avoid any processing
     if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
+        return cors_response_allow_all(request, JsonResponse({"status": 1}))
 
     debug_enabled = request.GET.get("debug", "").lower() == "true"
     if debug_enabled:
@@ -472,7 +472,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
 
     # handle cors request
     if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
+        return cors_response_allow_all(request, JsonResponse({"status": 1}))
 
     now = timezone.now()
 
@@ -496,7 +496,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
     token = get_token(data, request)
 
     if not token:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "capture",
@@ -521,7 +521,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
     if invalid_token_reason:
         TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
         logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "capture",
@@ -556,7 +556,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         events = [data]
 
     if not all(data):  # Check that all items are truthy (not null, not empty dict)
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("capture", f"Invalid payload: some events are null", code="invalid_payload"),
         )
@@ -582,7 +582,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         events = other_events
 
     except ValueError as e:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
         )
@@ -595,7 +595,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         processed_events = list(preprocess_events(events))
 
     except ValueError as e:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
         )
@@ -627,7 +627,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
                 logger.exception("kafka_produce_failure", exc_info=exc)
-                return cors_response(
+                return cors_response_allow_all(
                     request,
                     generate_exception_response(
                         "capture",
@@ -658,7 +658,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                     # but we do want to include it for some errors to aid debugging
                     data=data if isinstance(exc, MessageSizeTooLargeError) else None,
                 )
-                return cors_response(
+                return cors_response_allow_all(
                     request,
                     generate_exception_response(
                         "capture",
@@ -722,7 +722,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("capture", f"Invalid recording payload", code="invalid_payload"),
         )
@@ -744,7 +744,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                 },
             )
 
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "capture",
@@ -760,7 +760,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
             {"data": data, "capture-pathway": "replay", "ph-team-token": token},
         )
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "capture",
@@ -784,9 +784,9 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
     # If we have a csp_report parsed, we should return a 204 since that's the standard
     # https://github.com/PostHog/posthog/pull/32174
     if csp_report:
-        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+        return cors_response_allow_all(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-    return cors_response(request, JsonResponse(response_body))
+    return cors_response_allow_all(request, JsonResponse(response_body))
 
 
 def replace_with_warning(

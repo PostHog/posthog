@@ -19,7 +19,7 @@ from posthog.models.team.team import Team
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 from typing import Any
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.api.shared import UserBasicSerializer
@@ -286,7 +286,7 @@ def early_access_features(request: Request):
     stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA])
 
     if not token:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "early_access_features",
@@ -299,7 +299,7 @@ def early_access_features(request: Request):
 
     team = Team.objects.get_team_from_cache_or_token(token)
     if team is None:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "decide",
@@ -317,4 +317,4 @@ def early_access_features(request: Request):
         many=True,
     ).data
 
-    return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
+    return cors_response_allow_all(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
