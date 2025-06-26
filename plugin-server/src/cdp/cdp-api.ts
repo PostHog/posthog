@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import express, { response } from 'express'
+import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
@@ -9,7 +9,7 @@ import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consu
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
-import { HogExecutorExecuteOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
@@ -17,17 +17,8 @@ import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogf
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobals,
-    HogFunctionQueueParametersFetchRequest,
-    HogFunctionType,
-    MinimalLogEntry,
-} from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
-import { createInvocationResult } from './utils/invocation-utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -196,7 +187,6 @@ export class CdpApi {
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            const lastResponse: CyclotronJobInvocationResult | null = null
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -267,66 +257,6 @@ export class CdpApi {
                     if (response.error) {
                         errors.push(response.error)
                     }
-
-                    // while (!lastResponse || !lastResponse.finished) {
-                    //     if (count > MAX_ASYNC_STEPS * 2) {
-                    //         throw new Error('Too many iterations')
-                    //     }
-                    //     count += 1
-
-                    //     let response: CyclotronJobInvocationResult
-
-                    //     if (invocation.queue === 'fetch') {
-                    //         if (mock_async_functions) {
-                    //             // Add the state, simulating what executeAsyncResponse would do
-                    //             // Re-parse the fetch args for the logging
-                    //             const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
-                    //                 this.hogExecutor.redactFetchRequest(
-                    //                     invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-                    //                 )
-
-                    //             response = createInvocationResult(
-                    //                 invocation,
-                    //                 {
-                    //                     queue: 'hog',
-                    //                     queueParameters: {
-                    //                         type: 'fetch-response',
-                    //                         response: { status: 200, headers: {} },
-                    //                         body: '{}',
-                    //                     },
-                    //                 },
-                    //                 {
-                    //                     finished: false,
-                    //                     logs: [
-                    //                         {
-                    //                             level: 'info',
-                    //                             timestamp: DateTime.now(),
-                    //                             message: `Async function 'fetch' was mocked with arguments:`,
-                    //                         },
-                    //                         {
-                    //                             level: 'info',
-                    //                             timestamp: DateTime.now(),
-                    //                             message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
-                    //                         },
-                    //                     ],
-                    //                 }
-                    //             )
-                    //         } else {
-                    //             response = await this.fetchExecutor.execute(invocation)
-                    //         }
-                    //     } else {
-                    //         response = await this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
-                    //     }
-
-                    //     logs = logs.concat(response.logs)
-                    //     lastResponse = response
-                    //     invocation = response.invocation
-                    //     if (response.error) {
-                    //         errors.push(response.error)
-                    //     }
-
-                    //     await this.hogFunctionMonitoringService.queueInvocationResults([response])
-                    // }
                 }
 
                 const wasSkipped = filterMetrics.some((m) => m.metric_name === 'filtered')
