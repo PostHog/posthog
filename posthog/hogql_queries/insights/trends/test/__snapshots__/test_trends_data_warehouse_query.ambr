@@ -182,6 +182,53 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
+                  FROM
+                      s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1)]) AS `arrayMin([(SELECT min(toTimeZone(created, 'UTC')) FROM \`stripe.posthog_test.posthog_test_test_table_1\` AS posthog_test_test_table_1)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+        WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTrendsDataWarehouseQuery.test_trends_entity_property
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
@@ -209,6 +256,87 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
+                  FROM
+                      s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1), (SELECT
+                      min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
+                  FROM
+                      events
+                  WHERE
+                      equals(events.team_id, 99999))]) AS `arrayMin([(SELECT min(toTimeZone(created, 'UTC')) FROM \`stripe.posthog_test.posthog_test_test_table_1\` AS posthog_test_test_table_1), (SELECT min(toTimeZone(timestamp, 'UTC')) FROM events)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+        WHERE and(ifNull(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time.2
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e SAMPLE 1
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_query_properties

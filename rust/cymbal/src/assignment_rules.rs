@@ -78,6 +78,32 @@ pub struct Assignment {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type", content = "id", rename_all = "lowercase")]
+pub enum Assignee {
+    User(i32),
+    Role(Uuid),
+}
+
+impl TryFrom<&Assignment> for Assignee {
+    type Error = UnhandledError;
+
+    fn try_from(a: &Assignment) -> Result<Self, Self::Error> {
+        match (a.user_id, a.role_id) {
+            (Some(user_id), None) => Ok(Assignee::User(user_id)),
+            (None, Some(role_id)) => Ok(Assignee::Role(role_id)),
+            (None, None) => Err(UnhandledError::Other(format!(
+                "No assignee specified in assignment {}",
+                a.id
+            ))),
+            _ => Err(UnhandledError::Other(format!(
+                "Multiple assignee types set in assignment {}",
+                a.id
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AssignmentRule {
     pub id: Uuid,

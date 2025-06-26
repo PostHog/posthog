@@ -212,8 +212,5 @@
                 "filterTestAccounts": true
             }
         }
-    ],
-    "stats_config": {
-        "version": 2
-    }
+    ]
 }

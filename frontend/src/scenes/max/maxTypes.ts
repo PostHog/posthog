@@ -1,8 +1,9 @@
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { InsightShortId } from '~/types'
 
 export interface MaxInsightContext {
-    id: string | integer
+    id: InsightShortId
     name?: string
     description?: string
 
@@ -10,17 +11,31 @@ export interface MaxInsightContext {
 }
 
 export interface MaxDashboardContext {
-    id: string | integer
+    id: number
     name?: string
     description?: string
     insights: MaxInsightContext[]
     filters: DashboardFilter
 }
 
+export interface MaxEventContext {
+    id: string
+    name?: string
+    description?: string
+}
+
+export interface MaxActionContext {
+    id: number
+    name: string
+    description?: string
+}
+
 // The main shape for the UI context sent to the backend
 export interface MaxContextShape {
     dashboards?: MaxDashboardContext[]
     insights?: MaxInsightContext[]
+    events?: MaxEventContext[]
+    actions?: MaxActionContext[]
     filters_override?: DashboardFilter
     variables_override?: Record<string, HogQLVariable>
 }

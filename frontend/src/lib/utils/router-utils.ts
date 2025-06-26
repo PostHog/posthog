@@ -12,6 +12,7 @@ const pathsWithoutProjectId = [
     'signup',
     'create-organization',
     'account',
+    'oauth',
 ]
 
 function isPathWithoutProjectId(path: string): boolean {
@@ -30,7 +31,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
         if (path == '/') {
             return prefix
         }
-    } catch (e) {
+    } catch {
         // Not logged in
     }
     if (path === prefix || path.startsWith(prefix + '/')) {

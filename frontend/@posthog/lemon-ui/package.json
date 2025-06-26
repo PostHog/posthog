@@ -14,7 +14,7 @@
     },
     "devDependencies": {
         "tsup": "^5.12.8",
-        "typescript": "5.0.4"
+        "typescript": "5.2.2"
     },
     "peerDependencies": {
         "kea": "*",

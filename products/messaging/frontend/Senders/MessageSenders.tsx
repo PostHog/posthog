@@ -5,12 +5,10 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { SceneExport } from 'scenes/sceneTypes'
 
 import { IntegrationType } from '~/types'
 
-import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
-import { MessagingTabs } from '../MessagingTabs'
+import { EmailSetupModal } from './EmailSetup/EmailSetupModal'
 import { messageSendersLogic } from './messageSendersLogic'
 
 function MessageSender({ integration }: { integration: IntegrationType }): JSX.Element {
@@ -35,9 +33,9 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
     return (
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
-                <div className="flex items-center gap-4 ml-2">
+                <div className="flex gap-4 items-center ml-2">
                     <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex gap-2 items-center">
                             <strong>{integration.config.domain || integration.display_name}</strong>
                             {integration.config.mailjet_verified !== undefined && (
                                 <Tooltip
@@ -64,7 +62,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2 items-center">
                     {!integration.config.mailjet_verified && (
                         <LemonButton
                             type="primary"
@@ -90,7 +88,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
     )
 }
 
-function MessageSenders(): JSX.Element {
+export function MessageSenders(): JSX.Element {
     const { isNewSenderModalOpen, selectedIntegration, integrations, integrationsLoading } =
         useValues(messageSendersLogic)
     const { openNewSenderModal, closeNewSenderModal } = useActions(messageSendersLogic)
@@ -98,8 +96,7 @@ function MessageSenders(): JSX.Element {
     const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email') ?? []
 
     return (
-        <div className="messaging-senders">
-            <MessagingTabs key="senders-tabs" />
+        <>
             <PageHeader
                 caption="Manage email sending domains"
                 buttons={
@@ -142,11 +139,6 @@ function MessageSenders(): JSX.Element {
                         ))}
                 </div>
             </div>
-        </div>
+        </>
     )
-}
-
-export const scene: SceneExport = {
-    component: MessageSenders,
-    logic: messageSendersLogic,
 }
