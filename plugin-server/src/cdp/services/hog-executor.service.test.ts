@@ -135,7 +135,7 @@ describe('Hog Executor', () => {
                         timings: [
                             {
                                 kind: 'hog',
-                                duration_ms: 0,
+                                duration_ms: expect.any(Number),
                             },
                         ],
                         vmState: expect.any(Object),
@@ -184,6 +184,8 @@ describe('Hog Executor', () => {
                 },
             })
 
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
+
             const result = await executor.execute(invocation)
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
                 {
@@ -220,6 +222,8 @@ describe('Hog Executor', () => {
                     },
                 },
             })
+
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
 
             const result = await executor.execute(invocation)
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
@@ -278,6 +282,7 @@ describe('Hog Executor', () => {
 
         it('queues up an async function call', async () => {
             const invocation = createExampleInvocation(hogFunction)
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
             const result = await executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({
@@ -807,11 +812,9 @@ describe('Hog Executor', () => {
     })
 
     describe('slow functions', () => {
-        beforeEach(() => {
-            // We need to use real timers for this test as the timeout is based on real time
-            jest.useRealTimers()
-        })
         it('limits the execution time and exits appropriately', async () => {
+            jest.spyOn(Date, 'now').mockRestore()
+
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.malicious_function,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,

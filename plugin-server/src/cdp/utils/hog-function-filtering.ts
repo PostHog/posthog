@@ -61,6 +61,8 @@ export async function filterFunctionInstrumented(options: {
             telemetry: enabledTelemetry,
         })
 
+        execResult = execHogOutcome.execResult
+
         if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
             throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
         }
