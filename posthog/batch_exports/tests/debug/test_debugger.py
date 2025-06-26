@@ -2,9 +2,10 @@ import datetime as dt
 import itertools
 import operator
 
+import pyarrow as pa
 import pytest
 
-from posthog.batch_exports.debug.debugger import BatchExportsDebugger
+from posthog.batch_exports.debug.debugger import BatchExportsDebugger, ColumnDebugStatistics
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 
 pytestmark = [
@@ -242,3 +243,24 @@ def test_debugger_get_latest_run(team):
 
     latest = bedbg.get_latest_run(status="failed", order_by="created_at")
     assert latest == failed_runs[0]
+
+
+def test_column_debug_statistics():
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    names = ["n_legs", "animals"]
+
+    record_batch = pa.RecordBatch.from_arrays([n_legs, animals], names=names)
+    stats = ColumnDebugStatistics.from_record_batch(record_batch, column_name="n_legs")
+
+    assert stats.count == 6
+    assert stats.unique_values == {2, 4, 5, 100}
+    assert stats.size_bytes == n_legs.nbytes
+    assert stats.name == "n_legs"
+
+    stats += record_batch
+
+    assert stats.count == 12
+    assert stats.unique_values == {2, 4, 5, 100}
+    assert stats.size_bytes == n_legs.nbytes * 2
+    assert stats.name == "n_legs"

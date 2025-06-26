@@ -1,5 +1,7 @@
 import collections.abc
+import dataclasses
 import functools
+import typing
 import uuid
 
 import pyarrow as pa
@@ -30,6 +32,53 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+
+
+@dataclasses.dataclass
+class ColumnDebugStatistics:
+    """Debug statistics for a particular column."""
+
+    name: str
+    count: int
+    size_bytes: int
+    unique_values: set[typing.Any]
+    type: pa.DataType
+
+    @classmethod
+    def from_record_batch(cls, record_batch: pa.RecordBatch, column_name: str) -> typing.Self:
+        """Initialize statistics from a record batch."""
+        column = record_batch.column(column_name)
+        return cls(
+            name=column_name,
+            count=len(column),
+            size_bytes=column.nbytes,
+            unique_values=set(column.unique().to_pylist()),
+            type=column.type,
+        )
+
+    def __iadd__(self, other: typing.Self | pa.RecordBatch) -> typing.Self:
+        """Add values from other to this.
+
+        Other may be a `RecordBatch` to allow seamless iteration over
+        record batches.
+        """
+        if isinstance(other, ColumnDebugStatistics):
+            self.count += other.count
+            self.unique_values |= other.unique_values
+            self.size_bytes += other.size_bytes
+
+        elif isinstance(other, pa.RecordBatch):
+            column = other.column(self.name)
+            self.count += len(column)
+            self.unique_values |= set(column.unique().to_pylist())
+            self.size_bytes += column.nbytes
+        else:
+            raise TypeError(f"Unsupported type: '{type(other)}'")
+
+        return self
+
+
+TableDebugStatistics = dict[str, ColumnDebugStatistics]
 
 
 class BatchExportsDebugger:
@@ -233,7 +282,9 @@ class BatchExportsDebugger:
         """
         return next(self.iter_runs(status, order_by=order_by, descending=True, offset=offset))
 
-    def iter_run_s3_data(self, batch_export_run: BatchExportRun) -> collections.abc.Generator[pa.Table, None, None]:
+    def iter_run_record_batches_from_s3(
+        self, batch_export_run: BatchExportRun
+    ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
         folder = _get_s3_staging_folder(
             batch_export_run.batch_export.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
@@ -245,18 +296,31 @@ class BatchExportsDebugger:
 
         for file_info in self.s3fs.get_file_info(file_selector):
             with self.s3fs.open_input_file(file_info.path) as f:
-                reader = ipc.RecordBatchStreamReader(f)
-                yield reader.read_all()
+                yield from ipc.RecordBatchStreamReader(f)
 
     def load_run_s3_data(self, batch_export_run: BatchExportRun) -> pa.Table:
         """Load data in S3 stage for a given batch export run."""
-        tables = list(self.iter_run_s3_data(batch_export_run))
-        return pa.concat_tables(tables)
+        return pa.Table.from_batches(self.iter_run_record_batches_from_s3(batch_export_run))
 
-    def iter_run_data_from_clickhouse(
+    def load_run_s3_statistics(
         self,
         batch_export_run: BatchExportRun,
-    ) -> collections.abc.Generator[pa.Table, None, None]:
+        column_name: str,
+    ) -> ColumnDebugStatistics | None:
+        """Compute debug statistics for column using S3 data."""
+        column_stats = None
+        for record_batch in self.iter_run_record_batches_from_s3(batch_export_run):
+            if column_stats is None:
+                column_stats = ColumnDebugStatistics.from_record_batch(column_name, record_batch)
+            else:
+                column_stats += record_batch
+
+        return column_stats
+
+    def iter_run_record_batches_from_clickhouse(
+        self,
+        batch_export_run: BatchExportRun,
+    ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
         team_id = batch_export_run.batch_export.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}
@@ -340,13 +404,26 @@ class BatchExportsDebugger:
 
         parameters = {**parameters, **extra_query_parameters}
 
-        for record_batch in self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters):
-            yield pa.Table.from_batches((record_batch,))
+        yield from self.clickhouse_client.stream_query_as_arrow(query, query_parameters=parameters)
 
-    def load_run_data_from_clickhouse(
+    def load_run_clickhouse_data(
         self,
         batch_export_run: BatchExportRun,
     ) -> pa.Table:
         """Load data in ClickHouse for a given batch export run."""
-        tables = list(self.iter_run_data_from_clickhouse(batch_export_run))
-        return pa.concat_tables(tables)
+        return pa.Table.from_batches(self.iter_run_record_batches_from_clickhouse(batch_export_run))
+
+    def load_run_clickhouse_statistics(
+        self,
+        batch_export_run: BatchExportRun,
+        column_name: str,
+    ) -> ColumnDebugStatistics | None:
+        """Compute debug statistics for column using clickhouse data."""
+        column_stats = None
+        for record_batch in self.iter_run_record_batches_from_clickhouse(batch_export_run):
+            if column_stats is None:
+                column_stats = ColumnDebugStatistics.from_record_batch(record_batch, column_name=column_name)
+            else:
+                column_stats += record_batch
+
+        return column_stats
