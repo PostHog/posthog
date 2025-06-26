@@ -466,6 +466,7 @@ impl FeatureFlagMatcher {
         let (level_flag_details_map, level_errors) = self
             .evaluate_flags_in_level(
                 &feature_flags.flags,
+                &mut flag_details_map,
                 &person_property_overrides,
                 &group_property_overrides,
                 &hash_key_overrides,
@@ -493,6 +494,7 @@ impl FeatureFlagMatcher {
     async fn evaluate_flags_in_level(
         &mut self,
         flags: &[FeatureFlag],
+        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
@@ -506,8 +508,8 @@ impl FeatureFlagMatcher {
 
         // Step 0: Pre-compute property overrides for all flags upfront
         for flag in flags {
-            // Skip disabled or deleted flags early
-            if !flag.active || flag.deleted {
+            // Skip disabled or deleted flags early, or flags that have already been evaluated
+            if !flag.active || flag.deleted || evaluated_flags_map.contains_key(&flag.key) {
                 continue;
             }
 
@@ -598,31 +600,7 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        // Step 2: Prepare evaluation data for remaining flags
-        if !flags_needing_db_properties.is_empty() {
-            if let Err(e) = self
-                .prepare_flag_evaluation_state(&flags_needing_db_properties)
-                .await
-            {
-                // Handle database errors
-                errors_while_computing_flags = true;
-                let reason = parse_exception_for_prometheus_label(&e);
-                level_flag_details_map.extend(
-                    flags_needing_db_properties
-                        .iter()
-                        .map(|flag| (flag.key.clone(), FlagDetails::create_error(flag, reason, None)))
-                );
-                error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-                return (level_flag_details_map, errors_while_computing_flags);
-            }
-        }
-
-        // Step 3: Evaluate remaining flags with cached properties using pre-computed overrides
+        // Step 2: Evaluate remaining flags with cached properties using pre-computed overrides
         let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
         let flags_map: HashMap<&String, &FeatureFlag> = flags_needing_db_properties
