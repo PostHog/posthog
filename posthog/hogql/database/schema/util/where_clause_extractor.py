@@ -188,7 +188,7 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         # Check if this field is an alias from the SELECT clause
         if len(node.chain) == 1 and node.chain[0] in self.aliases:
-            alias_name: str = node.chain[0]
+            alias_name = str(node.chain[0])
             # Prevent infinite recursion when resolving aliases
             if alias_name in self.resolving_aliases:
                 return ast.Constant(value=self.tombstone_string)
