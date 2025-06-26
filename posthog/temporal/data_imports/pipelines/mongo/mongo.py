@@ -62,14 +62,14 @@ def _process_nested_object(obj: dict) -> dict:
 
 
 def _build_query(
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
     query = {}
 
-    if not is_incremental:
+    if not should_use_incremental_field:
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -308,7 +308,7 @@ def mongo_source(
     connection_string: str,
     collection_names: list[str],
     logger: FilteringBoundLogger,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -329,7 +329,7 @@ def mongo_source(
     collection = db[collection_name]
 
     query = _build_query(
-        is_incremental,
+        should_use_incremental_field,
         incremental_field,
         incremental_field_type,
         db_incremental_field_last_value,
@@ -337,7 +337,7 @@ def mongo_source(
 
     # Get collection metadata
     primary_keys = _get_primary_keys(collection, collection_name)
-    partition_settings = _get_partition_settings(collection, collection_name) if is_incremental else None
+    partition_settings = _get_partition_settings(collection, collection_name) if should_use_incremental_field else None
     rows_to_sync = _get_rows_to_sync(collection, query, logger)
 
     client.close()

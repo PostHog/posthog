@@ -92,7 +92,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
         doit_schemas = doit_list_reports(DoItSourceConfig.from_dict(source.job_inputs))
         schemas_to_sync = [name for name, _ in doit_schemas]
-    elif source.source_type == ExternalDataSource.Type.MONGO:
+    elif source.source_type == ExternalDataSource.Type.MONGODB:
         if not source.job_inputs:
             return
 

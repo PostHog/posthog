@@ -53,7 +53,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.GOOGLEADS: (),
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_ENDPOINTS,
     ExternalDataSource.Type.DOIT: (),
-    ExternalDataSource.Type.MONGO: (),
+    ExternalDataSource.Type.MONGODB: (),
     ExternalDataSource.Type.GOOGLESHEETS: (),
 }
 
@@ -72,7 +72,7 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.GOOGLEADS: (),
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.DOIT: (),
-    ExternalDataSource.Type.MONGO: (),
+    ExternalDataSource.Type.MONGODB: (),
     ExternalDataSource.Type.GOOGLESHEETS: (),
 }
 
@@ -91,6 +91,6 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.GOOGLEADS: {},
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.DOIT: {},
-    ExternalDataSource.Type.MONGO: {},
+    ExternalDataSource.Type.MONGODB: {},
     ExternalDataSource.Type.GOOGLESHEETS: {},
 }

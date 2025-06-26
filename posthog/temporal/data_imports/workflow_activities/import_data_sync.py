@@ -341,7 +341,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     shutdown_monitor=shutdown_monitor,
                 )
 
-        elif model.pipeline.source_type == ExternalDataSource.Type.MONGO:
+        elif model.pipeline.source_type == ExternalDataSource.Type.MONGODB:
             from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, mongo_source
 
             mongo_config = MongoSourceConfig.from_dict(model.pipeline.job_inputs)
@@ -350,7 +350,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 connection_string=mongo_config.connection_string,
                 collection_names=endpoints,
                 logger=logger,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,

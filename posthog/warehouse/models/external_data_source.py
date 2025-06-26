@@ -28,7 +28,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         SNOWFLAKE = "Snowflake", "Snowflake"
         SALESFORCE = "Salesforce", "Salesforce"
         MYSQL = "MySQL", "MySQL"
-        MONGO = "MongoDB", "MongoDB"
+        MONGODB = "MongoDB", "MongoDB"
         MSSQL = "MSSQL", "MSSQL"
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"

@@ -380,7 +380,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
 
-        elif source.source_type == ExternalDataSource.Type.MONGO:
+        elif source.source_type == ExternalDataSource.Type.MONGODB:
             db_schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
             columns = db_schemas.get(instance.name, [])
             incremental_columns = [

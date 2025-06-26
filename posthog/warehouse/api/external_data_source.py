@@ -502,7 +502,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.DOIT:
             new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
-        elif source_type == ExternalDataSource.Type.MONGO:
+        elif source_type == ExternalDataSource.Type.MONGODB:
             new_source_model, mongo_schemas = self._handle_mongo_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
             new_source_model, google_sheets_schemas = self._handle_google_sheets_source(request, *args, **kwargs)
@@ -517,7 +517,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MSSQL,
         ]:
             default_schemas = sql_schemas
-        elif source_type == ExternalDataSource.Type.MONGO:
+        elif source_type == ExternalDataSource.Type.MONGODB:
             default_schemas = mongo_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
@@ -1483,7 +1483,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for table_name, columns in filtered_results
             ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
-        elif source_type == ExternalDataSource.Type.MONGO:
+        elif source_type == ExternalDataSource.Type.MONGODB:
             from pymongo.errors import OperationFailure as MongoOperationFailure
 
             connection_string = request.data.get("connection_string", None)
