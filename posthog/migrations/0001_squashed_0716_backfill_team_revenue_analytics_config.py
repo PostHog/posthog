@@ -1915,12 +1915,6 @@ class Migration(migrations.Migration):
                 fields=("organization_id", "user_id"), name="unique_organization_membership"
             ),
         ),
-        migrations.AddConstraint(
-            model_name="organizationinvite",
-            constraint=models.CheckConstraint(
-                check=models.Q(("uses__lte", models.F("max_uses"))), name="max_uses_respected"
-            ),
-        ),
         migrations.AlterField(
             model_name="annotation",
             name="created_at",
@@ -1981,10 +1975,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="name",
             field=models.CharField(default="Default Project", max_length=200, null=True),
-        ),
-        migrations.RemoveConstraint(
-            model_name="organizationinvite",
-            name="max_uses_respected",
         ),
         migrations.RemoveField(
             model_name="organizationinvite",
@@ -3158,9 +3148,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={
-                "unique_together": {("team", "name")},
-            },
+            options={},
         ),
         migrations.CreateModel(
             name="EventDefinition",
@@ -3622,12 +3610,6 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        migrations.AddConstraint(
-            model_name="eventproperty",
-            constraint=models.UniqueConstraint(
-                fields=("team", "event", "property"), name="posthog_event_property_unique_team_event_property"
-            ),
-        ),
         migrations.AddField(
             model_name="propertydefinition",
             name="property_type",
@@ -3657,18 +3639,6 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AddConstraint(
-            model_name="propertydefinition",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("property_type__in", ["DateTime", "String", "Numeric", "Boolean"]),
-                        ("property_type_format__in", ["unix_timestamp", "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD"]),
-                    )
-                ),
-                name="property_type_and_format_are_valid",
-            ),
-        ),
         migrations.AddField(
             model_name="grouptypemapping",
             name="name_plural",
@@ -3678,10 +3648,6 @@ class Migration(migrations.Migration):
             model_name="grouptypemapping",
             name="name_singular",
             field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.RemoveConstraint(
-            model_name="propertydefinition",
-            name="property_type_and_format_are_valid",
         ),
         migrations.AlterField(
             model_name="propertydefinition",
@@ -3701,31 +3667,6 @@ class Migration(migrations.Migration):
                 ],
                 max_length=50,
                 null=True,
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="propertydefinition",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("property_type__in", ["DateTime", "String", "Numeric", "Boolean"]),
-                        (
-                            "property_type_format__in",
-                            [
-                                "unix_timestamp",
-                                "unix_timestamp_milliseconds",
-                                "YYYY-MM-DDThh:mm:ssZ",
-                                "YYYY-MM-DD hh:mm:ss",
-                                "DD-MM-YYYY hh:mm:ss",
-                                "YYYY-MM-DD",
-                                "rfc_822",
-                                "YYYY/MM/DD hh:mm:ss",
-                                "DD/MM/YYYY hh:mm:ss",
-                            ],
-                        ),
-                    )
-                ),
-                name="property_type_and_format_are_valid",
             ),
         ),
         migrations.RemoveField(
@@ -3773,17 +3714,6 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="modified_insights",
                 to=settings.AUTH_USER_MODEL,
-            ),
-        ),
-        migrations.RemoveConstraint(
-            model_name="propertydefinition",
-            name="property_type_and_format_are_valid",
-        ),
-        migrations.AddConstraint(
-            model_name="propertydefinition",
-            constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
-                name="property_type_is_valid",
             ),
         ),
         migrations.AddField(
@@ -4910,26 +4840,6 @@ class Migration(migrations.Migration):
                 "unique_together": {("team", "short_id")},
             },
         ),
-        migrations.CreateModel(
-            name="SessionRecordingPlaylistItem",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("session_id", models.CharField(max_length=200)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("deleted", models.BooleanField(blank=True, null=True)),
-                (
-                    "playlist",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="playlist_items",
-                        to="posthog.sessionrecordingplaylist",
-                    ),
-                ),
-            ],
-            options={
-                "unique_together": {("session_id", "playlist_id")},
-            },
-        ),
         migrations.RenameField(
             model_name="asyncdeletion",
             old_name="team",
@@ -4977,22 +4887,6 @@ class Migration(migrations.Migration):
                 "indexes": [models.Index(fields=["cache_key"], name="filter_by_cache_key_idx")],
             },
         ),
-        migrations.AddConstraint(
-            model_name="insightcachingstate",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("insight__isnull", False)),
-                fields=("insight",),
-                name="unique_insight_for_caching_state_idx",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="insightcachingstate",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("dashboard_tile__isnull", False)),
-                fields=("insight", "dashboard_tile"),
-                name="unique_dashboard_tile_idx",
-            ),
-        ),
         migrations.RemoveField(
             model_name="insightcachingstate",
             name="last_refresh_queued_at",
@@ -5001,18 +4895,6 @@ class Migration(migrations.Migration):
             model_name="insightcachingstate",
             name="last_refresh_queued_at",
             field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.RemoveConstraint(
-            model_name="insightcachingstate",
-            name="unique_insight_for_caching_state_idx",
-        ),
-        migrations.AddConstraint(
-            model_name="insightcachingstate",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("dashboard_tile__isnull", True)),
-                fields=("insight",),
-                name="unique_insight_for_caching_state_idx",
-            ),
         ),
         migrations.AlterField(
             model_name="insightcachingstate",
@@ -5095,17 +4977,10 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="insightcachingstate",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
+                concurrently=False,
                 expression="(insight_id, coalesce(dashboard_tile_id, -1))",
                 name="unique_insight_tile_idx",
             ),
-        ),
-        migrations.RemoveConstraint(
-            model_name="insightcachingstate",
-            name="unique_dashboard_tile_idx",
-        ),
-        migrations.RemoveConstraint(
-            model_name="insightcachingstate",
-            name="unique_insight_for_caching_state_idx",
         ),
         migrations.AddField(
             model_name="team",
@@ -5127,11 +5002,6 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.AlterField(
-            model_name="sessionrecordingplaylistitem",
-            name="session_id",
-            field=models.CharField(blank=True, max_length=200, null=True),
-        ),
         migrations.CreateModel(
             name="SessionRecording",
             fields=[
@@ -5148,22 +5018,6 @@ class Migration(migrations.Migration):
             options={
                 "unique_together": {("team", "session_id")},
             },
-        ),
-        migrations.AddField(
-            model_name="sessionrecordingplaylistitem",
-            name="recording",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="playlist_items",
-                to="posthog.sessionrecording",
-                to_field="session_id",
-            ),
-        ),
-        migrations.AlterUniqueTogether(
-            name="sessionrecordingplaylistitem",
-            unique_together={("recording", "playlist")},
         ),
         migrations.AddField(
             model_name="sessionrecording",
@@ -5209,6 +5063,37 @@ class Migration(migrations.Migration):
             model_name="sessionrecording",
             name="start_url",
             field=models.CharField(blank=True, max_length=512, null=True),
+        ),
+        migrations.CreateModel(
+            name="SessionRecordingPlaylistItem",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("session_id", models.CharField(blank=True, max_length=200, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("deleted", models.BooleanField(blank=True, null=True)),
+                (
+                    "playlist",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="playlist_items",
+                        to="posthog.sessionrecordingplaylist",
+                    ),
+                ),
+                (
+                    "recording",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="playlist_items",
+                        to="posthog.sessionrecording",
+                        to_field="session_id",
+                    ),
+                ),
+            ],
+            options={
+                "unique_together": {("recording", "playlist")},
+            },
         ),
         migrations.RemoveConstraint(
             model_name="taggeditem",
@@ -5366,17 +5251,6 @@ class Migration(migrations.Migration):
                 ),
                 name="group_type_index_set",
             ),
-        ),
-        migrations.AddConstraint(
-            model_name="propertydefinition",
-            constraint=posthog.models.utils.UniqueConstraintByExpression(
-                expression="(team_id, name, type, coalesce(group_type_index, -1))",
-                name="posthog_propertydefinition_uniq",
-            ),
-        ),
-        migrations.AlterUniqueTogether(
-            name="propertydefinition",
-            unique_together=set(),
         ),
         migrations.AlterField(
             model_name="plugin",
@@ -7905,10 +7779,6 @@ class Migration(migrations.Migration):
             name="has_private_access",
             field=models.ManyToManyField(to="posthog.organization"),
         ),
-        migrations.RemoveConstraint(
-            model_name="propertydefinition",
-            name="property_type_is_valid",
-        ),
         migrations.AlterField(
             model_name="propertydefinition",
             name="property_type",
@@ -10144,12 +10014,15 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="eventdefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
-                expression="(coalesce(project_id, team_id), name)", name="event_definition_proj_uniq"
+                concurrently=False,
+                expression="(coalesce(project_id, team_id), name)",
+                name="event_definition_proj_uniq",
             ),
         ),
         migrations.AddConstraint(
             model_name="eventproperty",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
+                concurrently=False,
                 expression="(coalesce(project_id, team_id), event, property)",
                 name="posthog_event_property_unique_proj_event_property",
             ),
@@ -10157,6 +10030,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
+                concurrently=False,
                 expression="(coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))",
                 name="posthog_propdef_proj_uniq",
             ),
@@ -10744,6 +10618,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="hostdefinition",
             constraint=posthog.models.utils.UniqueConstraintByExpression(
+                concurrently=False,
                 expression="(coalesce(project_id, team_id), host)",
                 name="hostdefinition_coalesced_idx",
             ),
@@ -10956,14 +10831,6 @@ class Migration(migrations.Migration):
                 ],
                 default="active",
             ),
-        ),
-        migrations.RemoveConstraint(
-            model_name="eventproperty",
-            name="posthog_event_property_unique_team_event_property",
-        ),
-        migrations.RemoveConstraint(
-            model_name="propertydefinition",
-            name="posthog_propertydefinition_uniq",
         ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
