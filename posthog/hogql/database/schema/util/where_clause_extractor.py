@@ -47,7 +47,7 @@ class WhereClauseExtractor(CloningVisitor):
     is_join: bool = False
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
-    aliases: dict[str, ast.Expr]  # Map of alias names to their expressions
+    aliases: dict[str, ast.Expr]
 
     def __init__(self, context: HogQLContext):
         super().__init__()
