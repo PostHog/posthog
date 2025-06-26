@@ -122,11 +122,12 @@ export class CdpApi {
             }
 
             const summary = await this.hogWatcher.getState(id)
+            const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(id, state)
+                await this.hogWatcher.forceStateChange(hogFunction, state)
             }
 
             // Hacky - wait for a little to give a chance for the state to change
