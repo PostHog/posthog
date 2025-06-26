@@ -18,8 +18,7 @@ use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
-    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
     PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
@@ -416,11 +415,8 @@ impl FeatureFlagMatcher {
     }
 
     /// Evaluates feature flags with property and hash key overrides.
-    ///
-    /// This function evaluates feature flags in two steps:
-    /// 1. First, it evaluates flags that can be computed using only the provided property overrides
-    /// 2. Then, for remaining flags that need database properties, it fetches and caches those properties
-    ///    before evaluating those flags
+    /// If any flags require DB properties, we prepare the evaluation state in advance
+    /// and cache the properties in the flag_evaluation_state. Then we evaluate the flags.
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         feature_flags: FeatureFlagList,
@@ -436,7 +432,9 @@ impl FeatureFlagMatcher {
 
         let flags_requiring_db_preparation = flags_require_db_preparation(
             &feature_flags.flags,
-            person_property_overrides.as_ref().unwrap_or(&HashMap::new()),
+            person_property_overrides
+                .as_ref()
+                .unwrap_or(&HashMap::new()),
         );
 
         let mut flag_details_map = HashMap::new();
@@ -448,11 +446,12 @@ impl FeatureFlagMatcher {
             {
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                flag_details_map.extend(
-                    flags_requiring_db_preparation
-                        .iter()
-                        .map(|flag| (flag.key.clone(), FlagDetails::create_error(flag, reason, None)))
-                );
+                flag_details_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
+                    (
+                        flag.key.clone(),
+                        FlagDetails::create_error(flag, reason, None),
+                    )
+                }));
                 error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -484,10 +483,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Evaluates a set of flags using a fallback strategy:
-    /// 1. First tries to evaluate with property overrides (i.e., can be computed exclusively from the property overrides)
-    /// 2. For flags that need DB properties, prepares evaluation state (i.e., fetches the properties from the DB)
-    /// 3. Evaluates remaining flags with a combination of property overrides and DB properties
+    /// Evaluates a set of flags with a combination of property overrides and DB properties
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
@@ -502,11 +498,11 @@ impl FeatureFlagMatcher {
         // initialize some state
         let mut errors_while_computing_flags = false;
         let mut level_flag_details_map = HashMap::new();
-        let mut flags_needing_db_properties = Vec::new();
         let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
             HashMap::new();
 
-        // Step 0: Pre-compute property overrides for all flags upfront
+        // Pre-compute property overrides for all flags upfront
+        // TODO: We can probably do this even earlier, but I'll save that for another PR - @haacked
         for flag in flags {
             // Skip disabled or deleted flags early, or flags that have already been evaluated
             if !flag.active || flag.deleted || evaluated_flags_map.contains_key(&flag.key) {
@@ -535,95 +531,34 @@ impl FeatureFlagMatcher {
             precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
         }
 
-        // Begin flag evaluation
-        for flag in flags {
-            // Skip disabled or deleted flags
-            if !flag.active || flag.deleted {
-                continue;
-            }
-
-            // Step 1: Evaluate flags with locally computable (i.e., can be computed exclusively from the property overrides) properties first
-            let property_override_match_timer =
-                common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
-
-            let property_overrides = precomputed_property_overrides
-                .get(&flag.key)
-                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides.  Shouldn't happen, but is here to avoid panics
-
-            match self.match_flag_exclusively_with_overrides(
-                flag,
-                property_overrides,
-                hash_key_overrides.clone(),
-            ) {
-                Ok(Some(flag_match)) => {
-                    self.flag_evaluation_state
-                        .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    level_flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
-                }
-                Ok(None) => {
-                    flags_needing_db_properties.push(flag.clone());
-                }
-                Err(e) => {
-                    errors_while_computing_flags = true;
-                    let reason = parse_exception_for_prometheus_label(&e);
-
-                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
-                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
-                        warn!(
-                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
-                            flag.key, dependency_type, dependency_id, self.distinct_id, e
-                        );
-                    } else {
-                        error!(
-                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
-                        );
-                    }
-
-                    inc(
-                        FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason.to_string())],
-                        1,
-                    );
-                }
-            }
-            property_override_match_timer
-                .label(
-                    "outcome",
-                    if errors_while_computing_flags {
-                        "error"
-                    } else {
-                        "success"
-                    },
-                )
-                .fin();
-        }
-
-        // Step 2: Evaluate remaining flags with cached properties using pre-computed overrides
+        // Evaluate remaining flags with cached properties using pre-computed overrides
         let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
 
-        let flags_map: HashMap<&String, &FeatureFlag> = flags_needing_db_properties
-            .iter()
-            .map(|flag| (&flag.key, flag))
-            .collect();
+        let flags_map: HashMap<&String, &FeatureFlag> =
+            flags.iter().map(|flag| (&flag.key, flag)).collect();
 
-        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> =
-            flags_needing_db_properties
-                .par_iter()
-                .map(|flag| {
-                    // If the overrides for this flag are not in the pre-computed map, assume no overrides
-                    // this shouldn't happen, but it's here to avoid panics
-                    let property_overrides = precomputed_property_overrides
-                        .get(&flag.key)
-                        .unwrap_or(&None)
-                        .clone();
-                    (
-                        flag.key.clone(),
-                        self.get_match(flag, property_overrides, hash_key_overrides.clone()),
-                    )
-                })
-                .collect();
+        if !flags_map.is_empty() {
+            println!(
+                "FLAGS NEED DB PROPERTIES!!!!!!flags_map: {:?}",
+                flags_map.keys().collect::<Vec<_>>()
+            );
+        }
+
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags
+            .par_iter()
+            .map(|flag| {
+                // If the overrides for this flag are not in the pre-computed map, assume no overrides
+                // this shouldn't happen, but it's here to avoid panics
+                let property_overrides = precomputed_property_overrides
+                    .get(&flag.key)
+                    .unwrap_or(&None)
+                    .clone();
+                (
+                    flag.key.clone(),
+                    self.get_match(flag, property_overrides, hash_key_overrides.clone()),
+                )
+            })
+            .collect();
 
         for (flag_key, result) in results {
             // If flag not found in map, skip it (this shouldn't happen but is safe)
@@ -680,80 +615,6 @@ impl FeatureFlagMatcher {
             .fin();
 
         (level_flag_details_map, errors_while_computing_flags)
-    }
-
-    /// Attempts to match a feature flag using only property overrides (no database access).
-    ///
-    /// This function tries to evaluate the flag using only the provided overrides,
-    /// without fetching any properties from the database. It returns Some(match) if
-    /// the overrides are sufficient, or None if database properties are needed.
-    ///
-    /// The logic is:
-    /// 1. If flag has super conditions and overrides contain all super condition properties -> use overrides only
-    /// 2. If flag has no super conditions and overrides contain all flag properties -> use overrides only  
-    /// 3. Otherwise -> return None to trigger DB fetch + merge path
-    fn match_flag_exclusively_with_overrides(
-        &mut self,
-        flag: &FeatureFlag,
-        property_overrides: &Option<HashMap<String, Value>>,
-        hash_key_overrides: Option<HashMap<String, String>>,
-    ) -> Result<Option<FeatureFlagMatch>, FlagError> {
-        // Check if overrides are sufficient for independent evaluation
-        if self.are_overrides_sufficient_for_match_predicate(flag, property_overrides) {
-            // Fast path: evaluate using overrides only
-            self.get_match(flag, property_overrides.clone(), hash_key_overrides)
-                .map(Some)
-        } else {
-            // Overrides are insufficient, return None to trigger DB merge path
-            Ok(None)
-        }
-    }
-
-    /// Checks if the provided overrides are sufficient to independently evaluate the flag.
-    ///
-    /// For flags with super conditions: overrides must contain all super condition properties
-    /// For flags without super conditions: overrides must contain ALL properties used by the flag
-    fn are_overrides_sufficient_for_match_predicate(
-        &self,
-        flag: &FeatureFlag,
-        overrides: &Option<HashMap<String, Value>>,
-    ) -> bool {
-        let Some(ref overrides_map) = overrides else {
-            return false;
-        };
-
-        // Check super conditions first (special case)
-        if let Some(super_groups) = &flag.filters.super_groups {
-            if !super_groups.is_empty() {
-                // For super conditions, we need ALL super condition properties
-                return super_groups.iter().all(|super_group| {
-                    super_group.properties.as_ref().map_or(true, |props| {
-                        props
-                            .iter()
-                            .all(|prop| overrides_map.contains_key(&prop.key))
-                    })
-                });
-            }
-        }
-
-        // For regular conditions, check if ALL properties across ALL conditions are in overrides
-        // This is conservative but safe - we only use fast path when we have complete information
-        let all_properties: HashSet<String> = flag
-            .get_conditions()
-            .iter()
-            .flat_map(|condition| condition.properties.as_deref().unwrap_or(&[]).iter())
-            .map(|prop| prop.key.clone())
-            .collect();
-
-        // If no properties are needed, overrides are sufficient
-        if all_properties.is_empty() {
-            return true;
-        }
-
-        // Check if overrides contain ALL properties the flag needs
-        all_properties
-            .iter()
-            .all(|prop_key| overrides_map.contains_key(prop_key))
     }
 
     /// Convert group overrides to property overrides
