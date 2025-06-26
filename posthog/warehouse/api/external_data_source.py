@@ -35,7 +35,7 @@ from posthog.temporal.data_imports.pipelines.doit.source import (
     doit_list_reports,
 )
 from posthog.temporal.data_imports.pipelines.google_ads import (
-    GoogleAdsServiceAccountSourceConfig,
+    GoogleAdsOAuthSourceConfig,
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
@@ -950,6 +950,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type = request.data["source_type"]
 
         customer_id = payload.get("customer_id", "")
+        google_ads_integration_id = payload.get("google_ads_integration_id")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -959,12 +960,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={"customer_id": customer_id},
+            job_inputs={"customer_id": customer_id, "google_ads_integration_id": google_ads_integration_id},
             prefix=prefix,
         )
 
-        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
-        schemas = get_google_ads_schemas(config)
+        config = GoogleAdsOAuthSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config, self.team_id)
 
         return new_source_model, list(schemas.keys())
 
@@ -1166,6 +1167,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             customer_id = request.data.get("customer_id")
             resource_name = request.data.get("resource_name", "")
+            google_ads_integration_id = request.data.get("google_ads_integration_id", "")
 
             if not customer_id:
                 return Response(
@@ -1173,12 +1175,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Missing required input: 'customer_id'"},
                 )
 
-            google_ads_config = GoogleAdsServiceAccountSourceConfig(
-                customer_id=customer_id, resource_name=resource_name
+            google_ads_config = GoogleAdsOAuthSourceConfig(
+                customer_id=customer_id,
+                google_ads_integration_id=google_ads_integration_id,
+                resource_name=resource_name,
             )
 
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
+                self.team_id,
             )
 
             ads_incremental_fields = get_google_ads_incremental_fields()
