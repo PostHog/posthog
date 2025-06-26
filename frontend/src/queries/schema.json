@@ -18438,6 +18438,9 @@
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 8
+                },
+                "totalOccurrences": {
+                    "$ref": "#/definitions/integer"
                 }
             },
             "type": "object"

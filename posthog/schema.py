@@ -8380,6 +8380,7 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
+    totalOccurrences: Optional[int] = None
 
 
 class RetentionFilterLegacy(BaseModel):
