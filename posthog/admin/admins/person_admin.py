@@ -1,9 +1,10 @@
 from django.contrib import admin
+from posthog.admin.mixins import QueryTaggingMixin
 
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 
 
-class PersonAdmin(admin.ModelAdmin):
+class PersonAdmin(QueryTaggingMixin, admin.ModelAdmin):
     show_full_result_count = False  # prevent count() queries to show the no of filtered results
     paginator = NoCountPaginator  # prevent count() queries and return a fix page count instead
     list_display = (
