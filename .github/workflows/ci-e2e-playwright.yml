@@ -10,7 +10,7 @@ on:
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
-    DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+    DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
     KAFKA_HOSTS: kafka:9092
     DISABLE_SECURE_SSL_REDIRECT: 1
     SECURE_COOKIES: 0
@@ -18,7 +18,7 @@ env:
     E2E_TESTING: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
-    SITE_URL: http://localhost:8010
+    SITE_URL: http://localhost:8000
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
@@ -26,10 +26,16 @@ env:
     OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
     GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     CELERY_METRICS_PORT: 8999
-    CLOUD_DEPLOYMENT: 1
+    CLOUD_DEPLOYMENT: E2E
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
+    CLICKHOUSE_DATABASE: posthog_test
+    CYPRESS_BASE_URL: http://localhost:8000
+    PGHOST: localhost
+    PGUSER: posthog
+    PGPASSWORD: posthog
+    PGPORT: 5432
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -77,7 +83,7 @@ jobs:
         name: Playwright E2E tests (local)
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-24.04-32 # TODO: reduce this before merging
         timeout-minutes: 45
         permissions:
             id-token: write
@@ -150,6 +156,13 @@ jobs:
             - name: Wait for ClickHouse & Kafka
               run: ./bin/check_kafka_clickhouse_up
 
+            - name: Create test database
+              run: |
+                  createdb posthog_e2e_test || echo "Database already exists"
+                  # Drop and recreate clickhouse test database
+                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
             - name: Apply postgres migrations
               run: python manage.py migrate --noinput
 
@@ -158,6 +171,11 @@ jobs:
 
             - name: Seed dev data
               run: python manage.py setup_dev
+
+            - name: Source celery queues
+              run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
             # Launch PostHog web & worker in the background
             - name: Start PostHog web & Celery worker
@@ -168,9 +186,9 @@ jobs:
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
-                  resource: http://localhost:8010
+                  resource: http://localhost:8000
                   timeout: 180000
-                  interval: 10000
+                  interval: 2000
                   verbose: true
 
             - name: Run Playwright tests
