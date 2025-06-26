@@ -1817,7 +1817,7 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let json_data = res.json::<Value>().await?;
 
     assert!(json_data["analytics"].is_object());
-    assert_eq!(json_data["analytics"]["endpoint"], json!("/i/v0/e"));
+    assert_eq!(json_data["analytics"]["endpoint"], json!("/i/v0/e/"));
 
     Ok(())
 }
