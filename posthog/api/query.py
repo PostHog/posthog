@@ -250,7 +250,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         responses={
             200: QueryUpgradeResponse,
         },
-        description="Upgrades a query without executing it. Returns a query with all nodes migrated to the lastest version.",
+        description="Upgrades a query without executing it. Returns a query with all nodes migrated to the latest version.",
     )
     @action(methods=["POST"], detail=False, url_path="upgrade")
     def upgrade(self, request: Request, *args, **kwargs) -> Response:
