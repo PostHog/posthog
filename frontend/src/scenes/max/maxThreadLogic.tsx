@@ -38,10 +38,6 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { urls } from 'scenes/urls'
-
-import { sceneLogic } from 'scenes/sceneLogic'
-import { routes } from 'scenes/scenes'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -281,33 +277,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                                    values.toolMap[toolName]?.callback(toolResult)
-
+                                    // Empty message in askMax effectively means "just resume generation with current context"
+                                    await values.toolMap[toolName]?.callback(toolResult, () => actions.askMax(''))
+                                    // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
-                                        // First wait for navigation to complete
-                                        await new Promise<void>((resolve, reject) => {
-                                            const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
-                                            const startTime = performance.now()
-                                            if (!(toolResult.page_key in urls)) {
-                                                reject(new Error(`${toolResult.page_key} not in urls`))
-                                                return
-                                            }
-                                            const checkPathname = (): void => {
-                                                if (
-                                                    sceneLogic.values.activeScene ===
-                                                    routes[urls[toolResult.page_key]()][0]
-                                                ) {
-                                                    resolve()
-                                                } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
-                                                    reject(new Error('Navigation timeout'))
-                                                } else {
-                                                    setTimeout(checkPathname, 50)
-                                                }
-                                            }
-                                            checkPathname()
-                                        })
-                                        // Empty message effectively means "just resume without new user content"
-                                        actions.askMax('')
                                         parsedResponse.content = parsedResponse.content.replace(
                                             toolResult.page_key,
                                             breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
