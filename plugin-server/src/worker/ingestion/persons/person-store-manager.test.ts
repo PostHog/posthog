@@ -280,10 +280,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(cachedUpdate!.distinct_id).toBe('test-distinct')
         })
 
-        it('should not overwrite existing cache in batch store', async () => {
+        it('should overwrite existing cache in batch store, but keep changeset', async () => {
             // Pre-populate batch store cache
             const existingUpdate = fromInternalPerson(person, 'test-distinct')
-            existingUpdate.properties = { pre_existing: 'value' }
+            existingUpdate.property_changeset = { pre_existing: 'value' }
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'test-distinct', existingUpdate)
 
             const result = await shadowManager.fetchForUpdate(teamId, 'test-distinct')
@@ -292,10 +292,11 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
             expect(db.fetchPerson).toHaveBeenCalledTimes(1)
 
-            // Cache should still have the pre-existing data
+            // Cache should override properties, but keep changeset
             const updateCache = batchStoreForBatch.getUpdateCache()
             const cachedUpdate = updateCache.get(`${teamId}:${person.uuid}`)
-            expect(cachedUpdate!.properties).toEqual({ pre_existing: 'value' })
+            expect(cachedUpdate!.properties).toEqual(person.properties)
+            expect(cachedUpdate!.property_changeset).toEqual(existingUpdate.property_changeset)
         })
     })
 
@@ -952,9 +953,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
-                    key: '1:test-distinct',
+                    key: `${teamId}:${person.uuid}`,
                     teamId: 1,
-                    distinctId: 'test-distinct',
                     methodName: 'updatePersonForUpdate',
                     samePersonResult: false,
                     differences: expect.arrayContaining([expect.stringContaining('person.properties')]),
@@ -992,9 +992,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForMerge returned inconsistent results between stores',
                 expect.objectContaining({
-                    key: '1:test-distinct',
+                    key: `${teamId}:${person.uuid}`,
                     teamId: 1,
-                    distinctId: 'test-distinct',
                     methodName: 'updatePersonForMerge',
                     samePersonResult: false,
                     differences: expect.arrayContaining([expect.stringContaining('person.properties')]),

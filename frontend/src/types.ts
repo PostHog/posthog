@@ -1148,7 +1148,6 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
-    DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
 }
 
@@ -5044,6 +5043,7 @@ export interface SourceFieldOauthConfig {
     name: string
     label: string
     required: boolean
+    kind: string
 }
 
 export interface SourceFieldInputConfig {
