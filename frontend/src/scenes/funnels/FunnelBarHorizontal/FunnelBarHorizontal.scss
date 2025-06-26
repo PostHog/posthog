@@ -69,17 +69,17 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             &.optional-step {
                 // Move the step number to the right to align with end of connector
                 .graph-series-glyph {
-                    margin-left: 2rem;
+                    margin-left: 3rem;
                 }
 
                 // Create the branching path using multiple pseudo-elements
                 &::before {
                     position: absolute;
-                    top: calc(#{$glyph_height} / 2 - 0.5rem);
+                    top: calc(#{$glyph_height} / 2 - 2rem);
                     left: calc(#{$series_container_width} / 2 - 1px);
                     z-index: 1;
                     width: 1.5rem;
-                    height: 1px;
+                    height: 2px;
                     content: '';
                     background: var(--border-primary);
                     opacity: 0.5;
@@ -87,11 +87,11 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &::after {
                     position: absolute;
-                    top: calc(#{$glyph_height} / 2 - 0.5rem);
+                    top: calc(#{$glyph_height} / 2 - 2rem);
                     left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
                     z-index: 1;
-                    width: 1px;
-                    height: calc(1rem + #{$glyph_height});
+                    width: 2px;
+                    height: calc(3.5rem + #{$glyph_height} + 3px);
                     content: '';
                     background: var(--border-primary);
                     opacity: 0.5;
@@ -100,11 +100,11 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .optional-connector {
                 position: absolute;
-                top: calc(#{$glyph_height} / 2 + 0.5rem);
+                top: calc(#{$glyph_height} / 2 + 3rem);
                 left: calc(#{$series_container_width} / 2 - 1px);
                 z-index: 1;
                 width: 1.5rem;
-                height: 1px;
+                height: 2px;
                 background: var(--border-primary);
                 opacity: 0.5;
             }
