@@ -862,16 +862,32 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
-    MetaAds: {
-        name: 'MetaAds',
-        label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
     GoogleSheets: {
         name: 'GoogleSheets',
         label: 'Google Sheets',
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Sheet as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-sheets" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'spreadsheet_url',
+                label: 'Spreadsheet URL',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        betaSource: true,
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
         caption: '',
         fields: [],
         unreleasedSource: true,
@@ -1095,8 +1111,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...(state.payload ?? {}),
-                            ...(source.payload ?? {}),
+                            ...state.payload,
+                            ...source.payload,
                         },
                     }
                 },
@@ -1557,7 +1573,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch (e) {
+                                } catch {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {

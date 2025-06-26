@@ -185,7 +185,7 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     return current
 
 
-def get_incremental_fields():
+def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
     d = {}
     for alias, contents in RESOURCE_SCHEMAS.items():
         assert isinstance(contents, dict)

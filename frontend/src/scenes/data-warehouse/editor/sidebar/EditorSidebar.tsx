@@ -88,7 +88,7 @@ export const EditorSidebar = ({
                 )
             case EditorSidebarTab.QueryInfo:
                 return (
-                    <div className="px-4 py-2">
+                    <div className="px-4 py-2 overflow-y-auto">
                         <QueryInfo codeEditorKey={codeEditorKey} />
                     </div>
                 )
