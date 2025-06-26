@@ -6,7 +6,8 @@ from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.printer import to_printed_hogql
 from posthog.models import Action
 from posthog.schema import BaseMathType, NodeKind, PropertyMathType
-from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
+from .adapters.base import MarketingSourceAdapter
+from .utils import sanitize_conversion_goal_name
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
@@ -30,7 +31,7 @@ class ConversionGoalProcessor:
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""
         goal_name = getattr(self.goal, "conversion_goal_name", f"goal_{self.index}")
-        sanitized_name = "".join(c if c.isalnum() or c == "_" else "_" for c in goal_name)
+        sanitized_name = sanitize_conversion_goal_name(goal_name)
         return f"{CONVERSION_GOAL_PREFIX_ABBREVIATION}{self.index}_{sanitized_name}"
 
     def get_table_name(self):
