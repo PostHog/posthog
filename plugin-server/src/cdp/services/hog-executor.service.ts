@@ -765,15 +765,7 @@ export class HogExecutorService {
             body: unknown
         } = {
             status: fetchResponse?.status ?? 500,
-            body: (await fetchResponse?.text()) ?? null,
-        }
-
-        if (typeof hogVmResponse.body === 'string') {
-            try {
-                hogVmResponse.body = parseJSON(hogVmResponse.body)
-            } catch (e) {
-                // pass - if it isn't json we just pass it on
-            }
+            body: fetchResponse ? (await tryCatch(async () => parseJSON(await fetchResponse.text())))[1] : null,
         }
 
         // Finally we create the response object as the VM expects
@@ -781,7 +773,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.hogFunction.id,
+            app_source_id: invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

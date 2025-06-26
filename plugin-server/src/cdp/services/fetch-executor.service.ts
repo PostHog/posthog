@@ -133,6 +133,7 @@ export class FetchExecutorService {
             {
                 queue: params.return_queue,
                 queueParameters: {
+                    type: 'fetch-response',
                     response: response
                         ? {
                               status: response?.status,
@@ -191,6 +192,7 @@ export class FetchExecutorService {
             {
                 queue: params.return_queue,
                 queueParameters: {
+                    type: 'fetch-response',
                     response: {
                         status: fetchResponse?.status,
                         headers: fetchResponse?.headers,
