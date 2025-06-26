@@ -25,6 +25,7 @@ from posthog.temporal.data_imports.pipelines.google_sheets.source import (
 from posthog.temporal.data_imports.pipelines.google_ads import (
     get_incremental_fields as get_google_ads_incremental_fields,
 )
+from posthog.temporal.data_imports.pipelines.mongo.mongo import filter_mongo_incremental_fields
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -63,7 +64,6 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
-    filter_mongo_incremental_fields,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
@@ -386,7 +386,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
             incremental_columns = [
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_mongo_incremental_fields(
-                    columns, source.job_inputs["connection_string"], instance.name
+                    columns, MongoSourceConfig.from_dict(source.job_inputs).connection_string, instance.name
                 )
             ]
 

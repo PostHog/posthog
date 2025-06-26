@@ -91,7 +91,10 @@ from posthog.warehouse.models.external_data_schema import (
     filter_snowflake_incremental_fields,
     get_postgres_row_count,
     get_sql_schemas_for_source_type,
-    get_mongo_schemas_for_source_type,
+)
+from posthog.temporal.data_imports.pipelines.mongo import (
+    MongoSourceConfig,
+    get_schemas as get_mongo_schemas,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -1012,7 +1015,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        schemas = get_mongo_schemas_for_source_type(new_source_model.job_inputs)
+        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(new_source_model.job_inputs))
 
         return new_source_model, list(schemas.keys())
 
@@ -1519,10 +1522,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             try:
-                result = get_mongo_schemas_for_source_type(
-                    {
-                        "connection_string": connection_string,
-                    }
+                result = get_mongo_schemas(
+                    MongoSourceConfig.from_dict(
+                        {
+                            "connection_string": connection_string,
+                        }
+                    )
                 )
                 if len(result.keys()) == 0:
                     return Response(

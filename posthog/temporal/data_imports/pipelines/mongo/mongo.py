@@ -32,7 +32,7 @@ def _process_nested_value(value: Any) -> Any:
     if isinstance(value, ObjectId):
         return str(value)
     elif isinstance(value, dict):
-        return _process_nested_object(value)
+        return {key: _process_nested_value(value) for key, value in value.items()}
     elif isinstance(value, list):
         return [_process_nested_value(item) for item in value]
     else:
@@ -53,12 +53,26 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
         return []
 
 
-def _process_nested_object(obj: dict) -> dict:
-    """Process a nested object, converting ObjectIds to strings recursively."""
-    processed = {}
-    for key, value in obj.items():
-        processed[key] = _process_nested_value(value)
-    return processed
+def filter_mongo_incremental_fields(
+    columns: list[tuple[str, str]], connection_string: str, collection_name: str
+) -> list[tuple[str, IncrementalFieldType]]:
+    results: list[tuple[str, IncrementalFieldType]] = []
+    indexed_fields = get_indexes(connection_string, collection_name)
+
+    for column_name, type in columns:
+        # Only include fields that have indexes
+        if column_name not in indexed_fields:
+            continue
+
+        type = type.lower()
+        if type == "timestamp":
+            results.append((column_name, IncrementalFieldType.Timestamp))
+        elif type == "integer":
+            results.append((column_name, IncrementalFieldType.Integer))
+        elif column_name == "_id" and type == "string":
+            results.append((column_name, IncrementalFieldType.String))
+
+    return results
 
 
 def _build_query(
@@ -363,7 +377,7 @@ def mongo_source(
                         processed_doc[key] = str(value)
                     elif isinstance(value, dict):
                         # Keep nested objects as they are, but convert ObjectIds within them
-                        processed_doc[key] = _process_nested_object(value)
+                        processed_doc[key] = _process_nested_value(value)
                     elif isinstance(value, list):
                         processed_doc[key] = [_process_nested_value(item) for item in value]
                     else:

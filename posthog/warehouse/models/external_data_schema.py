@@ -21,11 +21,6 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     MySQLSourceConfig,
     get_schemas as get_mysql_schemas,
 )
-from posthog.temporal.data_imports.pipelines.mongo import (
-    MongoSourceConfig,
-    get_schemas as get_mongo_schemas,
-    get_indexes,
-)
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
@@ -514,32 +509,6 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
             results.append((column_name, IncrementalFieldType.Integer))
 
     return results
-
-
-def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], connection_string: str, collection_name: str
-) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(connection_string, collection_name)
-
-    for column_name, type in columns:
-        # Only include fields that have indexes
-        if column_name not in indexed_fields:
-            continue
-
-        type = type.lower()
-        if type == "timestamp":
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type == "integer":
-            results.append((column_name, IncrementalFieldType.Integer))
-        elif column_name == "_id" and type == "string":
-            results.append((column_name, IncrementalFieldType.String))
-
-    return results
-
-
-def get_mongo_schemas_for_source_type(job_inputs: dict[str, Any]) -> dict[str, list[tuple[str, str]]]:
-    return get_mongo_schemas(MongoSourceConfig.from_dict(job_inputs))
 
 
 def get_sql_schemas_for_source_type(
