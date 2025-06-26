@@ -197,24 +197,6 @@ export type AppMetricType = MinimalAppMetric & {
     app_source: MetricLogSource
 }
 
-export type CyclotronFetchFailureKind =
-    | 'timeout'
-    | 'timeoutgettingbody'
-    | 'missingparameters'
-    | 'invalidparameters'
-    | 'requesterror'
-    | 'failurestatus'
-    | 'invalidbody'
-    | 'responsetoolarge'
-
-export type CyclotronFetchFailureInfo = {
-    kind: CyclotronFetchFailureKind
-    message: string
-    headers?: Record<string, string>
-    status?: number
-    timestamp: DateTime
-}
-
 export interface HogFunctionTiming {
     kind: 'hog' | 'async_function'
     duration_ms: number
