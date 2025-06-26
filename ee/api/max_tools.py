@@ -37,6 +37,21 @@ class InsightsToolCallSerializer(serializers.Serializer):
         return data
 
 
+class ExperimentResultsSummaryToolCallSerializer(serializers.Serializer):
+    experiment_id = serializers.CharField(required=True)
+
+    def validate(self, data: dict[str, Any]):
+        try:
+            tool_call_state = AssistantState(
+                root_tool_call_id=str(uuid4()),
+                messages=[],
+            )
+            data["state"] = tool_call_state
+        except pydantic.ValidationError:
+            raise serializers.ValidationError("Invalid state content.")
+        return data
+
+
 class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     queryset = Conversation.objects.all()
@@ -64,6 +79,29 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
             mode=AssistantMode.INSIGHTS_TOOL,
+            tool_call_partial_state=serializer.validated_data["state"],
+        )
+
+        return Response(assistant.generate())
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="experiment_results_summary",
+        required_scopes=["experiment:read"],
+    )
+    def experiment_results_summary(self, request: Request, *args, **kwargs):
+        from ee.hogai.assistant import Assistant
+
+        serializer = ExperimentResultsSummaryToolCallSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
+        assistant = Assistant(
+            self.team,
+            conversation,
+            user=cast(User, request.user),
+            is_new_conversation=False,
+            mode=AssistantMode.EXPERIMENTS_TOOL,
             tool_call_partial_state=serializer.validated_data["state"],
         )
 

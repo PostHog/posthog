@@ -1,5 +1,6 @@
 from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
+from typing import Any
 
 
 # Define your tool's arguments schema
@@ -25,6 +26,7 @@ Examples:
 - "Control and test variants are performing similarly so far, with the test variant showing a slight, but not significant, improvement. Credible intervals overlap and the p-value is above the significance threshold."
 """
 
-    def _run(self, experiment_id: str) -> str:
+    def _run_impl(self, experiment_id: str) -> tuple[str, Any]:
         # tool implementation goes here :D
-        return f"Summarized results for experiment {experiment_id}"
+        content = f"Summarized results for experiment {experiment_id}"
+        return content, None  # Return tuple of (content, artifact)

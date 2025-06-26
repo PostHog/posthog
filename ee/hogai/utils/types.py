@@ -197,3 +197,4 @@ class AssistantNodeName(StrEnum):
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
+    EXPERIMENTS_TOOL = "experiments_tool"
