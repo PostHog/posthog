@@ -931,7 +931,7 @@ describe('migrate()', () => {
         ],
     ]
 
-    it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
+    it.each(contentToExpected)('migrates %s', async (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
             user_access_level: AccessControlLevel.Editor,
@@ -943,6 +943,6 @@ describe('migrate()', () => {
             content: { type: 'doc', content: nextContent },
         }
 
-        expect(migrate(prevNotebook)).toEqual(nextNotebook)
+        await expect(migrate(prevNotebook)).resolves.toEqual(nextNotebook)
     })
 })

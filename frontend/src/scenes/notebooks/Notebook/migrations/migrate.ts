@@ -42,7 +42,7 @@ import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, Notebo
 // is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '1'
 
-export function migrate(notebook: NotebookType): NotebookType {
+export async function migrate(notebook: NotebookType): Promise<NotebookType> {
     let content = notebook.content?.content
 
     if (!content) {
