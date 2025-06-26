@@ -197,7 +197,6 @@ class NavigateTool(MaxTool):
     name: str = "navigate"
     description: str = (
         "Navigates to a specified, predefined page or section within the PostHog application using a specific page key. "
-        "Use this for known destinations like 'insights', 'replay', 'feature flags', 'project settings', 'organization settings', 'dashboards list', 'actions', 'notebooks', etc. "
         "This tool uses a fixed list of page keys and cannot navigate to arbitrary URLs or pages requiring dynamic IDs not already encoded in the page key. "
         "After navigating, you'll be able to use that page's tools."
     )
