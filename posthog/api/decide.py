@@ -99,28 +99,30 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
     # errors mean the database is unavailable, rely on team setting in this case
-    surveys_opt_in = get_surveys_opt_in(team)
-    if surveys_opt_in and not skip_db:
-        try:
-            with execute_with_timeout(200):
-                surveys_opt_in = get_surveys_count(team) > 0
-        except Exception:
-            pass
+    with tracer.start_as_current_span("surveys"):
+        surveys_opt_in = get_surveys_opt_in(team)
+        if surveys_opt_in and not skip_db:
+            try:
+                with execute_with_timeout(200):
+                    surveys_opt_in = get_surveys_count(team) > 0
+            except Exception:
+                pass
 
     if use_remote_config:
-        response = RemoteConfig.get_config_via_token(token, request=request)
+        with tracer.start_as_current_span("remote_config"):
+            response = RemoteConfig.get_config_via_token(token, request=request)
 
-        # Add in a bunch of backwards compatibility stuff
-        response["isAuthenticated"] = False
-        response["toolbarParams"] = {}
-        response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = surveys_opt_in
+            # Add in a bunch of backwards compatibility stuff
+            response["isAuthenticated"] = False
+            response["toolbarParams"] = {}
+            response["config"] = {"enable_collect_everything": True}
+            response["surveys"] = surveys_opt_in
 
-        # Remove some stuff that is specific to the new RemoteConfig
-        del response["hasFeatureFlags"]
-        del response["token"]
+            # Remove some stuff that is specific to the new RemoteConfig
+            del response["hasFeatureFlags"]
+            del response["token"]
 
-        return response
+            return response
 
     response = {
         "config": {"enable_collect_everything": True},
@@ -159,22 +161,24 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
         response["elementsChainAsString"] = True
 
-    response["sessionRecording"] = _session_recording_config_response(request, team)
+    with tracer.start_as_current_span("session_recording"):
+        response["sessionRecording"] = _session_recording_config_response(request, team)
 
     if settings.DECIDE_SESSION_REPLAY_QUOTA_CHECK:
-        from ee.billing.quota_limiting import (
-            QuotaLimitingCaches,
-            QuotaResource,
-            list_limited_team_attributes,
-        )
+        with tracer.start_as_current_span("quota_check"):
+            from ee.billing.quota_limiting import (
+                QuotaLimitingCaches,
+                QuotaResource,
+                list_limited_team_attributes,
+            )
 
-        limited_tokens_recordings = list_limited_team_attributes(
-            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
+            limited_tokens_recordings = list_limited_team_attributes(
+                QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
 
-        if token in limited_tokens_recordings:
-            response["quotaLimited"] = ["recordings"]
-            response["sessionRecording"] = False
+            if token in limited_tokens_recordings:
+                response["quotaLimited"] = ["recordings"]
+                response["sessionRecording"] = False
 
     response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
@@ -184,11 +188,12 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     suppression_rules = []
     # errors mean the database is unavailable, no-op in this case
     if team.autocapture_exceptions_opt_in and not skip_db:
-        try:
-            with execute_with_timeout(200):
-                suppression_rules = get_suppression_rules(team)
-        except Exception:
-            pass
+        with tracer.start_as_current_span("suppression_rules"):
+            try:
+                with execute_with_timeout(200):
+                    suppression_rules = get_suppression_rules(team)
+            except Exception:
+                pass
 
     response["errorTracking"] = {
         "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
@@ -197,12 +202,13 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case
-    if team.inject_web_apps and not skip_db:
-        try:
-            with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
-                site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
-        except Exception:
-            pass
+    with tracer.start_as_current_span("site_apps"):
+        if team.inject_web_apps and not skip_db:
+            try:
+                with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                    site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
+            except Exception:
+                pass
 
     response["siteApps"] = site_apps
 
