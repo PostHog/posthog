@@ -1035,13 +1035,32 @@ class Migration(migrations.Migration):
             name="Event",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "created_at",
+                    models.DateTimeField(auto_now_add=True, null=True),
+                ),
                 ("event", models.CharField(blank=True, max_length=200, null=True)),
+                (
+                    "distinct_id",
+                    models.CharField(default="fake-id-that-shouldnt-exist", max_length=200),
+                ),
                 ("properties", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
-                ("elements", django.contrib.postgres.fields.jsonb.JSONField(default=list)),
-                ("timestamp", models.DateTimeField(auto_now_add=True)),
-                ("ip", models.GenericIPAddressField()),
+                ("timestamp", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
+                (
+                    "elements_hash",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),
+                (
+                    "site_url",
+                    models.CharField(blank=True, max_length=200, null=True),
+                ),
+                ("elements", django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
+        ),
+        migrations.AddIndex(
+            model_name="event",
+            index=models.Index(fields=["elements_hash"], name="posthog_eve_element_48becd_idx"),
         ),
         migrations.CreateModel(
             name="Person",
@@ -1059,11 +1078,6 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
             ),
-        ),
-        migrations.AlterField(
-            model_name="event",
-            name="elements",
-            field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True),
         ),
         migrations.RemoveField(
             model_name="person",
@@ -1161,12 +1175,6 @@ class Migration(migrations.Migration):
             model_name="person",
             name="distinct_ids",
         ),
-        migrations.AddField(
-            model_name="event",
-            name="distinct_id",
-            field=models.CharField(default="fake-id-that-shouldnt-exist", max_length=200),
-            preserve_default=False,
-        ),
         migrations.AlterField(
             model_name="element",
             name="nth_child",
@@ -1181,11 +1189,6 @@ class Migration(migrations.Migration):
             model_name="element",
             name="order",
             field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="event",
-            name="ip",
-            field=models.GenericIPAddressField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="funnelstep",
@@ -1269,11 +1272,6 @@ class Migration(migrations.Migration):
             name="name",
             field=models.CharField(blank=True, max_length=200, null=True),
         ),
-        migrations.AlterField(
-            model_name="event",
-            name="timestamp",
-            field=models.DateTimeField(blank=True, default=django.utils.timezone.now),
-        ),
         migrations.AddField(
             model_name="user",
             name="distinct_id",
@@ -1306,21 +1304,12 @@ class Migration(migrations.Migration):
                 ("hash", models.CharField(blank=True, max_length=400, null=True)),
             ],
         ),
-        migrations.AddField(
-            model_name="event",
-            name="elements_hash",
-            field=models.CharField(blank=True, max_length=200, null=True),
-        ),
         migrations.AlterField(
             model_name="element",
             name="event",
             field=models.ForeignKey(
                 blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.event"
             ),
-        ),
-        migrations.AddIndex(
-            model_name="event",
-            index=models.Index(fields=["elements_hash"], name="posthog_eve_element_48becd_idx"),
         ),
         migrations.AddField(
             model_name="elementgroup",
@@ -1384,14 +1373,6 @@ class Migration(migrations.Migration):
             model_name="action",
             name="events",
             field=models.ManyToManyField(blank=True, to="posthog.event"),
-        ),
-        migrations.RunSQL(
-            sql="\n            UPDATE \"posthog_event\"\n            SET properties = properties || jsonb_build_object('$ip', ip)\n            WHERE ip IS NOT NULL;\n            ",
-            reverse_sql="",
-        ),
-        migrations.RemoveField(
-            model_name="event",
-            name="ip",
         ),
         migrations.AddField(
             model_name="user",
@@ -1643,11 +1624,6 @@ class Migration(migrations.Migration):
             model_name="action",
             name="last_calculated_at",
             field=models.DateTimeField(blank=True, default=django.utils.timezone.now),
-        ),
-        migrations.AddField(
-            model_name="event",
-            name="created_at",
-            field=models.DateTimeField(auto_now_add=True, null=True),
         ),
         migrations.AlterField(
             model_name="user",
@@ -2515,11 +2491,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="session_recording_retention_period_days",
             field=models.IntegerField(blank=True, default=None, null=True),
-        ),
-        migrations.AddField(
-            model_name="event",
-            name="site_url",
-            field=models.CharField(blank=True, max_length=200, null=True),
         ),
         migrations.AlterField(
             model_name="organization",
@@ -3786,6 +3757,14 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("name", models.CharField(max_length=400)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now, null=True),
+                ),
+                (
+                    "last_seen_at",
+                    models.DateTimeField(default=None, null=True),
+                ),
                 ("volume_30_day", models.IntegerField(default=None, null=True)),
                 ("query_usage_30_day", models.IntegerField(default=None, null=True)),
                 (
@@ -4156,16 +4135,6 @@ class Migration(migrations.Migration):
             field=models.IntegerField(blank=True, null=True),
         ),
         migrations.AddField(
-            model_name="eventdefinition",
-            name="created_at",
-            field=models.DateTimeField(default=django.utils.timezone.now, null=True),
-        ),
-        migrations.AddField(
-            model_name="eventdefinition",
-            name="last_seen_at",
-            field=models.DateTimeField(default=None, null=True),
-        ),
-        migrations.AddField(
             model_name="persondistinctid",
             name="version",
             field=models.BigIntegerField(blank=True, null=True),
@@ -4452,18 +4421,52 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "dashboard",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="posthog.dashboard",
+                    ),
+                ),
+                (
+                    "event_definition",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="posthog.eventdefinition",
+                    ),
+                ),
+                (
+                    "insight",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="posthog.insight",
+                    ),
+                ),
+                (
+                    "property_definition",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tagged_items",
+                        to="posthog.propertydefinition",
+                    ),
+                ),
+                (
                     "tag",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE, related_name="tagged_items", to="posthog.tag"
                     ),
                 ),
             ],
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.CheckConstraint(
-                check=models.Q(models.Q(("action__isnull", False)), _connector="OR"), name="exactly_one_related_object"
-            ),
         ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
@@ -4520,101 +4523,9 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
             ),
         ),
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
-        ),
-        migrations.AddField(
-            model_name="taggeditem",
-            name="dashboard",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tagged_items",
-                to="posthog.dashboard",
-            ),
-        ),
-        migrations.AddField(
-            model_name="taggeditem",
-            name="event_definition",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tagged_items",
-                to="posthog.eventdefinition",
-            ),
-        ),
-        migrations.AddField(
-            model_name="taggeditem",
-            name="insight",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tagged_items",
-                to="posthog.insight",
-            ),
-        ),
-        migrations.AddField(
-            model_name="taggeditem",
-            name="property_definition",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tagged_items",
-                to="posthog.propertydefinition",
-            ),
-        ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
             unique_together={("tag", "dashboard", "insight", "event_definition", "property_definition", "action")},
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("dashboard__isnull", False),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", False),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", False),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", False),
-                        ("action__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", False),
-                    ),
-                    _connector="OR",
-                ),
-                name="exactly_one_related_object",
-            ),
         ),
         migrations.AddField(
             model_name="dashboard",
@@ -5819,10 +5730,6 @@ class Migration(migrations.Migration):
             model_name="sessionrecording",
             name="start_url",
             field=models.CharField(blank=True, max_length=512, null=True),
-        ),
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
         ),
         migrations.AddField(
             model_name="taggeditem",
