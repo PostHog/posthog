@@ -27,6 +27,7 @@ describe('insightSceneLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
