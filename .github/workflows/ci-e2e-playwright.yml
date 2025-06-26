@@ -18,7 +18,7 @@ env:
     E2E_TESTING: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
-    SITE_URL: http://localhost:8000
+    SITE_URL: http://localhost:8080
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
@@ -31,7 +31,7 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
-    CYPRESS_BASE_URL: http://localhost:8000
+    CYPRESS_BASE_URL: http://localhost:8080
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -83,7 +83,7 @@ jobs:
         name: Playwright E2E tests (local)
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-24.04-32 # TODO: reduce this before merging
+        runs-on: depot-ubuntu-24.04-8 # TODO: reduce this before merging
         timeout-minutes: 45
         permissions:
             id-token: write
@@ -181,12 +181,12 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python manage.py runserver 8000 &> /tmp/server.log &
+                  python manage.py runserver 8080 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
-                  resource: http://localhost:8000
+                  resource: http://localhost:8080
                   timeout: 180000
                   interval: 2000
                   verbose: true
