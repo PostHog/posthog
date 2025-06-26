@@ -961,9 +961,7 @@ class GitHubIntegration:
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
-        response = cls.client_request(f"installations/{installation_id}")
-        print(response)
-        installation_info = response.json()
+        installation_info = cls.client_request(f"installations/{installation_id}").json()
         access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
 
         config = {
@@ -1014,7 +1012,7 @@ class GitHubIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        response = self.send_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
+        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
         config = response.json()
 
         if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
@@ -1023,10 +1021,10 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         else:
             logger.info(f"Refreshed access token for {self}")
-            self.integration.sensitive_config["access_token"] = config["token"]
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
+            self.integration.sensitive_config["access_token"] = config["token"]
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()

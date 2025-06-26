@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import time
 from typing import Optional
-from unittest.mock import Mock, patch
+from unittest.mock import patch, MagicMock
 
 from django.db import connection
 from freezegun import freeze_time
@@ -398,40 +398,49 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
 class TestGitHubIntegrationModel(BaseTest):
     @patch("posthog.models.integration.GitHubIntegration.client_request")
-    def test_integration_refresh_token(self, mock_client_request):
-        def mock_response(cls, **kwargs):
-            print(kwargs)
-            mock = Mock()
-            if kwargs.method == "GET":
-                mock.status_code = 200
-                mock.json.return_value = {}
-            elif kwargs.method == "POST":
-                mock.status_code = 201
-                mock.json.return_value = {}
-            return mock
+    def test_github_integration_refresh_token(self, mock_client_request):
+        def mock_github_client_request(endpoint, method="GET"):
+            mock_response = MagicMock()
+            dt = datetime.now(UTC) + timedelta(hours=1)
+            iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+            if method == "POST":
+                mock_response.status_code = 201
+                mock_response.json.return_value = {
+                    "token": "ACCESS_TOKEN",
+                    "repository_selection": "all",
+                    "expires_at": iso_time,
+                }
+            else:
+                mock_response.status_code = 200
+                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+            return mock_response
 
-        mock_client_request = mock_response
+        mock_client_request.side_effect = mock_github_client_request
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GitHubIntegration.integration_from_installation_id(
-                "installation_id",
+                "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
             assert GitHubIntegration(integration).access_token_expired() is False
 
         with freeze_time("2024-01-01T14:00:00Z"):
             assert GitHubIntegration(integration).access_token_expired() is True
 
-            # mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600 * 3)
-
             GitHubIntegration(integration).refresh_access_token()
             assert GitHubIntegration(integration).access_token_expired() is False
 
         assert integration.config == {
-            "access_token": "ACCESS_TOKEN",
-            "refreshed_at": 1704110400 + 3600 * 2,
+            "installation_id": "INSTALLATION_ID",
+            "account_name": "PostHog",
+            "account_type": "Organization",
+            "repository_selection": "all",
+            "refreshed_at": 1704117600,
             "expires_in": 3600,
+        }
+
+        assert integration.sensitive_config == {
+            "access_token": "ACCESS_TOKEN",
         }

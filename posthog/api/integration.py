@@ -76,16 +76,6 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
-        if validated_data["kind"] in GoogleCloudIntegration.supported_kinds:
-            key_file = request.FILES.get("key")
-            if not key_file:
-                raise ValidationError("Key file not provided")
-            key_info = json.loads(key_file.read().decode("utf-8"))
-            instance = GoogleCloudIntegration.integration_from_key(
-                validated_data["kind"], key_info, team_id, request.user
-            )
-            return instance
-
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
