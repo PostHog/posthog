@@ -591,36 +591,42 @@ export function ActionFilterRow({
                                                     {
                                                         label: () => (
                                                             <>
-                                                                <div className="px-2 py-1">
-                                                                    <LemonCheckbox
-                                                                        checked={(
-                                                                            funnelsFilter?.optional || []
-                                                                        ).includes(index + 1)}
-                                                                        onChange={(checked) => {
-                                                                            const optionalSteps =
-                                                                                funnelsFilter?.optional || []
+                                                                {index > 0 && (
+                                                                    <>
+                                                                        <div className="px-2 py-1">
+                                                                            <LemonCheckbox
+                                                                                checked={(
+                                                                                    funnelsFilter?.optional || []
+                                                                                ).includes(index + 1)}
+                                                                                onChange={(checked) => {
+                                                                                    const optionalSteps =
+                                                                                        funnelsFilter?.optional || []
 
-                                                                            if (checked) {
-                                                                                updateInsightFilter({
-                                                                                    //...(funnelsQuery.funnelsFilter || {}),
-                                                                                    optional: [
-                                                                                        ...optionalSteps,
-                                                                                        index + 1,
-                                                                                    ],
-                                                                                })
-                                                                            } else {
-                                                                                updateInsightFilter({
-                                                                                    // ...(funnelsQuery.funnelsFilter || {}),
-                                                                                    optional: optionalSteps.filter(
-                                                                                        (i) => i !== index + 1
-                                                                                    ),
-                                                                                })
-                                                                            }
-                                                                        }}
-                                                                        label="Optional step"
-                                                                    />
-                                                                </div>
-                                                                <LemonDivider />
+                                                                                    if (checked) {
+                                                                                        updateInsightFilter({
+                                                                                            //...(funnelsQuery.funnelsFilter || {}),
+                                                                                            optional: [
+                                                                                                ...optionalSteps,
+                                                                                                index + 1,
+                                                                                            ],
+                                                                                        })
+                                                                                    } else {
+                                                                                        updateInsightFilter({
+                                                                                            // ...(funnelsQuery.funnelsFilter || {}),
+                                                                                            optional:
+                                                                                                optionalSteps.filter(
+                                                                                                    (i) =>
+                                                                                                        i !== index + 1
+                                                                                                ),
+                                                                                        })
+                                                                                    }
+                                                                                }}
+                                                                                label="Optional step"
+                                                                            />
+                                                                        </div>
+                                                                        <LemonDivider />
+                                                                    </>
+                                                                )}
                                                             </>
                                                         ),
                                                     },
