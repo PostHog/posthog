@@ -266,10 +266,17 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
     const event = node.event
     let hasGenerationChildren = false
 
-    let totalCost = event.properties.$ai_total_cost_usd || 0
-    let totalLatency = event.properties.$ai_latency || 0
-    let inputTokens = event.properties.$ai_input_tokens || 0
-    let outputTokens = event.properties.$ai_output_tokens || 0
+    // Use direct values if available, otherwise start with 0 for aggregation
+    let totalCost = event.properties.$ai_total_cost_usd ?? 0
+    let totalLatency = event.properties.$ai_latency ?? 0
+    let inputTokens = event.properties.$ai_input_tokens ?? 0
+    let outputTokens = event.properties.$ai_output_tokens ?? 0
+
+    // Only aggregate from children if parent doesn't have direct values
+    const shouldAggregateCost = event.properties.$ai_total_cost_usd === undefined
+    const shouldAggregateLatency = event.properties.$ai_latency === undefined
+    const shouldAggregateInputTokens = event.properties.$ai_input_tokens === undefined
+    const shouldAggregateOutputTokens = event.properties.$ai_output_tokens === undefined
 
     if (node.children && node.children.length > 0) {
         for (const child of node.children) {
@@ -277,35 +284,37 @@ function aggregateSpanMetrics(node: TraceTreeNode): SpanAggregation {
                 hasGenerationChildren = true
             }
 
-            if (event.properties.$ai_total_cost_usd === undefined) {
-                totalCost += child.event.properties.$ai_total_cost_usd || 0
-            }
-            if (event.properties.$ai_latency === undefined) {
-                totalLatency += child.event.properties.$ai_latency || 0
-            }
-            if (event.properties.$ai_input_tokens === undefined) {
-                inputTokens += child.event.properties.$ai_input_tokens || 0
-            }
-            if (event.properties.$ai_output_tokens === undefined) {
-                outputTokens += child.event.properties.$ai_output_tokens || 0
-            }
-
-            if (child.children) {
+            // Use aggregated metrics if child has children, otherwise use direct metrics
+            if (child.children && child.children.length > 0) {
                 const childAgg = aggregateSpanMetrics(child)
-                if (event.properties.$ai_total_cost_usd === undefined) {
+                if (shouldAggregateCost) {
                     totalCost += childAgg.totalCost
                 }
-                if (event.properties.$ai_latency === undefined) {
+                if (shouldAggregateLatency) {
                     totalLatency += childAgg.totalLatency
                 }
-                if (event.properties.$ai_input_tokens === undefined) {
+                if (shouldAggregateInputTokens) {
                     inputTokens += childAgg.inputTokens
                 }
-                if (event.properties.$ai_output_tokens === undefined) {
+                if (shouldAggregateOutputTokens) {
                     outputTokens += childAgg.outputTokens
                 }
                 if (childAgg.hasGenerationChildren) {
                     hasGenerationChildren = true
+                }
+            } else {
+                // Child has no children, use its direct metrics
+                if (shouldAggregateCost) {
+                    totalCost += child.event.properties.$ai_total_cost_usd || 0
+                }
+                if (shouldAggregateLatency) {
+                    totalLatency += child.event.properties.$ai_latency || 0
+                }
+                if (shouldAggregateInputTokens) {
+                    inputTokens += child.event.properties.$ai_input_tokens || 0
+                }
+                if (shouldAggregateOutputTokens) {
+                    outputTokens += child.event.properties.$ai_output_tokens || 0
                 }
             }
         }
