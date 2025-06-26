@@ -108,23 +108,18 @@ class MarketingSourceAdapter(ABC):
         pass
 
     @abstractmethod
-    def _get_where_conditions(self) -> list[str]:
-        """Get the WHERE clause for the query"""
+    def _get_where_conditions_ast(self) -> list[ast.Expr]:
+        """Get WHERE condition expressions as AST"""
         pass
 
     @abstractmethod
-    def _get_from_clause(self) -> str:
-        """Get the FROM clause for the query"""
+    def _get_from_ast(self) -> ast.JoinExpr:
+        """Get the FROM clause as AST JoinExpr"""
         pass
 
     @abstractmethod
-    def _get_join_clause(self) -> str:
-        """Get the JOIN clause for the query"""
-        pass
-
-    @abstractmethod
-    def _get_group_by_clause(self) -> str:
-        """Get the GROUP BY clause for the query"""
+    def _get_group_by_ast(self) -> list[ast.Expr]:
+        """Get GROUP BY expressions as AST"""
         pass
 
     def _log_validation_errors(self, errors: list[str], warnings: list[str] | None = None):
@@ -141,9 +136,9 @@ class MarketingSourceAdapter(ABC):
         else:
             self.logger.error("Query generation failed", error=error)
 
-    def build_query(self) -> Optional[str]:
+    def build_query_ast(self) -> Optional[ast.SelectQuery]:
         """
-        Build SQL query that returns marketing data in standardized format using AST internally.
+        Build AST SelectQuery that returns marketing data in standardized format.
 
         MUST return columns in this exact order and format:
         - campaign_name (string): Campaign identifier
@@ -155,7 +150,7 @@ class MarketingSourceAdapter(ABC):
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns using AST internally
+            # Build SELECT columns using AST
             select_columns = [
                 ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field_ast()),
                 ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field_ast()),
@@ -164,28 +159,29 @@ class MarketingSourceAdapter(ABC):
                 ast.Alias(alias=self.cost_field, expr=self._get_cost_field_ast()),
             ]
 
-            # Build query components
-            from_clause = self._get_from_clause()
-            join_clause = self._get_join_clause()
-            where_conditions = self._get_where_conditions()
-            group_by_clause = self._get_group_by_clause()
+            # Build query components using AST
+            from_expr = self._get_from_ast()
+            where_conditions = self._get_where_conditions_ast()
+            group_by_exprs = self._get_group_by_ast()
 
-            # Build the base SELECT statement using AST
-            select_part = "SELECT\n    " + ",\n    ".join([col.to_hogql() for col in select_columns])
-
-            # Assemble the complete query
-            query_parts = [select_part]
-            if from_clause:
-                query_parts.append(from_clause)
-            if join_clause:
-                query_parts.append(join_clause)
+            # Build WHERE clause
+            where_expr = None
             if where_conditions:
-                where_clause = "WHERE " + " AND ".join(where_conditions)
-                query_parts.append(where_clause)
-            if group_by_clause:
-                query_parts.append(group_by_clause)
+                if len(where_conditions) == 1:
+                    where_expr = where_conditions[0]
+                else:
+                    where_expr = ast.And(exprs=where_conditions)
 
-            query = "\n".join(query_parts)
+            # Build GROUP BY clause
+            group_by = group_by_exprs if group_by_exprs else None
+
+            # Create the complete AST SelectQuery
+            query = ast.SelectQuery(
+                select=select_columns,
+                select_from=from_expr,
+                where=where_expr,
+                group_by=group_by
+            )
 
             self._log_query_generation(True)
             return query
@@ -194,3 +190,10 @@ class MarketingSourceAdapter(ABC):
             error_msg = f"Query generation error: {str(e)}"
             self._log_query_generation(False, error_msg)
             return None
+
+    def build_query(self) -> Optional[str]:
+        """
+        Build SQL query string (backwards compatibility).
+        """
+        query_ast = self.build_query_ast()
+        return query_ast.to_hogql() if query_ast else None

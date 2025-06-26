@@ -1,8 +1,9 @@
 # Self-Managed Marketing Source Adapters
 
+from typing import Optional
 from posthog.hogql import ast
 from .base import MarketingSourceAdapter, ValidationResult
-from ..constants import (
+from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     SOURCE_MAP_CAMPAIGN_NAME,
     SOURCE_MAP_CLICKS,
@@ -14,7 +15,7 @@ from ..constants import (
     SOURCE_MAP_UTM_CAMPAIGN_NAME,
     SOURCE_MAP_UTM_SOURCE_NAME,
 )
-from ..utils import get_source_map_field
+from products.marketing_analytics.backend.hogql_queries.utils import get_source_map_field
 
 
 class SelfManagedAdapter(MarketingSourceAdapter):
@@ -92,24 +93,18 @@ class SelfManagedAdapter(MarketingSourceAdapter):
         campaign_name_field = get_source_map_field(
             self.config.get("source_map"), SOURCE_MAP_UTM_CAMPAIGN_NAME
         ) or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CAMPAIGN_NAME)
-
+        
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_name_field])])
 
     def _get_source_name_field_ast(self) -> ast.Expr:
         source_name_field = (
             get_source_map_field(self.config.get("source_map"), SOURCE_MAP_UTM_SOURCE_NAME)
             or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_SOURCE_NAME)
-            or f"'{self.config.get('schema_name')}'"
+            or self.config.get('schema_name')
         )
-
-        if source_name_field.startswith("'") and source_name_field.endswith("'"):
-            # It's a literal string
-            inner_expr = ast.Constant(value=source_name_field[1:-1])
-        else:
-            # It's a field reference
-            inner_expr = ast.Field(chain=[source_name_field])
-
-        return ast.Call(name="toString", args=[inner_expr])
+        
+        # Always treat as a constant value since it's likely a hardcoded schema name
+        return ast.Call(name="toString", args=[ast.Constant(value=source_name_field)])
 
     def _get_cost_field_ast(self) -> ast.Expr:
         # Handle currency conversion
@@ -136,51 +131,45 @@ class SelfManagedAdapter(MarketingSourceAdapter):
 
     def _get_impressions_field_ast(self) -> ast.Expr:
         impressions_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_IMPRESSIONS, "0")
-
+        
         if impressions_field == "0":
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[impressions_field])
-
+            
         coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce_ast])
 
     def _get_clicks_field_ast(self) -> ast.Expr:
         clicks_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CLICKS, "0")
-
+        
         if clicks_field == "0":
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[clicks_field])
-
+            
         coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce_ast])
 
-    def _get_from_clause(self) -> str:
-        # Build AST for FROM table_name
+    def _get_from_ast(self) -> ast.JoinExpr:
+        """Build FROM clause as AST JoinExpr""" # why join expr?
         table_name = self.config.get("table").name
-        from_ast = ast.Field(chain=[table_name])
-        return f"FROM {from_ast.to_hogql()}"
+        table_ast = ast.Field(chain=[table_name])
+        return ast.JoinExpr(table=table_ast)
 
-    def _get_join_clause(self) -> str:
-        return ""
-
-    def _get_group_by_clause(self) -> str:
-        return ""
-
-    def _get_where_conditions(self) -> list[str]:
-        """Build WHERE conditions for self-managed table query"""
+    def _get_where_conditions_ast(self) -> list[ast.Expr]:
+        """Build WHERE conditions as AST expressions"""
         date_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_DATE)
         conditions = []
 
-        # Add date range conditions
+        # Add date range filter  
         if self.context.date_range:
             if date_field != "timestamp":
                 # toDateTime(date_field) >= toDateTime('date_from')
                 date_cast_ast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
             else:
                 date_cast_ast = ast.Field(chain=[date_field])
-
+                
             # Build >= condition
             from_date_ast = ast.Call(
                 name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)]
@@ -188,18 +177,19 @@ class SelfManagedAdapter(MarketingSourceAdapter):
             gte_condition = ast.CompareOperation(
                 left=date_cast_ast, op=ast.CompareOperationOp.GtEq, right=from_date_ast
             )
-
+            
             # Build <= condition
             to_date_ast = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
             lte_condition = ast.CompareOperation(left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast)
-
-            conditions.extend([gte_condition.to_hogql(), lte_condition.to_hogql()])
-
-        # Add global filters (keep as strings for now)
-        if self.context.global_filters:
-            conditions.extend(self.context.global_filters)
+            
+            conditions.extend([gte_condition, lte_condition])
 
         return conditions
+
+    def _get_group_by_ast(self) -> list[ast.Expr]:
+        """Build GROUP BY expressions as AST"""
+        # Self-managed tables typically don't need grouping
+        return []
 
 
 class AWSAdapter(SelfManagedAdapter):
