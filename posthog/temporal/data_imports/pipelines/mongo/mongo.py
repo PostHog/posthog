@@ -95,7 +95,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = {incremental_field: {"$gte": ObjectId(db_incremental_field_last_value), "$exists": True}}
+    query = {incremental_field: {"$gt": ObjectId(db_incremental_field_last_value), "$exists": True}}
 
     return query
 
@@ -373,7 +373,14 @@ def mongo_source(
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
-            cursor = read_collection.find({}, batch_size=DEFAULT_BATCH_SIZE)
+            query = _build_query(
+                should_use_incremental_field,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
+
+            cursor = read_collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
