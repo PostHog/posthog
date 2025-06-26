@@ -6,14 +6,6 @@ use std::time::Duration;
 ///
 /// This type wrapper ensures you can't accidentally create a feature flags limiter
 /// with the wrong quota resource type. It always uses QuotaResource::FeatureFlags.
-///
-/// # Example
-/// ```
-/// // This is the only way to create a feature flags limiter:
-/// let limiter = FeatureFlagsLimiter::new(ttl, redis_client, cache_key, None)?;
-///
-/// // You can't accidentally use the wrong quota resource because it's hardcoded
-/// ```
 #[derive(Clone)]
 pub struct FeatureFlagsLimiter {
     inner: RedisLimiter,
@@ -46,14 +38,6 @@ impl FeatureFlagsLimiter {
 ///
 /// This type wrapper ensures you can't accidentally create a session replay limiter
 /// with the wrong quota resource type. It always uses QuotaResource::Recordings.
-///
-/// # Example
-/// ```
-/// // This is the only way to create a session replay limiter:
-/// let limiter = SessionReplayLimiter::new(ttl, redis_client, cache_key, None)?;
-///
-/// // You can't accidentally use QuotaResource::FeatureFlags because it's hardcoded
-/// ```
 #[derive(Clone)]
 pub struct SessionReplayLimiter {
     inner: RedisLimiter,
