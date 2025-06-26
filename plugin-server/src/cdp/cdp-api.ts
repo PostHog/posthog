@@ -227,7 +227,7 @@ export class CdpApi {
                         asyncFunctionsNames: mock_async_functions ? ['fetch'] : undefined,
                         functions: mock_async_functions
                             ? {
-                                  fetch: (args: any[]) => {
+                                  fetch: (url: string, options: any) => {
                                       logs.push({
                                           level: 'info',
                                           timestamp: DateTime.now(),
@@ -236,7 +236,7 @@ export class CdpApi {
                                       logs.push({
                                           level: 'info',
                                           timestamp: DateTime.now(),
-                                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                                          message: `fetch('${url}', ${JSON.stringify(options, null, 2)})`,
                                       })
 
                                       return {
