@@ -1200,7 +1200,10 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("distinct_id", models.CharField(max_length=400)),
                 ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.person")),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(db_index=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddConstraint(
@@ -1286,10 +1289,6 @@ class Migration(migrations.Migration):
             name="opt_out_capture",
             field=models.BooleanField(default=False),
         ),
-        migrations.RunSQL(
-            sql="CREATE INDEX idx_distinct_id ON posthog_event(distinct_id);",
-            reverse_sql='DROP INDEX "idx_distinct_id";',
-        ),
         migrations.CreateModel(
             name="Cohort",
             fields=[
@@ -1304,7 +1303,7 @@ class Migration(migrations.Migration):
             name="ElementGroup",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("hash", models.CharField(blank=True, max_length=400, null=True, unique=True)),
+                ("hash", models.CharField(blank=True, max_length=400, null=True)),
             ],
         ),
         migrations.AddField(
@@ -1357,11 +1356,6 @@ class Migration(migrations.Migration):
         migrations.RemoveField(
             model_name="team",
             name="app_url",
-        ),
-        migrations.AlterField(
-            model_name="elementgroup",
-            name="hash",
-            field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddConstraint(
             model_name="elementgroup",
@@ -1689,9 +1683,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="dashboarditem",
             name="funnel",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.funnel"
-            ),
+            field=models.IntegerField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="actionstep",
@@ -2262,11 +2254,6 @@ class Migration(migrations.Migration):
             name="filters_hash",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AlterField(
-            model_name="dashboarditem",
-            name="funnel",
-            field=models.IntegerField(blank=True, null=True),
-        ),
         migrations.DeleteModel(
             name="Funnel",
         ),
@@ -2313,10 +2300,6 @@ class Migration(migrations.Migration):
                 related_query_name="plugin",
                 to="posthog.organization",
             ),
-        ),
-        migrations.RunSQL(
-            sql="CREATE INDEX IF NOT EXISTS posthog_ses_team_id_0409c4_idx ON posthog_sessionrecordingevent(team_id, timestamp);",
-            reverse_sql='DROP INDEX "posthog_ses_team_id_0409c4_idx";',
         ),
         migrations.CreateModel(
             name="PluginStorage",
@@ -4513,23 +4496,6 @@ class Migration(migrations.Migration):
             name="description",
             field=models.TextField(),
         ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='DROP INDEX IF EXISTS "posthog_persondistinctid_team_id_46330ec9";',
-                    reverse_sql="CREATE INDEX posthog_persondistinctid_team_id_46330ec9 ON public.posthog_persondistinctid USING btree (team_id);",
-                ),
-            ],
-            state_operations=[
-                migrations.AlterField(
-                    model_name="persondistinctid",
-                    name="team",
-                    field=models.ForeignKey(
-                        db_index=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
-                ),
-            ],
-        ),
         migrations.RenameField(
             model_name="dashboard",
             old_name="tags",
@@ -5274,7 +5240,7 @@ class Migration(migrations.Migration):
                         null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("team_id", models.IntegerField()),
             ],
         ),
         migrations.AddIndex(
@@ -5581,16 +5547,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-        ),
-        migrations.AlterField(
-            model_name="asyncdeletion",
-            name="team",
-            field=models.IntegerField(),
-        ),
-        migrations.RenameField(
-            model_name="asyncdeletion",
-            old_name="team",
-            new_name="team_id",
         ),
         migrations.CreateModel(
             name="InsightCachingState",
@@ -6109,28 +6065,6 @@ class Migration(migrations.Migration):
             sql='\nCREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)\nRETURNS BOOLEAN AS $$\n  SELECT NOT EXISTS (\n    SELECT 1\n      FROM "posthog_personoverride"\n      WHERE team_id = $1\n      AND override_person_id = $3\n    ) AND NOT EXISTS (\n        SELECT 1\n      FROM "posthog_personoverride"\n      WHERE team_id = $1\n      AND old_person_id = $2\n    );\n$$ LANGUAGE SQL;\n',
             reverse_sql="DROP FUNCTION is_override_person_not_used_as_old_person",
         ),
-        migrations.AddConstraint(
-            model_name="personoverride",
-            constraint=models.CheckConstraint(
-                check=models.Q(("old_person_id__exact", models.F("override_person_id")), _negated=True),
-                name="old_person_id_different_from_override_person_id",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="personoverride",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Func(
-                        models.F("team_id"),
-                        models.F("override_person_id"),
-                        models.F("old_person_id"),
-                        function="is_override_person_not_used_as_old_person",
-                        output_field=models.BooleanField(),
-                    )
-                ),
-                name="old_person_id_is_not_override_person_id",
-            ),
-        ),
         migrations.AddField(
             model_name="organization",
             name="enforce_2fa",
@@ -6230,14 +6164,6 @@ class Migration(migrations.Migration):
         migrations.RemoveConstraint(
             model_name="personoverride",
             name="unique override per old_person_id",
-        ),
-        migrations.RemoveConstraint(
-            model_name="personoverride",
-            name="old_person_id_is_not_override_person_id",
-        ),
-        migrations.RemoveConstraint(
-            model_name="personoverride",
-            name="old_person_id_different_from_override_person_id",
         ),
         migrations.RunSQL(
             sql="DROP FUNCTION is_override_person_not_used_as_old_person",
@@ -10469,20 +10395,18 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("issue_id", models.UUIDField()),
                 (
-                    "issue",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.errortrackingissue"),
+                    "user",
+                    models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                    ),
                 ),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
             ],
         ),
         migrations.AddConstraint(
             model_name="errortrackingissuefingerprintv2",
             constraint=models.UniqueConstraint(fields=("team", "fingerprint"), name="unique_fingerprint_for_team"),
-        ),
-        migrations.AddConstraint(
-            model_name="errortrackingissueassignment",
-            constraint=models.UniqueConstraint(fields=("issue", "user"), name="unique_on_user_and_issue"),
         ),
         migrations.AlterField(
             model_name="dashboardtemplate",
@@ -10999,28 +10923,47 @@ class Migration(migrations.Migration):
             model_name="usergroupmembership",
             constraint=models.UniqueConstraint(fields=("group", "user"), name="unique_per_user_per_group"),
         ),
-        migrations.RemoveConstraint(
-            model_name="errortrackingissueassignment",
-            name="unique_on_user_and_issue",
-        ),
-        migrations.AddField(
-            model_name="errortrackingissueassignment",
-            name="user_group",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"),
-        ),
-        migrations.AlterField(
-            model_name="errortrackingissueassignment",
-            name="issue",
-            field=models.OneToOneField(
-                on_delete=django.db.models.deletion.CASCADE, related_name="assignment", to="posthog.errortrackingissue"
-            ),
-        ),
-        migrations.AlterField(
-            model_name="errortrackingissueassignment",
-            name="user",
-            field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="errortrackingissueassignment",
+                    name="user_group",
+                    field=models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.usergroup"
+                    ),
+                ),
+                migrations.AddField(
+                    model_name="errortrackingissueassignment",
+                    name="issue",
+                    field=models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="assignment",
+                        to="posthog.errortrackingissue",
+                    ),
+                ),
+            ],
+            database_operations=[
+                # Add field user_group to errortrackingissueassignment
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD COLUMN "user_group_id" uuid NULL CONSTRAINT "posthog_errortrackin_user_group_id_459a0006_fk_posthog_u" REFERENCES "posthog_usergroup"("id") DEFERRABLE INITIALLY DEFERRED;
+                    """,
+                    reverse_sql="""
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP COLUMN "user_group_id" CASCADE;
+                    """,
+                ),
+                # Alter field issue on errortrackingissueassignment
+                migrations.RunSQL(
+                    """
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackingissueassignment_issue_id_d9cce9cb_uniq" UNIQUE ("issue_id"); -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_errortrackingissueassignment" ADD CONSTRAINT "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e" FOREIGN KEY ("issue_id") REFERENCES "posthog_errortrackingissue" ("id") DEFERRABLE INITIALLY DEFERRED;
+                    """,
+                    reverse_sql="""
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT IF EXISTS "posthog_errortrackingissueassignment_issue_id_d9cce9cb_uniq";
+                    ALTER TABLE "posthog_errortrackingissueassignment" DROP CONSTRAINT IF EXISTS "posthog_errortrackin_issue_id_d9cce9cb_fk_posthog_e";
+                    """,
+                ),
+            ],
         ),
         migrations.AlterField(
             model_name="batchexportdestination",
@@ -11445,6 +11388,14 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
+        ),
+        migrations.RunSQL(
+            """
+            DROP INDEX IF EXISTS "posthog_errortrackingissueassignment_issue_id_d9cce9cb";
+            """,
+            reverse_sql="""
+            CREATE INDEX "posthog_errortrackingissueassignment_issue_id_d9cce9cb" ON "posthog_errortrackingissueassignment" ("issue_id");
+            """,
         ),
         migrations.CreateModel(
             name="QueryTabState",
