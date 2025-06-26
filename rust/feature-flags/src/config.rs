@@ -176,8 +176,8 @@ pub struct Config {
     #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "none")]
     pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
 
-    #[envconfig(from = "DECIDE_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
-    pub decide_session_replay_quota_check: bool,
+    #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
+    pub flags_session_replay_quota_check: bool,
 }
 
 impl Config {
@@ -208,7 +208,7 @@ impl Config {
             debug: FlexBool(false),
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
-            decide_session_replay_quota_check: false,
+            flags_session_replay_quota_check: false,
         }
     }
 
@@ -296,7 +296,7 @@ mod tests {
         );
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
-        assert_eq!(config.decide_session_replay_quota_check, false);
+        assert_eq!(config.flags_session_replay_quota_check, false);
     }
 
     #[test]

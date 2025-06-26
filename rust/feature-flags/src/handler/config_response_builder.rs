@@ -73,7 +73,7 @@ async fn apply_config_fields(
     team: &Team,
 ) -> Result<(), FlagError> {
     // Check for recordings quota limits only if enabled
-    let is_recordings_limited = if context.config.decide_session_replay_quota_check {
+    let is_recordings_limited = if context.config.flags_session_replay_quota_check {
         context.billing_limiter.is_limited(&team.api_token).await
     } else {
         false
