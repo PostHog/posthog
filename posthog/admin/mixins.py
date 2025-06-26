@@ -1,4 +1,9 @@
 from django.db import models
+from typing import Protocol
+
+
+class AdminQuerySetProvider(Protocol):
+    def get_queryset(self, request) -> models.QuerySet: ...
 
 
 class QueryTaggingMixin:
@@ -26,7 +31,7 @@ class QueryTaggingMixin:
         # apparently this is the best way to hack a query tag into a query via the django ORM
         return queryset.extra(where=[f"1=1 {tag_comment}"])
 
-    def get_queryset(self, request):
+    def get_queryset(self: AdminQuerySetProvider, request):
         queryset = super().get_queryset(request)
 
         if request.GET.get("q"):
