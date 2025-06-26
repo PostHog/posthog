@@ -220,7 +220,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     fullWidth
                                     loading={playlistsLoading}
                                 >
-                                    Delete playlist
+                                    Delete collection
                                 </LemonButton>
                             </>
                         }

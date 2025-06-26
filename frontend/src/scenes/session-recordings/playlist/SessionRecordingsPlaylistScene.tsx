@@ -87,12 +87,12 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                         }
                                         fullWidth
                                     >
-                                        {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
+                                        {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
                                     </LemonButton>
                                     <LemonDivider />
 
                                     <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
-                                        Delete playlist
+                                        Delete collection
                                     </LemonButton>
                                 </>
                             }
