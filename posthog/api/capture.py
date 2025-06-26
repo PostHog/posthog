@@ -65,6 +65,8 @@ LOG_RATE_LIMITER = Limiter(
     storage=MemoryStorage(),
 )
 
+# TODO ELI: this is a placeholder! Move to env-resolved value
+BASE_CAPTURE_RS_URL = "https://app.posthog.com"
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -939,9 +941,14 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
 
     event_payload = prepare_capture_payload(token, distinct_id, raw_event)
 
+    # TODO ELI: determine if this is a recordings or events type, route to /s or /i/v0/e
+    resolved_capture_path = "/i/v0/e/"
+    if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
+        resolved_capture_path = "/s/"
+
     with Session() as s:
         s.mount(
-            "https://app.posthog.com",
+            BASE_CAPTURE_RS_URL,
             HTTPAdapter(
                 max_retries=Retry(
                     total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
@@ -949,7 +956,7 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
             ),
         )
         return s.post(
-            "https://app.posthog.com/i/v0/e/",
+            f"{BASE_CAPTURE_RS_URL}{resolved_capture_path}",
             json=event_payload,
             timeout=1,
         )
