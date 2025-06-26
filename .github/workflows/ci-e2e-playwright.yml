@@ -80,11 +80,14 @@ jobs:
                         - playwright/**
 
     playwright:
-        name: Playwright E2E tests (local)
+        name: Playwright E2E tests (${{ matrix.shard }}/3)
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        runs-on: depot-ubuntu-24.04-8 # TODO: reduce this before merging
-        timeout-minutes: 45
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        strategy:
+            matrix:
+                shard: [1, 2, 3]
         permissions:
             id-token: write
         steps:
@@ -194,7 +197,7 @@ jobs:
             - name: Run Playwright tests
               env:
                   START_PLAYWRIGHT: '1'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright exec playwright test --shard=${{ matrix.shard }}/3
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
@@ -214,7 +217,7 @@ jobs:
               if: failure()
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-report
+                  name: playwright-report-shard-${{ matrix.shard }}
                   path: playwright/playwright-report/
                   retention-days: 30
 
@@ -222,14 +225,14 @@ jobs:
               if: always()
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-screenshots
+                  name: playwright-screenshots-shard-${{ matrix.shard }}
                   path: playwright/test-results
                   retention-days: 30
 
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
-        needs: [playwright]
+        needs: [changes, playwright]
         if: needs.changes.outputs.shouldRun == 'true'
         steps:
             - name: Calculate run time and send to PostHog
