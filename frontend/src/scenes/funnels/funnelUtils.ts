@@ -250,10 +250,20 @@ export function getIncompleteConversionWindowStartDate(
 
 export function stepsWithConversionMetrics(
     steps: FunnelStepWithNestedBreakdown[],
-    stepReference: FunnelStepReference
+    stepReference: FunnelStepReference,
+    optionalSteps: number[] = []
 ): FunnelStepWithConversionMetrics[] {
+    let lastOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
-        const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
+        // Update lastOptionalStep to track the last optional step encountered
+        // Note: optionalSteps are 1-indexed, so we convert to 0-indexed
+        if (optionalSteps.includes(i + 1)) {
+            lastOptionalStep = i
+        }
+
+        // Use lastOptionalStep instead of i-1 for previousCount calculation
+        const previousStepIndex = i > 0 ? lastOptionalStep : 0
+        const previousCount = i > 0 ? steps[previousStepIndex].count : step.count // previous is faked for the first step
         const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
 
         const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
@@ -261,7 +271,7 @@ export function stepsWithConversionMetrics(
             // firstBreakdownCount serves as previousBreakdownCount for the first step so that
             // "Relative to previous step" is shown correctly – later series use the actual previous steps
             const previousBreakdownCount =
-                i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
+                i === 0 ? firstBreakdownCount : steps[previousStepIndex].nested_breakdown?.[breakdownIndex].count || 0
             const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
             const conversionRates = {
                 fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,

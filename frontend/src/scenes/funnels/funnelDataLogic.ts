@@ -197,7 +197,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.steps, s.funnelsFilter],
             (steps, funnelsFilter): FunnelStepWithConversionMetrics[] => {
                 const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
-                return stepsWithConversionMetrics(steps, stepReference)
+                const optionalSteps = funnelsFilter?.optional || []
+                return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
         ],
 
