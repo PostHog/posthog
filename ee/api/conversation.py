@@ -37,6 +37,8 @@ class MessageSerializer(serializers.Serializer):
 
     def validate(self, data):
         if not data["content"]:
+            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+            # Because we intentionally don't add a HumanMessage, we currently can't recognize ui_context having changed
             return data
         try:
             message_data = {"content": data["content"]}
