@@ -672,14 +672,23 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLEADS:
             from posthog.temporal.data_imports.pipelines.google_ads import (
                 GoogleAdsServiceAccountSourceConfig,
+                GoogleAdsOAuthSourceConfig,
                 google_ads_source,
             )
 
-            config = GoogleAdsServiceAccountSourceConfig.from_dict(
-                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
-            )
+            if "google_ads_integration_id" in model.pipeline.job_inputs.keys():
+                config: GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig = (
+                    GoogleAdsOAuthSourceConfig.from_dict(
+                        {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+                    )
+                )
+            else:
+                config = GoogleAdsServiceAccountSourceConfig.from_dict(
+                    {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+                )
             source = google_ads_source(
                 config,
+                team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.sync_type_config.get("incremental_field")
                 if schema.should_use_incremental_field

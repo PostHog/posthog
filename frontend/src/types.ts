@@ -5044,6 +5044,7 @@ export interface SourceFieldOauthConfig {
     name: string
     label: string
     required: boolean
+    kind: string
 }
 
 export interface SourceFieldInputConfig {
