@@ -389,7 +389,7 @@ def mongo_source(
                 }
                 # extract incremental field from the document if it exists
                 if incremental_field:
-                    incremental_value = processed_doc.pop(incremental_field)
+                    incremental_value = processed_doc.get(incremental_field, None)
                     if incremental_value is None:
                         continue
                     result[incremental_field] = incremental_value
