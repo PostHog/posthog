@@ -102,7 +102,7 @@ class Integration(models.Model):
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
         if self.kind == "github":
-            return dot_get(self.config, oauth_config.account_name, self.integration_id)
+            return dot_get(self.config, "account.name", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -969,8 +969,10 @@ class GitHubIntegration:
             "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
             "repository_selection": access_token["repository_selection"],
-            "account_type": dot_get(installation_info, "account.type", None),
-            "account_name": dot_get(installation_info, "account.login", installation_id),
+            "account": {
+                "type": dot_get(installation_info, "account.type", None),
+                "name": dot_get(installation_info, "account.login", installation_id),
+            },
         }
 
         sensitive_config = {"access_token": access_token["token"]}

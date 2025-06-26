@@ -434,8 +434,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert integration.config == {
             "installation_id": "INSTALLATION_ID",
-            "account_name": "PostHog",
-            "account_type": "Organization",
+            "account": {
+                "name": "PostHog",
+                "type": "Organization",
+            },
             "repository_selection": "all",
             "refreshed_at": 1704117600,
             "expires_in": 3600,
