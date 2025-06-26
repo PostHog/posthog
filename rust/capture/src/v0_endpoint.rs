@@ -219,7 +219,7 @@ async fn handle_legacy(
     Span::current().record("token", &token);
 
     // TEMPORARY: conditionally sample targeted event submissions
-    let roll = RNG.with(|rng| rng.borrow_mut().gen_range(0.0..100.0));
+    let roll = RNG.with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
     if compression == Compression::Base64 && roll < state.base64_detect_percent {
         // API token, req path etc. should be logged here by tracing lib
         info!("handle_legacy: candidate team for base64 issue")
