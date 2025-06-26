@@ -1,3 +1,4 @@
+from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
 from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature
@@ -21,7 +22,12 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
             level=OrganizationMembership.Level.ADMIN,
         )
 
-    def test_environments_rollback_task_success(self) -> None:
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_success(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -60,7 +66,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(detached_project.name, staging_env.name)
         self.assertEqual(detached_project.organization, self.organization)
 
-    def test_environments_rollback_task_multiple_sources_to_one_target(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_multiple_sources_to_one_target(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -99,7 +115,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(staging_env.project_id, staging_env.id)
         self.assertEqual(dev_env.project_id, dev_env.id)
 
-    def test_environments_rollback_task_multiple_projects_same_project_pairs(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_multiple_projects_same_project_pairs(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         project_alpha = Team.objects.create(organization=self.organization, name="Project Alpha")
         project_beta = Team.objects.create(organization=self.organization, name="Project Beta")
 
@@ -151,7 +177,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertEqual(alpha_staging_env.project_id, alpha_staging_env.id)
         self.assertEqual(beta_staging_env.project_id, beta_staging_env.id)
 
-    def test_environments_rollback_task_same_source_and_target(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_same_source_and_target(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -171,7 +207,17 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         production_env.refresh_from_db()
         self.assertEqual(production_env.project_id, main_project.id)
 
-    def test_environments_rollback_task_nonexistent_organization(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_nonexistent_organization(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         nonexistent_organization_id = 99999
         with self.assertRaises(Organization.DoesNotExist):
             environments_rollback_migration(
@@ -180,7 +226,15 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
                 user_id=self.user.id,
             )
 
-    def test_environments_rollback_task_nonexistent_user(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_nonexistent_user(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         main_project = Team.objects.create(organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             organization=self.organization, name="Production", project_id=main_project.id
@@ -195,7 +249,15 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
                 user_id=nonexistent_user_id,
             )
 
-    def test_environments_rollback_task_prevents_cross_project_migration(self) -> None:
+        mock_get_client.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_prevents_cross_project_migration(self, mock_get_client: MagicMock) -> None:
+        # Mock the PostHog client
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
         project_alpha = Team.objects.create(organization=self.organization, name="Project Alpha")
         project_beta = Team.objects.create(organization=self.organization, name="Project Beta")
 
@@ -212,3 +274,6 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertIn("Cannot migrate between different projects", str(context.exception))
         self.assertIn(f"source environment {alpha_env.id}", str(context.exception))
         self.assertIn(f"target environment {beta_env.id}", str(context.exception))
+
+        mock_get_client.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()

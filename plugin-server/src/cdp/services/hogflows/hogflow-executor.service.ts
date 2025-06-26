@@ -202,4 +202,55 @@ export class HogFlowExecutorService {
 
         return Promise.resolve(result)
     }
+
+    // Like execute but does the complete flow, logging delays and async function calls rather than performing them
+    async executeTest(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+        const finalResult = createInvocationResult<CyclotronJobInvocationHogFlow>(
+            invocation,
+            {
+                queue: 'hogflow',
+            },
+            {
+                finished: false,
+            }
+        )
+
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
+
+        let loopCount = 0
+
+        while (!result || !result.finished) {
+            logger.info('🦔', `[HogFlowExecutor] Executing hog flow invocation`, {
+                loopCount,
+            })
+            loopCount++
+            if (loopCount > 100) {
+                // NOTE: This is hardcoded for now to prevent infinite loops. Later we should fix this properly.
+                break
+            }
+
+            const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
+
+            result = await this.execute(nextInvocation)
+
+            if (result?.invocation.queueScheduledAt) {
+                finalResult.logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`,
+                })
+            }
+
+            result?.logs?.forEach((log) => {
+                finalResult.logs.push(log)
+            })
+            result?.metrics?.forEach((metric) => {
+                finalResult.metrics.push(metric)
+            })
+        }
+
+        return finalResult
+    }
 }

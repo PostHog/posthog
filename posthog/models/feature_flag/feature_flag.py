@@ -391,7 +391,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def uses_cohorts(self) -> bool:
         for condition in self.conditions:
-            props = condition.get("properties", [])
+            props = condition.get("properties") or []
             for prop in props:
                 if prop.get("type") == "cohort":
                     return True
