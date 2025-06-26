@@ -10,6 +10,16 @@ import { InsightLogicProps } from '~/types'
 
 import { webAnalyticsDataTableQueryContext } from '../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
+import {
+    CAMPAIGN_COST_CTE_NAME,
+    CAMPAIGN_NAME_FIELD,
+    CONVERSION_GOAL_PREFIX,
+    CONVERSION_GOAL_PREFIX_ABBREVIATION,
+    SOURCE_NAME_FIELD,
+    TOTAL_CLICKS_FIELD,
+    TOTAL_COST_FIELD,
+    TOTAL_IMPRESSIONS_FIELD,
+} from '../logic/utils'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -88,7 +98,10 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
             // Add conversion count column
             columns[goalName] = {
-                renderTitle: MarketingSortableCell(goalName, `cg_${index}.conversion_${index}`),
+                renderTitle: MarketingSortableCell(
+                    goalName,
+                    `${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}`
+                ),
                 render: ({ value }: { value: any }) => value || 0,
                 align: 'right',
             }
@@ -97,7 +110,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             columns[costPerGoalName] = {
                 renderTitle: MarketingSortableCell(
                     costPerGoalName,
-                    `cc.total_cost / nullif(cg_${index}.conversion_${index}, 0)`
+                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}, 0)`
                 ),
                 render: ({ value }: { value: any }) =>
                     value && typeof value === 'number' ? `$${value.toFixed(2)}` : '-',
@@ -117,33 +130,42 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             // Add sortable column headers for marketing analytics fields
             // These match the backend output column names
             Campaign: {
-                renderTitle: MarketingSortableCell('Campaign', 'cc.campaign_name'),
+                renderTitle: MarketingSortableCell('Campaign', `${CAMPAIGN_COST_CTE_NAME}.${CAMPAIGN_NAME_FIELD}`),
             },
             Source: {
-                renderTitle: MarketingSortableCell('Source', 'cc.source_name'),
+                renderTitle: MarketingSortableCell('Source', `${CAMPAIGN_COST_CTE_NAME}.${SOURCE_NAME_FIELD}`),
             },
             'Total Cost': {
-                renderTitle: MarketingSortableCell('Total Cost', 'cc.total_cost'),
+                renderTitle: MarketingSortableCell('Total Cost', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD}`),
                 render: webAnalyticsDataTableQueryContext.columns?.cost?.render,
                 align: 'right',
             },
             'Total Clicks': {
-                renderTitle: MarketingSortableCell('Total Clicks', 'cc.total_clicks'),
+                renderTitle: MarketingSortableCell('Total Clicks', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}`),
                 render: webAnalyticsDataTableQueryContext.columns?.clicks?.render,
                 align: 'right',
             },
             'Total Impressions': {
-                renderTitle: MarketingSortableCell('Total Impressions', 'cc.total_impressions'),
+                renderTitle: MarketingSortableCell(
+                    'Total Impressions',
+                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}`
+                ),
                 render: webAnalyticsDataTableQueryContext.columns?.impressions?.render,
                 align: 'right',
             },
             'Cost per Click': {
-                renderTitle: MarketingSortableCell('Cost per Click', 'cc.total_cost / nullif(cc.total_clicks, 0)'),
+                renderTitle: MarketingSortableCell(
+                    'Cost per Click',
+                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}, 0)`
+                ),
                 render: webAnalyticsDataTableQueryContext.columns?.cpc?.render,
                 align: 'right',
             },
             CTR: {
-                renderTitle: MarketingSortableCell('CTR', 'cc.total_clicks / nullif(cc.total_impressions, 0) * 100'),
+                renderTitle: MarketingSortableCell(
+                    'CTR',
+                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}, 0) * 100`
+                ),
                 render: webAnalyticsDataTableQueryContext.columns?.ctr?.render,
                 align: 'right',
             },

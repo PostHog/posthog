@@ -1,21 +1,19 @@
 # Marketing Analytics Utility Functions
 
-from dataclasses import dataclass
-from typing import Any
 import structlog
 
-from posthog.hogql.property import property_to_expr, action_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.printer import to_printed_hogql
-from posthog.models import Action
-from posthog.schema import BaseMathType, PropertyMathType
-from .constants import DECIMAL_PRECISION
+from posthog.schema import NodeKind
+from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
+
+from .constants import DEFAULT_MARKETING_ANALYTICS_COLUMNS
 
 logger = structlog.get_logger(__name__)
 
 
 def get_marketing_analytics_columns_with_conversion_goals(conversion_goals: list) -> list[str]:
     """Get column names including conversion goals"""
-    from .constants import DEFAULT_MARKETING_ANALYTICS_COLUMNS
 
     columns = DEFAULT_MARKETING_ANALYTICS_COLUMNS.copy()
 
@@ -53,224 +51,6 @@ def get_marketing_config_value(config, key, default=None):
             return default
 
 
-@dataclass
-class ConversionGoalProcessor:
-    """Handles conversion goal processing logic"""
-
-    goal: Any
-    index: int
-    team: Any
-    query_date_range: Any
-
-    def get_cte_name(self):
-        """Generate CTE name for conversion goal"""
-        goal_name = getattr(self.goal, "conversion_goal_name", f"goal_{self.index}")
-        sanitized_name = "".join(c if c.isalnum() or c == "_" else "_" for c in goal_name)
-        return f"cg_{self.index}_{sanitized_name}"
-
-    def get_table_name(self):
-        """Get table name for conversion goal"""
-        name = getattr(self.goal, "name", None)
-        kind = getattr(self.goal, "kind", None)
-
-        if not name:
-            return "events"
-
-        if kind == "EventsNode":
-            return "events"
-        elif kind == "ActionsNode":
-            return "events"
-        elif kind == "DataWarehouseNode":
-            return getattr(self.goal, "table_name", "events")
-        else:
-            return "events"
-
-    def get_schema_fields(self):
-        """Get schema fields from conversion goal"""
-        schema = {}
-        if hasattr(self.goal, "schema_"):
-            schema = self.goal.schema_ or {}
-        elif hasattr(self.goal, "model_dump"):
-            model_data = self.goal.model_dump()
-            schema = model_data.get("schema", {})
-
-        return {
-            "utm_campaign_field": schema.get("utm_campaign_name") or "utm_campaign",
-            "utm_source_field": schema.get("utm_source_name") or "utm_source",
-            "timestamp_field": schema.get("timestamp_field"),
-        }
-
-    def get_utm_expressions(self):
-        """Get UTM campaign and source expressions based on node kind"""
-        kind = getattr(self.goal, "kind", None)
-        schema_fields = self.get_schema_fields()
-
-        if kind in ["EventsNode", "ActionsNode"]:
-            property_prefix = "properties."
-            utm_campaign_expr = f"{property_prefix}{schema_fields['utm_campaign_field']}"
-            utm_source_expr = f"{property_prefix}{schema_fields['utm_source_field']}"
-        else:
-            utm_campaign_expr = schema_fields["utm_campaign_field"]
-            utm_source_expr = schema_fields["utm_source_field"]
-
-        return utm_campaign_expr, utm_source_expr
-
-    def get_select_field(self):
-        """Get the select field based on math type and node kind"""
-        math_type = getattr(self.goal, "math", None)
-        kind = getattr(self.goal, "kind", None)
-        schema_fields = self.get_schema_fields()
-
-        # Handle different math types
-        if math_type in [BaseMathType.DAU, "dau"]:
-            if kind == "EventsNode":
-                select_field = "count(distinct distinct_id)"
-            elif kind == "DataWarehouseNode":
-                distinct_id_field = schema_fields.get("distinct_id_field", "distinct_id")
-                select_field = f"count(distinct {distinct_id_field})"
-            else:
-                select_field = "count(distinct distinct_id)"
-        elif math_type == "sum" or str(math_type).endswith("_sum") or math_type == PropertyMathType.SUM:
-            math_property = getattr(self.goal, "math_property", None)
-            if not math_property:
-                select_field = "0"
-            else:
-                if kind == "EventsNode":
-                    select_field = (
-                        f"round(sum(toFloat(JSONExtractRaw(properties, '{math_property}'))), {DECIMAL_PRECISION})"
-                    )
-                elif kind == "DataWarehouseNode":
-                    select_field = f"round(sum(toFloat({math_property})), {DECIMAL_PRECISION})"
-                else:
-                    select_field = (
-                        f"round(sum(toFloat(JSONExtractRaw(properties, '{math_property}'))), {DECIMAL_PRECISION})"
-                    )
-        else:
-            select_field = "count(*)"
-
-        return select_field
-
-    def get_base_where_conditions(self):
-        """Get base WHERE conditions for the conversion goal"""
-        kind = getattr(self.goal, "kind", None)
-        conditions = []
-
-        # Add event filter for EventsNode
-        if kind == "EventsNode":
-            conditions.append(f"team_id = {self.team.pk}")
-            event_name = getattr(self.goal, "event", None)
-            if event_name:
-                conditions.append(f"event = '{event_name}'")
-            else:
-                conditions.append("1=1")
-        elif kind == "ActionsNode":
-            conditions.append(f"team_id = {self.team.pk}")
-            # Handle ActionsNode by converting action to HogQL expression
-            action_id = getattr(self.goal, "id", None)
-            if action_id:
-                try:
-                    action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-
-                    try:
-                        action_expr = action_to_expr(action)
-                        action_condition = to_printed_hogql(action_expr, self.team)
-                        conditions.append(action_condition)
-                    except Exception:
-                        # Fallback: use basic event filter if action has steps
-                        action_steps = action.steps.all() if hasattr(action.steps, "all") else action.steps
-                        if action_steps:
-                            first_step = action_steps[0]
-                            if hasattr(first_step, "event") and first_step.event:
-                                conditions.append(f"event = '{first_step.event}'")
-                            else:
-                                conditions.append("1=0")
-                        else:
-                            conditions.append("1=0")
-                except Action.DoesNotExist:
-                    conditions.append("1=0")
-                except Exception:
-                    conditions.append("1=0")
-            else:
-                conditions.append("1=0")
-        elif kind == "DataWarehouseNode":
-            conditions.append("1=1")
-
-        return conditions
-
-    def get_date_field(self):
-        """Get the appropriate date field for the conversion goal"""
-        kind = getattr(self.goal, "kind", None)
-        schema_fields = self.get_schema_fields()
-
-        if kind == "DataWarehouseNode":
-            return schema_fields["timestamp_field"] or "timestamp"
-        else:
-            return "timestamp"
-
-    def generate_cte_query(self, additional_conditions: list | None = None) -> str:
-        """Generate the complete CTE query for this conversion goal"""
-        from .constants import UNKNOWN_CAMPAIGN, UNKNOWN_SOURCE
-
-        # Get all required components
-        cte_name = self.get_cte_name()
-        table = self.get_table_name()
-        select_field = self.get_select_field()
-        utm_campaign_expr, utm_source_expr = self.get_utm_expressions()
-
-        # Build WHERE conditions
-        where_conditions = self.get_base_where_conditions()
-
-        # Apply conversion goal specific property filters
-        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
-
-        # Add any additional conditions (like date range and global filters)
-        if additional_conditions:
-            where_conditions.extend(additional_conditions)
-
-        # Build the CTE query
-        cte_query = f"""
-{cte_name} AS (
-    SELECT
-        coalesce({utm_campaign_expr}, '{UNKNOWN_CAMPAIGN}') as campaign_name,
-        coalesce({utm_source_expr}, '{UNKNOWN_SOURCE}') as source_name,
-        {select_field} as conversion_{self.index}
-    FROM {table}
-    WHERE {' AND '.join(where_conditions)}
-    GROUP BY campaign_name, source_name
-)"""
-
-        return cte_query.strip()
-
-    def generate_join_clause(self) -> str:
-        """Generate the JOIN clause for this conversion goal"""
-        cte_name = self.get_cte_name()
-        return f"""LEFT JOIN {cte_name} cg_{self.index} ON cc.campaign_name = cg_{self.index}.campaign_name
-    AND cc.source_name = cg_{self.index}.source_name"""
-
-    def generate_select_columns(self) -> list[str]:
-        """Generate the SELECT columns for this conversion goal"""
-        goal_name = getattr(self.goal, "conversion_goal_name", f"Goal {self.index + 1}")
-
-        return [
-            f'    cg_{self.index}.conversion_{self.index} as "{goal_name}"',
-            f'    round(cc.total_cost / nullif(cg_{self.index}.conversion_{self.index}, 0), 2) as "Cost per {goal_name}"',
-        ]
-
-
-def add_conversion_goal_property_filters(conditions, conversion_goal, team):
-    """Add conversion goal specific property filters to conditions"""
-    conversion_goal_properties = getattr(conversion_goal, "properties", [])
-    if conversion_goal_properties:
-        try:
-            property_expr = property_to_expr(conversion_goal_properties, team=team, scope="event")
-            if property_expr:
-                property_condition = to_printed_hogql(property_expr, team)
-                conditions.append(f"({property_condition})")
-        except Exception as e:
-            logger.exception("Error applying property filters to conversion goal", error=str(e))
-    return conditions
-
-
 def get_global_property_conditions(query, team):
     """Extract global property filter conditions"""
     conditions = []
@@ -290,8 +70,6 @@ def get_global_property_conditions(query, team):
 
 def convert_team_conversion_goals_to_objects(team_conversion_goals, team_pk):
     """Convert team conversion goals from dict format to ConversionGoalFilter objects"""
-    from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
-    import structlog
 
     logger = structlog.get_logger(__name__)
     converted_goals = []
@@ -307,19 +85,19 @@ def convert_team_conversion_goals_to_objects(team_conversion_goals, team_pk):
                 goal_dict = goal
 
             # Determine the correct ConversionGoalFilter type based on kind
-            kind = goal_dict.get("kind", "EventsNode")
+            kind = goal_dict.get("kind", NodeKind.EVENTS_NODE)
             # Clean up the goal_dict for each schema type
             cleaned_goal_dict = goal_dict.copy()
 
-            if kind == "EventsNode":
+            if kind == NodeKind.EVENTS_NODE:
                 # EventsNode doesn't need special field mapping
                 converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)
-            elif kind == "ActionsNode":
+            elif kind == NodeKind.ACTIONS_NODE:
                 # ActionsNode doesn't allow 'event' field - remove it
                 if "event" in cleaned_goal_dict:
                     del cleaned_goal_dict["event"]
                 converted_goal = ConversionGoalFilter2(**cleaned_goal_dict)
-            elif kind == "DataWarehouseNode":
+            elif kind == NodeKind.DATA_WAREHOUSE_NODE:
                 # DataWarehouseNode doesn't allow 'event' field - remove it
                 if "event" in cleaned_goal_dict:
                     del cleaned_goal_dict["event"]

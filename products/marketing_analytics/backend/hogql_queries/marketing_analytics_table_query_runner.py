@@ -12,25 +12,28 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
 )
+from .conversion_goal_processor import ConversionGoalProcessor
 
 from .constants import (
+    CAMPAIGN_COST_CTE_NAME,
+    CONVERSION_GOAL_PREFIX,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
     FALLBACK_COST_VALUE,
-    TABLE_COLUMNS,
     DEFAULT_MARKETING_ANALYTICS_COLUMNS,
     CTR_PERCENTAGE_MULTIPLIER,
     DECIMAL_PRECISION,
+    TOTAL_CLICKS_FIELD,
+    TOTAL_COST_FIELD,
+    TOTAL_IMPRESSIONS_FIELD,
 )
 from .utils import (
     get_marketing_analytics_columns_with_conversion_goals,
-    get_marketing_config_value,
-    ConversionGoalProcessor,
     get_global_property_conditions,
     convert_team_conversion_goals_to_objects,
 )
 from .adapters.factory import MarketingSourceFactory
-from .adapters.base import QueryContext
+from .adapters.base import QueryContext, MarketingSourceAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -62,7 +65,15 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
     @cached_property
     def _factory(self):
         """Cached factory instance for reuse"""
-        return MarketingSourceFactory(team=self.team)
+
+        # Create query context for all adapters
+        context = QueryContext(
+            date_range=self.query_date_range,
+            team=self.team,
+            global_filters=get_global_property_conditions(self.query, self.team),
+            base_currency=self.team.base_currency,
+        )
+        return MarketingSourceFactory(context=context)
 
     def _get_marketing_source_adapters(self):
         """Get marketing source adapters using the new adapter architecture"""
@@ -84,16 +95,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters()
 
-            # Create query context for all adapters
-            context = QueryContext(
-                date_range=self.query_date_range,
-                team=self.team,
-                global_filters=get_global_property_conditions(self.query, self.team),
-                base_currency=self.team.base_currency,
-            )
-
             # Build the union query string using the factory
-            union_query_string = self._factory.build_union_query(adapters, context)
+            union_query_string = self._factory.build_union_query(adapters)
 
             # Build the final query with ordering and pagination
             final_query_string = self._build_final_query_string(union_query_string)
@@ -167,17 +170,17 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Build the WITH clause including campaign_costs CTE and conversion goal CTEs"""
         # Build the campaign_costs CTE
         with_clause = f"""
-WITH campaign_costs AS (
+WITH {CAMPAIGN_COST_CTE_NAME} AS (
 SELECT
-    {TABLE_COLUMNS['campaign_name']},
-    {TABLE_COLUMNS['source_name']},
-    sum({TABLE_COLUMNS['cost']}) as total_cost,
-    sum({TABLE_COLUMNS['clicks']}) as total_clicks,
-    sum({TABLE_COLUMNS['impressions']}) as total_impressions
+    {MarketingSourceAdapter.campaign_name_field},
+    {MarketingSourceAdapter.source_name_field},
+    sum({MarketingSourceAdapter.cost_field}) as {TOTAL_COST_FIELD},
+    sum({MarketingSourceAdapter.clicks_field}) as {TOTAL_CLICKS_FIELD},
+    sum({MarketingSourceAdapter.impressions_field}) as {TOTAL_IMPRESSIONS_FIELD}
 FROM (
     {union_query_string}
 )
-GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
+GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.source_name_field}
 )"""
 
         # Add conversion goal CTEs if any
@@ -195,7 +198,7 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
         if hasattr(self.query, "orderBy") and self.query.orderBy:
             for order_expr in self.query.orderBy:
                 # Fix ordering expressions for null handling
-                if "nullif(" in order_expr and ".conversion_" in order_expr:
+                if "nullif(" in order_expr and CONVERSION_GOAL_PREFIX in order_expr:
                     if order_expr.strip().endswith(" ASC"):
                         calc_part = order_expr.replace(" ASC", "").strip()
                         order_expr = f"COALESCE({calc_part}, {FALLBACK_COST_VALUE}) ASC"
@@ -206,7 +209,7 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
                         order_expr = f"COALESCE({order_expr}, {FALLBACK_COST_VALUE})"
                 order_by_parts.append(order_expr)
         else:
-            order_by_parts = ["cc.total_cost DESC"]
+            order_by_parts = [f"{CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD} DESC"]
 
         return "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
 
@@ -229,13 +232,13 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
             conversion_columns = ""
 
         # Build base columns
-        base_columns = f"""    cc.campaign_name as "Campaign",
-    cc.source_name as "Source",
-    round(cc.total_cost, {DECIMAL_PRECISION}) as "Total Cost",
-    round(cc.total_clicks, 0) as "Total Clicks",
-    round(cc.total_impressions, 0) as "Total Impressions",
-    round(cc.total_cost / nullif(cc.total_clicks, 0), {DECIMAL_PRECISION}) as "Cost per Click",
-    round(cc.total_clicks / nullif(cc.total_impressions, 0) * {CTR_PERCENTAGE_MULTIPLIER}, {DECIMAL_PRECISION}) as "CTR\""""
+        base_columns = f"""    {CAMPAIGN_COST_CTE_NAME}.{MarketingSourceAdapter.campaign_name_field} as "Campaign",
+    {CAMPAIGN_COST_CTE_NAME}.{MarketingSourceAdapter.source_name_field} as "Source",
+    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD}, {DECIMAL_PRECISION}) as "Total Cost",
+    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD}, 0) as "Total Clicks",
+    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_IMPRESSIONS_FIELD}, 0) as "Total Impressions",
+    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_COST_FIELD} / nullif({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD}, 0), {DECIMAL_PRECISION}) as "Cost per Click",
+    round({CAMPAIGN_COST_CTE_NAME}.{TOTAL_CLICKS_FIELD} / nullif({CAMPAIGN_COST_CTE_NAME}.{TOTAL_IMPRESSIONS_FIELD}, 0) * {CTR_PERCENTAGE_MULTIPLIER}, {DECIMAL_PRECISION}) as "CTR\""""
 
         # Combine base and conversion goal columns
         all_columns = base_columns
@@ -244,7 +247,7 @@ GROUP BY {TABLE_COLUMNS['campaign_name']}, {TABLE_COLUMNS['source_name']}
 
         return f"""SELECT
 {all_columns}
-FROM campaign_costs cc
+FROM {CAMPAIGN_COST_CTE_NAME}
 {conversion_joins}"""
 
     def _create_conversion_goal_processors(self, conversion_goals: list) -> list:
@@ -266,7 +269,7 @@ FROM campaign_costs cc
         for processor in processors:
             # Build additional conditions (date range and global filters)
             date_field = processor.get_date_field()
-            additional_conditions = self._build_where_conditions(
+            additional_conditions = self._get_where_conditions(
                 include_date_range=True,
                 include_global_filters=True,
                 date_field=date_field,
@@ -307,26 +310,10 @@ FROM campaign_costs cc
 
     def _get_team_conversion_goals(self):
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
-        try:
-            from posthog.models import Team
+        conversion_goals = self.team.marketing_analytics_config.conversion_goals
+        return convert_team_conversion_goals_to_objects(conversion_goals, self.team.pk)
 
-            team = Team.objects.get(pk=self.team.pk)
-            marketing_config = getattr(team, "marketing_analytics_config", None)
-
-            team_conversion_goals = []
-            if marketing_config:
-                team_conversion_goals = get_marketing_config_value(marketing_config, "conversion_goals", [])
-
-            # Convert to proper ConversionGoalFilter objects
-            converted_goals = convert_team_conversion_goals_to_objects(team_conversion_goals, self.team.pk)
-
-            return converted_goals
-
-        except Exception as e:
-            logger.exception("Error getting team conversion goals", error=str(e), extra={"team_id": self.team.pk})
-            return []
-
-    def _build_where_conditions(
+    def _get_where_conditions(
         self,
         base_conditions=None,
         include_date_range=True,

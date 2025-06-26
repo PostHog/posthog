@@ -10,17 +10,26 @@ UNKNOWN_TABLE_NAME = "unknown"
 CTR_PERCENTAGE_MULTIPLIER = 100
 DECIMAL_PRECISION = 2
 
-# Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = "SELECT 'No Campaign' as campaign_name, 'No Source' as source_name, 0.0 as impressions, 0.0 as clicks, 0.0 as cost WHERE 1=0"
+# CTE names
+CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 
-# Table columns used in union queries
-TABLE_COLUMNS = {
-    "campaign_name": "campaign_name",
-    "source_name": "source_name",
-    "impressions": "impressions",
-    "clicks": "clicks",
-    "cost": "cost",
-}
+# Prefixes for table names
+CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
+CONVERSION_GOAL_PREFIX = "conversion_"
+
+# Fields for the marketing analytics table select
+CAMPAIGN_NAME_FIELD = "campaign_name"
+SOURCE_NAME_FIELD = "source_name"
+IMPRESSIONS_FIELD = "impressions"
+CLICKS_FIELD = "clicks"
+COST_FIELD = "cost"
+TOTAL_COST_FIELD = "total_cost"
+TOTAL_CLICKS_FIELD = "total_clicks"
+TOTAL_IMPRESSIONS_FIELD = "total_impressions"
+
+# Fallback query when no valid adapters are found
+FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {CAMPAIGN_NAME_FIELD}, 'No Source' as {SOURCE_NAME_FIELD}, 0.0 as impressions, 0.0 as clicks, 0.0 as cost WHERE 1=0"
+
 
 # Final output columns
 DEFAULT_MARKETING_ANALYTICS_COLUMNS = [
@@ -33,17 +42,30 @@ DEFAULT_MARKETING_ANALYTICS_COLUMNS = [
     "CTR",
 ]
 
-# Marketing Analytics schema definition
+# This matches the source map schema in the frontend
+SOURCE_MAP_CAMPAIGN_NAME = "campaign_name"
+SOURCE_MAP_CLICKS = "clicks"
+SOURCE_MAP_COST = "cost"
+SOURCE_MAP_DATE = "date"
+SOURCE_MAP_IMPRESSIONS = "impressions"
+SOURCE_MAP_SOURCE_NAME = "source_name"
+SOURCE_MAP_TOTAL_COST = "total_cost"
+SOURCE_MAP_UTM_CAMPAIGN_NAME = "utm_campaign_name"
+SOURCE_MAP_UTM_SOURCE_NAME = "utm_source_name"
+SOURCE_MAP_CURRENCY = "currency"
+
+# Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
-    "campaign_name": {"type": ["string"], "required": True},
-    "clicks": {"type": ["integer", "number", "float"], "required": False},
-    "currency": {"type": ["string"], "required": False},
-    "date": {"type": ["datetime", "date", "string"], "required": True},
-    "impressions": {"type": ["integer", "number", "float"], "required": False},
-    "source_name": {"type": ["string"], "required": False},
-    "total_cost": {"type": ["float", "integer"], "required": True},
-    "utm_campaign_name": {"type": ["string"], "required": False},
-    "utm_source_name": {"type": ["string"], "required": False},
+    SOURCE_MAP_CAMPAIGN_NAME: {"type": ["string"], "required": True},
+    SOURCE_MAP_CLICKS: {"type": ["integer", "number", "float"], "required": False},
+    SOURCE_MAP_COST: {"type": ["string"], "required": False},
+    SOURCE_MAP_DATE: {"type": ["datetime", "date", "string"], "required": True},
+    SOURCE_MAP_IMPRESSIONS: {"type": ["integer", "number", "float"], "required": False},
+    SOURCE_MAP_SOURCE_NAME: {"type": ["string"], "required": False},
+    SOURCE_MAP_TOTAL_COST: {"type": ["float", "integer"], "required": True},
+    SOURCE_MAP_UTM_CAMPAIGN_NAME: {"type": ["string"], "required": False},
+    SOURCE_MAP_UTM_SOURCE_NAME: {"type": ["string"], "required": False},
+    SOURCE_MAP_CURRENCY: {"type": ["string"], "required": False},
 }
 
 # Valid native marketing sources

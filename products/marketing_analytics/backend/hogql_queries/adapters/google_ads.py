@@ -1,8 +1,7 @@
 # Google Ads Marketing Source Adapter
 
 from typing import Optional
-from .base import MarketingSourceAdapter, ValidationResult, QueryContext
-from ..constants import TABLE_COLUMNS
+from .base import MarketingSourceAdapter, ValidationResult
 
 
 class GoogleAdsAdapter(MarketingSourceAdapter):
@@ -60,42 +59,71 @@ class GoogleAdsAdapter(MarketingSourceAdapter):
             self.logger.exception("Google Ads validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
 
-    def build_query(self, context: QueryContext) -> Optional[str]:
+    def _get_campaign_name_field(self) -> str:
+        return f"toString({self.config.get('campaign_table').name}.campaign_name)"
+
+    def _get_source_name_field(self) -> str:
+        return f"toString('google')"
+
+    def _get_impressions_field(self) -> str:
+        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_impressions))"
+
+    def _get_clicks_field(self) -> str:
+        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_clicks))"
+
+    def _get_cost_field(self) -> str:
+        return f"toFloat(SUM({self.config.get('stats_table').name}.metrics_cost_micros) / 1000000)"
+
+    def _get_from_clause(self) -> str:
+        campaign_table = self.config.get("campaign_table")
+        return f"FROM {campaign_table.name}"
+
+    def _get_join_clause(self) -> str:
+        stats_table = self.config.get("stats_table")
+        campaign_table = self.config.get("campaign_table")
+        return f"LEFT JOIN {stats_table.name} ON {campaign_table.name}.campaign_id = {stats_table.name}.campaign_id"
+
+    def _get_where_conditions(self) -> list[str]:
+        """Build WHERE conditions for Google Ads query"""
+        conditions = []
+
+        # Add date range conditions
+        if self.context.date_range:
+            conditions.extend(
+                [
+                    f"toDateTime({self.config.get('stats_table').name}.segments_date) >= toDateTime('{self.context.date_range.date_from_str}')",
+                    f"toDateTime({self.config.get('stats_table').name}.segments_date) <= toDateTime('{self.context.date_range.date_to_str}')",
+                ]
+            )
+
+        # Add global filters
+        if self.context.global_filters:
+            conditions.extend(self.context.global_filters)
+
+        return "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    def _get_group_by_clause(self) -> str:
+        return f"GROUP BY {self._get_campaign_name_field()}"
+
+    def build_query(self) -> Optional[str]:
         """
         Build Google Ads query that matches the existing implementation.
         This preserves the exact same query logic from _build_google_ads_query_with_tables.
         """
         try:
-            campaign_table = self.config.get("campaign_table")
-            stats_table = self.config.get("stats_table")
-
-            if not campaign_table or not stats_table:
-                self._log_query_generation(False, "Missing required tables")
-                return None
-
-            campaign_table_name = getattr(campaign_table, "name", "")
-            stats_table_name = getattr(stats_table, "name", "")
-
-            # Build WHERE conditions (replicating existing logic)
-            where_conditions = self._build_where_conditions(context)
-
             # This query exactly matches the existing _build_google_ads_query_with_tables implementation
             query = f"""
 SELECT
-    toString(c.campaign_name) as {TABLE_COLUMNS['campaign_name']},
-    toString('google') as {TABLE_COLUMNS['source_name']},
-    toFloat(SUM(cs.metrics_impressions)) AS {TABLE_COLUMNS['impressions']},
-    toFloat(SUM(cs.metrics_clicks)) AS {TABLE_COLUMNS['clicks']},
-    toFloat(SUM(cs.metrics_cost_micros) / 1000000) AS {TABLE_COLUMNS['cost']}
-FROM
-    {campaign_table_name} c
-LEFT JOIN
-    {stats_table_name} cs ON cs.campaign_id = c.campaign_id
-WHERE
-    {' AND '.join(where_conditions)}
-GROUP BY
-    c.campaign_name
-            """.strip()
+    {self._get_campaign_name_field()} as {self.campaign_name_field},
+    {self._get_source_name_field()} as {self.source_name_field},
+    {self._get_impressions_field()} as {self.impressions_field},
+    {self._get_clicks_field()} as {self.clicks_field},
+    {self._get_cost_field()} as {self.cost_field}
+{self._get_from_clause()}
+{self._get_join_clause()}
+{self._get_where_conditions()}
+{self._get_group_by_clause()}
+"""
 
             self._log_query_generation(True)
             return query
@@ -104,22 +132,3 @@ GROUP BY
             error_msg = f"Query generation error: {str(e)}"
             self._log_query_generation(False, error_msg)
             return None
-
-    def _build_where_conditions(self, context: QueryContext) -> list[str]:
-        """Build WHERE conditions for Google Ads query"""
-        conditions = []
-
-        # Add date range conditions
-        if context.date_range:
-            conditions.extend(
-                [
-                    f"toDateTime(cs.segments_date) >= toDateTime('{context.date_range.date_from_str}')",
-                    f"toDateTime(cs.segments_date) <= toDateTime('{context.date_range.date_to_str}')",
-                ]
-            )
-
-        # Add global filters
-        if context.global_filters:
-            conditions.extend(context.global_filters)
-
-        return conditions

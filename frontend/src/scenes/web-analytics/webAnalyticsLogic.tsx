@@ -2442,7 +2442,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
-                        limit: 20,
+                        limit: 200,
                     } as MarketingAnalyticsTableQuery,
                     full: true,
                     embedded: false,
