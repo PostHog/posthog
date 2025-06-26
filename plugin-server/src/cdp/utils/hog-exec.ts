@@ -12,7 +12,7 @@ export async function execHog(
     bytecode: any,
     options?: ExecOptions
 ): Promise<{
-    result?: ExecResult
+    execResult?: ExecResult
     error?: any
     durationMs: number
 }> {
@@ -21,10 +21,10 @@ export async function execHog(
         // Note - the setTimeout here forces the event loop to run fully before the next call. This is important as we never want hog execution to block the event loop
         await new Promise((r) => setTimeout(r, 0))
         const now = performance.now()
-        let result: ExecResult | undefined
+        let execResult: ExecResult | undefined
         let error: any
         try {
-            result = exec(bytecode, {
+            execResult = exec(bytecode, {
                 timeout: DEFAULT_TIMEOUT_MS,
                 maxAsyncSteps: 0,
                 ...options,
@@ -39,7 +39,7 @@ export async function execHog(
         }
 
         return {
-            result,
+            execResult,
             error,
             durationMs: performance.now() - now,
         }

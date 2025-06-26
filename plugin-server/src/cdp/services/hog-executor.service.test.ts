@@ -39,8 +39,9 @@ describe('Hog Executor', () => {
     let hub: Hub
 
     beforeEach(async () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
         hub = await createHub()
         executor = new HogExecutorService(hub)
     })
@@ -863,17 +864,19 @@ describe('Hog Executor', () => {
             })
 
             const result = await executor.execute(createExampleInvocation(fn))
-            expect(result?.capturedPostHogEvents).toEqual([
-                {
-                    distinct_id: 'distinct_id',
-                    event: 'test (copy)',
-                    properties: {
-                        $hog_function_execution_count: 1,
+            expect(result?.capturedPostHogEvents).toMatchInlineSnapshot(`
+                [
+                  {
+                    "distinct_id": "distinct_id",
+                    "event": "test (copy)",
+                    "properties": {
+                      "$hog_function_execution_count": 1,
                     },
-                    team_id: 1,
-                    timestamp: '2024-06-07T12:00:00.000Z',
-                },
-            ])
+                    "team_id": 1,
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                  },
+                ]
+            `)
         })
 
         it('ignores events that have already used their postHogCapture', async () => {

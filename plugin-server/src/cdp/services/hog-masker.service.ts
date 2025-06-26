@@ -50,7 +50,7 @@ export class HogMaskerService {
                     timeout: 50,
                 })
                 // What to do if it is null....
-                const hash = createHash('md5').update(String(value.result)).digest('hex').substring(0, 32)
+                const hash = createHash('md5').update(String(value.execResult)).digest('hex').substring(0, 32)
                 const hashKey = `${item.hogFunction.id}:${hash}`
                 masks[hashKey] = masks[hashKey] || {
                     hash,

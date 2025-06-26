@@ -61,11 +61,11 @@ export async function filterFunctionInstrumented(options: {
             telemetry: enabledTelemetry,
         })
 
-        if (!execHogOutcome.result || execHogOutcome.error || execHogOutcome.result.error) {
-            throw execHogOutcome.error ?? execHogOutcome.result?.error ?? new Error('Unknown error')
+        if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
+            throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
         }
 
-        result.match = typeof execHogOutcome.result === 'boolean' && execHogOutcome.result
+        result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
         if (!result.match) {
             metrics.push({

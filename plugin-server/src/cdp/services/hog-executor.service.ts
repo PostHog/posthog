@@ -59,7 +59,7 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const { result, error } = await execHog(bytecode, { globals })
+        const { execResult: result, error } = await execHog(bytecode, { globals })
         if (!result || error) {
             throw error ?? result?.error
         }
@@ -502,11 +502,11 @@ export class HogExecutorService {
                     duration_ms: execHogOutcome.durationMs,
                 })
 
-                if (!execHogOutcome.result || execHogOutcome.error || execHogOutcome.result.error) {
-                    throw execHogOutcome.error ?? execHogOutcome.result?.error ?? new Error('Unknown error')
+                if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
+                    throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
                 }
 
-                execRes = execHogOutcome.result
+                execRes = execHogOutcome.execResult
 
                 // Store the result if execution finished
                 if (execRes.finished && execRes.result !== undefined) {

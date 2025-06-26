@@ -55,6 +55,8 @@ export class HogFlowActionRunner {
             groups: {},
         })
 
+        console.log('filterGlobals', filterGlobals)
+
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: action.filters,
@@ -62,6 +64,7 @@ export class HogFlowActionRunner {
             eventUuid: invocation.state.event.uuid,
         })
 
+        console.log('filterResults', filterResults, action.filters)
         return filterResults.match
     }
 
