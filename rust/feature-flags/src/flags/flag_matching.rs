@@ -499,7 +499,7 @@ impl FeatureFlagMatcher {
     ) -> (HashMap<String, FlagDetails>, bool) {
         // initialize some state
         let mut errors_while_computing_flags = false;
-        let mut flag_details_map = HashMap::new();
+        let mut level_flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
         let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
             HashMap::new();
@@ -556,7 +556,7 @@ impl FeatureFlagMatcher {
                 Ok(Some(flag_match)) => {
                     self.flag_evaluation_state
                         .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    flag_details_map
+                    level_flag_details_map
                         .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
                 }
                 Ok(None) => {
@@ -607,7 +607,7 @@ impl FeatureFlagMatcher {
                 // Handle database errors
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                flag_details_map.extend(
+                level_flag_details_map.extend(
                     flags_needing_db_properties
                         .iter()
                         .map(|flag| (flag.key.clone(), FlagDetails::create_error(flag, reason, None)))
@@ -618,7 +618,7 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                return (flag_details_map, errors_while_computing_flags);
+                return (level_flag_details_map, errors_while_computing_flags);
             }
         }
 
@@ -661,7 +661,7 @@ impl FeatureFlagMatcher {
                 Ok(flag_match) => {
                     self.flag_evaluation_state
                         .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    flag_details_map.insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    level_flag_details_map.insert(flag_key, FlagDetails::create(flag, &flag_match));
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
@@ -685,7 +685,7 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    flag_details_map
+                    level_flag_details_map
                         .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
@@ -701,7 +701,7 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        (flag_details_map, errors_while_computing_flags)
+        (level_flag_details_map, errors_while_computing_flags)
     }
 
     /// Attempts to match a feature flag using only property overrides (no database access).
