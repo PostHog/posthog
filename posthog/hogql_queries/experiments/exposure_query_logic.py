@@ -40,15 +40,6 @@ def get_variant_selection_expr(
     variant_property_field = ast.Field(chain=["properties", feature_flag_variant_property])
 
     match multiple_variant_handling:
-        case MultipleVariantHandling.EXCLUDE:
-            # If more than 1 variant is seen, assign user to the MULTIPLE_VARIANT_KEY
-            return parse_expr(
-                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                placeholders={
-                    "variant_property": variant_property_field,
-                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                },
-            )
         case MultipleVariantHandling.FIRST_SEEN:
             # Use variant from earliest exposure (minimum timestamp)
             return parse_expr(
@@ -58,7 +49,8 @@ def get_variant_selection_expr(
                 },
             )
         case _:
-            # Fallback to exclude behavior for safety
+            # Default behavior is EXCLUDE. Users who have seen more than one variant is assigned to the
+            # MULTIPLE_VARIANT_KEY group
             return parse_expr(
                 "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
                 placeholders={
