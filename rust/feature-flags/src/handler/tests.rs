@@ -1095,9 +1095,14 @@ fn test_decode_request_content_types() {
 
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
-    let redis_client = setup_redis_client(None);
+    let redis_reader_client = setup_redis_client(None);
+    let redis_writer_client = setup_redis_client(None);
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let flag_service = FlagService::new(redis_client.clone(), reader.clone());
+    let flag_service = FlagService::new(
+        redis_reader_client.clone(),
+        redis_writer_client.clone(),
+        reader.clone(),
+    );
     let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
     // Create a mix of survey and non-survey flags
@@ -1151,7 +1156,7 @@ async fn test_fetch_and_filter_flags() {
     // Insert flags into redis
     let flags_json = serde_json::to_string(&flags).unwrap();
     insert_flags_for_team_in_redis(
-        redis_client.clone(),
+        redis_reader_client.clone(),
         team.id,
         team.project_id,
         Some(flags_json),
