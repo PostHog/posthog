@@ -5200,37 +5200,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_flag"
         assert response["results"][0]["status"] == "STALE"
 
-    def test_get_flags_with_stale_filter_zero_rollout(self):
-        # Create a stale flag with 0% rollout (no users) and 30+ days old
-        with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
-                team=self.team,
-                created_by=self.user,
-                key="zero_rollout_flag",
-                active=True,
-                filters={"groups": [{"rollout_percentage": 0, "properties": []}]},
-            )
-
-        # Create a recent flag with 0% rollout (not stale because recent)
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="recent_zero_flag",
-            active=True,
-            filters={"groups": [{"rollout_percentage": 0, "properties": []}]},
-        )
-
-        # Test filtering by stale status
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
-        response = filtered_flags_list.json()
-
-        assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "zero_rollout_flag"
-        assert response["results"][0]["status"] == "STALE"
-
     def test_get_flags_with_stale_filter_multivariate(self):
-        # Create a stale multivariate flag (one variant at 100% and 30+ days old)
-        with freeze_time("2024-01-01"):
+        # Create a stale multivariate flag
+        with freeze_time("2023-01-01"):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -5240,9 +5212,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "groups": [{"rollout_percentage": 100, "properties": []}],
                     "multivariate": {
                         "variants": [
-                            {"key": "control", "rollout_percentage": 0},
                             {"key": "test", "rollout_percentage": 100},
-                        ]
+                        ],
+                        "release_percentage": 100,
                     },
                 },
             )
@@ -5255,11 +5227,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 key="active_multivariate",
                 active=True,
                 filters={
-                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                    "groups": [{"rollout_percentage": 50, "properties": []}],
                     "multivariate": {
                         "variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 30},
+                            {"key": "test2", "rollout_percentage": 70},
                         ]
                     },
                 },

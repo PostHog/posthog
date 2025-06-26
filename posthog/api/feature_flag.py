@@ -727,20 +727,15 @@ class FeatureFlagViewSet(
                             (
                                 (
                                     filters->'groups'->0->>'rollout_percentage' = '100'
-                                    AND
-                                    (filters->'groups'->0->'properties')::text = '[]'::text
+                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
+                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
-                                    filters->'groups'->0->>'rollout_percentage' = '0'
-                                    AND
-                                    (filters->'groups'->0->'properties')::text = '[]'::text
-                                )
-                                OR
-                                (
-                                    filters->'multivariate'->'variants' @> '[{"rollout_percentage": 100}]'::jsonb
-                                    AND
-                                    filters->'multivariate'->'release_percentage' = '100'
+                                    jsonb_array_length(filters->'multivariate'->'variants') = 1
+                                    AND filters->'multivariate'->'variants'->0->>'rollout_percentage' = '100'
+                                    AND filters->'groups'->0->>'rollout_percentage' = '100'
+                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
                                 )
                             )
                             """

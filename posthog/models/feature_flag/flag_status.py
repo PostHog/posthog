@@ -58,11 +58,6 @@ class FeatureFlagStatusChecker:
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
         is_flag_at_least_thirty_days_old = flag.created_at < datetime.now(UTC) - timedelta(days=30)
 
-        # Check if flag is rolled out to 0% (no users)
-        is_flag_rolled_out_to_no_users, no_users_explanation = self.is_flag_rolled_out_to_no_users(flag)
-        if is_flag_rolled_out_to_no_users and is_flag_at_least_thirty_days_old:
-            return FeatureFlagStatus.STALE, no_users_explanation
-
         if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
@@ -102,56 +97,6 @@ class FeatureFlagStatusChecker:
             return True, 'This boolean flag will always evaluate to "true"'
 
         return False, ""
-
-    def is_flag_rolled_out_to_no_users(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
-        """Check if flag is effectively disabled by being rolled out to 0% of users."""
-        if not flag.active:
-            return False, ""
-
-        # Check if super groups have 0% rollout
-        if flag.filters.get("super_groups", None):
-            for super_group in flag.filters.get("super_groups"):
-                if self.is_group_rolled_out_to_zero(super_group):
-                    logger.debug(f"Flag {flag.id} has super group rolled out to 0%")
-                    return True, "Super group is rolled out to 0% (no users will match)"
-
-        # Check if holdout groups have 0% rollout
-        if flag.filters.get("holdout_groups", None):
-            for holdout_group in flag.filters.get("holdout_groups"):
-                if self.is_group_rolled_out_to_zero(holdout_group):
-                    logger.debug(f"Flag {flag.id} has holdout group rolled out to 0%")
-                    return True, "Holdout group is rolled out to 0% (no users will match)"
-
-        # Check if all groups have 0% rollout
-        groups = flag.filters.get("groups", [])
-        if not groups:
-            return False, ""
-
-        # Check each group explicitly - missing rollout_percentage means it's not 0%
-        all_zero_rollout = all(
-            group.get("rollout_percentage") is not None and group.get("rollout_percentage") == 0 for group in groups
-        )
-
-        if all_zero_rollout:
-            return True, "Flag is rolled out to 0% of users (no users will match)"
-
-        # For multivariate flags, check if all variants are at 0%
-        multivariate = flag.filters.get("multivariate", None)
-        if multivariate:
-            variants = multivariate.get("variants", [])
-            # For variants, check explicitly - missing rollout_percentage should not count as 0%
-            if variants and all(
-                variant.get("rollout_percentage") is not None and variant.get("rollout_percentage") == 0
-                for variant in variants
-            ):
-                return True, "All variants are rolled out to 0% (no users will match)"
-
-        return False, ""
-
-    def is_group_rolled_out_to_zero(self, group: dict) -> bool:
-        rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
-        return rollout_percentage == 0 and len(properties) == 0
 
     def is_multivariate_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, str]:
         # If flag is multivariant and one variant is rolled out to 100%,
