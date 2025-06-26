@@ -177,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_token() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -216,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -261,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
