@@ -525,6 +525,15 @@ jobs:
                   pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-transpiler build
 
+            - name: Cache testmon data
+              if: ${{ needs.changes.outputs.backend == 'true' && github.event_name == 'pull_request' }}
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .testmondata
+                  key: testmon-${{ runner.os }}-${{ matrix.segment }}-${{ matrix.group }}-${{ matrix.person-on-events }}
+                  restore-keys: |
+                      testmon-${{ runner.os }}-${{ matrix.segment }}-${{ matrix.group }}-${{ matrix.person-on-events }}
+
             - name: Install Python dependencies
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
@@ -606,6 +615,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      ${{ github.event_name == 'pull_request' && '--testmon' || '' }} \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -635,6 +645,7 @@ jobs:
               run: |
                   pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                       --durations=1000 --durations-min=1.0 \
+                      ${{ github.event_name == 'pull_request' && '--testmon' || '' }} \
                       $PYTEST_ARGS
 
             - name: Run Temporal tests
@@ -649,6 +660,7 @@ jobs:
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
+                      ${{ github.event_name == 'pull_request' && '--testmon' || '' }} \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e

@@ -187,6 +187,7 @@ dev = [
     "pytest-icdiff==0.6",
     "pytest-mock==3.11.1",
     "pytest-split==0.9.0",
+    "pytest-testmon>=2.1.3",
     "pytest-watch==4.2.0",
     "pytest-xdist==3.6.1",
     "python-dateutil>=2.8.2",
