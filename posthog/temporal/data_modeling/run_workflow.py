@@ -616,10 +616,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {printed}")
 
     async with get_client() as client:
+        batch_size_mb = 200
         async for batch, pa_schema in client.astream_query_in_batches(
-            printed, query_parameters=context.values, batch_size_mb=50
+            printed, query_parameters=context.values, batch_size_mb=batch_size_mb
         ):
-            await logger.adebug(f"Processing 50 MB batch. Batch rows count: {len(batch)}")
+            await logger.adebug(f"Processing {batch_size_mb} MB batch. Batch rows count: {len(batch)}")
             yield table_from_py_list(batch, pa_schema)
 
 
