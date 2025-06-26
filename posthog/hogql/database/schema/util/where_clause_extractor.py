@@ -48,12 +48,14 @@ class WhereClauseExtractor(CloningVisitor):
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
     aliases: dict[str, ast.Expr]
+    resolving_aliases: set[str]  # Track aliases currently being resolved to prevent recursion
 
     def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
         self.tracked_tables = []
         self.aliases = {}
+        self.resolving_aliases = set()
         # A constant with this string will be used to escape early if we can't handle the query
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
@@ -186,8 +188,20 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_field(self, node: ast.Field) -> ast.Expr:
         # Check if this field is an alias from the SELECT clause
         if len(node.chain) == 1 and node.chain[0] in self.aliases:
-            # Replace the alias with its actual expression
-            return self.visit(self.aliases[node.chain[0]])
+            alias_name = node.chain[0]
+            # Prevent infinite recursion when resolving aliases
+            if alias_name in self.resolving_aliases:
+                return ast.Constant(value=self.tombstone_string)
+
+            # Mark this alias as being resolved
+            self.resolving_aliases.add(alias_name)
+            try:
+                # Replace the alias with its actual expression
+                result = self.visit(self.aliases[alias_name])
+                return result
+            finally:
+                # Always remove from resolving set
+                self.resolving_aliases.remove(alias_name)
 
         # if field in requested list
         type = node.type
