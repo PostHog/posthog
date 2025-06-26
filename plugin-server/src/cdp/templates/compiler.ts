@@ -18,8 +18,7 @@ const CONCURRENT_WORKERS = 10
 const semaphore = new Semaphore(CONCURRENT_WORKERS)
 
 export async function compileHog(hog: string): Promise<HogBytecode> {
-    await semaphore.acquire()
-    try {
+    return semaphore.run(async () => {
         if (CACHE === null) {
             mkdirSync(path.dirname(CACHE_FILE), { recursive: true })
 
@@ -61,7 +60,5 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         await writeFile(CACHE_FILE, JSON.stringify(CACHE, null, 2))
 
         return output
-    } finally {
-        semaphore.release()
-    }
+    })
 }
