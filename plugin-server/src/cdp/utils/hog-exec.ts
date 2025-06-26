@@ -18,7 +18,8 @@ export async function execHog(
 }> {
     // Ensure we don't have more than one running in parallel
     return await semaphore.withLock(async () => {
-        await new Promise((resolve) => process.nextTick(resolve))
+        // Note - the setTimeout here forces the event loop to run fully before the next call. This is important as we never want hog execution to block the event loop
+        await new Promise((r) => setTimeout(r, 0))
         const now = performance.now()
         let result: ExecResult | undefined
         let error: any
