@@ -8,19 +8,16 @@ import { logger } from '~/utils/logger'
 import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { defaultConfig } from '../../config/config'
 import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { FetchExecutorService } from './fetch-executor.service'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
 
 const setupFetchResponse = (
