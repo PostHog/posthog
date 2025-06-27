@@ -123,7 +123,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelContent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -145,7 +145,7 @@ export function SidePanel(): JSX.Element | null {
         return () => {
             setSidePanelAvailable(false)
         }
-    }, [])
+    }, [setSidePanelAvailable])
 
     if (!visibleTabs.length) {
         return null
@@ -175,12 +175,12 @@ export function SidePanel(): JSX.Element | null {
         return (
             <LemonModal
                 simple
-                isOpen={!!PanelConent && supportsModal}
+                isOpen={!!PanelContent && supportsModal}
                 onClose={closeSidePanel}
                 hideCloseButton
                 width="40rem"
             >
-                {PanelConent ? <PanelConent /> : null}
+                {PanelContent ? <PanelContent /> : null}
             </LemonModal>
         )
     }
@@ -233,11 +233,11 @@ export function SidePanel(): JSX.Element | null {
                 ) : null}
             </div>
 
-            {PanelConent ? (
+            {PanelContent ? (
                 <div className="SidePanel3000__content">
                     <WithinSidePanelContext.Provider value={true}>
                         <ErrorBoundary>
-                            <PanelConent />
+                            <PanelContent />
                         </ErrorBoundary>
                     </WithinSidePanelContext.Provider>
                 </div>

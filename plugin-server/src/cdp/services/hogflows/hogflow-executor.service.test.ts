@@ -11,7 +11,7 @@ import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../hog-function-templates/hog-function-template-manager.service'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 describe('Hogflow Executor', () => {

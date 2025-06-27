@@ -289,8 +289,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
-                {featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE] &&
-                    mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
+                {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle

@@ -115,32 +115,40 @@ export type HogFunctionFilterGlobals = {
     properties: Record<string, any>
     distinct_id: string
 
-    person?: {
+    person: {
         id: string
         properties: Record<string, any>
-    }
-    pdi?: {
+    } | null
+    pdi: {
         distinct_id: string
         person_id: string
         person: {
             id: string
             properties: Record<string, any>
         }
-    }
+    } | null
 
-    group_0?: {
+    // Used by groupId filters on event_metadata
+    $group_0: string | null
+    $group_1: string | null
+    $group_2: string | null
+    $group_3: string | null
+    $group_4: string | null
+
+    // Used by group property filters
+    group_0: {
         properties: Record<string, any>
     }
-    group_1?: {
+    group_1: {
         properties: Record<string, any>
     }
-    group_2?: {
+    group_2: {
         properties: Record<string, any>
     }
-    group_3?: {
+    group_3: {
         properties: Record<string, any>
     }
-    group_4?: {
+    group_4: {
         properties: Record<string, any>
     }
 }
@@ -191,15 +199,6 @@ export type AppMetricType = MinimalAppMetric & {
     app_source: MetricLogSource
 }
 
-export type HogFunctionQueueParametersFetchRequest = {
-    url: string
-    method: string
-    body?: string
-    return_queue: CyclotronJobQueueKind
-    max_tries?: number
-    headers?: Record<string, string>
-}
-
 export type CyclotronFetchFailureKind =
     | 'timeout'
     | 'timeoutgettingbody'
@@ -223,7 +222,18 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
+export type HogFunctionQueueParametersFetchRequest = {
+    type: 'fetch'
+    url: string
+    method: string
+    body?: string
+    return_queue: CyclotronJobQueueKind
+    max_tries?: number
+    headers?: Record<string, string>
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
+    type: 'fetch-response'
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** On success, the fetch worker returns only the successful response */
@@ -284,6 +294,7 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
         globals: HogFunctionInvocationGlobalsWithInputs
         vmState?: VMState
         timings: HogFunctionTiming[]
+        attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
     }
     hogFunction: HogFunctionType
 }

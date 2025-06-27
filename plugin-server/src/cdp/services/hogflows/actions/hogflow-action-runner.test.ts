@@ -8,7 +8,7 @@ import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 
 import { HogExecutorService } from '../../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../../hog-function-templates/hog-function-template-manager.service'
+import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { HogFlowActionRunner } from './hogflow-action-runner'
 import { findActionById } from './utils'
 

@@ -9,7 +9,7 @@ import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
 import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../../hog-function-templates/hog-function-template-manager.service'
+import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { HogFlowActionResult } from './types'
 
 type Action = Extract<HogFlowAction, { type: 'function' }>
