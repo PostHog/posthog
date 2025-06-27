@@ -21,6 +21,7 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -168,6 +169,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     ancestor_failed = set()
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
+
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -741,6 +744,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -963,6 +967,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Activity that creates tables for a list of saved queries."""
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     for model in inputs.models:
         await create_table_from_saved_query(model, inputs.team_id)
 
