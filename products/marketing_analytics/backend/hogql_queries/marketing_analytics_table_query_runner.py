@@ -1,5 +1,6 @@
 from functools import cached_property
 from datetime import datetime
+from typing import Literal
 import structlog
 
 from posthog.hogql import ast
@@ -102,13 +103,51 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters()
 
-            # Build the union query string using the factory
+            # Build the union query using the factory
             union_query_string = self._factory.build_union_query(adapters)
 
-            # Build the final query with ordering and pagination
-            final_query_string = self._build_final_query_string(union_query_string)
+            # Get conversion goals and create processors
+            conversion_goals = self._get_team_conversion_goals()
+            processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
 
-            return parse_select(final_query_string)
+            # Build the complete query with CTEs using AST
+            return self._build_complete_query_ast(union_query_string, processors)
+
+    def _build_complete_query_ast(self, union_query_string: str, processors: list) -> ast.SelectQuery:
+        """Build the complete query with CTEs using AST expressions"""
+
+        # Build the main SELECT query
+        main_query = self._build_select_query(processors)
+
+        # Build CTEs as a dictionary
+        ctes: dict[str, ast.CTE] = {}
+
+        # Add campaign_costs CTE
+        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_cte = ast.CTE(name=CAMPAIGN_COST_CTE_NAME, expr=campaign_cost_select, cte_type="subquery")
+        ctes[CAMPAIGN_COST_CTE_NAME] = campaign_cost_cte
+
+        # Add conversion goal CTEs if any
+        if processors:
+            for processor in processors:
+                # Build additional conditions (date range and global filters)
+                date_field = processor.get_date_field()
+                additional_conditions = self._get_where_conditions(
+                    include_date_range=True,
+                    date_field=date_field,
+                    use_date_not_datetime=True,  # Conversion goals use toDate instead of toDateTime
+                )
+
+                # Generate CTE
+                cte_alias = processor.generate_cte_query_expr(additional_conditions)
+                cte_name = processor.get_cte_name()
+                cte = ast.CTE(name=cte_name, expr=cte_alias.expr, cte_type="subquery")
+                ctes[cte_name] = cte
+
+        # Add CTEs to the main query
+        main_query.ctes = ctes
+
+        return main_query
 
     def calculate(self) -> MarketingAnalyticsTableQueryResponse:
         """Execute the query and return results with pagination support"""
@@ -150,45 +189,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             offset=self.query.offset or 0,
         )
 
-    def _build_final_query_string(self, union_query_string: str) -> str:
-        """Build the final query with the same structure as frontend"""
-        conversion_goals = self._get_team_conversion_goals()
-
-        # Create processors once and reuse across all methods
-        processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
-
-        # Build query components
-        with_clause = self._build_with_clause(union_query_string, processors)
-        order_by_clause = self._build_order_by_clause()
-        limit_offset = self._build_limit_offset()
-        select_clause = self._build_select_clause(processors)
-
-        # Assemble final query
-        final_query = f"""
-{with_clause}
-{select_clause}
-{order_by_clause}
-{limit_offset}
-        """.strip()
-
-        return final_query
-
-    def _build_with_clause(self, union_query_string: str, processors: list) -> str:
-        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs"""
-        # Build the campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
-        campaign_cost_cte = f"{CAMPAIGN_COST_CTE_NAME} AS (\n{campaign_cost_select.to_hogql()}\n)"
-
-        with_clause = f"WITH {campaign_cost_cte}"
-
-        # Add conversion goal CTEs if any
-        if processors:
-            conversion_goal_ctes = self._generate_conversion_goal_ctes_from_processors(processors)
-            if conversion_goal_ctes:
-                with_clause += f", {conversion_goal_ctes}"
-
-        return with_clause
-
     def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build SELECT columns for the CTE
@@ -210,8 +210,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         ]
 
         # Parse the union query as a subquery and wrap it in a JoinExpr
-        from posthog.hogql.parser import parse_select
-
         union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
@@ -224,73 +222,14 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Build the CTE SELECT query
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
-    def _build_order_by_clause(self) -> str:
-        """Build the ORDER BY clause with proper null handling"""
-        order_by_parts = []
-
-        if hasattr(self.query, "orderBy") and self.query.orderBy:
-            for order_expr in self.query.orderBy:
-                # Fix ordering expressions for null handling
-                if "nullif(" in order_expr and CONVERSION_GOAL_PREFIX in order_expr:
-                    if order_expr.strip().endswith(" ASC"):
-                        calc_part = order_expr.replace(" ASC", "").strip()
-                        # Build: COALESCE(calc_part, FALLBACK_COST_VALUE) ASC
-                        from posthog.hogql.parser import parse_expr
-
-                        try:
-                            calc_expr = parse_expr(calc_part)
-                        except (SyntaxError, BaseHogQLError):
-                            calc_expr = ast.Field(chain=[calc_part])
-
-                        coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=FALLBACK_COST_VALUE)])
-                        order_expr = f"{coalesce.to_hogql()} ASC"
-                    elif order_expr.strip().endswith(" DESC"):
-                        calc_part = order_expr.replace(" DESC", "").strip()
-                        # Build: COALESCE(calc_part, -FALLBACK_COST_VALUE) DESC
-                        from posthog.hogql.parser import parse_expr
-
-                        try:
-                            calc_expr = parse_expr(calc_part)
-                        except (SyntaxError, BaseHogQLError):
-                            calc_expr = ast.Field(chain=[calc_part])
-
-                        coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=-FALLBACK_COST_VALUE)])
-                        order_expr = f"{coalesce.to_hogql()} DESC"
-                    else:
-                        # Build: COALESCE(order_expr, FALLBACK_COST_VALUE)
-                        from posthog.hogql.parser import parse_expr
-
-                        try:
-                            expr = parse_expr(order_expr)
-                        except (SyntaxError, BaseHogQLError):
-                            expr = ast.Field(chain=[order_expr])
-
-                        coalesce = ast.Call(name="COALESCE", args=[expr, ast.Constant(value=FALLBACK_COST_VALUE)])
-                        order_expr = coalesce.to_hogql()
-                order_by_parts.append(order_expr)
-        else:
-            # Build default order by: campaign_costs.total_cost DESC
-            default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
-            order_by_parts = [f"{default_field.to_hogql()} DESC"]
-
-        return "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
-
-    def _build_limit_offset(self) -> str:
-        """Build the LIMIT and OFFSET clause"""
-        limit = self.query.limit or DEFAULT_LIMIT
-        offset = self.query.offset or 0
-        actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
-
-        return f"LIMIT {actual_limit}\nOFFSET {offset}"
-
-    def _build_select_clause(self, processors: list) -> str:
-        """Build the SELECT clause with base columns and conversion goal columns"""
+    def _build_select_query(self, processors: list) -> ast.SelectQuery:
+        """Build the complete SELECT query with base columns and conversion goal columns"""
         # Get conversion goal components (processors already created and passed in)
         if processors:
             conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
             conversion_columns = self._generate_conversion_goal_selects_from_processors(processors)
         else:
-            conversion_joins = ""
+            conversion_joins = []
             conversion_columns = []
 
         # Build base columns
@@ -299,15 +238,30 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Combine base and conversion goal columns
         all_columns = base_columns + conversion_columns
 
-        # Convert columns to strings - can't use backslash in f-string
-        columns_sql = ",\n".join([col.to_hogql() for col in all_columns])
+        # Create the FROM clause with base table
+        from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
 
-        return f"""SELECT
-{columns_sql}
-FROM {CAMPAIGN_COST_CTE_NAME}
-{conversion_joins}"""
+        # Add conversion goal joins
+        if conversion_joins:
+            from_clause = self._append_joins(from_clause, conversion_joins)
 
-    def _build_base_columns(self) -> list[ast.Alias]:
+        # Build ORDER BY
+        order_by_exprs = self._build_order_by_exprs()
+
+        # Build LIMIT and OFFSET
+        limit = self.query.limit or DEFAULT_LIMIT
+        offset = self.query.offset or 0
+        actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
+
+        return ast.SelectQuery(
+            select=all_columns,
+            select_from=from_clause,
+            order_by=order_by_exprs,
+            limit=ast.Constant(value=actual_limit),
+            offset=ast.Constant(value=offset),
+        )
+
+    def _build_base_columns(self) -> list[ast.Expr]:
         """Build base columns"""
         return [
             # Campaign name
@@ -394,6 +348,73 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             ),
         ]
 
+    def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
+        """Recursively append joins to the initial join by using the next_join field"""
+        base_join = initial_join
+        for current_join in joins:
+            while base_join.next_join is not None:
+                base_join = base_join.next_join
+            base_join.next_join = current_join
+        return initial_join
+
+    def _build_order_by_exprs(self) -> list[ast.OrderExpr]:
+        """Build ORDER BY expressions from query orderBy with proper null handling"""
+        from posthog.hogql.parser import parse_expr
+
+        order_by_exprs = []
+
+        if hasattr(self.query, "orderBy") and self.query.orderBy:
+            for order_expr_str in self.query.orderBy:
+                order_direction: Literal["ASC", "DESC"]
+                # Fix ordering expressions for null handling
+                if "nullif(" in order_expr_str and CONVERSION_GOAL_PREFIX in order_expr_str:
+                    if order_expr_str.strip().endswith(" ASC"):
+                        calc_part = order_expr_str.replace(" ASC", "").strip()
+                        order_direction = "ASC"
+                        fallback_value = FALLBACK_COST_VALUE
+                    elif order_expr_str.strip().endswith(" DESC"):
+                        calc_part = order_expr_str.replace(" DESC", "").strip()
+                        order_direction = "DESC"
+                        fallback_value = -FALLBACK_COST_VALUE
+                    else:
+                        calc_part = order_expr_str.strip()
+                        order_direction = "ASC"
+                        fallback_value = FALLBACK_COST_VALUE
+
+                    # Build: COALESCE(calc_part, fallback_value)
+                    try:
+                        calc_expr = parse_expr(calc_part)
+                    except (SyntaxError, BaseHogQLError):
+                        calc_expr = ast.Field(chain=[calc_part])
+
+                    coalesce_expr = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=fallback_value)])
+
+                    order_by_exprs.append(ast.OrderExpr(expr=coalesce_expr, order=order_direction))
+                else:
+                    # Parse regular order expressions
+                    if order_expr_str.strip().endswith(" ASC"):
+                        expr_part = order_expr_str.replace(" ASC", "").strip()
+                        order_direction = "ASC"
+                    elif order_expr_str.strip().endswith(" DESC"):
+                        expr_part = order_expr_str.replace(" DESC", "").strip()
+                        order_direction = "DESC"
+                    else:
+                        expr_part = order_expr_str.strip()
+                        order_direction = "ASC"
+
+                    try:
+                        field_expr = parse_expr(expr_part)
+                    except (SyntaxError, BaseHogQLError):
+                        field_expr = ast.Field(chain=[expr_part])
+
+                    order_by_exprs.append(ast.OrderExpr(expr=field_expr, order=order_direction))
+        else:
+            # Build default order by: campaign_costs.total_cost DESC
+            default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
+            order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
+
+        return order_by_exprs
+
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
     ) -> list:
@@ -406,31 +427,10 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             processors.append(processor)
         return processors
 
-    def _generate_conversion_goal_ctes_from_processors(self, processors: list) -> str:
-        """Generate CTEs for conversion goals with proper property filtering"""
-        if not processors:
-            return ""
-
-        ctes = []
-        for processor in processors:
-            # Build additional conditions (date range and global filters)
-            date_field = processor.get_date_field()
-            additional_conditions = self._get_where_conditions(
-                include_date_range=True,
-                date_field=date_field,
-                use_date_not_datetime=True,  # Conversion goals use toDate instead of toDateTime
-            )
-
-            # Let the processor generate its own CTE query
-            cte_query = processor.generate_cte_query_expr(additional_conditions).to_hogql()
-            ctes.append(cte_query)
-
-        return ",\n".join(ctes)
-
-    def _generate_conversion_goal_joins_from_processors(self, processors: list) -> str:
+    def _generate_conversion_goal_joins_from_processors(self, processors: list) -> list[ast.JoinExpr]:
         """Generate JOIN clauses for conversion goals"""
         if not processors:
-            return ""
+            return []
 
         joins = []
         for processor in processors:
@@ -438,11 +438,11 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             join_clause = processor.generate_join_clause()
             joins.append(join_clause)
 
-        return "\n".join(joins)
+        return joins
 
     def _generate_conversion_goal_selects_from_processors(
         self, processors: list[ConversionGoalProcessor]
-    ) -> list[ast.Alias]:
+    ) -> list[ast.Expr]:
         """Generate SELECT columns for conversion goals"""
         if not processors:
             return []

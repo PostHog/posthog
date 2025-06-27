@@ -220,35 +220,41 @@ class ConversionGoalProcessor:
         cte_alias = ast.Alias(alias=cte_name, expr=select_query)
         return cte_alias
 
-    def generate_join_clause(self) -> str:
+    def generate_join_clause(self) -> ast.JoinExpr:
         """Generate the JOIN clause for this conversion goal"""
         cte_name = self.get_cte_name()
-        return """LEFT JOIN {} {} ON {}.{} = {}.{}
-    AND {}.{} = {}.{}""".format(
-            cte_name,
-            CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-            CAMPAIGN_COST_CTE_NAME,
-            MarketingSourceAdapter.campaign_name_field,
-            CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-            MarketingSourceAdapter.campaign_name_field,
-            CAMPAIGN_COST_CTE_NAME,
-            MarketingSourceAdapter.source_name_field,
-            CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-            MarketingSourceAdapter.source_name_field,
+        alias = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
+
+        # Build join conditions: campaign_name = campaign_name AND source_name = source_name
+        campaign_condition = ast.CompareOperation(
+            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Field(chain=[alias, MarketingSourceAdapter.campaign_name_field]),
         )
 
-    def generate_select_columns(self) -> list[ast.Alias]:
+        source_condition = ast.CompareOperation(
+            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Field(chain=[alias, MarketingSourceAdapter.source_name_field]),
+        )
+
+        join_condition = ast.And(exprs=[campaign_condition, source_condition])
+        join_constraint = ast.JoinConstraint(expr=join_condition, constraint_type="ON")
+
+        return ast.JoinExpr(
+            join_type="LEFT JOIN", table=ast.Field(chain=[cte_name]), alias=alias, constraint=join_constraint
+        )
+
+    def generate_select_columns(self) -> list[ast.Expr]:
         """Generate the SELECT columns for this conversion goal"""
         goal_name = self.goal.conversion_goal_name
         alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
 
         # First column: conversion goal value
-        # Original: '{}.{} as "{}"'
         conversion_goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
         conversion_goal_alias = ast.Alias(alias=goal_name, expr=conversion_goal_field)
 
         # Second column: Cost per conversion goal
-        # Original: 'round({}.{} / nullif({}.{}, 0), {}) as "Cost per {}"'
         cost_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
         goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
 
