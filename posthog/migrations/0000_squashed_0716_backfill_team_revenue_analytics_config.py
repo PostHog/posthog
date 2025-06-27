@@ -1066,29 +1066,21 @@ class Migration(migrations.Migration):
             name="Person",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("distinct_ids", django.contrib.postgres.fields.jsonb.JSONField(default=list)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("properties", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
+                ("properties_last_updated_at", models.JSONField(blank=True, default=dict, null=True)),
+                ("properties_last_operation", models.JSONField(blank=True, null=True)),
+                ("properties", models.JSONField(default=dict)),
+                ("is_identified", models.BooleanField(default=False)),
+                ("uuid", models.UUIDField(db_index=True, default=posthog.models.utils.UUIDT, editable=False)),
+                ("version", models.BigIntegerField(blank=True, null=True)),
+                (
+                    "is_user",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
-        ),
-        migrations.AddField(
-            model_name="person",
-            name="is_user",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
-            ),
-        ),
-        migrations.RemoveField(
-            model_name="person",
-            name="distinct_ids",
-        ),
-        migrations.AddField(
-            model_name="person",
-            name="distinct_ids",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(blank=True, max_length=400), blank=True, null=True, size=None
-            ),
         ),
         migrations.CreateModel(
             name="Element",
@@ -1242,10 +1234,6 @@ class Migration(migrations.Migration):
             model_name="element",
             name="team",
         ),
-        migrations.RemoveField(
-            model_name="person",
-            name="distinct_ids",
-        ),
         migrations.AlterField(
             model_name="element",
             name="nth_child",
@@ -1273,6 +1261,7 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("distinct_id", models.CharField(max_length=400)),
+                ("version", models.BigIntegerField(blank=True, null=True)),
                 ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.person")),
                 (
                     "team",
@@ -1752,11 +1741,6 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.AddField(
-            model_name="person",
-            name="is_identified",
-            field=models.BooleanField(default=False),
-        ),
         migrations.CreateModel(
             name="PersonalAPIKey",
             fields=[
@@ -1776,6 +1760,7 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.generate_random_token, editable=False, max_length=50, unique=True
                     ),
                 ),
+                ("secure_value", models.CharField(editable=False, max_length=300, null=True, unique=True)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("last_used_at", models.DateTimeField(blank=True, null=True)),
                 (
@@ -1808,11 +1793,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="uuid",
             field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
-        ),
-        migrations.AddField(
-            model_name="person",
-            name="uuid",
-            field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False),
         ),
         migrations.CreateModel(
             name="UploadedMedia",
@@ -1884,6 +1864,14 @@ class Migration(migrations.Migration):
             options={
                 "abstract": False,
             },
+        ),
+        migrations.AddConstraint(
+            model_name="organization",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("for_internal_metrics", True)),
+                fields=("for_internal_metrics",),
+                name="single_for_internal_metrics",
+            ),
         ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
@@ -2158,11 +2146,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AlterField(
-            model_name="person",
-            name="uuid",
-            field=models.UUIDField(db_index=True, default=posthog.models.utils.UUIDT, editable=False),
-        ),
-        migrations.AlterField(
             model_name="team",
             name="name",
             field=models.CharField(default="Default Project", max_length=200, null=True),
@@ -2215,16 +2198,68 @@ class Migration(migrations.Migration):
             name="Plugin",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "plugin_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("local", "local"),
+                            ("custom", "custom"),
+                            ("repository", "repository"),
+                            ("source", "source"),
+                        ],
+                        default=None,
+                        max_length=200,
+                        null=True,
+                    ),
+                ),
+                ("is_global", models.BooleanField(default=False)),
+                ("is_preinstalled", models.BooleanField(default=False)),
+                ("is_stateless", models.BooleanField(blank=True, default=False, null=True)),
                 ("name", models.CharField(blank=True, max_length=200, null=True)),
                 ("description", models.TextField(blank=True, null=True)),
                 ("url", models.CharField(blank=True, max_length=800, null=True)),
-                ("config_schema", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
+                ("icon", models.CharField(blank=True, max_length=800, null=True)),
+                ("config_schema", models.JSONField(blank=True, default=dict)),
                 ("tag", models.CharField(blank=True, max_length=200, null=True)),
                 ("archive", models.BinaryField(blank=True, null=True)),
+                ("latest_tag", models.CharField(blank=True, max_length=800, null=True)),
+                ("latest_tag_checked_at", models.DateTimeField(blank=True, null=True)),
+                ("capabilities", models.JSONField(default=dict)),
+                ("metrics", models.JSONField(blank=True, default=dict, null=True)),
+                ("public_jobs", models.JSONField(blank=True, default=dict, null=True)),
+                ("error", models.JSONField(blank=True, default=None, null=True)),
                 ("from_json", models.BooleanField(default=False)),
                 ("from_web", models.BooleanField(default=False)),
-                ("error", django.contrib.postgres.fields.jsonb.JSONField(default=None, null=True)),
+                ("source", models.TextField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True, default=datetime.datetime(2020, 1, 1, 0, 0))),
+                ("updated_at", models.DateTimeField(blank=True, null=True)),
+                ("log_level", models.IntegerField(blank=True, null=True)),
+                ("has_private_access", models.ManyToManyField(to="posthog.organization")),
             ],
+        ),
+        migrations.AddField(
+            model_name="plugin",
+            name="organization",
+            field=models.ForeignKey(
+                default=None,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="plugins",
+                related_query_name="plugin",
+                to="posthog.organization",
+            ),
+            preserve_default=False,
+        ),
+        migrations.AlterField(
+            model_name="plugin",
+            name="organization",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="plugins",
+                related_query_name="plugin",
+                to="posthog.organization",
+            ),
         ),
         migrations.CreateModel(
             name="PluginConfig",
@@ -2297,45 +2332,6 @@ class Migration(migrations.Migration):
         migrations.DeleteModel(
             name="Funnel",
         ),
-        migrations.AddField(
-            model_name="plugin",
-            name="plugin_type",
-            field=models.CharField(
-                blank=True,
-                choices=[("local", "local"), ("custom", "custom"), ("repository", "repository"), ("source", "source")],
-                default=None,
-                max_length=200,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="source",
-            field=models.TextField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="organization",
-            field=models.ForeignKey(
-                default=None,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="plugins",
-                related_query_name="plugin",
-                to="posthog.organization",
-            ),
-            preserve_default=False,
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="organization",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="plugins",
-                related_query_name="plugin",
-                to="posthog.organization",
-            ),
-        ),
         migrations.CreateModel(
             name="PluginStorage",
             fields=[
@@ -2399,16 +2395,6 @@ class Migration(migrations.Migration):
             field=models.IntegerField(default=None, null=True),
         ),
         migrations.AddField(
-            model_name="plugin",
-            name="latest_tag",
-            field=models.CharField(blank=True, max_length=800, null=True),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="latest_tag_checked_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
             model_name="team",
             name="is_demo",
             field=models.BooleanField(default=False),
@@ -2462,25 +2448,9 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="plugin",
-            name="created_at",
-            field=models.DateTimeField(auto_now_add=True, default=datetime.datetime(2020, 1, 1, 0, 0)),
-            preserve_default=False,
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="updated_at",
-            field=models.DateTimeField(auto_now=True),
-        ),
-        migrations.AddField(
             model_name="team",
             name="test_account_filters",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="is_global",
-            field=models.BooleanField(default=False),
         ),
         migrations.AlterField(
             model_name="team",
@@ -3602,21 +3572,6 @@ class Migration(migrations.Migration):
             field=models.JSONField(default=dict),
         ),
         migrations.AlterField(
-            model_name="person",
-            name="properties",
-            field=models.JSONField(default=dict),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="config_schema",
-            field=models.JSONField(default=dict),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="error",
-            field=models.JSONField(default=None, null=True),
-        ),
-        migrations.AlterField(
             model_name="pluginconfig",
             name="config",
             field=models.JSONField(default=dict),
@@ -3795,24 +3750,9 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, max_length=10000, null=True),
         ),
         migrations.AddField(
-            model_name="plugin",
-            name="is_preinstalled",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
             model_name="user",
             name="events_column_config",
             field=models.JSONField(default=posthog.models.user.events_column_config_default),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="capabilities",
-            field=models.JSONField(default=dict),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="metrics",
-            field=models.JSONField(default=dict, null=True),
         ),
         migrations.AlterField(
             model_name="personalapikey",
@@ -3855,11 +3795,6 @@ class Migration(migrations.Migration):
             ],
             reverse_sql='DROP INDEX "posthog_per_team_id_bec4e5_idx";',
         ),
-        migrations.AddField(
-            model_name="plugin",
-            name="public_jobs",
-            field=models.JSONField(default=dict, null=True),
-        ),
         migrations.CreateModel(
             name="FeatureFlagOverride",
             fields=[
@@ -3879,11 +3814,6 @@ class Migration(migrations.Migration):
                 fields=("user", "feature_flag", "team"), name="unique feature flag for a user/team combo"
             ),
         ),
-        migrations.AddField(
-            model_name="person",
-            name="properties_last_updated_at",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
         migrations.RemoveField(
             model_name="team",
             name="users",
@@ -3892,11 +3822,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="access_control",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="person",
-            name="properties_last_operation",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="team",
@@ -3933,11 +3858,6 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 check=models.Q(("group_type_index__lte", 5)), name="group_type_index is less than or equal 5"
             ),
-        ),
-        migrations.AddField(
-            model_name="person",
-            name="version",
-            field=models.BigIntegerField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="team",
@@ -3994,11 +3914,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="specialmigration",
             constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
-        ),
-        migrations.AddField(
-            model_name="persondistinctid",
-            name="version",
-            field=models.BigIntegerField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="Experiment",
@@ -4146,11 +4061,6 @@ class Migration(migrations.Migration):
                 name="property_type_and_format_are_valid",
             ),
         ),
-        migrations.AddField(
-            model_name="plugin",
-            name="is_stateless",
-            field=models.BooleanField(blank=True, default=False, null=True),
-        ),
         migrations.RemoveField(
             model_name="asyncmigration",
             name="last_error",
@@ -4265,16 +4175,6 @@ class Migration(migrations.Migration):
         migrations.AlterUniqueTogether(
             name="tag",
             unique_together={("name", "team")},
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="updated_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="log_level",
-            field=models.IntegerField(blank=True, null=True),
         ),
         migrations.RunSQL(
             sql="DROP FUNCTION IF EXISTS update_person_props, should_update_person_props",
@@ -4825,11 +4725,6 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=200, null=True), blank=True, null=True, size=None
             ),
         ),
-        migrations.AddField(
-            model_name="personalapikey",
-            name="secure_value",
-            field=models.CharField(editable=False, max_length=300, null=True, unique=True),
-        ),
         migrations.AlterField(
             model_name="personalapikey",
             name="value",
@@ -4986,11 +4881,6 @@ class Migration(migrations.Migration):
         ),
         migrations.DeleteModel(
             name="PromptSequenceState",
-        ),
-        migrations.AddField(
-            model_name="plugin",
-            name="icon",
-            field=models.CharField(blank=True, max_length=800, null=True),
         ),
         migrations.CreateModel(
             name="SessionRecordingPlaylist",
@@ -5472,26 +5362,6 @@ class Migration(migrations.Migration):
                 expression="(team_id, name, type, coalesce(group_type_index, -1))",
                 name="posthog_propertydefinition_uniq",
             ),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="error",
-            field=models.JSONField(blank=True, default=None, null=True),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="metrics",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="public_jobs",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AlterField(
-            model_name="plugin",
-            name="config_schema",
-            field=models.JSONField(blank=True, default=dict),
         ),
         migrations.AlterField(
             model_name="team",
@@ -7896,11 +7766,6 @@ class Migration(migrations.Migration):
             name="status",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AddField(
-            model_name="plugin",
-            name="has_private_access",
-            field=models.ManyToManyField(to="posthog.organization"),
-        ),
         migrations.RemoveConstraint(
             model_name="propertydefinition",
             name="property_type_is_valid",
@@ -8470,7 +8335,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql='\n                    SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" DROP NOT NULL;\n                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    ',
+                    sql='\n                    SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_plugin" DROP CONSTRAINT IF EXISTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore\n                    ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" DROP NOT NULL;\n                    ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    ',
                     reverse_sql='\n                        SET CONSTRAINTS "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" IMMEDIATE; -- existing-table-constraint-ignore\n                        ALTER TABLE "posthog_plugin" DROP CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o"; -- existing-table-constraint-ignore\n                        ALTER TABLE "posthog_plugin" ALTER COLUMN "organization_id" SET NOT NULL;\n                        ALTER TABLE "posthog_plugin" ADD CONSTRAINT "posthog_plugin_organization_id_d040b9a9_fk_posthog_o" FOREIGN KEY ("organization_id") REFERENCES "posthog_organization" ("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                        ',
                 ),
             ],
