@@ -186,21 +186,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         <div className="p-1 flex flex-col gap-4">
                             {!!(canEditInsight || insight.description) && (
                                 <>
-<SceneDescriptionForm defaultValue={insight.description || ''} canEdit={!!(canEditInsight || insight.description)} onSave={setInsightDescriptionDebounced} />
-                                    {insightMode !== ItemMode.Edit ? (
-                                        <p className="m-0">{insight.description}</p>
-                                    ) : (
-                                        <LemonField.Pure label="Description" className="gap-0" htmlFor="description">
-                                            <TextareaPrimitive
-                                                value={insight.description || ''}
-                                                onChange={(e) => {
-                                                    setInsightDescriptionDebounced(e.target.value)
-                                                }}
-                                                placeholder="Description (optional)"
-                                                id="description"
-                                            />
-                                        </LemonField.Pure>
-                                    )}
+                                    <SceneDescriptionForm defaultValue={insight.description || ''} isEditing={insightMode === ItemMode.Edit} onSave={setInsightDescriptionDebounced} onCancel={() => setInsightMode(ItemMode.View, null)} />
                                 </>
                             )}
 

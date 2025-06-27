@@ -1,7 +1,5 @@
-import { IconGear, IconInfo } from '@posthog/icons'
+import './SceneLayout.scss'
 import { useActions, useValues } from 'kea'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { TabsPrimitive, TabsPrimitiveContent, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -19,6 +17,7 @@ export function SceneLayoutPanelInfo({children}: {children: React.ReactNode}): J
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
     const { setPanelInfoActive } = useActions(sceneLayoutLogic)
 
+    // HACKY: Show the panel info if 
     useEffect(() => {
         setPanelInfoActive(true)
         return () => setPanelInfoActive(false)
@@ -43,11 +42,10 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const { panelInfoActive } = useValues(sceneLayoutLogic)
 
     return (
-        <div className={cn('flex-1 flex flex-col', className)}>
+        <div className={cn('scene-layout @container/scene-layout flex-1 flex flex-col', className)}>
             {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
-            <div className={cn('grid', {
-                'grid-cols-[calc(100%-200px)_200px]': panelInfoActive,
-                'grid-cols-1': !panelInfoActive,
+            <div className={cn("scene-layout__content", {
+                'scene-layout__content--has-panel': panelInfoActive,
             })}>
                 <div className={cn('flex-1 flex flex-col p-4 w-full', {
                     'p-0': layoutConfig?.layout === 'app-raw-no-header'
@@ -55,7 +53,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     {children}
                 </div>
                 {panelInfoActive && (
-                    <div className="border-l border-primary w-[200px] p-1">
+                    <div className="scene-layout__content-panel">
                         <div ref={setFileActionsContainer}/>
                         {/* <TabsPrimitive defaultValue="info">
                             <div className="flex justify-between items-center border-b border-primary">
