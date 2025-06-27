@@ -34,7 +34,7 @@ def _process_nested_value(value: Any) -> Any:
     if isinstance(value, ObjectId):
         return str(value)
     elif isinstance(value, dict):
-        return {key: _process_nested_value(value) for key, value in value.items()}
+        return {key: _process_nested_value(val) for key, val in value.items()}
     elif isinstance(value, list):
         return [_process_nested_value(item) for item in value]
     else:
