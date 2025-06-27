@@ -1,7 +1,6 @@
-import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { FunnelLayout } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { match, P } from 'ts-pattern'
 
 import { performQuery } from '~/queries/query'
@@ -60,10 +59,6 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
     key((props) => `${props.experiment.id}-${props.metricIndex}-${props.isPrimary ? 'primary' : 'secondary'}`),
 
     path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
-
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
 
     actions({
         loadBreakdownResults: true,

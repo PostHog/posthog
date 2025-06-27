@@ -11,7 +11,7 @@ type SafeResultBreakdownRenderProps = {
     [K in keyof Pick<ResultBreakdownRenderProps, 'query'>]: NonNullable<ResultBreakdownRenderProps[K]>
 }
 
-export function ExploreAsInsightButton({ query }: SafeResultBreakdownRenderProps): JSX.Element | null {
+export function ExploreAsInsightButton({ query }: SafeResultBreakdownRenderProps): JSX.Element {
     return (
         <LemonButton
             className="ml-auto -translate-y-2"
