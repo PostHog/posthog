@@ -866,6 +866,8 @@ export enum PropertyFilterType {
     Element = 'element',
     /** Event property with "$feature/" prepended */
     Feature = 'feature',
+    /** Feature flag dependency (property type is 'flag') */
+    FlagDependency = 'flag',
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
@@ -3561,6 +3563,7 @@ export enum PropertyType {
     Cohort = 'Cohort',
     Assignee = 'Assignee',
     StringArray = 'StringArray',
+    Flag = 'flag',
 }
 
 export enum PropertyDefinitionType {
