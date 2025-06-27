@@ -567,7 +567,7 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
     }, [messagesSet, askMax])
 
     return (
-        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+        <div className="h-fit max-h-screen overflow-y-auto SidePanel3000__content">
             <Template />
         </div>
     )
