@@ -3,6 +3,7 @@ import {
     RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
 } from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
@@ -39,6 +40,7 @@ import {
     isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsOverviewQuery,
+    isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
@@ -164,6 +166,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsRevenueQuery(query)) {
+        component = (
+            <RevenueAnalyticsRevenueNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (

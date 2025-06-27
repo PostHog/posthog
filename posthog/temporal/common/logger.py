@@ -301,7 +301,7 @@ def get_temporal_context() -> dict[str, str | int]:
     * workflow_type: The name of the Temporal Workflow.
 
     We attempt to fetch the context from the activity information. If undefined, an empty dict
-    is returned. When running this in an activity the context will be defined.
+    is returned. When running this in an activity, the context will be defined.
     """
     activity_info = attempt_to_fetch_activity_info()
 

@@ -23,7 +23,7 @@ Adding a new filter/breakdown option in Revenue Analytics requires changes acros
 **File**: `frontend/src/queries/schema/schema-general.ts`
 
 ```typescript
-export enum RevenueAnalyticsGrossRevenueQueryGroupBy {
+export enum RevenueAnalyticsGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
     PRODUCT = 'product',
@@ -138,10 +138,10 @@ def joins_set_for_properties(self) -> set[str]:
 Add the new case inside `_join_to_and_field_name_for_group_by()`
 
 ```python
-def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsGrossRevenueQueryGroupBy) -> tuple[type[RevenueAnalyticsBaseView], str]:
-    if group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COUNTRY:
+def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsGroupBy) -> tuple[type[RevenueAnalyticsBaseView], str]:
+    if group_by == RevenueAnalyticsGroupBy.COUNTRY:
         return RevenueAnalyticsCustomerView, "country"
-    elif group_by == RevenueAnalyticsGrossRevenueQueryGroupBy.COHORT:
+    elif group_by == RevenueAnalyticsGroupBy.COHORT:
         # ... other properties
 ```
 
@@ -182,10 +182,10 @@ You might need to create a new equivalent to `self._customer_selects` that shoul
 Add the new option to the UI by mapping the new grouping to a human-readable string:
 
 ```tsx
-const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsGrossRevenueQueryGroupBy, string> = {
-    [RevenueAnalyticsGrossRevenueQueryGroupBy.COHORT]: 'Cohort',
-    [RevenueAnalyticsGrossRevenueQueryGroupBy.COUNTRY]: 'Country',
-    [RevenueAnalyticsGrossRevenueQueryGroupBy.PRODUCT]: 'Product',
+const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsGroupBy, string> = {
+    [RevenueAnalyticsGroupBy.COHORT]: 'Cohort',
+    [RevenueAnalyticsGroupBy.COUNTRY]: 'Country',
+    [RevenueAnalyticsGroupBy.PRODUCT]: 'Product',
 }
 ```
 

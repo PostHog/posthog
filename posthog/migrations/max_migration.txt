@@ -1,1 +1,1 @@
-0778_dashboard_last_refresh
+0779_alter_integration_kind
