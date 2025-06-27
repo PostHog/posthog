@@ -253,10 +253,10 @@ class TestMappings(BaseTest):
                 map('key1', 'value1') as single_pair_map,
                 map('key1', 'value1', 'key2', 'value2') as two_pair_map,
                 map(
-                    'date', toString('2023-01-01'),
-                    'total', toString(100),
-                    'ios', toString(50),
-                    'android', toString(50)
+                    'a', toString('2023-01-01'),
+                    'b', toString(100),
+                    'c', toString(50),
+                    'd', toString(50)
                 ) as multi_pair_map
             """,
             self.team,
@@ -272,9 +272,9 @@ class TestMappings(BaseTest):
         self.assertEqual(
             result_dict["multi_pair_map"],
             {
-                "date": "2023-01-01",
-                "total": "100",
-                "ios": "50",
-                "android": "50",
+                "a": "2023-01-01",
+                "b": "100",
+                "c": "50",
+                "d": "50",
             },
         )
