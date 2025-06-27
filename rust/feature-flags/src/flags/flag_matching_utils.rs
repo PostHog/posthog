@@ -5,7 +5,7 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
 use std::time::{Duration, Instant};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 // Add thread-local imports for test-specific counter
@@ -533,88 +533,6 @@ pub async fn set_feature_flag_hash_key_overrides(
     }
 
     // If we get here, something went wrong
-    Ok(false)
-}
-
-/// Checks if hash key overrides should be written for a given distinct ID.
-///
-/// This function determines if there are any active feature flags with experience
-/// continuity enabled that don't already have hash key overrides for the given
-/// distinct ID.
-pub async fn should_write_hash_key_override(
-    reader: PostgresReader,
-    team_id: TeamId,
-    distinct_id: String,
-    project_id: ProjectId,
-    hash_key_override: String,
-) -> Result<bool, FlagError> {
-    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_DELAY: Duration = Duration::from_millis(100);
-
-    let distinct_ids = vec![distinct_id, hash_key_override.clone()];
-
-    let query = r#"
-        WITH target_person_ids AS (
-            SELECT team_id, person_id 
-            FROM posthog_persondistinctid 
-            WHERE team_id = $1 AND distinct_id = ANY($2)
-        ),
-        existing_overrides AS (
-            SELECT team_id, person_id, feature_flag_key, hash_key 
-            FROM posthog_featureflaghashkeyoverride
-            WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
-        )
-        SELECT key FROM posthog_featureflag flag
-        JOIN posthog_team team ON flag.team_id = team.id
-        WHERE team.project_id = $3
-            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-    "#;
-
-    for retry in 0..MAX_RETRIES {
-        let result = timeout(QUERY_TIMEOUT, async {
-            let mut conn = reader.get_connection().await.map_err(|e| {
-                FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
-            })?;
-
-            let rows = sqlx::query(query)
-                .bind(team_id)
-                .bind(&distinct_ids)
-                .bind(project_id)
-                .fetch_all(&mut *conn)
-                .await
-                .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
-
-            Ok::<bool, FlagError>(!rows.is_empty())
-        })
-        .await;
-
-        match result {
-            Ok(Ok(flags_present)) => return Ok(flags_present),
-            Ok(Err(e)) => {
-                if e.to_string().contains("violates foreign key constraint")
-                    && retry < MAX_RETRIES - 1
-                {
-                    info!(
-                        "Retrying set_feature_flag_hash_key_overrides due to person deletion: {:?}",
-                        e
-                    );
-                    tokio::time::sleep(RETRY_DELAY).await;
-                    continue;
-                } else {
-                    // For other errors or if max retries exceeded, return the error
-                    return Err(e);
-                }
-            }
-            Err(_) => {
-                // Handle timeout
-                return Err(FlagError::TimeoutError);
-            }
-        }
-    }
-
-    // If all retries failed without returning, return false
     Ok(false)
 }
 

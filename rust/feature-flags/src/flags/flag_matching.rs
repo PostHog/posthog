@@ -10,7 +10,7 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     all_flag_condition_properties_match, all_properties_match, calculate_hash,
     fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
-    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
+    set_feature_flag_hash_key_overrides,
 };
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
 use crate::metrics::consts::{
@@ -269,11 +269,9 @@ impl FeatureFlagMatcher {
     /// consistent feature flag experiences across different distinct IDs (e.g., when a user logs in).
     /// It performs the following steps:
     ///
-    /// 1. Checks if a hash key override needs to be written by comparing the current distinct ID
-    ///    with the provided hash key
-    /// 2. If needed, writes the hash key override to the database using the writer connection
-    /// 3. Increments metrics to track successful/failed hash key override writes
-    /// 4. Retrieves and returns the current hash key overrides for the target distinct IDs
+    /// 1. Sets the hash key overrides in the database (idempotent - does nothing if already exist)
+    /// 2. Increments metrics to track successful/failed hash key override writes
+    /// 3. Retrieves and returns the current hash key overrides for the target distinct IDs
     ///
     /// Returns a tuple containing:
     /// - Option<HashMap<String, String>>: The hash key overrides if successfully retrieved, None if there was an error
@@ -283,44 +281,18 @@ impl FeatureFlagMatcher {
         hash_key: String,
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
-        let should_write = match should_write_hash_key_override(
-            self.reader.clone(),
+        let writing_hash_key_override = match set_feature_flag_hash_key_overrides(
+            // NB: this is the only method that writes to the database, so it's the only one that should use the writer
+            self.writer.clone(),
             self.team_id,
-            self.distinct_id.clone(),
+            target_distinct_ids.clone(),
             self.project_id,
             hash_key.clone(),
         )
         .await
         {
-            Ok(should_write) => should_write,
+            Ok(wrote_any) => wrote_any,
             Err(e) => {
-                error!(
-                    "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
-                    self.team_id, self.project_id, self.distinct_id, e
-                );
-                let reason = parse_exception_for_prometheus_label(&e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-                return (None, true);
-            }
-        };
-
-        let mut writing_hash_key_override = false;
-
-        if should_write {
-            if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database, so it's the only one that should use the writer
-                self.writer.clone(),
-                self.team_id,
-                target_distinct_ids.clone(),
-                self.project_id,
-                hash_key.clone(),
-            )
-            .await
-            {
                 error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
@@ -330,8 +302,7 @@ impl FeatureFlagMatcher {
                 );
                 return (None, true);
             }
-            writing_hash_key_override = true;
-        }
+        };
 
         inc(
             FLAG_HASH_KEY_WRITES_COUNTER,
