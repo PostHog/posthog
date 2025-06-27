@@ -17,6 +17,8 @@ import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
 import clsx from 'clsx'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -146,6 +148,7 @@ function MaxFloatingInputContent(): JSX.Element {
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen } = useValues(sidePanelLogic)
+    const { scene } = useValues(sceneLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
 
@@ -153,7 +156,7 @@ export function MaxFloatingInput(): JSX.Element | null {
         return null
     }
 
-    if (sidePanelOpen) {
+    if ((scene === Scene.Max && !isFloatingMaxExpanded) || sidePanelOpen) {
         return null
     }
 
