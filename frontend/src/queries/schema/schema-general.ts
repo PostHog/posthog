@@ -614,6 +614,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -1197,9 +1198,6 @@ export type FunnelsFilter = {
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
-    /** A list of indices of optional steps. One indexed. */
-    /** @default [] */
-    optional?: integer[]
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {

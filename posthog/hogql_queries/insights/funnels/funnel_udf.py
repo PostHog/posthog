@@ -131,7 +131,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        optional_steps = ",".join(str(x) for x in self.context.funnelsFilter.optional)
+        # Collect optional steps from series (1-indexed)
+        optional_steps = ",".join(
+            str(i + 1)
+            for i, series in enumerate(self.context.query.series)
+            if getattr(series, "optionalInFunnel", False)
+        )
 
         prop_arg = "prop"
         if self._query_has_array_breakdown() and self.context.breakdownAttributionType in (

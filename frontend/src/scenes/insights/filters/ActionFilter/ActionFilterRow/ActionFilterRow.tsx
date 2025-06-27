@@ -189,8 +189,7 @@ export function ActionFilterRow({
 
     const { insightProps } = useValues(insightLogic)
     // const { isTrends, interval, trendsFilter } = useValues(funnelDataLogic(insightProps))
-    const { funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { isStepOptional } = useValues(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -595,31 +594,13 @@ export function ActionFilterRow({
                                                                     <>
                                                                         <div className="px-2 py-1">
                                                                             <LemonCheckbox
-                                                                                checked={(
-                                                                                    funnelsFilter?.optional || []
-                                                                                ).includes(index + 1)}
+                                                                                checked={!!filter.optionalInFunnel}
                                                                                 onChange={(checked) => {
-                                                                                    const optionalSteps =
-                                                                                        funnelsFilter?.optional || []
-
-                                                                                    if (checked) {
-                                                                                        updateInsightFilter({
-                                                                                            //...(funnelsQuery.funnelsFilter || {}),
-                                                                                            optional: [
-                                                                                                ...optionalSteps,
-                                                                                                index + 1,
-                                                                                            ],
-                                                                                        })
-                                                                                    } else {
-                                                                                        updateInsightFilter({
-                                                                                            // ...(funnelsQuery.funnelsFilter || {}),
-                                                                                            optional:
-                                                                                                optionalSteps.filter(
-                                                                                                    (i) =>
-                                                                                                        i !== index + 1
-                                                                                                ),
-                                                                                        })
-                                                                                    }
+                                                                                    updateFilterMath({
+                                                                                        ...filter,
+                                                                                        optionalInFunnel: checked,
+                                                                                        index,
+                                                                                    })
                                                                                 }}
                                                                                 label="Optional step"
                                                                             />

@@ -91,6 +91,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
+            optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
             filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
