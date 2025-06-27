@@ -55,7 +55,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 navigate: {
                     name: 'navigate' as const,
                     displayName: 'Navigate',
-                    context: { current_page: router.values.location.pathname },
+                    context: { current_page: location.pathname },
                     callback: async (toolOutput) => {
                         const { page_key: pageKey } = toolOutput
                         if (!(pageKey in urls)) {
