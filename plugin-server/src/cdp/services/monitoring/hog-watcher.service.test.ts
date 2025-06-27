@@ -35,7 +35,7 @@ const createResult = (options: {
     return createInvocationResult(
         invocation,
         {
-            queue: options.kind === 'async_function' ? 'fetch' : 'hog',
+            queue: 'hog',
         },
         {
             finished: options.finished ?? true,

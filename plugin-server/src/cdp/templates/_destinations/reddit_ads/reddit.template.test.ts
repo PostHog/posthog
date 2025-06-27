@@ -59,15 +59,14 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -96,15 +95,14 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -133,15 +131,14 @@ describe('reddit template', () => {
                 "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
+            status: 400,
+            body: { status: 'Something went wrong', message: 'Invalid event properties' },
         })
 
         expect(fetchResponse.finished).toBe(true)

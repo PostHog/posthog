@@ -44,8 +44,8 @@ describe('webhook template', () => {
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"message": "Hello, world!"}',
+            status: 200,
+            body: { message: 'Hello, world!' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -66,8 +66,8 @@ describe('webhook template', () => {
         `)
 
         response = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"message": "Hello, world!"}',
+            status: 200,
+            body: { message: 'Hello, world!' },
         })
 
         expect(response.error).toBeUndefined()
@@ -85,8 +85,8 @@ describe('webhook template', () => {
         })
 
         response = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"message": "Bad Request"}',
+            status: 400,
+            body: { message: 'Bad Request' },
         })
 
         expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)

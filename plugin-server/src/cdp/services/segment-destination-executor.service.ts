@@ -13,7 +13,7 @@ import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
+import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
