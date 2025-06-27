@@ -114,15 +114,24 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                 for model in models_to_update:
                     model.objects.filter(team_id=source_id).update(team_id=target_id)  # type: ignore[attr-defined]
 
-                # Create a new project for the source team
-                source_team = teams.get(id=source_id)
+                source_team = teams_by_id[source_id]
+                target_team = teams_by_id[target_id]
                 original_project_name = source_team.project.name
-                environment_name = source_team.name
+
+                # If source team ID equals project ID (main environment),
+                # create new project for target team instead
+                if source_team.id == source_team.project.id:
+                    team_to_move = target_team
+                    environment_name = target_team.name
+                else:
+                    team_to_move = source_team
+                    environment_name = source_team.name
+
                 new_project_name = f"{original_project_name} - {environment_name}"
 
                 try:
                     new_project = Project.objects.create(
-                        id=source_team.id, name=new_project_name, organization=organization
+                        id=team_to_move.id, name=new_project_name, organization=organization
                     )
                 except IntegrityError:
                     _capture_environments_rollback_event(
@@ -130,14 +139,14 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
                         context,
                         posthog_client,
                         {
-                            "conflicting_project_id": source_team.id,
-                            "source_team_name": source_team.name,
+                            "conflicting_project_id": team_to_move.id,
+                            "team_name": team_to_move.name,
                         },
                     )
-                    raise IntegrityError(f"Project ID {source_team.id} already exists, cannot create new project.")
+                    raise IntegrityError(f"Project ID {team_to_move.id} already exists, cannot create new project.")
 
-                source_team.project = new_project
-                source_team.save()
+                team_to_move.project = new_project
+                team_to_move.save()
 
         _capture_environments_rollback_event("organization environments rollback completed", context, posthog_client)
 
