@@ -25,6 +25,7 @@ from ee.hogai.graph import (
     SchemaGeneratorNode,
     SQLGeneratorNode,
     TrendsGeneratorNode,
+    ExperimentsAssistantGraph,
 )
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -135,6 +136,8 @@ class Assistant:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
+            case AssistantMode.EXPERIMENTS_TOOL:
+                self._graph = ExperimentsAssistantGraph(team, user).compile_full_graph()
             case _:
                 raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")

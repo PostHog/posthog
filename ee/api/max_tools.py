@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
-
+from django.http import StreamingHttpResponse
 
 from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.renderers import SafeJSONRenderer
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -37,12 +37,27 @@ class InsightsToolCallSerializer(serializers.Serializer):
         return data
 
 
+class ExperimentResultsSummaryToolCallSerializer(serializers.Serializer):
+    experiment_id = serializers.CharField(required=True)
+
+    def validate(self, data: dict[str, Any]):
+        try:
+            tool_call_state = AssistantState(
+                root_tool_call_id=str(uuid4()),
+                messages=[],
+            )
+            data["state"] = tool_call_state
+        except pydantic.ValidationError:
+            raise serializers.ValidationError("Invalid state content.")
+        return data
+
+
 class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     queryset = Conversation.objects.all()
 
     permission_classes = [IsAuthenticated]
-    renderer_classes = [SafeJSONRenderer]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
     authentication_classes = [PersonalAPIKeyAuthentication]
 
@@ -68,3 +83,26 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
 
         return Response(assistant.generate())
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="experiment_results_summary",
+        required_scopes=["experiment:read"],
+    )
+    def experiment_results_summary(self, request: Request, *args, **kwargs):
+        from ee.hogai.assistant import Assistant
+
+        serializer = ExperimentResultsSummaryToolCallSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
+        assistant = Assistant(
+            self.team,
+            conversation,
+            user=cast(User, request.user),
+            is_new_conversation=False,
+            mode=AssistantMode.EXPERIMENTS_TOOL,
+            tool_call_partial_state=serializer.validated_data["state"],
+        )
+
+        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")

@@ -394,9 +394,6 @@
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsRevenueQuery"
-                },
-                {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 },
                 {
@@ -830,7 +827,7 @@
                 "analyze_user_interviews",
                 "create_and_query_insight",
                 "create_hog_transformation_function",
-                "create_hog_function_filters"
+                "experiment_results_summary"
             ],
             "type": "string"
         },
@@ -8084,9 +8081,6 @@
                             "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
                         },
                         {
-                            "$ref": "#/definitions/RevenueAnalyticsRevenueQuery"
-                        },
-                        {
                             "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         },
                         {
@@ -14416,7 +14410,6 @@
                 "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsOverviewQuery",
-                "RevenueAnalyticsRevenueQuery",
                 "RevenueAnalyticsTopCustomersQuery",
                 "MarketingAnalyticsTableQuery",
                 "ExperimentMetric",
@@ -18246,9 +18239,6 @@
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsRevenueQuery"
-                },
-                {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 },
                 {
@@ -18415,26 +18405,6 @@
                 }
             },
             "required": ["k", "t"],
-            "type": "object"
-        },
-        "QueryUpgradeRequest": {
-            "additionalProperties": false,
-            "properties": {
-                "query": {
-                    "$ref": "#/definitions/QuerySchema"
-                }
-            },
-            "required": ["query"],
-            "type": "object"
-        },
-        "QueryUpgradeResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "query": {
-                    "$ref": "#/definitions/QuerySchema"
-                }
-            },
-            "required": ["query"],
             "type": "object"
         },
         "ReasoningMessage": {
@@ -19049,36 +19019,6 @@
             "required": ["kind", "properties"],
             "type": "object"
         },
-        "RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse>": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "properties"],
-            "type": "object"
-        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -19174,10 +19114,94 @@
             "required": ["name", "due_date", "goal"],
             "type": "object"
         },
+<<<<<<< HEAD
         "RevenueAnalyticsGroupBy": {
             "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
             "type": "string"
         },
+=======
+        "RevenueAnalyticsGrossRevenueQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryGroupBy"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                },
+                "kind": {
+                    "const": "RevenueAnalyticsGrossRevenueQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["groupBy", "interval", "kind", "properties"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGrossRevenueQueryGroupBy": {
+            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
+            "type": "string"
+        },
+        "RevenueAnalyticsGrossRevenueQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+>>>>>>> c8924ff5f7 (feat(experiments): MaxAI powered experiment results interpretation.)
         "RevenueAnalyticsGrowthRateQuery": {
             "additionalProperties": false,
             "properties": {

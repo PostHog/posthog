@@ -9,6 +9,7 @@ from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.schema import AssistantToolCallMessage
 
 from .funnels.nodes import (
     FunnelGeneratorNode,
@@ -35,7 +36,7 @@ from .retention.nodes import (
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from .root.nodes import RootNode, RootNodeTools
+from .root.nodes import RootNode, RootNodeTools, RouteName
 from .sql.nodes import (
     SQLGeneratorNode,
     SQLGeneratorToolsNode,
@@ -467,3 +468,48 @@ class AssistantGraph(BaseAssistantGraph):
             .add_inkeep_docs()
             .compile()
         )
+
+
+class ExperimentsRootNodeTools(RootNodeTools):
+    """Custom RootNodeTools for experiments that doesn't route to search_documentation."""
+
+    def router(self, state: AssistantState) -> RouteName:
+        last_message = state.messages[-1]
+
+        # If we have a tool call result message, we're done - go to end
+        if isinstance(last_message, AssistantToolCallMessage):
+            return "end"
+
+        # If we have a tool call ID but no insight type, it's an experiment tool
+        if state.root_tool_call_id and not state.root_tool_insight_type:
+            return "end"  # Go to end after executing experiment tool
+
+        # If we have a tool call ID with insight type, it's an insight tool (shouldn't happen in experiments)
+        if state.root_tool_call_id and state.root_tool_insight_type:
+            return "end"  # Go to end
+
+        # No tool call, go to end
+        return "end"
+
+
+class ExperimentsAssistantGraph(BaseAssistantGraph):
+    def add_root(self):
+        builder = self._graph
+        self._has_start_node = True
+
+        root_node = RootNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.ROOT, root_node)
+        root_node_tools = ExperimentsRootNodeTools(self._team, self._user)  # Use custom tools node
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
+
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROOT_TOOLS,
+            root_node_tools.router,
+            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
+        )
+        return self
+
+    def compile_full_graph(self):
+        return self.add_root().compile()
