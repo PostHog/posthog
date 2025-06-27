@@ -25,6 +25,8 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
     decorators: [
@@ -579,6 +581,13 @@ ThreadScrollsToBottomOnNewMessages.parameters = {
 }
 
 export const FloatingInput: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        closeSidePanel()
+        setIsFloatingMaxExpanded(false)
+    }, [])
+
     return <MaxFloatingInput />
 }
 
@@ -586,7 +595,7 @@ export const ExpandedFloatingInput: StoryFn = () => {
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     useEffect(() => {
         setIsFloatingMaxExpanded(true)
-    }, [setIsFloatingMaxExpanded])
+    }, [])
 
     return <MaxFloatingInput />
 }
@@ -620,4 +629,201 @@ FloatingInputMobileView.parameters = {
     viewport: {
         defaultViewport: 'mobile2',
     },
+}
+
+export const FloatingInputWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register sample contextual tools
+        registerTool({
+            name: 'create_insight',
+            displayName: 'Create insight',
+            context: {
+                dashboard_id: 'test-dashboard',
+                available_events: ['$pageview', '$identify', 'button_clicked'],
+                current_filters: { date_range: 'last_7_days' },
+            },
+            callback: (toolOutput) => {
+                console.info('Creating insight:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'analyze_funnel',
+            displayName: 'Analyze funnel',
+            context: {
+                existing_funnels: ['signup_funnel', 'checkout_funnel'],
+                conversion_metrics: { signup_rate: 0.15, checkout_rate: 0.08 },
+            },
+            callback: (toolOutput) => {
+                console.info('Analyzing funnel:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'export_data',
+            displayName: 'Export data',
+            context: {
+                available_formats: ['csv', 'json', 'parquet'],
+                current_query: { event: '$pageview', breakdown: 'browser' },
+            },
+            callback: (toolOutput) => {
+                console.info('Exporting data:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <MaxFloatingInput />
+}
+
+export const FloatingInputWithCustomToolIntro: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register tool with intro override
+        registerTool({
+            name: 'dashboard_assistant',
+            displayName: 'Dashboard Assistant',
+            context: {
+                dashboard_name: 'Product Analytics Dashboard',
+                total_insights: 12,
+                recent_changes: ['Added conversion funnel', 'Updated retention cohorts'],
+            },
+            introOverride: {
+                headline: 'How can I help with your dashboard?',
+                description: 'I can help you analyze insights, create new visualizations, or explain your data.',
+            },
+            callback: (toolOutput) => {
+                console.info('Dashboard assistant action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <MaxFloatingInput />
+}
+
+export const MaxInstanceWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register various contextual tools for MaxInstance
+        registerTool({
+            name: 'query_insights',
+            displayName: 'Query Insights',
+            context: {
+                available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
+                active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
+                user_permissions: ['read_insights', 'create_insights'],
+            },
+            callback: (toolOutput) => {
+                console.info('Querying insights:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'manage_cohorts',
+            displayName: 'Manage Cohorts',
+            context: {
+                existing_cohorts: [
+                    { id: 1, name: 'Power Users', size: 1250 },
+                    { id: 2, name: 'New Signups', size: 3400 },
+                ],
+                cohort_types: ['behavioral', 'demographic', 'custom'],
+            },
+            callback: (toolOutput) => {
+                console.info('Managing cohorts:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'feature_flags',
+            displayName: 'Feature Flags',
+            context: {
+                active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
+                flag_stats: { total: 15, active: 8, inactive: 7 },
+                rollout_percentages: { 'new-dashboard': 25, 'beta-feature': 50 },
+            },
+            callback: (toolOutput) => {
+                console.info('Feature flag action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <Template />
+}
+
+export const MaxInstanceWithPersonsContext: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register person-focused contextual tools
+        registerTool({
+            name: 'person_lookup',
+            displayName: 'Person Lookup',
+            context: {
+                recent_persons: [
+                    { distinct_id: 'user123', email: 'john@example.com', last_seen: '2024-01-15' },
+                    { distinct_id: 'user456', email: 'jane@example.com', last_seen: '2024-01-14' },
+                ],
+                person_properties: ['email', 'name', 'plan_type', 'signup_date'],
+                search_capabilities: ['by_email', 'by_distinct_id', 'by_properties'],
+            },
+            introOverride: {
+                headline: 'How can I help you find people?',
+                description: 'I can help you look up users, analyze their behavior, or segment your audience.',
+            },
+            callback: (toolOutput) => {
+                console.info('Person lookup action:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'session_replay',
+            displayName: 'Session Replay',
+            context: {
+                available_recordings: 1250,
+                recording_settings: { sample_rate: 0.1, console_logs: true, network_payloads: false },
+                recent_sessions: [
+                    { id: 'session_1', duration: 180, events_count: 45 },
+                    { id: 'session_2', duration: 320, events_count: 78 },
+                ],
+            },
+            callback: (toolOutput) => {
+                console.info('Session replay action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <Template />
+}
+
+export const MaxInstanceWithExperimentContext: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register experiment-focused contextual tools
+        registerTool({
+            name: 'ab_testing',
+            displayName: 'A/B Testing',
+            context: {
+                running_experiments: [
+                    { id: 'exp_1', name: 'Button Color Test', status: 'running', participants: 2500 },
+                    { id: 'exp_2', name: 'Pricing Page Layout', status: 'draft', participants: 0 },
+                ],
+                experiment_metrics: ['conversion_rate', 'click_through_rate', 'revenue_per_user'],
+                statistical_significance: { min_sample_size: 1000, confidence_level: 0.95 },
+            },
+            introOverride: {
+                headline: 'How can I help with your experiments?',
+                description:
+                    'I can help you analyze test results, create new experiments, or interpret statistical significance.',
+            },
+            callback: (toolOutput) => {
+                console.info('A/B testing action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <Template />
 }
