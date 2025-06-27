@@ -54,12 +54,14 @@ function HeatmapMouseInfo({
 export function HeatmapCanvas({
     positioning = 'fixed',
     widthOverride,
+    context,
 }: {
     positioning?: 'absolute' | 'fixed'
     widthOverride?: number | null
+    context: 'in-app' | 'toolbar'
 }): JSX.Element | null {
     const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } = useValues(
-        heatmapDataLogic({ context: 'in-app' })
+        heatmapDataLogic({ context })
     )
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()

@@ -31,7 +31,7 @@ export interface HeatmapDataLogicProps {
 }
 
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
-    path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
+    path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
     props({ context: 'toolbar' } as HeatmapDataLogicProps),
     key((props) => props.context),
     actions({
@@ -105,7 +105,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, key }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
             {
@@ -149,7 +149,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         throw new Error('API error')
                     }
 
-                    return await response.json()
+                    const json = await response.json()
+
+                    return json
                 },
             },
         ],

@@ -104,7 +104,7 @@ export function SimpleIframeHeatmapBrowser({
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride ?? '100%' }}
                     >
-                        <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} />
+                        <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
                             id="heatmap-iframe"
                             ref={iframeRef}
