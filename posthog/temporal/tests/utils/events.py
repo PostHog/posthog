@@ -107,59 +107,60 @@ async def insert_event_values_in_clickhouse(
     client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events", insert_sessions: bool = False
 ):
     """Execute an insert query to insert provided EventValues into sharded_events."""
-    for event in events:
-        max_attempts = 3
-        attempt = 1
-        backoff = 2
+    max_attempts = 3
+    attempt = 1
+    backoff = 2
 
-        while True:
-            try:
-                await client.execute_query(
-                    f"""
-                INSERT INTO `{table}` (
-                    uuid,
-                    event,
-                    timestamp,
-                    _timestamp,
-                    person_id,
-                    team_id,
-                    properties,
-                    elements_chain,
-                    distinct_id,
-                    inserted_at,
-                    created_at,
-                    person_properties
-                )
-                VALUES
-                """,
-                    *[
-                        (
-                            event["uuid"],
-                            event["event"],
-                            event["timestamp"],
-                            event["_timestamp"],
-                            event["person_id"],
-                            event["team_id"],
-                            json.dumps(event["properties"])
-                            if isinstance(event["properties"], dict)
-                            else event["properties"],
-                            event["elements_chain"],
-                            event["distinct_id"],
-                            event["inserted_at"],
-                            event["created_at"],
-                            json.dumps(event["person_properties"])
-                            if isinstance(event["person_properties"], dict)
-                            else event["person_properties"],
-                        )
-                    ],
-                )
-            except aiohttp.client_exceptions.ClientOSError:
-                if attempt >= max_attempts:
-                    raise
+    while True:
+        try:
+            await client.execute_query(
+                f"""
+            INSERT INTO `{table}` (
+                uuid,
+                event,
+                timestamp,
+                _timestamp,
+                person_id,
+                team_id,
+                properties,
+                elements_chain,
+                distinct_id,
+                inserted_at,
+                created_at,
+                person_properties
+            )
+            VALUES
+            """,
+                *[
+                    (
+                        event["uuid"],
+                        event["event"],
+                        event["timestamp"],
+                        event["_timestamp"],
+                        event["person_id"],
+                        event["team_id"],
+                        json.dumps(event["properties"])
+                        if isinstance(event["properties"], dict)
+                        else event["properties"],
+                        event["elements_chain"],
+                        event["distinct_id"],
+                        event["inserted_at"],
+                        event["created_at"],
+                        json.dumps(event["person_properties"])
+                        if isinstance(event["person_properties"], dict)
+                        else event["person_properties"],
+                    )
+                    for event in events
+                ],
+            )
+            break  # Success, exit the loop
+        except aiohttp.client_exceptions.ClientOSError:
+            if attempt >= max_attempts:
+                raise
 
-                attempt += 1
-                await asyncio.sleep(backoff)
-                backoff = backoff**2
+            attempt += 1
+            await asyncio.sleep(backoff)
+            backoff = backoff**2
 
 
 async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "sharded_events"):
