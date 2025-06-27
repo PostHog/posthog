@@ -76,7 +76,7 @@ export class CyclotronJobQueuePostgres {
         await this.cyclotronWorker.connect((jobs) => this.consumeCyclotronJobs(jobs))
     }
 
-    public async stop() {
+    public async stopConsumer() {
         await this.cyclotronWorker?.disconnect()
     }
 

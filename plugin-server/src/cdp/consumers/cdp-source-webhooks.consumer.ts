@@ -142,9 +142,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async stop(): Promise<void> {
-        await super.stop()
         await this.cyclotronJobQueue.stop()
         await this.promiseScheduler.waitForAllSettled()
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {
