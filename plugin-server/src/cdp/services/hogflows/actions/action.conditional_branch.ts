@@ -1,6 +1,5 @@
-import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { calculatedScheduledAt } from './common/delay'
@@ -14,7 +13,7 @@ export class HogFlowActionRunnerConditionalBranch {
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
     ): HogFlowActionResult {
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
+        const filterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},
         })
@@ -24,7 +23,7 @@ export class HogFlowActionRunnerConditionalBranch {
             // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
             const filterResults = filterFunctionInstrumented({
                 fn: invocation.hogFlow,
-                filters: condition.filter,
+                filters: condition.filters,
                 filterGlobals,
                 eventUuid: invocation.state.event.uuid,
             })

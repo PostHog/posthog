@@ -13,7 +13,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+from posthog.constants import MAX_AI_TASK_QUEUE, GENERAL_PURPOSE_TASK_QUEUE
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
@@ -34,7 +34,7 @@ async def create_sync_vectors_schedule(client: Client):
             "ai-sync-vectors",
             asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
             id="ai-sync-vectors-schedule",
-            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=MAX_AI_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
     )

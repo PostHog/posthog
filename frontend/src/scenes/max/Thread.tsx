@@ -47,7 +47,7 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isHogQLQuery } from '~/queries/utils'
 import { ProductKey } from '~/types'
 
-import { ContextSummary } from './ContextTags'
+import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -62,12 +62,17 @@ import {
     isVisualizationMessage,
 } from './utils'
 
-export function Thread(): JSX.Element | null {
+export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped } = useValues(maxThreadLogic)
 
     return (
-        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
+        <div
+            className={twMerge(
+                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow',
+                className
+            )}
+        >
             {conversationLoading ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
@@ -79,7 +84,7 @@ export function Thread(): JSX.Element | null {
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((group, index) => (
+                threadGrouped.map((group: ThreadMessage[], index: number) => (
                     <MessageGroup
                         // Reset the components when the thread changes
                         key={`${conversationId}-${index}`}
@@ -173,6 +178,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <ContextSummary
                                         insights={message.ui_context.insights}
                                         dashboards={message.ui_context.dashboards}
+                                        events={message.ui_context.events}
+                                        actions={message.ui_context.actions}
                                         useCurrentPageContext={false}
                                     />
                                 )}
@@ -422,34 +429,35 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                   </h5>
                               </LemonButton>
                           </div>
-                          {isEditingInsight ? (
+                          <div className="flex items-center gap-2">
+                              {isEditingInsight ? (
+                                  <LemonButton
+                                      onClick={() => {
+                                          setQuery(query)
+                                          setIsApplied(true)
+                                      }}
+                                      sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                      size="xsmall"
+                                  >
+                                      Apply to current insight
+                                  </LemonButton>
+                              ) : (
+                                  <LemonButton
+                                      to={urls.insightNew({ query })}
+                                      icon={<IconOpenInNew />}
+                                      size="xsmall"
+                                      targetBlank
+                                      tooltip="Open as new insight"
+                                  />
+                              )}
                               <LemonButton
-                                  onClick={() => {
-                                      setQuery(query)
-                                      setIsApplied(true)
-                                  }}
-                                  sideIcon={isApplied ? <IconCheck /> : <IconSync />}
+                                  icon={isCollapsed ? <IconEye /> : <IconHide />}
+                                  onClick={() => setIsCollapsed(!isCollapsed)}
                                   size="xsmall"
-                              >
-                                  Apply to current insight
-                              </LemonButton>
-                          ) : (
-                              <LemonButton
-                                  to={urls.insightNew({ query })}
-                                  sideIcon={<IconOpenInNew />}
-                                  size="xsmall"
-                                  targetBlank
-                              >
-                                  Open as new insight
-                              </LemonButton>
-                          )}
-                          <LemonButton
-                              sideIcon={isCollapsed ? <IconEye /> : <IconHide />}
-                              onClick={() => setIsCollapsed(!isCollapsed)}
-                              size="xsmall"
-                              className="-m-1 shrink"
-                              tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                          />
+                                  className="-m-1 shrink"
+                                  tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
+                              />
+                          </div>
                       </div>
                       {isSummaryShown && (
                           <>

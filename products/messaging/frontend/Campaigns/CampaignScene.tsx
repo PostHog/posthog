@@ -2,13 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { campaignLogic } from './campaignLogic'
+import { CampaignMetrics } from './CampaignMetrics'
 import { CampaignOverview } from './CampaignOverview'
-import { campaignSceneLogic, CampaignSceneLogicProps } from './campaignSceneLogic'
+import { campaignSceneLogic, CampaignSceneLogicProps, CampaignTab } from './campaignSceneLogic'
 import { CampaignWorkflow } from './CampaignWorkflow'
 
 export const scene: SceneExport = {
@@ -21,10 +23,10 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
     const { currentTab } = useValues(campaignSceneLogic)
 
     const logic = campaignLogic(props)
-    const { campaignChanged, originalCampaign, isCampaignSubmitting } = useValues(logic)
-    const { submitCampaign, resetCampaign } = useActions(logic)
+    const { campaignChanged, isCampaignSubmitting } = useValues(logic)
+    const { submitCampaign, discardChanges } = useActions(logic)
 
-    const tabs = [
+    const tabs: (LemonTab<CampaignTab> | null)[] = [
         {
             label: 'Overview',
             key: 'overview',
@@ -35,6 +37,20 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
             key: 'workflow',
             content: <CampaignWorkflow {...props} />,
         },
+        props.id
+            ? {
+                  label: 'Logs',
+                  key: 'logs',
+                  content: <LogsViewer sourceType="hog_flow" sourceId={props.id} />,
+              }
+            : null,
+        props.id
+            ? {
+                  label: 'Metrics',
+                  key: 'metrics',
+                  content: <CampaignMetrics id={props.id} />,
+              }
+            : null,
     ]
 
     return (
@@ -46,7 +62,7 @@ export function CampaignScene(props: CampaignSceneLogicProps = {}): JSX.Element 
                             <LemonButton
                                 data-attr="discard-campaign-changes"
                                 type="secondary"
-                                onClick={() => resetCampaign(originalCampaign)}
+                                onClick={() => discardChanges()}
                             >
                                 Discard changes
                             </LemonButton>

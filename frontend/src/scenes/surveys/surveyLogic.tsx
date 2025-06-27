@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -409,7 +409,7 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
                 response.personProperties = JSON.parse(unparsedPersonProperties as string)
-            } catch (e) {
+            } catch {
                 // Ignore parsing errors for person properties as there's no real action here
                 // It just means we won't show the person properties in the question visualization
             }

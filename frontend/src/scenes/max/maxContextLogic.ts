@@ -1,7 +1,8 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -10,8 +11,16 @@ import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { maxContextLogicType } from './maxContextLogicType'
-import { MaxContextOption, MaxContextShape, MaxDashboardContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContext,
+    MaxContextOption,
+    MaxContextShape,
+    MaxDashboardContext,
+    MaxEventContext,
+    MaxInsightContext,
+} from './maxTypes'
 
+// Utility functions for transforming data to max context
 const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
     const source = (insight.query as any)?.source
     return {
@@ -32,6 +41,55 @@ const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>)
     }
 }
 
+const eventToMaxContext = (event: EventDefinition): MaxEventContext => {
+    return {
+        id: event.id,
+        name: event.name,
+        description: event.description,
+    }
+}
+
+const actionToMaxContext = (action: ActionType): MaxActionContext => {
+    return {
+        id: action.id,
+        name: action.name || `Action ${action.id}`,
+        description: action.description || '',
+    }
+}
+
+// Generic utility functions for reducers
+const createAddOrUpdateReducer =
+    <TContext extends { id: string | number }, TInput>(
+        transformer: (input: TInput) => TContext,
+        getId: (input: TInput) => string | number
+    ) =>
+    (state: TContext[], input: TInput): TContext[] =>
+        state.filter((item) => item.id !== getId(input)).concat(transformer(input))
+
+const createRemoveReducer =
+    <TContext extends { id: string | number }>() =>
+    (state: TContext[], { id }: { id: string | number }): TContext[] =>
+        state.filter((item) => item.id !== id)
+
+const createResetReducer =
+    <TContext>() =>
+    (): TContext[] =>
+        []
+
+// Generic reducer creator
+const createEntityReducers = <TContext extends { id: string | number }, TInput>(
+    transformer: (input: TInput) => TContext,
+    getId: (input: TInput) => string | number
+): {
+    addOrUpdate: (state: TContext[], input: TInput) => TContext[]
+    remove: (state: TContext[], { id }: { id: string | number }) => TContext[]
+    reset: () => TContext[]
+} => ({
+    addOrUpdate: createAddOrUpdateReducer(transformer, getId),
+    remove: createRemoveReducer<TContext>(),
+    reset: createResetReducer<TContext>(),
+})
+
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
     connect(() => ({
@@ -41,106 +99,157 @@ export const maxContextLogic = kea<maxContextLogicType>([
     actions({
         enableCurrentPageContext: true,
         disableCurrentPageContext: true,
-        addOrUpdateContextInsight: (insight: Partial<QueryBasedInsightModel>) => ({ insight }),
-        addOrUpdateContextDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
+        addOrUpdateContextInsight: (data: Partial<QueryBasedInsightModel>) => ({ data }),
+        addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
+        addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
+        addOrUpdateContextAction: (data: ActionType) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
         removeContextDashboard: (id: string | number) => ({ id }),
-        addOrUpdateActiveInsight: (insight: Partial<QueryBasedInsightModel>, autoAdd: boolean) => ({
-            insight,
+        removeContextEvent: (id: string | number) => ({ id }),
+        removeContextAction: (id: string | number) => ({ id }),
+        addOrUpdateActiveInsight: (data: Partial<QueryBasedInsightModel>, autoAdd: boolean) => ({
+            data,
             autoAdd,
         }),
         clearActiveInsights: true,
-        setActiveDashboard: (dashboardContext: DashboardType<QueryBasedInsightModel>) => ({ dashboardContext }),
+        setActiveDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         clearActiveDashboard: true,
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
             groupType: TaxonomicFilterGroupType,
-            item: DashboardType | QueryBasedInsightModel | MaxContextOption
+            item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
         ) => ({ value, groupType, item }),
         resetContext: true,
     }),
-    reducers({
-        useCurrentPageContext: [
-            false,
-            {
-                enableCurrentPageContext: () => true,
-                disableCurrentPageContext: () => false,
-                resetContext: () => false,
-            },
-        ],
-        contextInsights: [
-            [] as MaxInsightContext[],
-            {
-                addOrUpdateActiveInsight: (
-                    state: MaxInsightContext[],
-                    { insight, autoAdd }: { insight: Partial<QueryBasedInsightModel>; autoAdd: boolean }
-                ) => {
-                    if (autoAdd) {
-                        return state
-                            .filter((stateInsight) => stateInsight.id !== insight.short_id)
-                            .concat(insightToMaxContext(insight))
-                    }
-                    return state
+    reducers(() => {
+        const insightReducers = createEntityReducers(insightToMaxContext, (insight) => insight.short_id!)
+        const dashboardReducers = createEntityReducers(dashboardToMaxContext, (dashboard) => dashboard.id)
+        const eventReducers = createEntityReducers(eventToMaxContext, (event) => event.id)
+        const actionReducers = createEntityReducers(actionToMaxContext, (action) => action.id)
+
+        return {
+            useCurrentPageContext: [
+                false,
+                {
+                    enableCurrentPageContext: () => true,
+                    disableCurrentPageContext: () => false,
+                    resetContext: () => false,
                 },
-                addOrUpdateContextInsight: (
-                    state: MaxInsightContext[],
-                    { insight }: { insight: Partial<QueryBasedInsightModel> }
-                ) =>
-                    state
-                        .filter((stateInsight) => stateInsight.id !== insight.short_id)
-                        .concat(insightToMaxContext(insight)),
-                removeContextInsight: (state: MaxInsightContext[], { id }: { id: string | number }) => {
-                    return state.filter((insight) => insight.id !== id)
+            ],
+            contextInsights: [
+                [] as MaxInsightContext[],
+                {
+                    addOrUpdateContextInsight: (
+                        state: MaxInsightContext[],
+                        { data }: { data: Partial<QueryBasedInsightModel> }
+                    ) => insightReducers.addOrUpdate(state, data),
+                    removeContextInsight: insightReducers.remove,
+                    resetContext: insightReducers.reset,
+                    addOrUpdateActiveInsight: (
+                        state: MaxInsightContext[],
+                        { data, autoAdd }: { data: Partial<QueryBasedInsightModel>; autoAdd: boolean }
+                    ) => (autoAdd ? insightReducers.addOrUpdate(state, data) : state),
                 },
-                resetContext: () => [],
-            },
-        ],
-        contextDashboards: [
-            [] as MaxDashboardContext[],
-            {
-                addOrUpdateContextDashboard: (
-                    state: MaxDashboardContext[],
-                    { dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }
-                ) =>
-                    state
-                        .filter((stateDashboard) => stateDashboard.id !== dashboard.id)
-                        .concat(dashboardToMaxContext(dashboard)),
-                removeContextDashboard: (state: MaxDashboardContext[], { id }: { id: string | number }) => {
-                    return state.filter((dashboard) => dashboard.id !== id)
+            ],
+            contextDashboards: [
+                [] as MaxDashboardContext[],
+                {
+                    addOrUpdateContextDashboard: (
+                        state: MaxDashboardContext[],
+                        { data }: { data: DashboardType<QueryBasedInsightModel> }
+                    ) => dashboardReducers.addOrUpdate(state, data),
+                    removeContextDashboard: dashboardReducers.remove,
+                    resetContext: dashboardReducers.reset,
                 },
-                resetContext: () => [],
-            },
-        ],
-        activeInsights: [
-            [] as MaxInsightContext[],
-            {
-                addOrUpdateActiveInsight: (
-                    state: MaxInsightContext[],
-                    { insight }: { insight: Partial<QueryBasedInsightModel> }
-                ) =>
-                    state
-                        .filter((stateInsight) => stateInsight.id !== insight.short_id)
-                        .concat(insightToMaxContext(insight)),
-                clearActiveInsights: () => [],
-            },
-        ],
-        activeDashboard: [
-            null as MaxDashboardContext | null,
-            {
-                setActiveDashboard: (
-                    _: any,
-                    { dashboardContext }: { dashboardContext: DashboardType<QueryBasedInsightModel> }
-                ) => dashboardToMaxContext(dashboardContext),
-                clearActiveDashboard: () => null,
-            },
-        ],
+            ],
+            contextEvents: [
+                [] as MaxEventContext[],
+                {
+                    addOrUpdateContextEvent: (state: MaxEventContext[], { data }: { data: EventDefinition }) =>
+                        eventReducers.addOrUpdate(state, data),
+                    removeContextEvent: eventReducers.remove,
+                    resetContext: eventReducers.reset,
+                },
+            ],
+            contextActions: [
+                [] as MaxActionContext[],
+                {
+                    addOrUpdateContextAction: (state: MaxActionContext[], { data }: { data: ActionType }) =>
+                        actionReducers.addOrUpdate(state, data),
+                    removeContextAction: actionReducers.remove,
+                    resetContext: actionReducers.reset,
+                },
+            ],
+            activeInsights: [
+                [] as MaxInsightContext[],
+                {
+                    addOrUpdateActiveInsight: (
+                        state: MaxInsightContext[],
+                        { data }: { data: Partial<QueryBasedInsightModel> }
+                    ) => insightReducers.addOrUpdate(state, data),
+                    clearActiveInsights: insightReducers.reset,
+                },
+            ],
+            activeDashboard: [
+                null as MaxDashboardContext | null,
+                {
+                    setActiveDashboard: (_: any, { data }: { data: DashboardType<QueryBasedInsightModel> }) =>
+                        dashboardToMaxContext(data),
+                    clearActiveDashboard: () => null,
+                },
+            ],
+        }
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         locationChanged: () => {
-            actions.resetContext()
-            actions.clearActiveInsights()
-            actions.clearActiveDashboard()
+            // Don't reset context if the only change is the side panel opening/closing
+            const currentLocation = router.values.location
+            const currentHashParams = router.values.hashParams || {}
+            const currentSearchParams = router.values.searchParams || {}
+            const previousLocation = cache.previousLocation
+
+            cache.previousLocation = {
+                location: currentLocation,
+                hashParams: currentHashParams,
+                searchParams: currentSearchParams,
+            }
+
+            if (!previousLocation) {
+                return
+            }
+
+            const shouldResetContext = (): void => {
+                actions.resetContext()
+                actions.clearActiveInsights()
+                actions.clearActiveDashboard()
+            }
+
+            // Always reset context if pathname or search params changed
+            if (
+                currentLocation?.pathname !== previousLocation.location?.pathname ||
+                !objectsEqual({ ...currentSearchParams }, { ...previousLocation.searchParams })
+            ) {
+                shouldResetContext()
+                return
+            }
+
+            // Check if only panel parameter changed in hash params
+            const currentNonPanelKeys = Object.keys(currentHashParams).filter((k) => k !== 'panel')
+            const previousNonPanelKeys = Object.keys(previousLocation.hashParams || {}).filter((k) => k !== 'panel')
+
+            // Check if non-panel keys are the same
+            const sameKeys =
+                currentNonPanelKeys.length === previousNonPanelKeys.length &&
+                currentNonPanelKeys.every(
+                    (key) =>
+                        previousNonPanelKeys.includes(key) &&
+                        currentHashParams[key] === (previousLocation.hashParams || {})[key]
+                )
+
+            if (!sameKeys) {
+                shouldResetContext()
+            }
         },
         handleTaxonomicFilterChange: async (
             {
@@ -158,6 +267,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 // Handle current page context selection
                 if (groupType === TaxonomicFilterGroupType.MaxAIContext && value === 'current_page') {
                     actions.enableCurrentPageContext()
+                    return
+                }
+
+                if (groupType === TaxonomicFilterGroupType.Events) {
+                    actions.addOrUpdateContextEvent(item as EventDefinition)
+                    return
+                } else if (groupType === TaxonomicFilterGroupType.Actions) {
+                    actions.addOrUpdateContextAction(item as ActionType)
                     return
                 }
 
@@ -325,7 +442,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (contextOptions: MaxContextOption[]): TaxonomicFilterGroupType => {
                 return contextOptions.length > 0
                     ? TaxonomicFilterGroupType.MaxAIContext
-                    : TaxonomicFilterGroupType.Insights
+                    : TaxonomicFilterGroupType.Events
             },
         ],
         taxonomicGroupTypes: [
@@ -335,7 +452,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 if (contextOptions.length > 0) {
                     groupTypes.push(TaxonomicFilterGroupType.MaxAIContext)
                 }
-                groupTypes.push(TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards)
+                groupTypes.push(
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Insights,
+                    TaxonomicFilterGroupType.Dashboards
+                )
                 return groupTypes
             },
         ],
@@ -344,6 +466,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 s.hasData,
                 s.contextInsights,
                 s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
@@ -352,10 +476,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ],
             (
                 hasData: boolean,
-                contextInsights: MaxInsightContext[] | null,
-                contextDashboards: MaxDashboardContext[] | null,
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
                 useCurrentPageContext: boolean,
-                activeInsights: MaxInsightContext[] | null,
+                activeInsights: MaxInsightContext[],
                 activeDashboard: MaxDashboardContext | null,
                 filtersOverride: DashboardFilter,
                 variablesOverride: Record<string, HogQLVariable> | null
@@ -363,7 +489,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 const context: MaxContextShape = {}
 
                 // Add context dashboards
-                if (contextDashboards && Object.keys(contextDashboards).length > 0) {
+                if (Object.keys(contextDashboards).length > 0) {
                     context.dashboards = Object.values(contextDashboards)
                 }
 
@@ -377,7 +503,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     ? [...(activeInsights || []), ...(contextInsights || [])]
                     : contextInsights
 
-                if (allInsights && allInsights.length > 0) {
+                if (allInsights.length > 0) {
                     // Get all insight IDs from dashboards to filter out duplicates
                     const dashboardInsightIds = new Set(
                         (context.dashboards || []).flatMap((dashboard) =>
@@ -419,6 +545,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     context.insights = Array.from(uniqueInsights.values())
                 }
 
+                if (Object.keys(contextEvents).length > 0) {
+                    context.events = contextEvents
+                }
+                if (Object.keys(contextActions).length > 0) {
+                    context.actions = contextActions
+                }
+
                 return hasData ? context : null
             },
         ],
@@ -426,24 +559,37 @@ export const maxContextLogic = kea<maxContextLogicType>([
             (s: any) => [
                 s.contextInsights,
                 s.contextDashboards,
+                s.contextEvents,
+                s.contextActions,
                 s.useCurrentPageContext,
                 s.activeInsights,
                 s.activeDashboard,
             ],
             (
-                contextInsights: MaxInsightContext[] | null,
-                contextDashboards: MaxDashboardContext[] | null,
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
                 useCurrentPageContext: boolean,
-                activeInsights: MaxInsightContext[] | null,
+                activeInsights: MaxInsightContext[],
                 activeDashboard: MaxDashboardContext | null
             ): boolean => {
                 return (
-                    (contextInsights && contextInsights.length > 0) ||
-                    (contextDashboards && contextDashboards.length > 0) ||
+                    contextInsights.length > 0 ||
+                    contextDashboards.length > 0 ||
+                    contextEvents.length > 0 ||
+                    contextActions.length > 0 ||
                     (useCurrentPageContext && activeInsights && activeInsights.length > 0) ||
                     (useCurrentPageContext && activeDashboard !== null)
                 )
             },
         ],
+    }),
+    afterMount(({ cache }) => {
+        cache.previousLocation = {
+            location: router.values.location,
+            hashParams: router.values.hashParams,
+            searchParams: router.values.searchParams,
+        }
     }),
 ])

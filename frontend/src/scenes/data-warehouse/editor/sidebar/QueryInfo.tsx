@@ -8,7 +8,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
@@ -269,7 +269,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     render: (_, { rows_materialized, status }: DataModelingJob) =>
                                         (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
                                             ? '~'
-                                            : rows_materialized,
+                                            : humanFriendlyNumber(rows_materialized),
                                 },
                                 {
                                     title: 'Updated',

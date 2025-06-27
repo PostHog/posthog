@@ -57,6 +57,7 @@ def mock_call_llm(mock_valid_llm_yaml_response: str) -> Callable:
 @pytest.mark.asyncio
 async def test_get_llm_single_session_summary_activity_standalone(
     mocker: MockerFixture,
+    mock_session_id: str,
     mock_enriched_llm_json_response: dict[str, Any],
     mock_single_session_summary_llm_inputs: Callable,
     mock_single_session_summary_inputs: Callable,
@@ -64,10 +65,9 @@ async def test_get_llm_single_session_summary_activity_standalone(
     redis_test_setup: RedisTestContext,
 ):
     # Prepare input data
-    session_id = "test_single_session_id"
-    llm_input = mock_single_session_summary_llm_inputs(session_id)
+    llm_input = mock_single_session_summary_llm_inputs(mock_session_id)
     compressed_llm_input_data = compress_llm_input_data(llm_input)
-    input_data = mock_single_session_summary_inputs(session_id)
+    input_data = mock_single_session_summary_inputs(mock_session_id)
     # Set up spies to track Redis operations
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
@@ -92,14 +92,15 @@ async def test_get_llm_single_session_summary_activity_standalone(
 
 @pytest.mark.asyncio
 async def test_get_llm_session_group_summary_activity_standalone(
+    mock_session_id: str,
     mock_user: MagicMock,
-    mock_enriched_llm_json_response: dict[str, Any],
+    mock_intermediate_llm_json_response: dict[str, Any],
     mock_call_llm: Callable,
     mocker: MockerFixture,
 ):
     # Prepare input data
-    session_ids = ["test_single_session_id_1", "test_single_session_id_2"]
-    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    enriched_summary_str = json.dumps(mock_intermediate_llm_json_response)
     session_summaries = [enriched_summary_str, enriched_summary_str]
     activity_input = SessionGroupSummaryOfSummariesInputs(
         session_ids=session_ids,
@@ -118,6 +119,45 @@ async def test_get_llm_session_group_summary_activity_standalone(
         result = await get_llm_session_group_summary_activity(activity_input)
         assert result == expected_summary_of_summaries
         spy_generate_prompt.assert_called_once_with(session_summaries, None)
+
+
+@pytest.mark.asyncio
+async def test_get_llm_session_group_summary_activity_standalone_removes_excessive_content(
+    mock_session_id: str,
+    mock_user: MagicMock,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_intermediate_llm_json_response: dict[str, Any],
+    mock_call_llm: Callable,
+    mocker: MockerFixture,
+):
+    """Test that excessive content is removed from session summaries before generating group summary"""
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+    session_summaries = [enriched_summary_str, enriched_summary_str]
+    activity_input = SessionGroupSummaryOfSummariesInputs(
+        session_ids=session_ids,
+        session_summaries=session_summaries,
+        user_id=mock_user.id,
+    )
+    expected_summary_of_summaries = "everything is good"
+    # Spy on the excessive content removal function and prompt generator
+    summary_module = importlib.import_module("posthog.temporal.ai.session_summary.summarize_session_group")
+    spy_remove_excessive_content = mocker.spy(summary_module, "remove_excessive_content_from_session_summary_for_llm")
+    spy_generate_prompt = mocker.spy(summary_module, "generate_session_group_summary_prompt")
+    # Execute the activity and verify results
+    with patch(
+        "ee.session_recordings.session_summary.llm.consume.call_llm",
+        new=AsyncMock(return_value=mock_call_llm(custom_content=expected_summary_of_summaries)),
+    ):
+        result = await get_llm_session_group_summary_activity(activity_input)
+        assert result == expected_summary_of_summaries
+        # Verify that excessive content removal was called for each session summary
+        assert spy_remove_excessive_content.call_count == len(session_summaries)
+        spy_remove_excessive_content.assert_any_call(enriched_summary_str)
+        # Verify that the prompt generator was called with the cleaned summaries (intermediate format)
+        expected_intermediate_summary_str = json.dumps(mock_intermediate_llm_json_response)
+        expected_cleaned_summaries = [expected_intermediate_summary_str, expected_intermediate_summary_str]
+        spy_generate_prompt.assert_called_once_with(expected_cleaned_summaries, None)
 
 
 class TestSummarizeSessionGroupWorkflow:
@@ -204,13 +244,14 @@ class TestSummarizeSessionGroupWorkflow:
 
     def setup_workflow_test(
         self,
+        mock_session_id: str,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
     ) -> tuple[list[str], str, SessionGroupSummaryInputs, str]:
         # Prepare test data
         session_ids = [
-            f"test_workflow_session_id_{identifier_suffix}_1",
-            f"test_workflow_session_id_{identifier_suffix}_2",
+            f"{mock_session_id}-1-{identifier_suffix}",
+            f"{mock_session_id}-2-{identifier_suffix}",
         ]
         redis_input_key_base = f"test_group_fetch_{identifier_suffix}_base"
         workflow_input = mock_session_group_summary_inputs(session_ids, redis_input_key_base)
@@ -220,12 +261,15 @@ class TestSummarizeSessionGroupWorkflow:
 
     def test_execute_summarize_session_group(
         self,
+        mock_session_id: str,
         mock_user: MagicMock,
         mock_team: MagicMock,
         mock_session_group_summary_inputs: Callable,
     ):
         """Test the execute_summarize_session_group starts a Temporal workflow and returns the expected result"""
-        session_ids, _, _, expected_summary = self.setup_workflow_test(mock_session_group_summary_inputs, "execute")
+        session_ids, _, _, expected_summary = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "execute"
+        )
         with patch(
             "posthog.temporal.ai.session_summary.summarize_session_group._execute_workflow",
             new=AsyncMock(return_value=expected_summary),
@@ -238,6 +282,7 @@ class TestSummarizeSessionGroupWorkflow:
     async def test_summarize_session_group_workflow(
         self,
         mocker: MockerFixture,
+        mock_session_id: str,
         mock_team: MagicMock,
         mock_call_llm: Callable,
         mock_raw_metadata: dict[str, Any],
@@ -249,7 +294,7 @@ class TestSummarizeSessionGroupWorkflow:
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input, expected_summary = self.setup_workflow_test(
-            mock_session_group_summary_inputs, "success"
+            mock_session_id, mock_session_group_summary_inputs, "success"
         )
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")

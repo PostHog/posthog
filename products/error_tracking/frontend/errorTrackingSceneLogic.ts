@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -25,6 +25,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
+        setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
+        setPreviouslyCheckedRecordIndex: (index: number) => ({ index }),
     }),
 
     reducers({
@@ -32,6 +34,18 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             [] as string[],
             {
                 setSelectedIssueIds: (_, { ids }) => ids,
+            },
+        ],
+        shiftKeyHeld: [
+            false as boolean,
+            {
+                setShiftKeyHeld: (_, { shiftKeyHeld }) => shiftKeyHeld,
+            },
+        ],
+        previouslyCheckedRecordIndex: [
+            null as number | null,
+            {
+                setPreviouslyCheckedRecordIndex: (_, { index }) => index,
             },
         ],
     }),
@@ -81,4 +95,20 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         mutationSuccess: () => actions.setSelectedIssueIds([]),
         mutationFailure: () => actions.setSelectedIssueIds([]),
     })),
+
+    afterMount(({ actions, cache }) => {
+        const onKeyChange = (event: KeyboardEvent): void => {
+            actions.setShiftKeyHeld(event.shiftKey)
+        }
+
+        // register shift key listener
+        window.addEventListener('keydown', onKeyChange)
+        window.addEventListener('keyup', onKeyChange)
+        cache.onKeyChange = onKeyChange
+    }),
+    beforeUnmount(({ cache }) => {
+        // unregister shift key listener
+        window.removeEventListener('keydown', cache.onKeyChange)
+        window.removeEventListener('keyup', cache.onKeyChange)
+    }),
 ])

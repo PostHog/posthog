@@ -53,7 +53,7 @@ export default function ViewRecordingButton({
 export const mightHaveRecording = (properties: { $session_id?: string; $recording_status?: string }): boolean => {
     return properties.$session_id
         ? properties.$recording_status
-            ? ['active', 'sampled'].includes(properties.$recording_status)
+            ? ['active', 'sampled', 'buffering'].includes(properties.$recording_status)
             : true
         : false
 }

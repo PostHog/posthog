@@ -8,16 +8,16 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[
-                `REACT_APP_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`,
-                `REACT_APP_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
-            ].join('\n')}
+            {[`VITE_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`, `VITE_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`].join(
+                '\n'
+            )}
         </CodeSnippet>
     )
 }
@@ -25,27 +25,23 @@ function ReactEnvVarsSnippet(): JSX.Element {
 function ReactSetupSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`// src/index.js
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-
-import { PostHogProvider} from 'posthog-js/react'
+            {`import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+import { PostHogProvider } from 'posthog-js/react'
 
 const options = {
-  api_host: process.env.REACT_APP_PUBLIC_POSTHOG_HOST,
+  api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+  defaults: '${SDK_DEFAULTS_DATE}',
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <PostHogProvider 
-      apiKey={process.env.REACT_APP_PUBLIC_POSTHOG_KEY}
-      options={options}
-    >
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY} options={options}>
       <App />
     </PostHogProvider>
-  </React.StrictMode>
+  </StrictMode>,
 );`}
         </CodeSnippet>
     )
@@ -69,7 +65,9 @@ export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boole
             <h3>Add environment variables</h3>
             <ReactEnvVarsSnippet />
             <h3>Initialize</h3>
-            <p>Integrate PostHog at the root of your app.</p>
+            <p>
+                Integrate PostHog at the root of your app (such as <code>main.tsx</code> if you're using Vite).
+            </p>
             <ReactSetupSnippet />
         </>
     )

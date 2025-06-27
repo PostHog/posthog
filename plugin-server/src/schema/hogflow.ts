@@ -16,8 +16,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('trigger'),
         config: z.object({
+            type: z.literal('event'),
             filters: z.any(),
         }),
+        // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
     z.object({
@@ -26,7 +28,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filter: z.any(), // type this stronger
+                    filters: z.any(), // type this stronger
                 })
             ),
             delay_duration: z.string().optional(),
@@ -57,7 +59,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filter: z.any(), // type this stronger
+                filters: z.any(), // type this stronger
             }),
             max_wait_duration: z.string(),
         }),
@@ -82,6 +84,17 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             ]),
         }),
     }),
+
+    // Native message
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('message'),
+        config: z.object({
+            message: z.any(),
+            channel: z.string(),
+        }),
+    }),
+
     // Function
     z.object({
         ..._commonActionFields,
@@ -93,9 +106,18 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),
-        config: z.object({}),
+        config: z.object({
+            reason: z.string().optional(),
+        }),
     }),
 ])
+
+const HogFlowEdgeSchema = z.object({
+    from: z.string(),
+    to: z.string(),
+    type: z.enum(['continue', 'branch']),
+    index: z.number().optional(),
+})
 
 export const HogFlowSchema = z.object({
     id: z.string(),
@@ -126,18 +148,12 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
-    edges: z.array(
-        z.object({
-            from: z.string(),
-            to: z.string(),
-            type: z.enum(['continue', 'branch']),
-            index: z.number().optional(),
-        })
-    ),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
+    edges: z.array(HogFlowEdgeSchema),
 })
 
-export type HogFlow = z.infer<typeof HogFlowSchema>
-export type HogFlowAction = HogFlow['actions'][number]
-export type HogFlowEdge = HogFlow['edges'][number]
+// NOTE: these are purposefully exported as interfaces to support kea typegen
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
+export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

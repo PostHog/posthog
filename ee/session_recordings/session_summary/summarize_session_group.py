@@ -1,6 +1,18 @@
+import json
 from pathlib import Path
+from ee.session_recordings.session_summary.output_data import IntermediateSessionSummarySerializer
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SessionSummaryPrompt
 from ee.session_recordings.session_summary.utils import load_custom_template
+
+
+def remove_excessive_content_from_session_summary_for_llm(session_summary_str: str) -> str:
+    """Remove excessive content from session summary for LLM when using for group summaries"""
+    session_summary = IntermediateSessionSummarySerializer(data=json.loads(session_summary_str))
+    if not session_summary.is_valid():
+        raise ValueError(
+            f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_str}"
+        )
+    return json.dumps(session_summary.data)
 
 
 def generate_session_group_summary_prompt(

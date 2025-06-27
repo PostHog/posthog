@@ -3,7 +3,7 @@ import './SessionRecordingPlayer.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -43,7 +43,7 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
     return PLAYBACK_SPEEDS.map((x, i) => ({ key: `${i}`, value: x })).reduce(
-        (acc, x) => ({ ...acc, [x.key]: { action: () => action(x.value) } }),
+        (acc, x) => Object.assign(acc, { [x.key]: { action: () => action(x.value) } }),
         {}
     )
 }
@@ -260,9 +260,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                             >
                                                 <PlayerFrame />
                                                 <PlayerFrameOverlay />
-                                                <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                                    <PlayerFrameCommentOverlay />
-                                                </FlaggedFeature>
+                                                <PlayerFrameCommentOverlay />
                                             </div>
                                             <PlayerController />
                                         </div>

@@ -314,15 +314,6 @@ KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
-KAFKA_EVENTS_PLUGIN_INGESTION: str = (
-    f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
-)
-
-# Topic to write events to between clickhouse
-KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
-    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
-)
-
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the
 # separation of concerns between realtime and historical ingestion but without

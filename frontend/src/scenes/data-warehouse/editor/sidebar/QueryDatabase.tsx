@@ -1,5 +1,5 @@
 import { IconArrowLeft, IconCopy, IconEllipsis, IconPlusSmall, IconServer } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -25,7 +25,9 @@ import { PipelineStage } from '~/types'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
-import { queryDatabaseLogic } from './queryDatabaseLogic'
+import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import api from 'lib/api'
 
 export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -38,9 +40,18 @@ export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
 }
 
 export const QueryDatabaseTreeView = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm } = useValues(queryDatabaseLogic)
-    const { setExpandedFolders, toggleFolderOpen, setTreeRef, setExpandedSearchFolders, selectSourceTable } =
-        useActions(queryDatabaseLogic)
+    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
+        useValues(queryDatabaseLogic)
+    const {
+        setExpandedFolders,
+        toggleFolderOpen,
+        setTreeRef,
+        setExpandedSearchFolders,
+        selectSourceTable,
+        toggleEditJoinModal,
+        loadDatabase,
+        loadJoins,
+    } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -190,6 +201,54 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
+                }
+
+                if (item.record?.type === 'column') {
+                    if (
+                        isJoined(item.record.field) &&
+                        joinsByFieldName[item.record.columnName] &&
+                        joinsByFieldName[item.record.columnName].source_table_name === item.record.table
+                    ) {
+                        return (
+                            <DropdownMenuGroup>
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (item.record?.columnName) {
+                                            toggleEditJoinModal(joinsByFieldName[item.record.columnName])
+                                        }
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Edit</ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (item.record?.columnName) {
+                                            const join = joinsByFieldName[item.record.columnName]
+                                            void deleteWithUndo({
+                                                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
+                                                object: {
+                                                    id: join.id,
+                                                    name: `${join.field_name} on ${join.source_table_name}`,
+                                                },
+                                                callback: () => {
+                                                    loadDatabase()
+                                                    loadJoins()
+                                                },
+                                            }).catch((e) => {
+                                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
+                                            })
+                                        }
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Delete join</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                        )
+                    }
                 }
 
                 if (item.record?.type === 'sources') {

@@ -349,7 +349,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             if (parsedData) {
                                 actions.setSessionSummaryContent(parsedData)
                             }
-                        } catch (e) {
+                        } catch {
                             // Don't handle errors as we can afford to fail some chunks silently.
                             // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
                         }

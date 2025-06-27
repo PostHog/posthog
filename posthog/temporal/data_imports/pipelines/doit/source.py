@@ -1,8 +1,11 @@
+import datetime
+from dateutil import parser
 import hashlib
-from typing import Any
+from typing import Any, Optional
 import pyarrow as pa
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.temporal.data_imports.pipelines.source import config
@@ -74,6 +77,9 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
 def doit_source(
     config: DoItSourceConfig,
     report_name: str,
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     all_reports = doit_list_reports(config)
     selected_reports = [id for name, id in all_reports if name == report_name]
@@ -83,8 +89,29 @@ def doit_source(
     report_id = selected_reports[0]
 
     def get_rows(report_id: str):
+        request_uri = f"https://api.doit.com/analytics/v1/reports/{report_id}"
+
+        if should_use_incremental_field and db_incremental_field_last_value is not None:
+            if isinstance(db_incremental_field_last_value, datetime.date):
+                start = db_incremental_field_last_value.strftime("%Y-%m-%d")
+            elif isinstance(db_incremental_field_last_value, datetime.datetime):
+                start = db_incremental_field_last_value.strftime("%Y-%m-%d")
+            elif isinstance(db_incremental_field_last_value, str):
+                date = parser.parse(db_incremental_field_last_value)
+                start = date.strftime("%Y-%m-%d")
+            else:
+                raise Exception(
+                    f"DoIt incremental type not recognised: {db_incremental_field_last_value.__class__.__name__}"
+                )
+
+            end = datetime.datetime.now().strftime("%Y-%m-%d")
+
+            request_uri = f"{request_uri}?startDate={start}&endDate={end}"
+
+        logger.debug(f"Requesting DoIt url: {request_uri}")
+
         res = requests.get(
-            f"https://api.doit.com/analytics/v1/reports/{report_id}",
+            request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )
 

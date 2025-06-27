@@ -176,9 +176,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     listeners(({ actions, values, cache, props }) => ({
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (!values.dataProcessingAccepted) {
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
             // Clear the question
             actions.setQuestion('')
-            // Set active streaming threads, so we now how many are running
+            // Set active streaming threads, so we know how many are running
             actions.setActiveStreamingThreads(1)
 
             // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
@@ -489,24 +492,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
-        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        inputDisabled: [
+            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
+            (formPending, threadLoading, dataProcessingAccepted) =>
+                // Input unavailable when:
+                // - Answer must be provided using a form returned by Max only
+                // - We are awaiting user to approve or reject external AI processing data
+                formPending || (threadLoading && !dataProcessingAccepted),
+        ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading, s.activeStreamingThreads],
-            (
-                formPending,
-                dataProcessingAccepted,
-                question,
-                threadLoading,
-                activeStreamingThreads
-            ): string | undefined => {
+            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
+            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
-                }
-
-                if (!dataProcessingAccepted) {
-                    return 'Please accept the data processing'
                 }
 
                 if (formPending) {

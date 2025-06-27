@@ -1,6 +1,5 @@
-import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,6 +12,8 @@ import { SessionPlayerState } from '~/types'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -61,7 +62,26 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function AnnotateRecording(): JSX.Element {
+function CinemaMode(): JSX.Element {
+    const { isZenMode } = useValues(playerSettingsLogic)
+    const { setIsZenMode } = useActions(playerSettingsLogic)
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setIsZenMode(!isZenMode)}
+            tooltip={
+                <>
+                    <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
+                </>
+            }
+            status={isZenMode ? 'danger' : 'default'}
+            icon={<IconVideoCamera className="text-2xl" />}
+            data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
+        />
+    )
+}
+
+function CommentOnRecordingButton(): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
@@ -92,6 +112,7 @@ function AnnotateRecording(): JSX.Element {
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { isZenMode } = useValues(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -111,12 +132,11 @@ export function PlayerController(): JSX.Element {
                 <div className="flex justify-end items-center">
                     {!isZenMode && (
                         <>
-                            <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                <AnnotateRecording />
-                            </FlaggedFeature>
+                            <CommentOnRecordingButton />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
+                    {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

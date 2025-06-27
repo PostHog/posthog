@@ -31,8 +31,8 @@ class HogQLGeneratorTool(MaxTool):
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
-        database = create_hogql_database(self._team_id)
-        hogql_context = HogQLContext(team_id=self._team_id, enable_select_queries=True, database=database)
+        database = create_hogql_database(team=self._team)
+        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
         serialized_database = serialize_database(hogql_context)
         schema_description = "\n\n".join(
@@ -80,7 +80,7 @@ class HogQLGeneratorTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

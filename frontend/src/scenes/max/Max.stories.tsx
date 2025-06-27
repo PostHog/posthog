@@ -20,6 +20,8 @@ import {
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxContextLogic } from './maxContextLogic'
+import { MaxFloatingInput } from './MaxFloatingInput'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -38,6 +40,18 @@ const meta: Meta = {
                         is_ai_data_processing_approved: true,
                     },
                 ],
+                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                    200,
+                    {
+                        id: CONVERSATION_ID,
+                        status: 'idle',
+                        title: 'Test Conversation',
+                        created_at: '2025-04-29T17:44:21.654307Z',
+                        updated_at: '2025-04-29T17:44:29.184791Z',
+                        messages: [],
+                    },
+                ],
             },
         }),
     ],
@@ -45,7 +59,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: ['artificial-hog'],
+        featureFlags: ['artificial-hog', 'floating-artificial-hog'],
     },
 }
 export default meta
@@ -74,22 +88,39 @@ export const Welcome: StoryFn = () => {
 
     return <Template />
 }
+Welcome.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
     return <Template />
 }
 WelcomeFeaturePreviewAutoEnrolled.parameters = {
     featureFlags: [],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const Thread: StoryFn = () => {
     const { setConversationId } = useActions(maxLogic)
     const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -102,12 +133,22 @@ export const EmptyThreadLoading: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -125,23 +166,29 @@ export const GenerationFailureThread: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-
     const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
-
     const { askMax, setMessageStatus } = useActions(threadLogic)
     const { threadRaw, threadLoading } = useValues(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
 
     useEffect(() => {
         if (threadRaw.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
-    }, [threadRaw.length, threadLoading])
+    }, [threadRaw.length, threadLoading, setMessageStatus])
 
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
     return <Template />
 }
 
@@ -153,12 +200,22 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -173,12 +230,22 @@ export const ThreadWithRateLimit: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax('Is Bielefeld real?')
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -193,12 +260,22 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax('Is Finland real?')
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -211,12 +288,22 @@ export const ThreadWithForm: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -232,7 +319,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
 
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -253,7 +340,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('empty')
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -270,7 +357,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('in_progress')
-    }, [])
+    }, [setConversationId])
 
     return <Template sidePanel />
 }
@@ -306,7 +393,7 @@ export const ChatHistory: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -327,7 +414,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -348,7 +435,7 @@ export const ChatHistoryLoading: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -364,7 +451,7 @@ export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -383,7 +470,7 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -441,7 +528,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
 
         // Enable current page context to show active insights/dashboard
         enableCurrentPageContext()
-    }, [])
+    }, [addOrUpdateActiveInsight, addOrUpdateContextInsight, enableCurrentPageContext])
 
     return <Template sidePanel />
 }
@@ -488,5 +575,49 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
 ThreadScrollsToBottomOnNewMessages.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
+    },
+}
+
+export const FloatingInput: StoryFn = () => {
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInput: StoryFn = () => {
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [setIsFloatingMaxExpanded])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+        setShowFloatingMaxSuggestions(true)
+    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
+
+    return <MaxFloatingInput />
+}
+
+export const FloatingInputMobileView: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    return <MaxFloatingInput />
+}
+FloatingInputMobileView.parameters = {
+    viewport: {
+        defaultViewport: 'mobile2',
     },
 }

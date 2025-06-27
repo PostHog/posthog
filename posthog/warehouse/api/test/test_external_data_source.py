@@ -756,6 +756,7 @@ class TestExternalDataSource(APIBaseTest):
                     "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
                 }
@@ -802,6 +803,7 @@ class TestExternalDataSource(APIBaseTest):
                     "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
                 }

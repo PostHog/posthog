@@ -2,6 +2,8 @@ import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
+
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
@@ -20,13 +22,31 @@ function formatUsage(inputTokens: number, outputTokens?: number | null): string 
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
 
-export function formatLLMUsage(trace_or_event: LLMTrace | LLMTraceEvent): string | null {
-    if ('properties' in trace_or_event && typeof trace_or_event.properties.$ai_input_tokens === 'number') {
-        return formatUsage(trace_or_event.properties.$ai_input_tokens, trace_or_event.properties.$ai_output_tokens)
+export function formatLLMUsage(
+    trace_or_event_or_aggregation: LLMTrace | LLMTraceEvent | SpanAggregation
+): string | null {
+    // Handle SpanAggregation
+    if (
+        'totalCost' in trace_or_event_or_aggregation &&
+        'totalLatency' in trace_or_event_or_aggregation &&
+        'hasGenerationChildren' in trace_or_event_or_aggregation
+    ) {
+        const aggregation = trace_or_event_or_aggregation as SpanAggregation
+        return formatUsage(aggregation.inputTokens || 0, aggregation.outputTokens)
     }
 
-    if (!('properties' in trace_or_event) && typeof trace_or_event.inputTokens === 'number') {
-        return formatUsage(trace_or_event.inputTokens, trace_or_event.outputTokens)
+    // Handle LLMTraceEvent
+    if ('properties' in trace_or_event_or_aggregation) {
+        const event = trace_or_event_or_aggregation as LLMTraceEvent
+        if (typeof event.properties.$ai_input_tokens === 'number') {
+            return formatUsage(event.properties.$ai_input_tokens, event.properties.$ai_output_tokens)
+        }
+    }
+
+    // Handle LLMTrace
+    const trace = trace_or_event_or_aggregation as LLMTrace
+    if (typeof trace.inputTokens === 'number') {
+        return formatUsage(trace.inputTokens, trace.outputTokens)
     }
 
     return null

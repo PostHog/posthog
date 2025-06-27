@@ -247,13 +247,17 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             if variant in variant_series:
                 ordered_timeseries.append(variant_series[variant])
 
-        # Add MULTIPLE_VARIANT_KEY last if present
         if MULTIPLE_VARIANT_KEY in variant_series:
             ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
 
+        # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
+        total_exposures = {}
+        for variant, series in variant_series.items():
+            total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
+
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
-            total_exposures={variant: int(series.exposure_counts[-1]) for variant, series in variant_series.items()},
+            total_exposures=total_exposures,
             date_range=self.date_range,
         )
 

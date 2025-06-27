@@ -101,13 +101,10 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     const updateAttributes = useCallback(
         (attrs: Partial<NotebookNodeAttributes<T>>): void => {
             // We call the update whilst json stringifying
-            const stringifiedAttrs = Object.keys(attrs).reduce(
-                (acc, x) => ({
-                    ...acc,
-                    [x]: attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x],
-                }),
-                {}
-            )
+            const stringifiedAttrs = Object.keys(attrs).reduce((acc, x) => {
+                acc[x] = attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x]
+                return acc
+            }, {} as Record<string, any>)
 
             const hasChanges = Object.keys(stringifiedAttrs).some(
                 (key) => previousNodeAttrs.current?.[key] !== stringifiedAttrs[key]

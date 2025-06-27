@@ -36,11 +36,12 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             false,
             {
                 execute: async () => {
-                    const splitAction = await api.create('api/person/' + values.person.id + '/split/', {
-                        ...(values.selectedPersonToAssignSplit
+                    const splitAction = await api.create(
+                        'api/person/' + values.person.id + '/split/',
+                        values.selectedPersonToAssignSplit
                             ? { main_distinct_id: values.selectedPersonToAssignSplit }
-                            : {}),
-                    })
+                            : {}
+                    )
                     if (splitAction.success) {
                         lemonToast.success(
                             'Person succesfully split. This may take up to a couple of minutes to complete.'

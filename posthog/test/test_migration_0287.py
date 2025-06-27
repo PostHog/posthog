@@ -1,5 +1,9 @@
 from posthog.test.base import NonAtomicTestMigrations
 
+import pytest
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
+
 
 class CreatingSessionRecordingModelMigrationTestCase(NonAtomicTestMigrations):
     migrate_from = "0286_index_insightcachingstate_lookup"

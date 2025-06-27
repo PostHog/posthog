@@ -222,8 +222,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 ],
             }
         ]
-        # 1 update action, 1 load action, 1 load hog functions, 1 load all related actions, 1 bulk update hog functions, 4 filesystem
-        with self.assertNumQueries(8):
+        # 1 update action, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related actions, 1 bulk update hog functions, 5 filesystem
+        with self.assertNumQueries(10):
             self.action.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
@@ -277,9 +277,9 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 update team, 1 load hog functions, 1 update hog functions
+        # 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions,
         # 7 unrelated due to RemoteConfig refresh
-        with self.assertNumQueries(3 + 7):
+        with self.assertNumQueries(4 + 7):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

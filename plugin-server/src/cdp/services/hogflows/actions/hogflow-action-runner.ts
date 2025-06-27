@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
@@ -49,7 +48,7 @@ export class HogFlowActionRunner {
 
         // TODO: Make filterGlobals, person and groups something we load lazily onto the main invocation object to be re-used anywhere
         // this function isn't super cheap to run
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
+        const filterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             // TODO: Add person and groups!
             groups: {},

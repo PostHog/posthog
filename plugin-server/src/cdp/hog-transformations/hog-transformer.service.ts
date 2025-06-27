@@ -12,8 +12,7 @@ import { HogFunctionManagerService } from '../services/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 

@@ -58,6 +58,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # Mappings to enrich events
         allowed_event_ids=list(llm_input.simplified_events_mapping.keys()),
         simplified_events_mapping=llm_input.simplified_events_mapping,
+        event_ids_mapping=llm_input.event_ids_mapping,
         simplified_events_columns=llm_input.simplified_events_columns,
         url_mapping_reversed=llm_input.url_mapping_reversed,
         window_mapping_reversed=llm_input.window_mapping_reversed,
@@ -118,7 +119,7 @@ async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) 
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+        task_queue=constants.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle

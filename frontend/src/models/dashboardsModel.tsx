@@ -256,7 +256,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)]
+                return Object.values(rawDashboards)
                     .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
                     .sort(nameCompareFunction)
             },

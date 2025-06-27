@@ -103,3 +103,26 @@ def serialize_to_sse_event(event_label: str, event_data: str) -> str:
     # Otherwise, escape newlines also
     event_data = event_data.replace("\n", "\\n")
     return f"event: {event_label}\ndata: {event_data}\n\n"
+
+
+def generate_full_event_id(session_id: str, event_uuid: str) -> str:
+    """Generate a full event ID from a session ID and an event UUID to be able to track events across sessions"""
+    if not event_uuid:
+        raise ValueError(f"UUID is not present when generating event_id for session_id {session_id}")
+    full_event_id = f"{session_id}_{event_uuid}"
+    return full_event_id
+
+
+def unpack_full_event_id(full_event_id: str | None, session_id: str) -> tuple[str, str]:
+    """Unpack a full event ID into a session ID and an event UUID"""
+    if not full_event_id:
+        raise ValueError(f"Full event ID is not present when unpacking for session_id {session_id}")
+    try:
+        unpacked_session_id, event_uuid = full_event_id.split("_")
+    except ValueError as err:
+        raise ValueError(f"Invalid full event ID for session_id {session_id}: {full_event_id}") from err
+    if unpacked_session_id != session_id:
+        raise ValueError(
+            f"Session ID mismatch when unpacking full event ID for session_id {session_id}: {full_event_id}"
+        )
+    return unpacked_session_id, event_uuid

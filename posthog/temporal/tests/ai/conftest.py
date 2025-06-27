@@ -35,6 +35,7 @@ def mock_single_session_summary_inputs(
 def mock_single_session_summary_llm_inputs(
     mock_user: MagicMock,
     mock_events_mapping: dict[str, list[Any]],
+    mock_event_ids_mapping: dict[str, str],
     mock_events_columns: list[str],
     mock_url_mapping_reversed: dict[str, str],
     mock_window_mapping_reversed: dict[str, str],
@@ -48,6 +49,7 @@ def mock_single_session_summary_llm_inputs(
             summary_prompt="Generate a summary for this session",
             system_prompt="You are a helpful assistant that summarizes user sessions",
             simplified_events_mapping=mock_events_mapping,
+            event_ids_mapping=mock_event_ids_mapping,
             simplified_events_columns=mock_events_columns,
             url_mapping_reversed=mock_url_mapping_reversed,
             window_mapping_reversed=mock_window_mapping_reversed,

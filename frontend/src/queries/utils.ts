@@ -40,8 +40,9 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -156,10 +157,16 @@ export function isRevenueAnalyticsOverviewQuery(
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export function isRevenueAnalyticsInsightsQuery(
+export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
@@ -719,7 +726,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
 
     const cloned: Record<string, any> = { ...(node as any) }
 
-    if ('kind' in cloned) {
+    if ('kind' in cloned && Object.values(NodeKind).includes(cloned.kind)) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
         cloned.version = latest || 1
     }

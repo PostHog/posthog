@@ -23,7 +23,7 @@ Adding a new filter/breakdown option in Revenue Analytics requires changes acros
 **File**: `frontend/src/queries/schema/schema-general.ts`
 
 ```typescript
-export enum RevenueAnalyticsInsightsQueryGroupBy {
+export enum RevenueAnalyticsGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
     PRODUCT = 'product',
@@ -133,15 +133,15 @@ def joins_set_for_properties(self) -> set[str]:
 
 ### 6. GroupBy Implementation
 
-**File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_insights_query_runner.py`
+**File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_gross_revenue_query_runner.py`
 
 Add the new case inside `_join_to_and_field_name_for_group_by()`
 
 ```python
-def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsInsightsQueryGroupBy) -> tuple[type[RevenueAnalyticsBaseView], str]:
-    if group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
+def _join_to_and_field_name_for_group_by(self, group_by: RevenueAnalyticsGroupBy) -> tuple[type[RevenueAnalyticsBaseView], str]:
+    if group_by == RevenueAnalyticsGroupBy.COUNTRY:
         return RevenueAnalyticsCustomerView, "country"
-    elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:
+    elif group_by == RevenueAnalyticsGroupBy.COHORT:
         # ... other properties
 ```
 
@@ -182,10 +182,10 @@ You might need to create a new equivalent to `self._customer_selects` that shoul
 Add the new option to the UI by mapping the new grouping to a human-readable string:
 
 ```tsx
-const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsInsightsQueryGroupBy, string> = {
-    [RevenueAnalyticsInsightsQueryGroupBy.COHORT]: 'Cohort',
-    [RevenueAnalyticsInsightsQueryGroupBy.COUNTRY]: 'Country',
-    [RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]: 'Product',
+const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsGroupBy, string> = {
+    [RevenueAnalyticsGroupBy.COHORT]: 'Cohort',
+    [RevenueAnalyticsGroupBy.COUNTRY]: 'Country',
+    [RevenueAnalyticsGroupBy.PRODUCT]: 'Product',
 }
 ```
 
@@ -210,7 +210,7 @@ When adding a new Revenue Analytics filter/breakdown option, you need to modify 
 1. **`posthog/hogql/property.py`** - HogQL property mapping
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`** - Join requirements
 1. **`products/revenue_analytics/backend/api.py`** - API values endpoint
-1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_insights_query_runner.py`** - GroupBy implementation
+1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_gross_revenue_query_runner.py`** - GroupBy implementation
 1. **Database view files** (e.g., `revenue_analytics_customer_view.py`) - Ensure required fields exist
 1. **Frontend component files** (e.g., `RevenueAnalyticsFilters.tsx`) - UI integration
 

@@ -127,7 +127,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                 actions.loadIntegrations()
                 lemonToast.success(`Integration successful.`)
-            } catch (e) {
+            } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
                 router.actions.replace(replaceUrl)

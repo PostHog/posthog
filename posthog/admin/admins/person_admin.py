@@ -15,5 +15,5 @@ class PersonAdmin(admin.ModelAdmin):
         "is_identified",
         "version",
     )
-    list_filter = ("created_at", "is_identified", "version")
+    list_filter = ("created_at", "is_identified")
     search_fields = ("id",)

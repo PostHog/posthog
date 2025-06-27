@@ -3,6 +3,13 @@ jest.mock('../../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
+
+jest.mock('../../../src/utils/posthog', () => {
+    return {
+        captureTeamEvent: jest.fn(),
+    }
+})
+
 import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
 import {
     BASE_REDIS_KEY,
@@ -19,6 +26,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { createInvocationResult } from '../utils/invocation-utils'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
+const mockCaptureTeamEvent: jest.Mock = require('../../../src/utils/posthog').captureTeamEvent as any
 
 const createResult = (options: {
     id: string
@@ -307,8 +315,9 @@ describe('HogWatcher', () => {
     })
 
     describe('forceStateChange', () => {
+        const hogFunction = createResult({ id: 'id1' }).invocation.hogFunction
         it('should force healthy', async () => {
-            await watcher.forceStateChange('id1', HogWatcherState.healthy)
+            await watcher.forceStateChange(hogFunction, HogWatcherState.healthy)
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     {
                       "rating": 1,
@@ -317,9 +326,16 @@ describe('HogWatcher', () => {
                     }
                 `)
             expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.healthy])
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state: HogWatcherState.healthy,
+            })
         })
         it('should force degraded', async () => {
-            await watcher.forceStateChange('id1', HogWatcherState.degraded)
+            await watcher.forceStateChange(hogFunction, HogWatcherState.degraded)
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     {
                       "rating": 0.8,
@@ -328,9 +344,16 @@ describe('HogWatcher', () => {
                     }
                 `)
             expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.degraded])
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state: HogWatcherState.degraded,
+            })
         })
         it('should force disabledForPeriod', async () => {
-            await watcher.forceStateChange('id1', HogWatcherState.disabledForPeriod)
+            await watcher.forceStateChange(hogFunction, HogWatcherState.disabledForPeriod)
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     {
                       "rating": 0,
@@ -342,9 +365,16 @@ describe('HogWatcher', () => {
                 'id1',
                 HogWatcherState.disabledForPeriod,
             ])
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state: HogWatcherState.disabledForPeriod,
+            })
         })
         it('should force disabledIndefinitely', async () => {
-            await watcher.forceStateChange('id1', HogWatcherState.disabledIndefinitely)
+            await watcher.forceStateChange(hogFunction, HogWatcherState.disabledIndefinitely)
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                     {
                       "rating": 0,
@@ -356,6 +386,13 @@ describe('HogWatcher', () => {
                 'id1',
                 HogWatcherState.disabledIndefinitely,
             ])
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state: HogWatcherState.disabledIndefinitely,
+            })
         })
     })
 

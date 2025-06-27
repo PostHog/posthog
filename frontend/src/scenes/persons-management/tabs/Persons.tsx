@@ -25,7 +25,7 @@ export function Persons(): JSX.Element {
                     <LemonMenu
                         items={[
                             {
-                                label: 'Reset deleted person',
+                                label: 'Reset a deleted person...',
                                 onClick: () =>
                                     LemonDialog.openForm({
                                         width: '30rem',

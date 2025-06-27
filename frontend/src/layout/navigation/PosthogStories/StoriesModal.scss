@@ -7,14 +7,71 @@
     border-radius: 6px;
     box-shadow: none;
 
-    // This will change the opacity of the swipe component so it's not visible until hovered
-    .stories-container [role='button'][aria-label*='swipe'] {
-        cursor: pointer;
-        opacity: 0;
-        transition: opacity 0.3s ease-in-out;
+    // Progress bar styles
+    .progress-bar-active {
+        width: 0%;
+        animation: StoriesModal__ProgressFill var(--duration, 5000ms) linear forwards;
+        animation-play-state: var(--play-state, running);
+    }
 
-        &:hover {
-            opacity: 1;
+    .progress-bar-paused {
+        animation-play-state: paused;
+    }
+
+    .animate-slide-up {
+        animation: StoriesModal__SlideUp 0.5s ease-out forwards;
+    }
+
+    .animate-slide-down {
+        animation: StoriesModal__SlideDown 0.5s ease-in forwards;
+    }
+
+    // Overlay positioning classes
+    .overlay-slide-up {
+        transition: transform 0.3s ease-out;
+        transform: translateY(0);
+    }
+
+    .overlay-slide-down {
+        transition: transform 0.3s ease-out;
+        transform: translateY(100%);
+    }
+
+    // CSS animation for progress bar
+    @keyframes StoriesModal__ProgressFill {
+        from {
+            width: 0%;
+        }
+
+        to {
+            width: 100%;
         }
     }
+
+    // Slide up animation for overlay
+    @keyframes StoriesModal__SlideUp {
+        from {
+            transform: translateY(100%);
+        }
+
+        to {
+            transform: translateY(0);
+        }
+    }
+
+    // Slide down animation for overlay
+    @keyframes StoriesModal__SlideDown {
+        from {
+            transform: translateY(0);
+        }
+
+        to {
+            transform: translateY(100%);
+        }
+    }
+}
+
+// Make the background outside the modal darker
+.LemonModal__overlay:has(.StoriesModal__modal) {
+    --modal-backdrop-color: rgb(0 0 0 / 50%) !important;
 }

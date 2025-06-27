@@ -122,26 +122,38 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(errorTrackingSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
+
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
+    const recordIndex = props.recordIndex
+
+    const onChange = (newValue: boolean): void => {
+        const includedIds: string[] = []
+
+        if (!shiftKeyHeld || previouslyCheckedRecordIndex === null) {
+            includedIds.push(record.id)
+        } else {
+            const start = Math.min(previouslyCheckedRecordIndex, recordIndex)
+            const end = Math.max(previouslyCheckedRecordIndex, recordIndex) + 1
+            includedIds.push(...results.slice(start, end).map((r) => r.id))
+        }
+
+        setPreviouslyCheckedRecordIndex(recordIndex)
+        setSelectedIssueIds(
+            newValue
+                ? [...new Set([...selectedIssueIds, ...includedIds])]
+                : selectedIssueIds.filter((id) => !includedIds.includes(id))
+        )
+    }
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox
-                className="h-[1.2rem]"
-                checked={checked}
-                onChange={(newValue) => {
-                    setSelectedIssueIds(
-                        newValue
-                            ? [...new Set([...selectedIssueIds, record.id])]
-                            : selectedIssueIds.filter((id) => id != record.id)
-                    )
-                }}
-            />
+            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
 
             <div className="flex flex-col gap-[2px]">
                 <Link

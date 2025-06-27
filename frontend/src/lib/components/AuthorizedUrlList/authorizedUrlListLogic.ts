@@ -156,7 +156,7 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
         if (wildcardMatch) {
             return true
         }
-    } catch (error) {
+    } catch {
         // Ignore invalid URLs
     }
 

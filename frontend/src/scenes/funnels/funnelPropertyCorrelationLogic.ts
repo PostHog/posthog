@@ -92,7 +92,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                                 result_type: FunnelCorrelationResultsType.Events,
                             })) as FunnelCorrelation[],
                         }
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
                         return { events: [] }
                     }

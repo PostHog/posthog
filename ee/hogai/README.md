@@ -87,7 +87,7 @@ function YourComponent() {
 }
 ```
 
-For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFilters.tsx`, which mounts the `search_session_recordings` tool.
+For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed.tsx`, which mounts the `search_session_recordings` tool.
 
 ## Iterating
 

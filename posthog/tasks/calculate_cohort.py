@@ -57,7 +57,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
-MAX_STUCK_COHORTS_TO_RESET = 2
+MAX_STUCK_COHORTS_TO_RESET = 3
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:

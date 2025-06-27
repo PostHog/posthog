@@ -6,7 +6,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { campaignsLogic } from './campaignsLogic'
-import { HogFlow } from './Workflows/types'
+import { HogFlow } from './hogflows/types'
 
 export function CampaignsTable(): JSX.Element {
     useMountedLogic(campaignsLogic)

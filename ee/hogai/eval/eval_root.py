@@ -15,7 +15,7 @@ from .scorers import ToolRelevance
 @pytest.fixture
 def call_root(demo_org_team_user):
     graph = (
-        AssistantGraph(demo_org_team_user[1])
+        AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(
             {

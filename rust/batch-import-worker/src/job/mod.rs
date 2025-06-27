@@ -156,7 +156,7 @@ impl Job {
                     .pause(
                         self.context.clone(),
                         format!("Failed to fetch and parse chunk: {:?}", e),
-                        user_facing_error_message.to_string(),
+                        Some(user_facing_error_message.to_string()),
                     )
                     .await?;
                 return Ok(None);
@@ -341,7 +341,7 @@ impl Job {
             .pause(
                 self.context.clone(),
                 status_message,
-                "Job paused while committing events".to_string(),
+                Some("Job paused while committing events".to_string()),
             )
             .await
     }

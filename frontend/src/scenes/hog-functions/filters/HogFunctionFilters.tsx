@@ -14,6 +14,7 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { useMemo } from 'react'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -48,16 +49,34 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
-    if (type === 'internal_destination') {
-        return <HogFunctionFiltersInternal />
-    }
-
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+    const isTransformation = type === 'transformation'
+
+    const taxonomicGroupTypes = useMemo(() => {
+        const types = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+
+        if (!isTransformation) {
+            types.push(
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.Elements,
+                ...groupsTaxonomicTypes
+            )
+        }
+
+        return types
+    }, [isTransformation, groupsTaxonomicTypes])
 
     const showMasking = type === 'destination' && !isLegacyPlugin
     const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
-    const isTransformation = type === 'transformation'
+    if (type === 'internal_destination') {
+        return <HogFunctionFiltersInternal />
+    }
 
     return (
         <div
@@ -95,21 +114,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             )}
                             <PropertyFilters
                                 propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={
-                                    isTransformation
-                                        ? [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                          ]
-                                        : [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.PersonProperties,
-                                              TaxonomicFilterGroupType.EventFeatureFlags,
-                                              TaxonomicFilterGroupType.Elements,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                              ...groupsTaxonomicTypes,
-                                          ]
-                                }
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
                                         ...filters,
@@ -148,21 +153,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
-                                        propertiesTaxonomicGroupTypes={
-                                            isTransformation
-                                                ? [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                  ]
-                                                : [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.EventFeatureFlags,
-                                                      TaxonomicFilterGroupType.Elements,
-                                                      TaxonomicFilterGroupType.PersonProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                      ...groupsTaxonomicTypes,
-                                                  ]
-                                        }
+                                        propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
                                         addFilterDefaultOptions={{
                                             id: '$pageview',

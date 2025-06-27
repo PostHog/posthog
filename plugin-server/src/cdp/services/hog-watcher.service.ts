@@ -1,5 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { captureTeamEvent } from '~/utils/posthog'
+
 import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
@@ -87,8 +89,18 @@ export class HogWatcherService {
         }
     }
 
-    private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
-        await this.hub.celery.applyAsync(CELERY_TASK_ID, [id, state])
+    private async onStateChange(hogFunction: HogFunctionType, state: HogWatcherState) {
+        const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
+        if (team) {
+            captureTeamEvent(team, 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state,
+            })
+        }
+        await this.hub.celery.applyAsync(CELERY_TASK_ID, [hogFunction.id, state])
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
@@ -155,7 +167,8 @@ export class HogWatcherService {
         return res[id]
     }
 
-    public async forceStateChange(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
+    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherState): Promise<void> {
+        const id = hogFunction.id
         await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             const newScore =
                 state === HogWatcherState.healthy
@@ -177,7 +190,7 @@ export class HogWatcherService {
                 pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
             }
         })
-        await this.onStateChange(id, state)
+        await this.onStateChange(hogFunction, state)
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
@@ -185,7 +198,7 @@ export class HogWatcherService {
 
         const costs: Record<CyclotronJobInvocation['functionId'], number> = {}
         // Create a map to store the function types
-        const functionTypes: Record<CyclotronJobInvocation['functionId'], HogFunctionType['type']> = {}
+        const hogFunctionsById: Record<CyclotronJobInvocation['functionId'], HogFunctionType> = {}
 
         results.forEach((result) => {
             if (!isHogFunctionResult(result)) {
@@ -193,7 +206,7 @@ export class HogWatcherService {
             }
 
             let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
-            functionTypes[result.invocation.functionId] = result.invocation.hogFunction.type
+            hogFunctionsById[result.invocation.functionId] = result.invocation.hogFunction
 
             if (result.finished) {
                 // Process each timing entry individually instead of totaling them
@@ -281,10 +294,10 @@ export class HogWatcherService {
                 hogFunctionStateChange
                     .labels({
                         state: 'disabled_indefinitely',
-                        kind: functionTypes[id],
+                        kind: hogFunctionsById[id].type,
                     })
                     .inc()
-                await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
+                await this.onStateChange(hogFunctionsById[id], HogWatcherState.disabledIndefinitely)
             }
 
             for (const id of functionsTempDisabled) {
@@ -292,10 +305,10 @@ export class HogWatcherService {
                     hogFunctionStateChange
                         .labels({
                             state: 'disabled_for_period',
-                            kind: functionTypes[id],
+                            kind: hogFunctionsById[id].type,
                         })
                         .inc()
-                    await this.onStateChange(id, HogWatcherState.disabledForPeriod)
+                    await this.onStateChange(hogFunctionsById[id], HogWatcherState.disabledForPeriod)
                 }
             }
         }

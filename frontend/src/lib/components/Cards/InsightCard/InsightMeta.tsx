@@ -101,7 +101,7 @@ export function InsightMeta({
             refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading query={insight.query} />}
+            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
                     link={urls.insightView(short_id, dashboardId, variablesOverride)}
@@ -112,7 +112,9 @@ export function InsightMeta({
                     tags={insight.tags}
                 />
             }
-            metaDetails={<InsightDetails query={insight.query} footerInfo={insight} />}
+            metaDetails={
+                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+            }
             samplingFactor={samplingFactor}
             moreButtons={
                 <>
