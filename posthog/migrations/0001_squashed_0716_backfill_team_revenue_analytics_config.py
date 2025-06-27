@@ -1474,9 +1474,49 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
+                ("description", models.TextField(blank=True)),
                 ("pinned", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(default=False)),
+                ("last_accessed_at", models.DateTimeField(blank=True, null=True)),
+                ("filters", models.JSONField(default=dict)),
+                (
+                    "creation_mode",
+                    models.CharField(
+                        choices=[("default", "Default"), ("template", "Template"), ("duplicate", "Duplicate")],
+                        default="default",
+                        max_length=16,
+                    ),
+                ),
+                (
+                    "restriction_level",
+                    models.PositiveSmallIntegerField(
+                        choices=[
+                            (21, "Everyone in the project can edit"),
+                            (37, "Only those invited to this dashboard can edit"),
+                        ],
+                        default=21,
+                    ),
+                ),
+                (
+                    "deprecated_tags",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                    ),
+                ),
+                (
+                    "deprecated_tags_v2",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        db_column="tags",
+                        default=None,
+                        null=True,
+                        size=None,
+                    ),
+                ),
+                ("share_token", models.CharField(blank=True, max_length=400, null=True)),
+                ("is_shared", models.BooleanField(default=False)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -1484,6 +1524,8 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("variables", models.JSONField(blank=True, default=dict, null=True)),
+                ("breakdown_colors", models.JSONField(blank=True, default=list, null=True)),
             ],
         ),
         migrations.AddField(
@@ -1656,21 +1698,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="event_properties_numerical",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="is_shared",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="share_token",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="last_accessed_at",
-            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboarditem",
@@ -2393,20 +2420,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="dashboard",
-            name="filters",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="creation_mode",
-            field=models.CharField(
-                choices=[("default", "Default"), ("template", "Template"), ("duplicate", "Duplicate")],
-                default="default",
-                max_length=16,
-            ),
-        ),
-        migrations.AddField(
             model_name="plugin",
             name="created_at",
             field=models.DateTimeField(auto_now_add=True, default=datetime.datetime(2020, 1, 1, 0, 0)),
@@ -2916,18 +2929,6 @@ class Migration(migrations.Migration):
             model_name="featureflag",
             name="name",
             field=models.TextField(blank=True),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="description",
-            field=models.TextField(blank=True),
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, size=None
-            ),
         ),
         migrations.AddField(
             model_name="team",
@@ -3556,11 +3557,6 @@ class Migration(migrations.Migration):
             model_name="user",
             name="uuid",
             field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="dashboard",
-            name="filters",
-            field=models.JSONField(default=dict),
         ),
         migrations.AlterField(
             model_name="dashboarditem",
@@ -4292,17 +4288,6 @@ class Migration(migrations.Migration):
                 name="property_type_is_valid",
             ),
         ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="restriction_level",
-            field=models.PositiveSmallIntegerField(
-                choices=[
-                    (21, "Everyone in the project can edit"),
-                    (37, "Only those invited to this dashboard can edit"),
-                ],
-                default=21,
-            ),
-        ),
         migrations.CreateModel(
             name="Tag",
             fields=[
@@ -4410,21 +4395,9 @@ class Migration(migrations.Migration):
             field=models.TextField(),
         ),
         migrations.RenameField(
-            model_name="dashboard",
-            old_name="tags",
-            new_name="deprecated_tags",
-        ),
-        migrations.RenameField(
             model_name="insight",
             old_name="tags",
             new_name="deprecated_tags",
-        ),
-        migrations.AlterField(
-            model_name="dashboard",
-            name="deprecated_tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
-            ),
         ),
         migrations.AlterField(
             model_name="insight",
@@ -4436,13 +4409,6 @@ class Migration(migrations.Migration):
         migrations.AlterUniqueTogether(
             name="taggeditem",
             unique_together={("tag", "dashboard", "insight", "event_definition", "property_definition", "action")},
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=None, null=True, size=None
-            ),
         ),
         migrations.AddField(
             model_name="insight",
@@ -4869,26 +4835,9 @@ class Migration(migrations.Migration):
             reverse_sql="",
         ),
         migrations.RenameField(
-            model_name="dashboard",
-            old_name="tags",
-            new_name="deprecated_tags_v2",
-        ),
-        migrations.RenameField(
             model_name="insight",
             old_name="tags",
             new_name="deprecated_tags_v2",
-        ),
-        migrations.AlterField(
-            model_name="dashboard",
-            name="deprecated_tags_v2",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32),
-                blank=True,
-                db_column="tags",
-                default=None,
-                null=True,
-                size=None,
-            ),
         ),
         migrations.AlterField(
             model_name="insight",
@@ -9665,11 +9614,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="dashboard",
-            name="variables",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AddField(
             model_name="alertconfiguration",
             name="snoozed_until",
             field=models.DateTimeField(blank=True, null=True),
@@ -10532,6 +10476,27 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             code=migration_0537_add_default_themes,
             reverse_code=django.db.migrations.operations.special.RunPython.noop,
+        ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql='\n                    ALTER TABLE "posthog_dashboard" ADD COLUMN "data_color_theme_id" integer NULL CONSTRAINT "posthog_dashboard_data_color_theme_id_0084ccbf_fk_posthog_d" REFERENCES "posthog_datacolortheme"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_dashboard_data_color_theme_id_0084ccbf_fk_posthog_d" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
+                    reverse_sql='\n                        ALTER TABLE "posthog_dashboard" DROP COLUMN IF EXISTS "data_color_theme_id";\n                    ',
+                ),
+                migrations.RunSQL(
+                    sql='\n                    CREATE INDEX "posthog_dashboard_data_color_theme_id_0084ccbf" ON "posthog_dashboard" ("data_color_theme_id");\n                    ',
+                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_dashboard_data_color_theme_id_0084ccbf";\n                    ',
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="dashboard",
+                    name="data_color_theme",
+                    field=models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.datacolortheme"
+                    ),
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="team",
@@ -11544,32 +11509,6 @@ class Migration(migrations.Migration):
                     name="project",
                     field=models.ForeignKey(
                         blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"
-                    ),
-                ),
-            ],
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="breakdown_colors",
-            field=models.JSONField(blank=True, default=list, null=True),
-        ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='\n                    ALTER TABLE "posthog_dashboard" ADD COLUMN "data_color_theme_id" integer NULL CONSTRAINT "posthog_dashboard_data_color_theme_id_0084ccbf_fk_posthog_d" REFERENCES "posthog_datacolortheme"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_dashboard_data_color_theme_id_0084ccbf_fk_posthog_d" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        ALTER TABLE "posthog_dashboard" DROP COLUMN IF EXISTS "data_color_theme_id";\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    CREATE INDEX "posthog_dashboard_data_color_theme_id_0084ccbf" ON "posthog_dashboard" ("data_color_theme_id");\n                    ',
-                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_dashboard_data_color_theme_id_0084ccbf";\n                    ',
-                ),
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name="dashboard",
-                    name="data_color_theme",
-                    field=models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.datacolortheme"
                     ),
                 ),
             ],
