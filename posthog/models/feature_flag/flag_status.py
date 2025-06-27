@@ -1,7 +1,7 @@
 import structlog
 
 from enum import StrEnum
-from datetime import datetime, timedelta, UTC
+from posthog.date_util import thirty_days_ago
 from .feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -56,7 +56,7 @@ class FeatureFlagStatusChecker:
 
         # See if the flag is set to 100% on one variant (or 100% on rolled out and active if boolean flag).
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
-        is_flag_at_least_thirty_days_old = flag.created_at < datetime.now(UTC) - timedelta(days=30)
+        is_flag_at_least_thirty_days_old = flag.created_at < thirty_days_ago()
 
         if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation

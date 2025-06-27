@@ -3,7 +3,8 @@ import re
 import time
 import logging
 from typing import Any, Optional, cast
-from datetime import datetime, timedelta, UTC
+from posthog.date_util import thirty_days_ago
+from datetime import datetime
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
@@ -715,13 +716,9 @@ class FeatureFlagViewSet(
         for key in filters:
             if key == "active":
                 if filters[key] == "STALE":
-                    # Filter for potentially STALE flags at the database level
-                    # We'll do a broad filter here and let the serializer compute the exact status
-                    thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
-
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
-                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago).extra(
+                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
                         where=[
                             """
                             (
