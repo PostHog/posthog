@@ -1,13 +1,14 @@
 # Base Marketing Source Adapter
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional, Any
+from dataclasses import dataclass, field
+from typing import Optional, Any, TypeVar, Generic
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.schema import DateRange
+from posthog.warehouse.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.constants import (
     CAMPAIGN_NAME_FIELD,
     CLICKS_FIELD,
@@ -18,6 +19,34 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 
 logger = structlog.get_logger(__name__)
 
+ConfigType = TypeVar("ConfigType", bound="BaseMarketingConfig")
+
+
+@dataclass
+class BaseMarketingConfig(ABC):
+    """Base configuration for marketing source adapters"""
+
+    source_type: str
+
+
+@dataclass
+class ExternalConfig(BaseMarketingConfig):
+    """Configuration for external marketing sources"""
+
+    table: DataWarehouseTable
+    source_map: dict[str, Any]
+    schema_name: str
+    source_id: str
+
+
+@dataclass
+class GoogleAdsConfig(BaseMarketingConfig):
+    """Configuration for Google Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+    source_id: str
+
 
 @dataclass
 class ValidationResult:
@@ -25,28 +54,20 @@ class ValidationResult:
 
     is_valid: bool
     errors: list[str]
-    warnings: list[str] = None
-
-    def __post_init__(self):
-        if self.warnings is None:
-            self.warnings = []
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
 class QueryContext:
     """Context needed for query building"""
 
-    date_range: DateRange | None
+    date_range: QueryDateRange
     team: Team
-    global_filters: list[Any] = None
+    global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
 
-    def __post_init__(self):
-        if self.global_filters is None:
-            self.global_filters = []
 
-
-class MarketingSourceAdapter(ABC):
+class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     """
     Base adapter that all marketing sources must implement.
     Each adapter is responsible for:
@@ -61,9 +82,9 @@ class MarketingSourceAdapter(ABC):
     clicks_field: str = CLICKS_FIELD
     cost_field: str = COST_FIELD
 
-    def __init__(self, config: dict[str, Any], context: QueryContext):
+    def __init__(self, config: ConfigType, context: QueryContext):
         self.team = context.team
-        self.config = config
+        self.config: ConfigType = config
         self.logger = logger.bind(source_type=self.get_source_type(), team_id=self.team.pk if self.team else None)
         self.context = context
 
@@ -152,7 +173,7 @@ class MarketingSourceAdapter(ABC):
         """
         try:
             # Build SELECT columns
-            select_columns = [
+            select_columns: list[ast.Expr] = [
                 ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
                 ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
                 ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),

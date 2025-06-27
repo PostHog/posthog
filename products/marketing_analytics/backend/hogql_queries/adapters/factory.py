@@ -1,11 +1,11 @@
 # Marketing Source Adapter Factory
 
-from typing import Any, Optional
+from typing import Optional
 import structlog
 from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 from posthog.hogql.database.database import create_hogql_database
 
-from .base import MarketingSourceAdapter, QueryContext
+from .base import ExternalConfig, GoogleAdsConfig, MarketingSourceAdapter, QueryContext
 from .google_ads import GoogleAdsAdapter
 from .bigquery import BigQueryAdapter
 from .self_managed import AWSAdapter, GoogleCloudAdapter, CloudflareR2Adapter, AzureAdapter
@@ -14,7 +14,6 @@ from ..constants import (
     VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
     FALLBACK_EMPTY_QUERY,
-    UNKNOWN_TABLE_NAME,
     TABLE_PATTERNS,
 )
 from ..utils import map_url_to_provider
@@ -48,8 +47,11 @@ class MarketingSourceFactory:
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
         # Cache warehouse data to avoid repeated queries
-        self._warehouse_tables = None
-        self._sources_map = None
+        database = create_hogql_database(team=self.context.team)
+        self._warehouse_tables = DataWarehouseTable.objects.filter(
+            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
+        ).prefetch_related("externaldataschema_set")
+        self._sources_map = self.context.team.marketing_analytics_config.sources_map
 
     @classmethod
     def register_adapter(cls, source_type: str, adapter_class: type[MarketingSourceAdapter]):
@@ -59,13 +61,6 @@ class MarketingSourceFactory:
     def create_adapters(self) -> list[MarketingSourceAdapter]:
         """Discover all available marketing sources and create adapters for them."""
         try:
-            # Cache warehouse data
-            database = create_hogql_database(team=self.context.team)
-            self._warehouse_tables = DataWarehouseTable.objects.filter(
-                team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
-            ).prefetch_related("externaldataschema_set")
-            self._sources_map = self.context.team.marketing_analytics_config.sources_map
-
             adapters = []
             adapters.extend(self._create_native_adapters())
             adapters.extend(self._create_external_adapters())
@@ -107,14 +102,14 @@ class MarketingSourceFactory:
 
     def _create_googleads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[GoogleAdsConfig]:
         """Create Google Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["GoogleAds"]
         campaign_table = None
         campaign_stats_table = None
 
         for table in tables:
-            table_suffix = getattr(table, "name", "").split(".")[-1].lower()
+            table_suffix = table.name.split(".")[-1].lower()
 
             # Check for campaign table
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
@@ -128,7 +123,14 @@ class MarketingSourceFactory:
         if not (campaign_table and campaign_stats_table):
             return None
 
-        return {"campaign_table": campaign_table, "stats_table": campaign_stats_table, "source_id": source.id}
+        config = GoogleAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
 
     def _create_external_adapters(self) -> list[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources"""
@@ -151,13 +153,13 @@ class MarketingSourceFactory:
                 if not source_map:
                     continue
 
-                config = {
-                    "table": table,
-                    "source_map": source_map,
-                    "source_type": source.source_type,
-                    "source_id": source.id,
-                    "schema_name": self._get_table_schema_name(table),
-                }
+                config = ExternalConfig(
+                    table=table,
+                    source_map=source_map,
+                    source_type=source.source_type,
+                    source_id=str(source.id),
+                    schema_name=self._get_table_schema_name(table),
+                )
                 adapters.append(adapter_class(config=config, context=self.context))
 
         return adapters
@@ -182,7 +184,7 @@ class MarketingSourceFactory:
             if not source_map:
                 continue
 
-            platform_type = map_url_to_provider(getattr(table, "url_pattern", ""))
+            platform_type = map_url_to_provider(table.url_pattern)
             if not platform_type:
                 continue
 
@@ -190,19 +192,20 @@ class MarketingSourceFactory:
             if not adapter_class:
                 continue
 
-            config = {
-                "table": table,
-                "source_map": source_map,
-                "source_type": "self_managed",
-                "schema_name": self._get_table_schema_name(table),
-            }
+            config = ExternalConfig(
+                table=table,
+                source_map=source_map,
+                source_type="self_managed",
+                source_id=str(table.id),
+                schema_name=self._get_table_schema_name(table),
+            )
             adapters.append(adapter_class(config=config, context=self.context))
 
         return adapters
 
-    def _get_source_map_for_table(self, table, source_id: str | None = None) -> Optional[dict]:
+    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[dict]:
         """Get source map for a table"""
-        if table.external_data_source and source_id:
+        if source_id and table.external_data_source and table.external_data_source.source_type:
             # Managed table
             table_id = str(table.id)
             schema_id = self._get_schema_id_for_table(table)
@@ -243,7 +246,7 @@ class MarketingSourceFactory:
 
         return "\nUNION ALL\n".join(queries) if queries else FALLBACK_EMPTY_QUERY
 
-    def _get_schema_id_for_table(self, table):
+    def _get_schema_id_for_table(self, table: DataWarehouseTable) -> str | None:
         """Get schema ID for a warehouse table"""
         try:
             # Use prefetched data to avoid N+1 queries
@@ -252,9 +255,9 @@ class MarketingSourceFactory:
         except Exception:
             return None
 
-    def _get_table_schema_name(self, table) -> str:
+    def _get_table_schema_name(self, table: DataWarehouseTable) -> str:
         """Get schema name for a table"""
-        if table.external_data_source:
+        if table.external_data_source and table.external_data_source.source_type:
             schema_id = self._get_schema_id_for_table(table)
             if schema_id:
                 try:
@@ -265,4 +268,4 @@ class MarketingSourceFactory:
                 except Exception:
                     pass
             return table.name
-        return getattr(table, "name", UNKNOWN_TABLE_NAME)
+        return table.name

@@ -80,7 +80,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     // Preserve the existing schema to keep UTM mappings
                     schema: {
                         ...value.schema,
-                        ...((firstSerie as any).schema || {}),
+                        ...(firstSerie as any).schema,
                     },
                 }
 

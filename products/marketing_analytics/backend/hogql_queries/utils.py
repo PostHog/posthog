@@ -10,20 +10,22 @@ from .constants import DEFAULT_MARKETING_ANALYTICS_COLUMNS
 logger = structlog.get_logger(__name__)
 
 
-def get_marketing_analytics_columns_with_conversion_goals(conversion_goals: list) -> list[str]:
+def get_marketing_analytics_columns_with_conversion_goals(
+    conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3],
+) -> list[str]:
     """Get column names including conversion goals"""
 
     columns = DEFAULT_MARKETING_ANALYTICS_COLUMNS.copy()
 
-    for index, conversion_goal in enumerate(conversion_goals):
-        goal_name = getattr(conversion_goal, "conversion_goal_name", f"Goal {index + 1}")
+    for conversion_goal in conversion_goals:
+        goal_name = conversion_goal.conversion_goal_name
         columns.append(goal_name)
         columns.append(f"Cost per {goal_name}")
 
     return columns
 
 
-def get_source_map_field(source_map, field_name, fallback=None):
+def get_source_map_field(source_map, field_name, fallback=None) -> str | None:
     """Helper to safely get field from source_map regardless of type"""
     if hasattr(source_map, field_name):
         return getattr(source_map, field_name, fallback)
@@ -33,29 +35,13 @@ def get_source_map_field(source_map, field_name, fallback=None):
         return fallback
 
 
-def get_marketing_config_value(config, key, default=None):
-    """Safely extract value from marketing config regardless of type"""
-    if not config:
-        return default
-
-    if hasattr(config, key):
-        return getattr(config, key, default)
-    elif hasattr(config, "get"):
-        return config.get(key, default)
-    else:
-        try:
-            return dict(config).get(key, default)
-        except (TypeError, AttributeError):
-            return default
-
-
 def convert_team_conversion_goals_to_objects(
     team_conversion_goals, team_pk: int
 ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
     """Convert team conversion goals from dict format to ConversionGoalFilter objects"""
 
     logger = structlog.get_logger(__name__)
-    converted_goals = []
+    converted_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
 
     for goal in team_conversion_goals:
         try:
@@ -72,6 +58,7 @@ def convert_team_conversion_goals_to_objects(
             # Clean up the goal_dict for each schema type
             cleaned_goal_dict = goal_dict.copy()
 
+            converted_goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
             if kind == NodeKind.EVENTS_NODE:
                 # EventsNode doesn't need special field mapping
                 converted_goal = ConversionGoalFilter1(**cleaned_goal_dict)

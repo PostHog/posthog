@@ -7,7 +7,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
@@ -60,7 +64,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def select_input_raw(self) -> list[str]:
         """Get the raw select input, using defaults if none specified"""
-        return DEFAULT_MARKETING_ANALYTICS_COLUMNS if len(self.query.select) == 0 else self.query.select
+        return (
+            DEFAULT_MARKETING_ANALYTICS_COLUMNS
+            if self.query.select is None or len(self.query.select) == 0
+            else self.query.select
+        )
 
     @cached_property
     def _factory(self):
@@ -70,7 +78,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         context = QueryContext(
             date_range=self.query_date_range,
             team=self.team,
-            base_currency=self.team.base_currency,
+            base_currency=self.team.base_currency or DEFAULT_CURRENCY,
         )
         return MarketingSourceFactory(context=context)
 
@@ -88,7 +96,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_table_query"):
             # Get marketing source adapters
@@ -184,7 +192,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
     def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build SELECT columns for the CTE
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
             ast.Alias(
@@ -208,7 +216,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build GROUP BY
-        group_by_exprs = [
+        group_by_exprs: list[ast.Expr] = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
         ]
@@ -386,7 +394,9 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             ),
         ]
 
-    def _create_conversion_goal_processors(self, conversion_goals: list) -> list:
+    def _create_conversion_goal_processors(
+        self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+    ) -> list:
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
@@ -445,7 +455,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
 
         return all_selects
 
-    def _get_team_conversion_goals(self):
+    def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
         conversion_goals = self.team.marketing_analytics_config.conversion_goals
         return convert_team_conversion_goals_to_objects(conversion_goals, self.team.pk)
@@ -477,6 +487,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
 
                 conditions.extend([gte_condition, lte_condition])
             else:
+                date_cast: ast.Expr
                 # Build for regular datetime conditions
                 if date_field != "timestamp":
                     date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
