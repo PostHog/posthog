@@ -185,9 +185,9 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to&nbsp;
-                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
-                                <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
+                                {`Add up to ${
+                                    isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS
+                                } ${isSecondary ? 'secondary' : 'primary'} metrics.`}
                             </p>
                             <p>
                                 {isSecondary
