@@ -40,6 +40,13 @@ export interface OperatorValueSelectProps {
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
+    // Used for feature flag dependencies.
+    featureFlagData?: {
+        key: string
+        name: string
+        variants: Array<{ key: string; name?: string }>
+        isMultivariate: boolean
+    }
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -84,6 +91,7 @@ export function OperatorValueSelect({
     groupTypeIndex = undefined,
     size,
     editable,
+    featureFlagData,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -114,6 +122,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Selector
         } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
             propertyType = PropertyType.Cohort
+        } else if (type === PropertyFilterType.FlagDependency) {
+            propertyType = PropertyType.Flag
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
         } else if (
@@ -220,6 +230,7 @@ export function OperatorValueSelect({
                         groupTypeIndex={groupTypeIndex}
                         editable={editable}
                         size={size}
+                        featureFlagData={featureFlagData}
                     />
                 </div>
             )}

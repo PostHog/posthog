@@ -964,6 +964,12 @@ export interface LogPropertyFilter extends BasePropertyFilter {
 export interface FeaturePropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Feature
     operator: PropertyOperator
+    featureFlagData?: {
+        key: string
+        name: string
+        variants: Array<{ key: string; name?: string }>
+        isMultivariate: boolean
+    }
 }
 
 export interface HogQLPropertyFilter extends BasePropertyFilter {

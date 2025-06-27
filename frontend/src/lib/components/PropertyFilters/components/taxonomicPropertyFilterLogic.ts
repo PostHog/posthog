@@ -15,7 +15,13 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, CohortPropertyFilter, EventMetadataPropertyFilter, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortPropertyFilter,
+    EventMetadataPropertyFilter,
+    FeaturePropertyFilter,
+    PropertyFilterType,
+} from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
@@ -97,6 +103,19 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 if (propertyType === 'cohort' && item?.name) {
                     const cohortFilter = filter as CohortPropertyFilter
                     cohortFilter.cohort_name = item.name
+                }
+
+                // Add flag key for display if this is a feature flag filter
+                if (propertyType === PropertyFilterType.FlagDependency && item?.key) {
+                    const featureFilter = filter as FeaturePropertyFilter
+                    featureFilter.label = item.key
+                    // Store the feature flag data for value suggestions
+                    featureFilter.featureFlagData = {
+                        key: item.key,
+                        name: item.name,
+                        variants: item.filters?.multivariate?.variants || [],
+                        isMultivariate: !!item.filters?.multivariate,
+                    }
                 }
 
                 if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {

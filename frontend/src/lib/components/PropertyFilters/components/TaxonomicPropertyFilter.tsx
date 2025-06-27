@@ -30,6 +30,7 @@ import {
     GroupTypeIndex,
     PropertyDefinitionType,
     PropertyFilterType,
+    FeaturePropertyFilter,
 } from '~/types'
 
 import { OperandTag } from './OperandTag'
@@ -169,6 +170,9 @@ export function TaxonomicPropertyFilter({
                         label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
                         ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
+                        ...(filter.type === PropertyFilterType.FlagDependency
+                            ? { featureFlagData: filter.featureFlagData }
+                            : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
@@ -180,6 +184,11 @@ export function TaxonomicPropertyFilter({
                     ? (filter?.group_type_index as GroupTypeIndex)
                     : undefined
             }
+            featureFlagData={
+                filter?.type === PropertyFilterType.FlagDependency
+                    ? (filter as FeaturePropertyFilter)?.featureFlagData
+                    : undefined
+            }
         />
     )
 
@@ -188,6 +197,8 @@ export function TaxonomicPropertyFilter({
             ? filter.cohort_name || `Cohort #${filter?.value}`
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
             ? filter.label || `Group ${filter?.value}`
+            : filter?.type === PropertyFilterType.FlagDependency && filter?.label
+            ? filter.label
             : filter?.key && (
                   <PropertyKeyInfo
                       value={filter.key}

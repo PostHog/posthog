@@ -265,11 +265,21 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
 
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
+// Also strip out featureFlagData from feature properties as that's client-side only too.
 function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
     if (groups === undefined) {
         return undefined
     }
-    return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
+    return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => ({
+        ...rest,
+        properties: rest.properties?.map((property) => {
+            if (property.type === PropertyFilterType.FlagDependency && 'featureFlagData' in property) {
+                const { featureFlagData, ...cleanProperty } = property
+                return cleanProperty
+            }
+            return property
+        }),
+    }))
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
