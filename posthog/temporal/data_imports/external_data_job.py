@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.schedule import a_trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
@@ -43,6 +44,7 @@ from posthog.warehouse.data_load.source_templates import (
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
+from posthog.temporal.common.client import async_connect
 
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
@@ -185,7 +187,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     job = update_external_job_status(
         job_id=job_id,
-        status=inputs.status,
+        status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
@@ -214,6 +216,13 @@ class CreateSourceTemplateInputs:
 @activity.defn
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
+
+
+@activity.defn
+async def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    """Activity: call Temporal Schedule trigger with BUFFER_ONE overlap."""
+    temporal = await async_connect()
+    await a_trigger_schedule_buffer_one(temporal, schedule_id)
 
 
 # TODO: update retry policies
@@ -325,10 +334,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
         except exceptions.ActivityError as e:
-            update_inputs.status = ExternalDataJob.Status.FAILED
-            update_inputs.internal_error = str(e.cause)
-            update_inputs.latest_error = str(e.cause)
-            raise
+            # Check if this is a WorkerShuttingDownError - implement Buffer One retry
+            if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                schedule_id = str(inputs.external_data_schema_id)
+                await workflow.execute_activity(
+                    trigger_schedule_buffer_one_activity,
+                    schedule_id,
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+                return
+            else:
+                # Handle other activity errors normally
+                update_inputs.status = ExternalDataJob.Status.FAILED
+                update_inputs.internal_error = str(e.cause)
+                update_inputs.latest_error = str(e.cause)
+                raise
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)

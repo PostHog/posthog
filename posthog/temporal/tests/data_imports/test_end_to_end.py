@@ -3,7 +3,6 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, cast
 from unittest import mock
-
 import aioboto3
 import deltalake
 import posthoganalytics
@@ -21,6 +20,7 @@ from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio import exceptions as temporal_exceptions
 
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -50,6 +50,7 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
 from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
 from posthog.warehouse.models.external_table_definitions import external_tables
 from posthog.warehouse.models.join import DataWarehouseJoin
@@ -62,6 +63,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
+
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -187,9 +189,9 @@ async def _run(
 
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
-        team_id=team.id,
+        team_id=team.pk,
         external_data_source_id=source.pk,
-        external_data_schema_id=schema.id,
+        external_data_schema_id=schema.pk,
         billable=billable if billable is not None else True,
     )
 
@@ -2071,10 +2073,10 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
 
-    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema_id)
+    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema.pk)
     mock_update_should_sync.assert_called_once_with(
-        schema_id=str(schema.id),
-        team_id=team.id,
+        schema_id=str(schema.pk),
+        team_id=team.pk,
         should_sync=False,
     )
 
@@ -2118,3 +2120,197 @@ async def test_append_only_table(team, mock_stripe_client):
     # We should now have 2 rows with the same `id`
     assert len(res.results) == 2
     assert res.results[0][0] == res.results[1][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_that_activity_triggers_schedule_buffer_one(team: Team, mock_stripe_client):
+    # Setup: create an external data source
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_test"},
+    )
+
+    # Setup: create external data schema
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="BalanceTransaction",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+    )
+
+    # Create workflow input
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.pk,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.pk,
+    )
+
+    # Test the workflow's error handling logic directly
+    # This simulates what happens when the workflow catches a WorkerShuttingDownError
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_trigger_schedule_buffer_one",
+            new_callable=mock.AsyncMock,
+        ) as mock_schedule,
+    ):
+        # Test the trigger_schedule_buffer_one_activity function directly
+        # This is what the workflow calls when it catches a WorkerShuttingDownError
+        from posthog.temporal.data_imports.external_data_job import trigger_schedule_buffer_one_activity
+
+        schedule_id = str(inputs.external_data_schema_id)
+        await trigger_schedule_buffer_one_activity(schedule_id)
+
+    # Ensure buffer-one trigger was called with the schema ID
+    mock_schedule.assert_awaited_once()
+    assert mock_schedule.call_args[0][1] == str(schema.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team: Team, mock_stripe_client):
+    # Setup: create an external data source
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_test"},
+    )
+
+    # Setup: create external data schema
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="BalanceTransaction",
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+    )
+
+    # Create workflow input
+    inputs = ExternalDataWorkflowInputs(
+        team_id=team.pk,
+        external_data_source_id=source.pk,
+        external_data_schema_id=schema.pk,
+    )
+
+    def mock_paginate(
+        class_self,
+        path: str = "",
+        method: Any = "GET",
+        params: Optional[dict[str, Any]] = None,
+        json: Optional[dict[str, Any]] = None,
+        auth: Optional[Any] = None,
+        paginator: Optional[Any] = None,
+        data_selector: Optional[Any] = None,
+        hooks: Optional[Any] = None,
+    ):
+        return iter([])
+
+    def mock_to_session_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "aws_session_token": None,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def mock_to_object_store_rs_credentials(class_self):
+        return {
+            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    with (
+        mock.patch.object(RESTClient, "paginate", mock_paginate),
+        mock.patch.object(ListObject, "auto_paging_iter", return_value=iter([])),
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_trigger_schedule_buffer_one",
+            new_callable=mock.AsyncMock,
+        ) as mock_schedule,
+        mock.patch(
+            "posthog.temporal.common.shutdown.ShutdownMonitor.raise_if_is_worker_shutdown",
+            side_effect=temporal_exceptions.ApplicationError("Worker is shutting down", type="WorkerShuttingDownError"),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.check_billing_limits.list_limited_team_attributes",
+            return_value=[],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.create_job_model.create_external_data_job_model_activity",
+            return_value=("test-job-id", False, "Stripe"),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.sync_new_schemas_activity",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.create_source_templates",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.workflow_activities.calculate_table_size.calculate_table_size_activity",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.update_external_data_job_model",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_rows",
+            return_value=0,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.finish_row_tracking",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.update_external_job_status",
+            return_value=mock.MagicMock(),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.update_should_sync",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.posthoganalytics.capture",
+            return_value=None,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_machine_id",
+            return_value="test-machine-id",
+        ),
+    ):
+        # This will run the full workflow, which will hit the shutdown error in import_data_activity_sync and should trigger the buffer-one schedule
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+
+    # Ensure buffer-one trigger was called with the schema ID
+    mock_schedule.assert_awaited_once()
+    assert mock_schedule.call_args[0][1] == str(schema.pk)
