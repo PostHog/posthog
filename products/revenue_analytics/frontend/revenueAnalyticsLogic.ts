@@ -9,7 +9,7 @@ import {
     DataTableNode,
     NodeKind,
     QuerySchema,
-    RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsGrossRevenueQueryGroupBy,
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
@@ -96,7 +96,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
-        setGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy[]) => ({ groupBy }),
+        setGroupBy: (groupBy: RevenueAnalyticsGrossRevenueQueryGroupBy[]) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -116,7 +116,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
         ],
         groupBy: [
-            [] as RevenueAnalyticsInsightsQueryGroupBy[],
+            [] as RevenueAnalyticsGrossRevenueQueryGroupBy[],
             persistConfig,
             {
                 setGroupBy: (_, { groupBy }) => groupBy,
@@ -230,7 +230,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                        kind: NodeKind.RevenueAnalyticsGrossRevenueQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,

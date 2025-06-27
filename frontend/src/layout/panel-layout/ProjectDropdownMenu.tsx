@@ -59,11 +59,11 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
                 align="start"
-                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)] max-h-[calc(90vh)]"
+                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
             >
                 <Combobox>
                     <Combobox.Search placeholder="Search projects..." />
-                    <Combobox.Content>
+                    <Combobox.Content className="max-h-[calc(90vh-100px)]">
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>

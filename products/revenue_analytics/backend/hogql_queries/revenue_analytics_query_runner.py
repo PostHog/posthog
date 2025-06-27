@@ -8,7 +8,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
@@ -34,7 +34,7 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsInsightsQuery,
+        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
