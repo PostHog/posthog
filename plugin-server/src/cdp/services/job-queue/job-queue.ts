@@ -80,7 +80,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
-            .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
