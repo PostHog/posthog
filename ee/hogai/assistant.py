@@ -161,6 +161,37 @@ class Assistant:
             return self._astream()
         return self._stream()
 
+    def generate(self) -> list[dict[str, Any]]:
+        messages = []
+
+        for chunk in self._stream():
+            parsed_events = self._parse_sse_chunk(chunk)
+            for event_type, data in parsed_events:
+                if event_type == AssistantEventType.MESSAGE:
+                    messages.append({"type": event_type, "data": data})
+
+        return messages
+
+    def _parse_sse_chunk(self, chunk: str) -> list[tuple[str, dict[str, Any]]]:
+        events = []
+        lines = chunk.strip().split("\n")
+
+        i = 0
+        while i < len(lines):
+            if i + 1 < len(lines) and lines[i].startswith("event:") and lines[i + 1].startswith("data:"):
+                event_type = lines[i].replace("event:", "").strip()
+                data_str = lines[i + 1].replace("data:", "").strip()
+                try:
+                    data = json.loads(data_str)
+                    events.append((event_type, data))
+                except json.JSONDecodeError:
+                    pass
+                i += 2
+            else:
+                i += 1
+
+        return events
+
     def _astream(self):
         return SyncIterableToAsync(self._stream())
 

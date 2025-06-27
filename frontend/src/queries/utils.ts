@@ -40,8 +40,9 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -156,10 +157,16 @@ export function isRevenueAnalyticsOverviewQuery(
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export function isRevenueAnalyticsInsightsQuery(
+export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
@@ -706,25 +713,29 @@ export function getMathTypeWarning(
  * Recursively adds the latest version for the respective kind to each node. This
  * is necessary so that schema migrations don't run on hardcoded queries that
  * are already the latest version. */
-export function getFreshQuery<T = any>(node: T): T {
+export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion?: boolean }): T {
+    const recursion = options?.recursion ?? true
+
     if (node === null || typeof node !== 'object') {
         return node
     }
 
-    if (Array.isArray(node)) {
-        return (node as unknown as any[]).map(getFreshQuery) as unknown as T
+    if (recursion === true && Array.isArray(node)) {
+        return (node as unknown as any[]).map((value) => setLatestVersionsOnQuery(value)) as unknown as T
     }
 
     const cloned: Record<string, any> = { ...(node as any) }
 
-    if ('kind' in cloned) {
+    if ('kind' in cloned && Object.values(NodeKind).includes(cloned.kind)) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
         cloned.version = latest || 1
     }
 
-    for (const [key, value] of Object.entries(cloned)) {
-        if (value !== null && typeof value === 'object') {
-            cloned[key] = getFreshQuery(value)
+    if (recursion === true) {
+        for (const [key, value] of Object.entries(cloned)) {
+            if (value !== null && typeof value === 'object') {
+                cloned[key] = setLatestVersionsOnQuery(value)
+            }
         }
     }
 
