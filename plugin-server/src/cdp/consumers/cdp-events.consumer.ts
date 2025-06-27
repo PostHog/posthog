@@ -51,8 +51,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
 
         const invocationsToBeQueued = [
-            ...(await this.runWithHeartbeat(() => this.createHogFunctionInvocations(invocationGlobals))),
-            ...(await this.runWithHeartbeat(() => this.createHogFlowInvocations(invocationGlobals))),
+            ...(await this.createHogFunctionInvocations(invocationGlobals)),
+            ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
         return {
