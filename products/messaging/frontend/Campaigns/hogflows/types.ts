@@ -11,6 +11,14 @@ const _commonActionFields = {
     filters: z.any(), // TODO: Correct to the right type
 }
 
+const CyclotronInputSchema = z.object({
+    value: z.any(),
+    templating: z.enum(['hog', 'liquid']).optional(),
+    secret: z.boolean().optional(),
+    bytecode: z.any().optional(),
+    order: z.number().optional(),
+})
+
 const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
@@ -89,21 +97,32 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Native message
     z.object({
         ..._commonActionFields,
-        type: z.literal('message'),
+        type: z.literal('function_email'),
         config: z.object({
-            message: z.any(),
-            channel: z.string(),
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-mailgun-send-email'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_sms'),
+        config: z.object({
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-twilio'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_webhook'),
+        config: z.object({
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-webhook'),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
-    // Function
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('function'),
-        config: z.object({
-            function_id: z.string(),
-        }),
-    }),
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),

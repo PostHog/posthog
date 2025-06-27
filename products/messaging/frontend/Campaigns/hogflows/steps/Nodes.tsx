@@ -19,14 +19,15 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     dropzone: DropzoneNode,
     // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
-    message: HogFlowActionNode,
+    function_email: HogFlowActionNode,
+    function_sms: HogFlowActionNode,
+    function_webhook: HogFlowActionNode,
     conditional_branch: HogFlowActionNode,
     delay: HogFlowActionNode,
     wait_until_condition: HogFlowActionNode,
     exit: HogFlowActionNode,
     random_cohort_branch: HogFlowActionNode,
     wait_until_time_window: HogFlowActionNode,
-    function: HogFlowActionNode,
 }
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
