@@ -44,7 +44,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queue === 'hog') {
-                result = this.hogExecutor.execute(nextInvocation)
+                result = await this.hogExecutor.execute(nextInvocation)
                 // Heartbeat and free the event loop to handle health checks
                 this.heartbeat()
                 await new Promise((resolve) => process.nextTick(resolve))
@@ -98,6 +98,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 const hogFunction = await this.hogFunctionManager.getHogFunction(item.functionId)
                 if (!hogFunction) {
                     logger.error('⚠️', 'Error finding hog function', {
+                        id: item.functionId,
+                    })
+
+                    failedInvocations.push(item)
+
+                    return null
+                }
+
+                if (!hogFunction.enabled || hogFunction.deleted) {
+                    logger.info('⚠️', 'Skipping invocation due to hog function being deleted or disabled', {
                         id: item.functionId,
                     })
 
@@ -162,9 +172,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async stop() {
-        await super.stop()
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {

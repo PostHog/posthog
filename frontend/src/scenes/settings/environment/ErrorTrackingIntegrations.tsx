@@ -8,7 +8,7 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function ErrorTrackingIntegrations(): JSX.Element {
-    const { linearIntegrations } = useValues(integrationsLogic)
+    const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
 
     const onDeleteClick = (id: number): void => {
@@ -45,6 +45,22 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     }
                 />
             ))}
+            {githubIntegrations?.map((integration) => (
+                <IntegrationView
+                    key={integration.id}
+                    integration={integration}
+                    suffix={
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => onDeleteClick(integration.id)}
+                            icon={<IconTrash />}
+                        >
+                            Disconnect
+                        </LemonButton>
+                    }
+                />
+            ))}
 
             <div className="flex">
                 <LemonButton
@@ -56,6 +72,18 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     disableClientSideRouting
                 >
                     Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace
+                </LemonButton>
+            </div>
+            <div className="flex">
+                <LemonButton
+                    type="secondary"
+                    to={api.integrations.authorizeUrl({
+                        kind: 'github',
+                        next: router.values.currentLocation.pathname,
+                    })}
+                    disableClientSideRouting
+                >
+                    Connect <>{githubIntegrations?.length > 0 ? 'another' : 'a'}</> GitHub organization
                 </LemonButton>
             </div>
         </div>

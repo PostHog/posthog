@@ -499,6 +499,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return `${teamId}:${personUuid}`
     }
 
+    clearCacheByUuid(teamId: number, personUuid: string): void {
+        this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+    }
+
     clearCache(teamId: number, distinctId: string): void {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
         const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
@@ -508,7 +512,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         // Clear the person data if we have the UUID
         if (personUuid) {
-            this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+            this.clearCacheByUuid(teamId, personUuid)
         }
 
         // Clear the check cache

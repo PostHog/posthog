@@ -9,7 +9,7 @@ exports[`SegmentDestinationExecutorService segment plugins should call the plugi
   },
   {
     "level": "debug",
-    "message": "endpoint, https://api2.amplitude.com/2/httpapi",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -407,7 +407,7 @@ exports[`SegmentDestinationExecutorService segment plugins should handle non ret
   },
   {
     "level": "debug",
-    "message": "endpoint, https://api2.amplitude.com/2/httpapi",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -805,7 +805,7 @@ exports[`SegmentDestinationExecutorService segment plugins should handle throwHt
   },
   {
     "level": "debug",
-    "message": "endpoint, https://api.gameball.co/api/v3.0/integrations/event",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -912,7 +912,7 @@ exports[`SegmentDestinationExecutorService segment plugins should retry retryabl
   },
   {
     "level": "debug",
-    "message": "endpoint, https://api2.amplitude.com/2/httpapi",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -1305,7 +1305,7 @@ exports[`SegmentDestinationExecutorService segment plugins works with multiple f
   },
   {
     "level": "debug",
-    "message": "endpoint, https://posthog-sandbox.pipedrive.com/api/v1/itemSearch/field",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -1335,7 +1335,7 @@ exports[`SegmentDestinationExecutorService segment plugins works with multiple f
   },
   {
     "level": "debug",
-    "message": "endpoint, https://posthog-sandbox.pipedrive.com/api/v1/persons",
+    "message": "endpoint, https://httpstatuses.maor.io/429",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
