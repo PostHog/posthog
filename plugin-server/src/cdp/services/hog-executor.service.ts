@@ -338,6 +338,9 @@ export class HogExecutorService {
                 result = await this.execute(nextInvocation, options)
             }
 
+            // NOTE: this is a short term hack until we have removed the old fetch queue method
+            result.invocation.queue = 'hog'
+
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
