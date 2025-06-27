@@ -46,8 +46,8 @@ def _capture_environments_rollback_event(
         properties.update(additional_properties)
 
     posthog_client.capture(
-        str(context.user.distinct_id),
-        event_name,
+        distinct_id=str(context.user.distinct_id),
+        event=event_name,
         properties=properties,
         groups=groups(context.organization),
     )
