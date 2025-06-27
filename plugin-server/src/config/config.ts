@@ -172,7 +172,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
-        CDP_CYCLOTRON_BATCH_SIZE: 300,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
