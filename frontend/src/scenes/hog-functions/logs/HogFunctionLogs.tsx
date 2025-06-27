@@ -155,48 +155,46 @@ function HogFunctionLogsStatus({
                 {capitalizeFirstLetter(status)}
             </LemonTag>
 
-            <LemonMenu
-                items={[
-                    eventId && !internalEvent
-                        ? {
-                              label: 'View event',
-                              to: urls.event(eventId, ''),
-                          }
-                        : null,
-                    internalEvent
-                        ? null
-                        : {
-                              label: 'Retry event',
-                              disabledReason: !eventId ? 'Could not find the source event' : undefined,
-                              onClick: () => retryInvocations([record]),
-                          },
-                    internalEvent
-                        ? null
-                        : {
-                              label: 'Select for retry',
-                              onClick: () => {
-                                  setSelectingMany(true)
-                                  setSelectedForRetry({
-                                      [record.instanceId]: true,
-                                  })
-                              },
-                          },
-                    {
-                        label: 'Test with this event in configuration',
-                        onClick: () => {
-                            loadSampleGlobals({ eventId })
-                            toggleExpanded(true)
-                            router.actions.push(urls.hogFunction(hogFunctionId) + '?tab=configuration')
+            {!internalEvent && (
+                <LemonMenu
+                    items={[
+                        eventId
+                            ? {
+                                  label: 'View event',
+                                  to: urls.event(eventId, ''),
+                              }
+                            : null,
+                        {
+                            label: 'Retry event',
+                            disabledReason: !eventId ? 'Could not find the source event' : undefined,
+                            onClick: () => retryInvocations([record]),
                         },
-                    },
-                ]}
-            >
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconEllipsis className="rotate-90" />}
-                    loading={thisRetry === 'pending'}
-                />
-            </LemonMenu>
+                        {
+                            label: 'Select for retry',
+                            onClick: () => {
+                                setSelectingMany(true)
+                                setSelectedForRetry({
+                                    [record.instanceId]: true,
+                                })
+                            },
+                        },
+                        {
+                            label: 'Test with this event in configuration',
+                            onClick: () => {
+                                loadSampleGlobals({ eventId })
+                                toggleExpanded(true)
+                                router.actions.push(urls.hogFunction(hogFunctionId) + '?tab=configuration')
+                            },
+                        },
+                    ]}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconEllipsis className="rotate-90" />}
+                        loading={thisRetry === 'pending'}
+                    />
+                </LemonMenu>
+            )}
         </div>
     )
 }
