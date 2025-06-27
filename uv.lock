@@ -4004,7 +4004,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", directory = "../posthog-python-local" },
+    { name = "posthoganalytics", specifier = ">=6.0.0" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4125,7 +4125,8 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-source = { directory = "../posthog-python-local" }
+version = "6.0.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
     { name = "distro" },
@@ -4134,53 +4135,10 @@ dependencies = [
     { name = "six" },
     { name = "typing-extensions" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", marker = "extra == 'test'" },
-    { name = "backoff", specifier = ">=1.10.0" },
-    { name = "coverage", marker = "extra == 'test'" },
-    { name = "distro", specifier = ">=1.5.0" },
-    { name = "django", marker = "extra == 'test'" },
-    { name = "django-stubs", marker = "extra == 'dev'" },
-    { name = "freezegun", marker = "extra == 'test'", specifier = "==1.5.1" },
-    { name = "google-genai", marker = "extra == 'test'" },
-    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=0.2.0" },
-    { name = "langchain-anthropic", marker = "extra == 'test'", specifier = ">=0.3.15" },
-    { name = "langchain-community", marker = "extra == 'test'", specifier = ">=0.3.25" },
-    { name = "langchain-core", marker = "extra == 'test'", specifier = ">=0.3.65" },
-    { name = "langchain-openai", marker = "extra == 'test'", specifier = ">=0.3.22" },
-    { name = "langgraph", marker = "extra == 'test'", specifier = ">=0.4.8" },
-    { name = "lxml", marker = "extra == 'dev'" },
-    { name = "mock", marker = "extra == 'test'", specifier = ">=2.0.0" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "mypy-baseline", marker = "extra == 'dev'" },
-    { name = "openai", marker = "extra == 'test'" },
-    { name = "packaging", marker = "extra == 'dev'" },
-    { name = "parameterized", marker = "extra == 'test'", specifier = ">=0.8.1" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pydantic", marker = "extra == 'dev'" },
-    { name = "pydantic", marker = "extra == 'test'" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-asyncio", marker = "extra == 'test'" },
-    { name = "pytest-timeout", marker = "extra == 'test'" },
-    { name = "python-dateutil", specifier = ">=2.2" },
-    { name = "requests", specifier = ">=2.7,<3.0" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "setuptools", marker = "extra == 'dev'" },
-    { name = "six", specifier = ">=1.5" },
-    { name = "tomli", marker = "extra == 'dev'" },
-    { name = "tomli-w", marker = "extra == 'dev'" },
-    { name = "twine", marker = "extra == 'dev'" },
-    { name = "types-mock", marker = "extra == 'dev'" },
-    { name = "types-python-dateutil", marker = "extra == 'dev'" },
-    { name = "types-requests", marker = "extra == 'dev'" },
-    { name = "types-setuptools", marker = "extra == 'dev'" },
-    { name = "types-six", marker = "extra == 'dev'" },
-    { name = "typing-extensions", specifier = ">=4.2.0" },
-    { name = "wheel", marker = "extra == 'dev'" },
+sdist = { url = "https://files.pythonhosted.org/packages/98/bf/8828b6b5dfbc44096345ba7b40ff6f9584da24d64619bd64c8b26233ab9a/posthoganalytics-6.0.0.tar.gz", hash = "sha256:49cb433ad7d148bfc191dceae151eea572f3f6221d9925d350d9a8f24bd3017a", size = 88529, upload-time = "2025-06-27T11:57:28.299Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/39/67a015d76643a8e79233d8f80c7898ce4fbab38e33ef88ce55670bd53f0e/posthoganalytics-6.0.0-py3-none-any.whl", hash = "sha256:824df3167a04cbca2edec59c78abbbd426ccce1cc19535d9ffb26f17259a8e38", size = 106101, upload-time = "2025-06-27T11:57:27.144Z" },
 ]
-provides-extras = ["langchain", "dev", "test"]
 
 [[package]]
 name = "pprintpp"
