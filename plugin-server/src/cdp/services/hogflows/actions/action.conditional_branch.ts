@@ -1,6 +1,5 @@
-import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { calculatedScheduledAt } from './common/delay'
@@ -14,7 +13,7 @@ export class HogFlowActionRunnerConditionalBranch {
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
     ): HogFlowActionResult {
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
+        const filterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             groups: {},
         })

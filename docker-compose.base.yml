@@ -12,10 +12,7 @@ services:
             - /root/.caddy
         environment:
             CADDYFILE: |
-                ${TLS_BLOCK:-}
-                ${CADDY_DOMAIN:-http://localhost:8000} {
-                    encode gzip zstd
-
+                http://localhost:8000 {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -60,8 +57,6 @@ services:
                     handle {
                         reverse_proxy web:8000
                     }
-                    
-                    ${LIVESTREAM_PROXY:-}
                 }
 
     db:
