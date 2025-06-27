@@ -5,20 +5,20 @@ import { useState } from "react"
 
 type SceneDescriptionFormProps = {
     defaultValue: string
-    canEdit: boolean
+    isEditing: boolean
     onSave: (value: string) => void
+    onCancel: () => void
 }
 
-export function SceneDescriptionForm({ defaultValue, canEdit, onSave }: SceneDescriptionFormProps): JSX.Element {
+export function SceneDescriptionForm({ defaultValue, isEditing, onSave, onCancel }: SceneDescriptionFormProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
-    const [isEditing, setIsEditing] = useState(false)
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         onSave(localValue)
     }
 
-    return canEdit && isEditing ? (
+    return isEditing ? (
         <form onSubmit={handleSubmit} name="page-description">
             <LemonField.Pure label="Description" className="gap-0" htmlFor="description">
                 <TextareaPrimitive
@@ -29,7 +29,7 @@ export function SceneDescriptionForm({ defaultValue, canEdit, onSave }: SceneDes
                 />
             </LemonField.Pure>
             <LemonButton type="primary" htmlType="submit">Save</LemonButton>
-            <LemonButton type="secondary" htmlType="button" onClick={() => setIsEditing(false)}>Cancel</LemonButton>
+            <LemonButton type="secondary" htmlType="button" onClick={() => onCancel()}>Cancel</LemonButton>
         </form>
     ) : (
         <LemonField.Pure label="Description" className="gap-0">
