@@ -1420,6 +1420,7 @@ export interface CohortCriteriaType {
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
+    sort_key?: string // Client-side only stable id for sorting.
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -4138,6 +4139,7 @@ export type IntegrationKind =
     | 'intercom'
     | 'email'
     | 'linear'
+    | 'github'
 
 export interface IntegrationType {
     id: number

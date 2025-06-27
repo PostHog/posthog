@@ -273,8 +273,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("", "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                ("", "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
 
@@ -308,7 +308,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("", "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                ("", "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
