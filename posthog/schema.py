@@ -9770,6 +9770,9 @@ class MarketingAnalyticsTableQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
+    dynamicConversionGoal: Any = Field(
+        default=None, description="Dynamic conversion goal that can be set in the UI without saving"
+    )
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     includeRevenue: Optional[bool] = None
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"

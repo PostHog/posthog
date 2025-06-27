@@ -3228,6 +3228,8 @@ export interface MarketingAnalyticsTableQuery
     offset?: integer
     /** Filter test accounts */
     filterTestAccounts?: boolean
+    /** Dynamic conversion goal that can be set in the UI without saving */
+    dynamicConversionGoal?: any | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {

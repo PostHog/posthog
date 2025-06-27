@@ -108,6 +108,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
             # Get conversion goals and create processors
             conversion_goals = self._get_team_conversion_goals()
+            if self.query.dynamicConversionGoal:
+                conversion_goals = convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk) + conversion_goals
             processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
 
             # Build the complete query with CTEs using AST
@@ -176,6 +178,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         # Get conversion goals from team config for column names
         conversion_goals = self._get_team_conversion_goals()
+        if self.query.dynamicConversionGoal:
+            conversion_goals = convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk) + conversion_goals
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
