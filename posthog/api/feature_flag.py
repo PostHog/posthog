@@ -952,6 +952,36 @@ class FeatureFlagViewSet(
             for feature_flag in all_serialized_flags
         )
 
+    @action(methods=["POST"], detail=False)
+    def bulk_keys(self, request: request.Request, **kwargs):
+        """
+        Get feature flag keys by IDs.
+        Accepts a list of feature flag IDs and returns a mapping of ID to key.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Convert to integers and filter out invalid IDs
+        try:
+            flag_ids = [int(id) for id in flag_ids if str(id).isdigit()]
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid flag IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Fetch flags by IDs
+        flags = FeatureFlag.objects.filter(
+            id__in=flag_ids, team__project_id=self.project_id, deleted=False
+        ).values_list("id", "key")
+
+        # Create mapping of ID to key
+        keys_mapping = {str(flag_id): key for flag_id, key in flags}
+
+        return Response({"keys": keys_mapping})
+
     @action(
         methods=["GET"],
         detail=False,

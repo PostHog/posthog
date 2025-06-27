@@ -19,7 +19,7 @@ import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     EventMetadataPropertyFilter,
-    FeaturePropertyFilter,
+    FlagDependencyPropertyFilter,
     PropertyFilterType,
 } from '~/types'
 
@@ -107,7 +107,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
 
                 // Add flag key for display if this is a feature flag filter
                 if (propertyType === PropertyFilterType.FlagDependency && item?.key) {
-                    const featureFilter = filter as FeaturePropertyFilter
+                    const featureFilter = filter as FlagDependencyPropertyFilter
                     featureFilter.label = item.key
                     // Store the feature flag data for value suggestions
                     featureFilter.featureFlagData = {

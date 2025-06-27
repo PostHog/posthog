@@ -22,11 +22,9 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
-
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
@@ -136,6 +134,11 @@ export function FeatureFlagReleaseConditions({
     const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
+
+    // Get flag key data for all flag dependencies
+    const { getFlagKey, flagKeysLoading } = useValues(releaseConditionsLogic)
+    const flagKeyData = (flagId: string): string => getFlagKey(flagId)
+
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
         return !!properties.find(
             (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
@@ -263,14 +266,18 @@ export function FeatureFlagReleaseConditions({
                                                 ? TaxonomicFilterGroupType.PersonProperties
                                                 : TaxonomicFilterGroupType.EventProperties
                                         )}
-                                    {property.type === PropertyFilterType.FlagDependency && (
-                                        <Tooltip title={property.key}>
-                                            <LemonSnack>
-                                                <IconFlag className="mr-1" />
-                                                {(property as any).label || property.key}
-                                            </LemonSnack>
-                                        </Tooltip>
-                                    )}
+                                    {property.type === PropertyFilterType.FlagDependency &&
+                                        (() => {
+                                            const flagId = property.key || ''
+                                            return (
+                                                <Tooltip title={flagId}>
+                                                    <LemonSnack>
+                                                        <IconFlag className="mr-1" />
+                                                        {flagKeysLoading ? 'Loading...' : flagKeyData(flagId)}
+                                                    </LemonSnack>
+                                                </Tooltip>
+                                            )
+                                        })()}
                                     {property.type !== PropertyFilterType.FlagDependency && (
                                         <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key}</LemonSnack>
                                     )}
