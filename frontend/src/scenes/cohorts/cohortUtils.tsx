@@ -113,6 +113,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                               ...c,
                                               ...('value_property' in c ? { value: c.value_property } : {}),
                                               value_property: undefined,
+                                              sort_key: undefined,
                                           } as AnyCohortCriteriaType)
                                   )
                               ),
