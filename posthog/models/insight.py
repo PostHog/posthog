@@ -174,11 +174,11 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                     else {}
                 )
             }
-            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
             insight_date_from = self.filters.get("date_from", None)
             insight_date_to = self.filters.get("date_to", None)
             dashboard_date_from = dashboard_filters.get("date_from", None)
             dashboard_date_to = dashboard_filters.get("date_to", None)
+            dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 
             filters = {
                 **self.filters,
