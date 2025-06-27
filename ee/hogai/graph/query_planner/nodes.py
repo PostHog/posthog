@@ -269,7 +269,7 @@ class QueryPlannerNode(AssistantNode):
                             {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},
                         ],
                     ),
-                    # Include inputs and plans for up to 5 previously generated insights in thread
+                    # Include inputs and plans for up to 10 previously generated insights in thread
                     *[
                         item
                         for message in state.messages
@@ -278,7 +278,7 @@ class QueryPlannerNode(AssistantNode):
                             ("human", message.query or "_No query description provided._"),
                             ("assistant", message.plan or "_No generated plan._"),
                         ]
-                    ][-10:],
+                    ][-20:],
                     # The description of a new insight is added to the end of the conversation.
                     ("human", state.root_tool_insight_plan or "_No query description provided._"),
                 ]

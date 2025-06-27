@@ -1,5 +1,6 @@
 from django.test import override_settings
 from langchain_core.agents import AgentAction
+from langchain_core.prompts import HumanMessagePromptTemplate, AIMessagePromptTemplate
 
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
@@ -36,10 +37,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
-        self.assertNotIn(f"{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Text", history[1].prompt.template)
+        self.assertNotIn(f"{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
@@ -53,10 +54,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
@@ -70,10 +71,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_typical_conversation(self):
         node = self._get_node()
@@ -98,17 +99,17 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question 3",
             )
         )
-        self.assertEqual(len(history), 5)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question 1", history[0].content)
-        self.assertEqual(history[1].type, "ai")
-        self.assertEqual(history[1].content, "Plan 1")
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Question 2", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Plan 2")
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Question 3", history[4].content)
+        self.assertEqual(len(history), 6, history)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question 1", history[1].prompt.template)
+        self.assertIsInstance(history[2], AIMessagePromptTemplate)
+        self.assertEqual(history[2].prompt.template, "Plan 1")
+        self.assertIsInstance(history[3], HumanMessagePromptTemplate)
+        self.assertIn("Question 2", history[3].prompt.template)
+        self.assertIsInstance(history[4], AIMessagePromptTemplate)
+        self.assertEqual(history[4].prompt.template, "Plan 2")
+        self.assertIsInstance(history[5], HumanMessagePromptTemplate)
+        self.assertIn("Question 3", history[5].prompt.template)
 
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
@@ -162,10 +163,10 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Foobar", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)  # system prompts + human message
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Foobar", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_visualization_message_limit(self):
         # Create 15 visualization messages
@@ -185,26 +186,27 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(AssistantState(messages=messages, root_tool_insight_plan="Final Question"))
 
         # We expect 21 messages in total:
+        # - system prompt
         # - 10 pairs of human/ai messages from the last 10 visualization messages (20 total)
         # - 1 final human message with root_tool_insight_plan
-        self.assertEqual(len(history), 21)
+        self.assertEqual(len(history), 22, history)
 
         # Check that we only got the last 10 visualization messages
-        for i in range(10):
+        for i in range(1, 11):
             # The human messages should contain the questions from the last 10 visualization messages
-            human_msg = history[i * 2]
-            self.assertEqual(human_msg.type, "human")
-            self.assertIn(f"Question {i + 5}", human_msg.content)
+            human_msg = history[i * 2 - 1]
+            self.assertIsInstance(human_msg, HumanMessagePromptTemplate)
+            self.assertIn(f"Question {i + 4}", human_msg.prompt.template)
 
             # The AI messages should contain the plans from the last 10 visualization messages
-            ai_msg = history[i * 2 + 1]
-            self.assertEqual(ai_msg.type, "ai")
-            self.assertEqual(ai_msg.content, f"Plan {i + 5}")
+            ai_msg = history[i * 2]
+            self.assertIsInstance(ai_msg, AIMessagePromptTemplate)
+            self.assertEqual(ai_msg.prompt.template, f"Plan {i + 4}")
 
         # Check the final message contains the root_tool_insight_plan
         final_msg = history[-1]
-        self.assertEqual(final_msg.type, "human")
-        self.assertIn("Final Question", final_msg.content)
+        self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
+        self.assertIn("Final Question", final_msg.prompt.template)
 
     def test_events_in_context_adds_events_to_prompt(self):
         """Test that events from context are added to the events list"""
@@ -229,7 +231,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
         # Test with a system event that would normally be filtered
         # (we'll mock the core filter definitions to include a system event)
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
+        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
             mock_definitions.__getitem__.return_value = {
                 "test_system_event": {
                     "system": True,
@@ -267,7 +269,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         """Test events from context mixed with core event definitions"""
         node = self._get_node()
 
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
+        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
             mock_definitions.__getitem__.return_value = {
                 "core_event": {
                     "description": "Core event description",
