@@ -22,6 +22,7 @@ from dags import (
     web_preaggregated_daily,
     web_preaggregated_ddl,
     web_preaggregated_hourly,
+    oauth,
 )
 
 # Define resources for different environments
@@ -69,8 +70,6 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_bounces_daily_export,
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
-        web_preaggregated_daily.split_stats_export_by_team,
-        web_preaggregated_daily.split_bounces_export_by_team,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,
@@ -103,6 +102,7 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated_asset_checks.web_analytics_data_quality_job,
         web_preaggregated_asset_checks.simple_data_checks_job,
+        oauth.oauth_clear_expired_oauth_tokens_job,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
@@ -118,6 +118,7 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
         web_preaggregated_asset_checks.web_analytics_weekly_data_quality_schedule,
+        oauth.oauth_clear_expired_oauth_tokens_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

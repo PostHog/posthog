@@ -220,6 +220,7 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
 }
@@ -4140,6 +4141,7 @@ export type IntegrationKind =
     | 'intercom'
     | 'email'
     | 'linear'
+    | 'github'
 
 export interface IntegrationType {
     id: number

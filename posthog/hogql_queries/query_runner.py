@@ -74,6 +74,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    MarketingAnalyticsTableQuery,
 )
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -161,6 +162,7 @@ RunnableQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     SessionAttributionExplorerQuery,
+    MarketingAnalyticsTableQuery,
 ]
 
 
@@ -612,6 +614,19 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
+        )
+
+    if kind == "MarketingAnalyticsTableQuery":
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
+            MarketingAnalyticsTableQueryRunner,
+        )
+
+        return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
         )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
