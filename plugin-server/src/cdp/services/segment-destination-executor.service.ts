@@ -266,7 +266,7 @@ export class SegmentDestinationExecutorService {
                             }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
-                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
