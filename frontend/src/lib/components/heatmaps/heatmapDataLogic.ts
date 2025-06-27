@@ -9,7 +9,7 @@ import {
     HeatmapJsData,
     HeatmapJsDataPoint,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
+import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframeToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
 
