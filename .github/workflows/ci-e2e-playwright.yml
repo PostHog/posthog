@@ -82,7 +82,7 @@ jobs:
     playwright:
         name: Playwright E2E tests (${{ matrix.shard }}/3)
         needs: [changes]
-        runs-on: depot-ubuntu-latest-arm-4
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30
         strategy:
             fail-fast: false
