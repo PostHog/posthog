@@ -1242,7 +1242,7 @@ export type RetentionFilter = {
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 8 */
     totalIntervals?: integer
-    totalOccurrences?: integer
+    minimumOccurrences?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */

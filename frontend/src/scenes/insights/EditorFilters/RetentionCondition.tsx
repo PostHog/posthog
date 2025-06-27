@@ -28,7 +28,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
         returningEntity,
         retentionType,
         totalIntervals,
-        totalOccurrences = 1,
+        minimumOccurrences = 1,
         period,
     } = retentionFilter || {}
 
@@ -100,7 +100,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"
-                    defaultValue={totalOccurrences}
+                    defaultValue={minimumOccurrences}
                     min={1}
                     onBlur={({ target }) => {
                         let newValue = Number(target.value)
@@ -113,10 +113,10 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                             )
                         }
                         target.value = newValue.toString()
-                        updateInsightFilter({ totalOccurrences: newValue })
+                        updateInsightFilter({ minimumOccurrences: newValue })
                     }}
                 />
-                <div>time{totalOccurrences === 1 ? '' : 's'}</div>
+                <div>time{minimumOccurrences === 1 ? '' : 's'}</div>
             </div>
             <div className="flex items-center gap-2">
                 <div>during the next</div>
