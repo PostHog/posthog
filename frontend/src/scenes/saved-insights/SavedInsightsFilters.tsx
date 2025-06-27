@@ -4,7 +4,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect, LemonSelectOption, LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -20,17 +20,22 @@ export function SavedInsightsFilters({
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
-
     const { featureFlags } = useValues(featureFlagLogic)
-    const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+
+    const calendarHeatmapInsightEnabled = !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
-    const insightTypeOptions = calendarHeatmapInsightEnabled
-        ? INSIGHT_TYPE_OPTIONS
-        : (INSIGHT_TYPE_OPTIONS as LemonSelectOption<InsightType>[]).filter(
-              (option): option is LemonSelectOptionLeaf<InsightType> =>
-                  'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
-          )
+
+    const insightTypeOptions = INSIGHT_TYPE_OPTIONS.filter((option) => {
+        if (option.value === InsightType.CALENDAR_HEATMAP && !calendarHeatmapInsightEnabled) {
+            return false
+        }
+        if (option.value === InsightType.PATHS_V2 && !showPathsV2) {
+            return false
+        }
+        return true
+    })
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">

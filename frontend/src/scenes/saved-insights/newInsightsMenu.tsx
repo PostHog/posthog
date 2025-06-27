@@ -11,11 +11,13 @@ import { InsightType } from '~/types'
 export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
 
     const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
             insightType !== InsightType.JSON &&
-            (calendarHeatmapInsightEnabled || insightType !== InsightType.CALENDAR_HEATMAP)
+            (insightType !== InsightType.CALENDAR_HEATMAP || calendarHeatmapInsightEnabled) &&
+            (insightType !== InsightType.PATHS_V2 || showPathsV2)
     )
 
     return (
