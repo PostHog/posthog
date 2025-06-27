@@ -83,17 +83,19 @@ export const formatHogInput = async (
             }
         }
 
-        for (const [subkey, value] of Object.entries(bytecode)) {
-            if (subkey === EXTEND_OBJECT_KEY) {
-                continue
-            }
-            ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
-        }
+        await Promise.all(
+            Object.entries(bytecode).map(async ([subkey, value]) => {
+                if (subkey === EXTEND_OBJECT_KEY) {
+                    return
+                }
+                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+            })
+        )
 
         return ret
-    } else {
-        return bytecode
     }
+
+    return bytecode
 }
 
 const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
@@ -249,45 +251,49 @@ export class HogExecutorService {
             }
         }
 
-        for (const hogFunction of hogFunctions) {
-            // Check for non-mapping functions first
-            if (!hogFunction.mappings) {
-                if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
-                    continue
-                }
-                const invocation = await _buildInvocation(hogFunction, {
-                    ...hogFunction.inputs,
-                    ...hogFunction.encrypted_inputs,
-                })
-                if (!invocation) {
-                    continue
-                }
+        await Promise.all(
+            hogFunctions.map(async (hogFunction) => {
+                // Check for non-mapping functions first
+                if (!hogFunction.mappings) {
+                    if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
+                        return
+                    }
+                    const invocation = await _buildInvocation(hogFunction, {
+                        ...hogFunction.inputs,
+                        ...hogFunction.encrypted_inputs,
+                    })
+                    if (!invocation) {
+                        return
+                    }
 
-                invocations.push(invocation)
-                continue
-            }
-
-            for (const mapping of hogFunction.mappings) {
-                // For mappings we want to match against both the mapping filters and the global filters
-                if (
-                    !(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) ||
-                    !(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))
-                ) {
-                    continue
+                    invocations.push(invocation)
+                    return
                 }
 
-                const invocation = await _buildInvocation(hogFunction, {
-                    ...hogFunction.inputs,
-                    ...hogFunction.encrypted_inputs,
-                    ...mapping.inputs,
-                })
-                if (!invocation) {
-                    continue
-                }
+                await Promise.all(
+                    hogFunction.mappings.map(async (mapping) => {
+                        // For mappings we want to match against both the mapping filters and the global filters
+                        if (
+                            !(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) ||
+                            !(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))
+                        ) {
+                            return
+                        }
 
-                invocations.push(invocation)
-            }
-        }
+                        const invocation = await _buildInvocation(hogFunction, {
+                            ...hogFunction.inputs,
+                            ...hogFunction.encrypted_inputs,
+                            ...mapping.inputs,
+                        })
+                        if (!invocation) {
+                            return
+                        }
+
+                        invocations.push(invocation)
+                    })
+                )
+            })
+        )
 
         return {
             invocations,
