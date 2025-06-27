@@ -4139,6 +4139,7 @@ export type IntegrationKind =
     | 'intercom'
     | 'email'
     | 'linear'
+    | 'github'
 
 export interface IntegrationType {
     id: number

@@ -47,15 +47,11 @@ class WhereClauseExtractor(CloningVisitor):
     is_join: bool = False
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
-    aliases: dict[str, ast.Expr]
-    resolving_aliases: set[str]  # Track aliases currently being resolved to prevent recursion
 
     def __init__(self, context: HogQLContext):
         super().__init__()
         self.context = context
         self.tracked_tables = []
-        self.aliases = {}
-        self.resolving_aliases = set()
         # A constant with this string will be used to escape early if we can't handle the query
         self.tombstone_string = (
             "__TOMBSTONE__" + ("".join(random.choices(string.ascii_uppercase + string.digits, k=10))) + "__"
@@ -84,13 +80,6 @@ class WhereClauseExtractor(CloningVisitor):
 
         if select_query.select_from and select_query.select_from.next_join:
             self.is_join = True
-
-        # Collect aliases from SELECT clause
-        self.aliases = {}
-        if select_query.select:
-            for expr in select_query.select:
-                if isinstance(expr, ast.Alias):
-                    self.aliases[expr.alias] = expr.expr
 
         # visit the where clause
         wheres = []
@@ -186,29 +175,12 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Call(name=node.name, args=args)
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
-        # Check if this field is an alias from the SELECT clause
-        if len(node.chain) == 1 and node.chain[0] in self.aliases:
-            alias_name = str(node.chain[0])
-            # Prevent infinite recursion when resolving aliases
-            if alias_name in self.resolving_aliases:
-                return ast.Constant(value=self.tombstone_string)
-
-            # Mark this alias as being resolved
-            self.resolving_aliases.add(alias_name)
-            try:
-                # Replace the alias with its actual expression
-                result = self.visit(self.aliases[alias_name])
-                return result
-            finally:
-                # Always remove from resolving set
-                self.resolving_aliases.remove(alias_name)
-
         # if field in requested list
         type = node.type
-        while isinstance(type, ast.FieldAliasType):
-            type = type.type
         if isinstance(type, ast.PropertyType):
             type = type.field_type
+        if isinstance(type, ast.FieldAliasType):
+            type = type.type
         if isinstance(type, ast.FieldType):
             table_type = type.table_type
             if (isinstance(table_type, ast.LazyTableType) and table_type.table in self.tracked_tables) or (

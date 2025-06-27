@@ -9,6 +9,7 @@ import temporalio.common
 import temporalio.workflow
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
@@ -100,6 +101,7 @@ async def compare_recording_console_logs_activity(inputs: CompareRecordingConsol
     """Compare console logs between v1 and v2 storage for a sample of sessions."""
     logger = get_internal_logger()
     start_time = dt.datetime.now()
+    tag_queries(product=Product.REPLAY)
 
     await logger.ainfo(
         "Starting console logs comparison activity",
