@@ -1193,7 +1193,7 @@ exports[`segment templates template segment-actions-acoustic-campaign matches ex
       "type": "string",
     },
     {
-      "default": "Version 3.1   (nodeJS: v18.12.1)",
+      "default": "Version 3.1   (nodeJS: v18.20.6)",
       "description": "
 Last-Modified: 06.28.2023 16.15.37
 ",
@@ -4616,7 +4616,7 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
   "description": "Send event data to Angler AI",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=angler.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=getangler.ai",
   "id": "segment-actions-angler-ai",
   "inputs_schema": [
     {
@@ -8359,7 +8359,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
   "description": "Send event data to Canvas",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=canvas.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=supernova.ai",
   "id": "segment-actions-canvas",
   "inputs_schema": [
     {
@@ -9152,7 +9152,7 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
   "description": "Send event data to GWEN",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=cloud.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gwenplatform.com",
   "id": "segment-actions-cloud-gwen",
   "inputs_schema": [
     {
@@ -9732,7 +9732,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
   "description": "Send event data to Gameball",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gameball.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gameball.co",
   "id": "segment-actions-gameball",
   "inputs_schema": [
     {
@@ -10755,7 +10755,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
   "description": "Send event data to Hyperengage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hyperengage.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hyperengage.io",
   "id": "segment-actions-hyperengage",
   "inputs_schema": [
     {
@@ -21923,7 +21923,7 @@ exports[`segment templates template segment-actions-playerzero-cloud matches exp
   "description": "Send event data to PlayerZero Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=playerzero.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=playerzero.ai",
   "id": "segment-actions-playerzero-cloud",
   "inputs_schema": [
     {
@@ -24359,7 +24359,7 @@ exports[`segment templates template segment-actions-revx matches expected result
   "description": "Send event data to RevX Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=revx.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=revx.io",
   "id": "segment-actions-revx",
   "inputs_schema": [
     {
@@ -25198,7 +25198,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
   "description": "Send event data to Saleswings",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=saleswings.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=saleswingsapp.com",
   "id": "segment-actions-saleswings",
   "inputs_schema": [
     {
@@ -25713,7 +25713,7 @@ exports[`segment templates template segment-actions-schematic matches expected r
   "description": "Send event data to Schematic",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=schematic.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=schematichq.com",
   "id": "segment-actions-schematic",
   "inputs_schema": [
     {
@@ -28252,7 +28252,7 @@ exports[`segment templates template segment-actions-voyage matches expected resu
   "description": "Send event data to Voyage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voyage.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voyagesms.com",
   "id": "segment-actions-voyage",
   "inputs_schema": [
     {
