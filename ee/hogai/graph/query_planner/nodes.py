@@ -51,6 +51,7 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
+    MaxEventContext,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -101,13 +102,17 @@ class QueryPlannerNode(AssistantNode):
 
         chain = conversation | merge_message_runs() | self._get_model(state)
 
+        events_in_context = []
+        if ui_context := self._get_ui_context(state):
+            events_in_context = ui_context.events if ui_context.events else []
+
         output_message = chain.invoke(
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
-                "events": self._events_prompt,
+                "events": self._format_events_prompt(events_in_context),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -171,8 +176,7 @@ class QueryPlannerNode(AssistantNode):
             .content,
         )
 
-    @cached_property
-    def _events_prompt(self) -> str:
+    def _format_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
         response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
@@ -188,6 +192,15 @@ class QueryPlannerNode(AssistantNode):
             if len(response.results) > 25 and item.count <= 3:
                 continue
             events.append(item.event)
+        event_to_description: dict[str, str] = {}
+        for event in events_in_context:
+            if event.name and event.name not in events:
+                events.append(event.name)
+                if event.description:
+                    event_to_description[event.name] = event.description
+
+        # Create a set of event names from context for efficient lookup
+        context_event_names = {event.name for event in events_in_context if event.name}
 
         root = ET.Element("defined_events")
         for event_name in events:
@@ -196,8 +209,10 @@ class QueryPlannerNode(AssistantNode):
             name_tag.text = event_name
 
             if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
-                if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                    continue  # Skip irrelevant events
+                if event_name not in context_event_names and (
+                    event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
+                ):
+                    continue  # Skip irrelevant events but keep events the user has added to the context
                 if description := event_core_definition.get("description"):
                     desc_tag = ET.SubElement(event_tag, "description")
                     if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
@@ -205,6 +220,10 @@ class QueryPlannerNode(AssistantNode):
                     else:
                         desc_tag.text = description
                     desc_tag.text = remove_line_breaks(desc_tag.text)
+            elif event_name in event_to_description:
+                desc_tag = ET.SubElement(event_tag, "description")
+                desc_tag.text = event_to_description[event_name]
+                desc_tag.text = remove_line_breaks(desc_tag.text)
         return ET.tostring(root, encoding="unicode")
 
     @cached_property
