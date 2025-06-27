@@ -249,7 +249,12 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> {
     return Promise.all(
         content.map(async (node) => {
-            if (node.type !== NotebookNodeType.Query || !node.attrs || !('query' in node.attrs)) {
+            if (
+                node.type !== NotebookNodeType.Query ||
+                !node.attrs ||
+                !('query' in node.attrs) ||
+                node.attrs.query.kind === NodeKind.SavedInsightNode
+            ) {
                 return node
             }
 
