@@ -554,8 +554,8 @@ describe('HogTransformer', () => {
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.inputs := {
-                        not_encrypted: inputs.not_encrypted,
-                        encrypted: inputs.encrypted,
+                        'not_encrypted': inputs.not_encrypted,
+                        'encrypted': inputs.encrypted,
                     }
                     return returnEvent
                 `,
@@ -570,18 +570,31 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: inputSetterByteCode,
+                inputs_schema: [
+                    {
+                        key: 'not_encrypted',
+                        type: 'string',
+                    },
+                    {
+                        key: 'encrypted',
+                        type: 'string',
+                        secret: true,
+                    },
+                ],
                 inputs: {
                     not_encrypted: {
                         value: 'from not encrypted: {event.event}',
                         bytecode: await compileHog("return f'from not encrypted: {event.event}'"),
                     },
                 },
-                encrypted_inputs: {
-                    encrypted: {
-                        value: 'from encrypted: {event.event}',
-                        bytecode: await compileHog("return f'from encrypted: {event.event}'"),
-                    },
-                },
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({
+                        encrypted: {
+                            value: 'from encrypted: {event.event}',
+                            bytecode: await compileHog("return f'from encrypted: {event.event}'"),
+                        },
+                    })
+                ) as any,
             })
 
             await insertHogFunction(hub.db.postgres, teamId, inputSetterFunction)
@@ -597,13 +610,10 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify the event has both success and failure tracking
-            expect(result.event?.properties).toMatchInlineSnapshot(`
-                {
-                  "$transformations_failed": [
-                    "Input Setter (de61e111-9d4a-4897-8b4a-48b56e6bbc85)",
-                  ],
-                }
-            `)
+            expect(result.event?.properties?.inputs).toMatchObject({
+                not_encrypted: 'from not encrypted: test',
+                encrypted: 'from encrypted: test',
+            })
         })
 
         it('should not add transformation tracking properties if no transformations run', async () => {
