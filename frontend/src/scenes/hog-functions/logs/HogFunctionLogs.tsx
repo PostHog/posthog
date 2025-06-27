@@ -12,6 +12,7 @@ import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
     const logicProps: LogsViewerLogicProps = {
@@ -111,6 +112,7 @@ function HogFunctionLogsStatus({
         sourceId: hogFunctionId,
     }
     const { loadSampleGlobals, toggleExpanded } = useActions(hogFunctionTestLogic({ id: hogFunctionId }))
+    const { contextId } = useValues(hogFunctionConfigurationLogic({ id: hogFunctionId }))
 
     const { retries, selectingMany, selectedForRetry, eventIdByInvocationId } = useValues(
         hogFunctionLogsLogic(logicProps)
@@ -153,26 +155,30 @@ function HogFunctionLogsStatus({
 
             <LemonMenu
                 items={[
-                    eventId
+                    eventId && contextId != 'error-tracking'
                         ? {
                               label: 'View event',
                               to: urls.event(eventId, ''),
                           }
                         : null,
-                    {
-                        label: 'Retry event',
-                        disabledReason: !eventId ? 'Could not find the source event' : undefined,
-                        onClick: () => retryInvocations([record]),
-                    },
-                    {
-                        label: 'Select for retry',
-                        onClick: () => {
-                            setSelectingMany(true)
-                            setSelectedForRetry({
-                                [record.instanceId]: true,
-                            })
-                        },
-                    },
+                    contextId == 'error-tracking'
+                        ? null
+                        : {
+                              label: 'Retry event',
+                              disabledReason: !eventId ? 'Could not find the source event' : undefined,
+                              onClick: () => retryInvocations([record]),
+                          },
+                    contextId == 'error-tracking'
+                        ? null
+                        : {
+                              label: 'Select for retry',
+                              onClick: () => {
+                                  setSelectingMany(true)
+                                  setSelectedForRetry({
+                                      [record.instanceId]: true,
+                                  })
+                              },
+                          },
                     {
                         label: 'Test with this event in configuration',
                         onClick: () => {
