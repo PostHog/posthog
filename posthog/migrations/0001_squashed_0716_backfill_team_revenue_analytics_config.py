@@ -1098,6 +1098,12 @@ class Migration(migrations.Migration):
                 ("tag_name", models.CharField(blank=True, max_length=400, null=True)),
                 ("href", models.CharField(blank=True, max_length=400, null=True)),
                 ("attr_id", models.CharField(blank=True, max_length=400, null=True)),
+                (
+                    "attr_class",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(blank=True, max_length=200), blank=True, null=True, size=None
+                    ),
+                ),
                 ("nth_child", models.IntegerField()),
                 ("nth_of_type", models.IntegerField()),
                 ("attributes", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
@@ -1282,13 +1288,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="app_url",
             field=models.CharField(blank=True, max_length=200, null=True),
-        ),
-        migrations.AddField(
-            model_name="element",
-            name="attr_class",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(blank=True, max_length=200), blank=True, null=True, size=None
-            ),
         ),
         migrations.AlterModelManagers(
             name="user",
@@ -1594,13 +1593,16 @@ class Migration(migrations.Migration):
             name="FeatureFlag",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name", models.CharField(max_length=400)),
                 ("key", models.CharField(max_length=400)),
+                ("name", models.CharField(max_length=400)),
                 ("filters", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("rollout_percentage", models.IntegerField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("deleted", models.BooleanField(default=False)),
                 ("active", models.BooleanField(default=True)),
+                ("rollback_conditions", models.JSONField(blank=True, null=True)),
+                ("performed_rollback", models.BooleanField(blank=True, null=True)),
+                ("ensure_experience_continuity", models.BooleanField(blank=True, default=False, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
@@ -3931,8 +3933,8 @@ class Migration(migrations.Migration):
                     "feature_flag",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.featureflag"),
                 ),
-                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
             ],
         ),
         migrations.AddConstraint(
@@ -3989,6 +3991,8 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("group_type", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
+                ("name_plural", models.CharField(blank=True, max_length=400, null=True)),
+                ("name_singular", models.CharField(blank=True, max_length=400, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
@@ -4087,10 +4091,18 @@ class Migration(migrations.Migration):
                 ("description", models.CharField(blank=True, max_length=400, null=True)),
                 ("filters", models.JSONField(default=dict)),
                 ("parameters", models.JSONField(default=dict, null=True)),
+                (
+                    "secondary_metrics",
+                    models.JSONField(default=list, null=True),
+                ),
                 ("start_date", models.DateTimeField(null=True)),
                 ("end_date", models.DateTimeField(null=True)),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "archived",
+                    models.BooleanField(default=False),
+                ),
                 (
                     "created_by",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
@@ -4168,16 +4180,6 @@ class Migration(migrations.Migration):
             sql="\n        update posthog_propertydefinition\n        set property_type = 'DateTime', property_type_format='unix_timestamp'\n        where name = '$time'\n            ",
             reverse_sql="\n                    update posthog_propertydefinition\n        set property_type = null, property_type_format=null\n        where name = '$time'\n                    ",
         ),
-        migrations.AddField(
-            model_name="grouptypemapping",
-            name="name_plural",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
-            model_name="grouptypemapping",
-            name="name_singular",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
         migrations.RemoveConstraint(
             model_name="propertydefinition",
             name="property_type_and_format_are_valid",
@@ -4247,16 +4249,6 @@ class Migration(migrations.Migration):
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.asyncmigration"),
                 ),
             ],
-        ),
-        migrations.AddField(
-            model_name="experiment",
-            name="archived",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="experiment",
-            name="secondary_metrics",
-            field=models.JSONField(default=list, null=True),
         ),
         migrations.AddField(
             model_name="insight",
@@ -4731,12 +4723,26 @@ class Migration(migrations.Migration):
                 ("content", models.BinaryField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
+                    "export_context",
+                    models.JSONField(blank=True, null=True),
+                ),
+                (
+                    "content_location",
+                    models.TextField(blank=True, max_length=1000, null=True),
+                ),
+                (
                     "access_token",
                     models.CharField(
                         blank=True,
                         default=posthog.models.exported_asset.get_default_access_token,
                         max_length=400,
                         null=True,
+                    ),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
                     ),
                 ),
                 (
@@ -4748,6 +4754,10 @@ class Migration(migrations.Migration):
                     models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.insight"),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "expires_after",
+                    models.DateTimeField(blank=True, null=True),
+                ),
             ],
         ),
         migrations.DeleteModel(
@@ -4876,11 +4886,6 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
-        migrations.AddField(
-            model_name="featureflag",
-            name="ensure_experience_continuity",
-            field=models.BooleanField(blank=True, default=False, null=True),
-        ),
         migrations.CreateModel(
             name="FeatureFlagHashKeyOverride",
             fields=[
@@ -4896,16 +4901,6 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 fields=("team", "person", "feature_flag_key"), name="Unique hash_key for a user/team/feature_flag combo"
             ),
-        ),
-        migrations.AddField(
-            model_name="exportedasset",
-            name="content_location",
-            field=models.TextField(blank=True, max_length=1000, null=True),
-        ),
-        migrations.AddField(
-            model_name="exportedasset",
-            name="export_context",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="SharingConfiguration",
@@ -4933,13 +4928,6 @@ class Migration(migrations.Migration):
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
-        ),
-        migrations.AddField(
-            model_name="exportedasset",
-            name="created_by",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-            ),
         ),
         migrations.CreateModel(
             name="EventBuffer",
@@ -5220,16 +5208,6 @@ class Migration(migrations.Migration):
             model_name="plugin",
             name="icon",
             field=models.CharField(blank=True, max_length=800, null=True),
-        ),
-        migrations.AddField(
-            model_name="featureflag",
-            name="performed_rollback",
-            field=models.BooleanField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="featureflag",
-            name="rollback_conditions",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="organization",
@@ -6546,11 +6524,6 @@ class Migration(migrations.Migration):
             field=models.DateTimeField(
                 default=None, help_text="Time before which any Batch Export runs won't be triggered.", null=True
             ),
-        ),
-        migrations.AddField(
-            model_name="exportedasset",
-            name="expires_after",
-            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="asyncdeletion",
