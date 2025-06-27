@@ -32,7 +32,7 @@ export interface ToolDefinition {
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
-    callback: (toolOutput: any, continueGeneration: () => void) => void | Promise<void>
+    callback: (toolOutput: any) => void | Promise<void>
 }
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
@@ -56,7 +56,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     name: 'navigate' as const,
                     displayName: 'Navigate',
                     context: { current_page: location.pathname },
-                    callback: async (toolOutput, continueGeneration) => {
+                    callback: async (toolOutput) => {
                         const { page_key: pageKey } = toolOutput
                         if (!(pageKey in urls)) {
                             throw new Error(`${pageKey} not in urls`)
@@ -78,7 +78,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                             }
                             checkPathname()
                         })
-                        continueGeneration()
                     },
                 },
             } as Record<string, ToolDefinition>,
