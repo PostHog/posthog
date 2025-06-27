@@ -507,6 +507,13 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
+        elif "TableNotFoundError" in error_message:
+            error_message = f"Query did not return results for model {model_label}"
+            saved_query.latest_error = error_message
+            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
+            await revert_materialization(saved_query, logger)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
             error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."

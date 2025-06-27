@@ -111,7 +111,7 @@ def stats_hourly_has_data() -> AssetCheckResult:
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
         export_filename = f"{export_type}_export.native"
-        export_path = get_s3_url(table_name=export_filename)
+        export_path = get_s3_url(table_name=export_filename, team_id=2)
 
         if export_type == "web_stats_daily":
             table_structure = get_s3_web_stats_structure().strip()
