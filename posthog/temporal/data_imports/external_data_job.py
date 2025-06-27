@@ -187,7 +187,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     job = update_external_job_status(
         job_id=job_id,
-        status=ExternalDataJob.Status(inputs.status),
+        status=inputs.status,
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )

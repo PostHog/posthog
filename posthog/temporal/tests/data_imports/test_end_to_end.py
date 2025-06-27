@@ -189,8 +189,8 @@ async def _run(
 
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
-        team_id=team.pk,
-        external_data_source_id=source.pk,
+        team_id=team.id,
+        external_data_source_id=source.id,
         external_data_schema_id=schema.pk,
         billable=billable if billable is not None else True,
     )
@@ -2073,10 +2073,10 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
 
-    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema.pk)
+    schema: ExternalDataSchema = await sync_to_async(ExternalDataSchema.objects.get)(id=job.schema.id)
     mock_update_should_sync.assert_called_once_with(
-        schema_id=str(schema.pk),
-        team_id=team.pk,
+        schema_id=str(schema.id),
+        team_id=team.id,
         should_sync=False,
     )
 
