@@ -110,7 +110,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return applyAllCriteriaGroup(state, (groupList) => [
                         ...groupList.slice(0, groupIndex),
-                        groupList[groupIndex],
+                        {
+                            ...groupList[groupIndex],
+                            sort_key: generateUUID(),
+                        },
                         ...groupList.slice(groupIndex),
                     ])
                 },
