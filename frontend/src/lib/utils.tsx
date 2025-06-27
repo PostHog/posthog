@@ -604,10 +604,7 @@ export function humanFriendlyDuration(
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    let s = Math.round((d % 3600) % 60)
-    if (s == 60) {
-        s = 59
-    }
+    const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''

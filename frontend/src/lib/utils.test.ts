@@ -517,7 +517,6 @@ describe('lib/utils', () => {
         })
 
         it('returns correct value for 1 < t <= 60', () => {
-            expect(humanFriendlyDuration(119.6)).toEqual('1m59s')
             expect(humanFriendlyDuration(60)).toEqual('1m')
             expect(humanFriendlyDuration(45)).toEqual('45s')
             expect(humanFriendlyDuration(44.8)).toEqual('45s')
@@ -530,6 +529,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
+            expect(humanFriendlyDuration(119.6)).toEqual('1m 59s')
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
         })
         it('returns correct value for t > 120', () => {
