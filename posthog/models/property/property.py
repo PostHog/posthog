@@ -109,6 +109,7 @@ VALIDATE_PROP_TYPES = {
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
+    "flag": ["key", "value"],
 }
 
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
