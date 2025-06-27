@@ -1309,18 +1309,6 @@ class Migration(migrations.Migration):
             name="temporary_token",
             field=models.CharField(blank=True, max_length=200, null=True),
         ),
-        migrations.CreateModel(
-            name="DashboardItem",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("name", models.CharField(blank=True, max_length=400, null=True)),
-                ("filters", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
-                ("order", models.IntegerField(blank=True, null=True)),
-                ("type", models.CharField(blank=True, max_length=400, null=True)),
-                ("deleted", models.BooleanField(default=False)),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-            ],
-        ),
         migrations.AddField(
             model_name="funnel",
             name="deleted",
@@ -1527,19 +1515,91 @@ class Migration(migrations.Migration):
                 ("breakdown_colors", models.JSONField(blank=True, default=list, null=True)),
             ],
         ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="dashboard",
-            field=models.ForeignKey(
-                null=True, on_delete=django.db.models.deletion.CASCADE, related_name="items", to="posthog.dashboard"
-            ),
+        migrations.CreateModel(
+            name="DashboardItem",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("name", models.CharField(blank=True, max_length=400, null=True)),
+                ("derived_name", models.CharField(blank=True, max_length=400, null=True)),
+                ("description", models.CharField(blank=True, max_length=400, null=True)),
+                ("filters", models.JSONField(default=dict)),
+                ("filters_hash", models.CharField(blank=True, max_length=400, null=True)),
+                ("order", models.IntegerField(blank=True, null=True)),
+                ("deleted", models.BooleanField(default=False)),
+                ("saved", models.BooleanField(default=False)),
+                ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
+                ("last_refresh", models.DateTimeField(blank=True, null=True)),
+                ("refreshing", models.BooleanField(default=False)),
+                ("is_sample", models.BooleanField(default=False)),
+                ("short_id", models.CharField(blank=True, default=posthog.utils.generate_short_id, max_length=12)),
+                ("favorited", models.BooleanField(default=False)),
+                ("refresh_attempt", models.IntegerField(blank=True, null=True)),
+                ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                ("layouts", models.JSONField(default=dict)),
+                ("color", models.CharField(blank=True, max_length=400, null=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("type", models.CharField(blank=True, max_length=400, null=True)),
+                ("funnel", models.IntegerField(blank=True, null=True)),
+                (
+                    "deprecated_tags",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
+                    ),
+                ),
+                (
+                    "deprecated_tags_v2",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=32),
+                        blank=True,
+                        db_column="tags",
+                        default=None,
+                        null=True,
+                        size=None,
+                    ),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
+                (
+                    "dashboard",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="items",
+                        to="posthog.dashboard",
+                    ),
+                ),
+                (
+                    "dive_dashboard",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
+                    ),
+                ),
+                (
+                    "last_modified_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="modified_insights",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("query", models.JSONField(blank=True, null=True)),
+            ],
         ),
-        migrations.AlterField(
-            model_name="dashboarditem",
-            name="dashboard",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="items", to="posthog.dashboard"
-            ),
+        migrations.AlterUniqueTogether(
+            name="dashboarditem",
+            unique_together={("team", "short_id")},
+        ),
+        migrations.AlterModelTable(
+            name="dashboarditem",
+            table="posthog_dashboarditem",
         ),
         migrations.CreateModel(
             name="CohortPeople",
@@ -1560,29 +1620,9 @@ class Migration(migrations.Migration):
             index=models.Index(fields=["cohort_id", "person_id"], name="posthog_coh_cohort__89c25f_idx"),
         ),
         migrations.AddField(
-            model_name="dashboarditem",
-            name="layouts",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="color",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
             model_name="user",
             name="anonymize_data",
             field=models.BooleanField(blank=True, default=False, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="last_refresh",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="refreshing",
-            field=models.BooleanField(default=False),
         ),
         migrations.AlterField(
             model_name="element",
@@ -1701,11 +1741,6 @@ class Migration(migrations.Migration):
             name="event_properties_numerical",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="funnel",
-            field=models.IntegerField(blank=True, null=True),
-        ),
         migrations.AlterField(
             model_name="user",
             name="toolbar_mode",
@@ -1715,34 +1750,6 @@ class Migration(migrations.Migration):
                 default="toolbar",
                 max_length=200,
                 null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="created_at",
-            field=models.DateTimeField(auto_now_add=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="created_by",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-            ),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="saved",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="dashboarditem",
-            name="dashboard",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="items",
-                to="posthog.dashboard",
             ),
         ),
         migrations.AddField(
@@ -2095,16 +2102,6 @@ class Migration(migrations.Migration):
             model_name="user",
             name="is_superuser",
         ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="description",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="is_sample",
-            field=models.BooleanField(default=False),
-        ),
         migrations.CreateModel(
             name="SessionRecordingEvent",
             fields=[
@@ -2209,11 +2206,6 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 condition=models.Q(("level", 15)), fields=("organization_id",), name="only_one_owner_per_organization"
             ),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="filters_hash",
-            field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.DeleteModel(
             name="Funnel",
@@ -3532,16 +3524,6 @@ class Migration(migrations.Migration):
             field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
         ),
         migrations.AlterField(
-            model_name="dashboarditem",
-            name="filters",
-            field=models.JSONField(default=dict),
-        ),
-        migrations.AlterField(
-            model_name="dashboarditem",
-            name="layouts",
-            field=models.JSONField(default=dict),
-        ),
-        migrations.AlterField(
             model_name="element",
             name="attributes",
             field=models.JSONField(default=dict),
@@ -3795,20 +3777,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="dashboarditem",
-            name="short_id",
-            field=models.CharField(blank=True, max_length=12),
-        ),
-        migrations.AlterField(
-            model_name="dashboarditem",
-            name="short_id",
-            field=models.CharField(blank=True, default=posthog.utils.generate_short_id, max_length=12),
-        ),
-        migrations.AlterUniqueTogether(
-            name="dashboarditem",
-            unique_together={("team", "short_id")},
-        ),
-        migrations.AddField(
             model_name="plugin",
             name="metrics",
             field=models.JSONField(default=dict, null=True),
@@ -3859,36 +3827,12 @@ class Migration(migrations.Migration):
             name="is_member_join_email_enabled",
             field=models.BooleanField(default=True),
         ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="favorited",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, size=None
-            ),
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="updated_at",
-            field=models.DateTimeField(auto_now=True),
-        ),
         migrations.RunSQL(
             sql=[
                 "SET statement_timeout = 600000000;",
                 "CREATE INDEX IF NOT EXISTS posthog_per_team_id_bec4e5_idx ON posthog_person(team_id, id DESC);",
             ],
             reverse_sql='DROP INDEX "posthog_per_team_id_bec4e5_idx";',
-        ),
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="dive_dashboard",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
-            ),
         ),
         migrations.AddField(
             model_name="plugin",
@@ -3948,10 +3892,6 @@ class Migration(migrations.Migration):
             name="path_cleaning_filters",
             field=models.JSONField(blank=True, default=list, null=True),
         ),
-        migrations.AlterModelTable(
-            name="dashboarditem",
-            table="posthog_dashboarditem",
-        ),
         migrations.RenameModel(
             old_name="DashboardItem",
             new_name="Insight",
@@ -3962,8 +3902,8 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("group_type", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
-                ("name_plural", models.CharField(blank=True, max_length=400, null=True)),
                 ("name_singular", models.CharField(blank=True, max_length=400, null=True)),
+                ("name_plural", models.CharField(blank=True, max_length=400, null=True)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
@@ -4043,11 +3983,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="specialmigration",
             constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
-        ),
-        migrations.AddField(
-            model_name="insight",
-            name="refresh_attempt",
-            field=models.IntegerField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="persondistinctid",
@@ -4221,25 +4156,6 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.AddField(
-            model_name="insight",
-            name="last_modified_at",
-            field=models.DateTimeField(default=django.utils.timezone.now),
-        ),
-        migrations.RunSQL(
-            sql="\n            UPDATE posthog_dashboarditem SET last_modified_at = updated_at;\n        ",
-        ),
-        migrations.AddField(
-            model_name="insight",
-            name="last_modified_by",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="modified_insights",
-                to=settings.AUTH_USER_MODEL,
-            ),
-        ),
         migrations.RemoveConstraint(
             model_name="propertydefinition",
             name="property_type_and_format_are_valid",
@@ -4357,33 +4273,9 @@ class Migration(migrations.Migration):
             name="description",
             field=models.TextField(),
         ),
-        migrations.RenameField(
-            model_name="insight",
-            old_name="tags",
-            new_name="deprecated_tags",
-        ),
-        migrations.AlterField(
-            model_name="insight",
-            name="deprecated_tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, null=True, size=None
-            ),
-        ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
             unique_together={("tag", "dashboard", "insight", "event_definition", "property_definition", "action")},
-        ),
-        migrations.AddField(
-            model_name="insight",
-            name="tags",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=None, null=True, size=None
-            ),
-        ),
-        migrations.AddField(
-            model_name="insight",
-            name="derived_name",
-            field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddField(
             model_name="team",
@@ -4565,47 +4457,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="insightviewed",
             constraint=models.UniqueConstraint(fields=("team", "user", "insight"), name="posthog_unique_insightviewed"),
-        ),
-        migrations.CreateModel(
-            name="DashboardTile",
-            fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("dashboard", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard")),
-                ("insight", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.insight")),
-                ("layouts", models.JSONField(default=dict)),
-                ("color", models.CharField(blank=True, max_length=400, null=True)),
-            ],
-        ),
-        migrations.AddField(
-            model_name="dashboard",
-            name="insights",
-            field=models.ManyToManyField(
-                blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.insight"
-            ),
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="filters_hash",
-            field=models.CharField(blank=True, max_length=400, null=True),
-        ),
-        migrations.AddIndex(
-            model_name="dashboardtile",
-            index=models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="last_refresh",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="refresh_attempt",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="refreshing",
-            field=models.BooleanField(null=True),
         ),
         migrations.AddField(
             model_name="team",
@@ -4797,23 +4648,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="DROP FUNCTION IF EXISTS should_update_person_prop",
             reverse_sql="",
-        ),
-        migrations.RenameField(
-            model_name="insight",
-            old_name="tags",
-            new_name="deprecated_tags_v2",
-        ),
-        migrations.AlterField(
-            model_name="insight",
-            name="deprecated_tags_v2",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32),
-                blank=True,
-                db_column="tags",
-                default=None,
-                null=True,
-                size=None,
-            ),
         ),
         migrations.AlterField(
             model_name="subscription",
@@ -5035,13 +4869,6 @@ class Migration(migrations.Migration):
             name="partial_notification_settings",
             field=models.JSONField(blank=True, null=True),
         ),
-        migrations.AlterField(
-            model_name="dashboardtile",
-            name="dashboard",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
-            ),
-        ),
         migrations.CreateModel(
             name="Text",
             fields=[
@@ -5049,16 +4876,6 @@ class Migration(migrations.Migration):
                 ("body", models.CharField(blank=True, max_length=4000, null=True)),
                 ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
             ],
-        ),
-        migrations.AlterField(
-            model_name="dashboardtile",
-            name="insight",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="dashboard_tiles",
-                to="posthog.insight",
-            ),
         ),
         migrations.AddField(
             model_name="text",
@@ -5083,15 +4900,42 @@ class Migration(migrations.Migration):
             name="team",
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
         ),
-        migrations.AddField(
-            model_name="dashboardtile",
-            name="text",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="dashboard_tiles",
-                to="posthog.text",
-            ),
+        migrations.CreateModel(
+            name="DashboardTile",
+            fields=[
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("layouts", models.JSONField(default=dict)),
+                ("color", models.CharField(blank=True, max_length=400, null=True)),
+                ("filters_hash", models.CharField(blank=True, max_length=400, null=True)),
+                ("last_refresh", models.DateTimeField(blank=True, null=True)),
+                ("refreshing", models.BooleanField(null=True)),
+                ("refresh_attempt", models.IntegerField(blank=True, null=True)),
+                ("deleted", models.BooleanField(blank=True, null=True)),
+                (
+                    "dashboard",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
+                    ),
+                ),
+                (
+                    "insight",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="dashboard_tiles",
+                        to="posthog.insight",
+                    ),
+                ),
+                (
+                    "text",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="dashboard_tiles",
+                        to="posthog.text",
+                    ),
+                ),
+            ],
         ),
         migrations.AddConstraint(
             model_name="dashboardtile",
@@ -5118,10 +4962,16 @@ class Migration(migrations.Migration):
                 name="dash_tile_exactly_one_related_object",
             ),
         ),
-        migrations.AddField(
+        migrations.AddIndex(
             model_name="dashboardtile",
-            name="deleted",
-            field=models.BooleanField(blank=True, null=True),
+            index=models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
+        ),
+        migrations.AddField(
+            model_name="dashboard",
+            name="insights",
+            field=models.ManyToManyField(
+                blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.insight"
+            ),
         ),
         migrations.CreateModel(
             name="UploadedMedia",
@@ -5720,11 +5570,6 @@ class Migration(migrations.Migration):
                 models.OrderBy(models.F("name")),
                 name="index_property_def_query",
             ),
-        ),
-        migrations.AddField(
-            model_name="insight",
-            name="query",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.RunSQL(
             sql="\n            UPDATE posthog_dashboardtemplate\n            SET team_id = NULL\n            WHERE team_id IS NOT NULL\n            -- not-null-ignore\n            ",
