@@ -53,7 +53,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         <div
             className={clsx(
                 containerClassName,
-                !isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center'
+                !isSticky && !isFloating
+                    ? 'px-3 w-[min(44rem,100%)]'
+                    : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
             )}
             ref={ref}
         >
@@ -166,7 +168,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'flex gap-1 text-xs font-medium cursor-default px-1.5',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                : 'w-full -mb-1 py-0.5'
+                                : `w-full ${isThreadVisible ? 'pb-1' : 'pt-1'}`
                         )}
                     >
                         <span>Tools in context:</span>
