@@ -265,6 +265,13 @@ jobs:
                   pnpm --filter=@posthog/frontend... install --frozen-lockfile
                   pnpm --filter=@posthog/frontend build:products
                   pnpm --filter=@posthog/frontend build
+
+            - name: Collect static files
+              if: needs.changes.outputs.shouldRun == 'true'
+              run: |
+                  # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
+                  # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
+                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
