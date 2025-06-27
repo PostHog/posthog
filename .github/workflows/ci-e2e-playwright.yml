@@ -18,7 +18,7 @@ env:
     E2E_TESTING: 1
     SKIP_SERVICE_VERSION_REQUIREMENTS: 1
     EMAIL_HOST: email.test.posthog.net
-    SITE_URL: http://localhost:8080
+    SITE_URL: http://localhost:8000
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
     OBJECT_STORAGE_ENDPOINT: http://localhost:19000
@@ -31,7 +31,7 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
-    CYPRESS_BASE_URL: http://localhost:8080
+    CYPRESS_BASE_URL: http://localhost:8000
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -79,7 +79,7 @@ jobs:
                         - Dockerfile
                         - playwright/**
     container:
-        name: Container - Build and cache image
+        name: Container - Build and cache image (Optional)
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
@@ -105,7 +105,7 @@ jobs:
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     playwright-on-container:
-        name: Container - E2E Playwright tests
+        name: Container - E2E Playwright tests (Optional)
         runs-on: depot-ubuntu-latest-arm-4
         timeout-minutes: 60
         needs: [changes, container]
@@ -467,7 +467,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python manage.py runserver 8080 &> /tmp/server.log &
+                  python manage.py runserver 8000 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -478,7 +478,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
-                  resource: http://localhost:8080
+                  resource: http://localhost:8000
                   timeout: 180000
                   interval: 2000
                   verbose: true
