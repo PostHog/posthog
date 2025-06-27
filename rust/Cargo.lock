@@ -163,6 +163,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -988,6 +994,15 @@ dependencies = [
  "tokio",
  "tower",
  "tower-service",
+]
+
+[[package]]
+name = "backon"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "302eaff5357a264a2c42f127ecb8bac761cf99749fc3dc95677e2743991f99e7"
+dependencies = [
+ "fastrand 2.2.0",
 ]
 
 [[package]]
@@ -4348,9 +4363,9 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c165a9ab64cf766f73521c0dd2cfdff64f488b8f0b3e621face3462d3db536d7"
+checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -5372,24 +5387,28 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.23.3"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f49cdc0bb3f412bf8e7d1bd90fe1d9eb10bc5c399ba90973c14662a27b3f8ba"
+checksum = "f2f6fd3fd5bb3a9a48819ae5cbad501968f208c1abd139649e7e2cf5d7f4b40b"
 dependencies = [
- "async-trait",
+ "arc-swap",
+ "backon",
  "bytes",
+ "cfg-if",
  "combine",
  "crc16",
- "futures",
+ "futures-channel",
+ "futures-sink",
  "futures-util",
  "itoa",
  "log",
+ "num-bigint",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand 0.9.1",
  "ryu",
  "sha1_smol",
- "socket2 0.4.10",
+ "socket2 0.5.9",
  "tokio",
  "tokio-util",
  "url",
