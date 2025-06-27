@@ -1,4 +1,4 @@
-use crate::steps::{Args, EnteredTimestamp, Event, Result};
+use crate::steps::{Args, EnteredTimestamp, Event, Result, DEFAULT_ENTERED_TIMESTAMP};
 use crate::PropVal;
 use std::collections::VecDeque;
 use std::iter::repeat;
@@ -14,13 +14,6 @@ pub struct AggregateFunnelRowUnordered {
     pub breakdown_step: Option<usize>,
     pub results: Vec<Result>,
 }
-
-const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
-    timestamp: 0.0,
-    excluded: false,
-    timings: vec![],
-    uuids: vec![],
-};
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]
@@ -85,6 +78,7 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
+            0, // Unordered funnels don't have optional steps because they're all optional
         ));
     }
 
@@ -202,6 +196,7 @@ impl AggregateFunnelRowUnordered {
                     excluded: false,
                     timings,
                     uuids,
+                    steps: 0,
                 },
             );
         }
