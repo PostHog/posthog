@@ -80,15 +80,10 @@ jobs:
                         - playwright/**
 
     playwright:
-        name: Playwright E2E tests (${{ matrix.shard }}/3)
+        name: Playwright E2E tests
         needs: [changes]
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30
-        strategy:
-            fail-fast: false
-            matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
-                shard: [1, 2, 3]
         steps:
             - name: Skip E2E checks
               if: ${{ needs.changes.outputs.shouldRun == 'false' }}
@@ -103,7 +98,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:24.8.7.41
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -318,7 +313,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               env:
                   START_PLAYWRIGHT: '1'
-              run: pnpm --filter=@posthog/playwright exec playwright test --shard=${{ matrix.shard }}/3
+              run: pnpm --filter=@posthog/playwright exec playwright test
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
@@ -338,7 +333,7 @@ jobs:
               if: failure()
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-report-shard-${{ matrix.shard }}
+                  name: playwright-report
                   path: playwright/playwright-report/
                   retention-days: 30
 
@@ -346,7 +341,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-screenshots-shard-${{ matrix.shard }}
+                  name: playwright-screenshots
                   path: playwright/test-results
                   retention-days: 30
 
