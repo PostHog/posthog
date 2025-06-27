@@ -13,7 +13,7 @@ if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2
     # Try up to 3 times since this download is flaky
     for attempt in 1 2 3; do
         echo "Downloading GeoLite2-City.mmdb (attempt $attempt/3)..."
-        if curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
+        if curl -L "https://mmdbcdn.posthog.net/" --http1.1 --fail | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
             echo "Download successful"
             break
         fi
