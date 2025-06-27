@@ -43,6 +43,7 @@ import {
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -161,6 +162,12 @@ export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrossRevenueQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
