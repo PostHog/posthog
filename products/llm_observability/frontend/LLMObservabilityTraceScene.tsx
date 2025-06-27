@@ -15,8 +15,9 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -474,15 +475,14 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                                 </LemonButton>
                             )}
                             {hasSessionID(event) && (
-                                <div className="flex flex-row items-center gap-2">
-                                    <Link
-                                        to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
-                                        className="flex flex-row gap-1 items-center"
-                                    >
-                                        <IconOpenInNew />
-                                        <span>View session recording</span>
-                                    </Link>
-                                </div>
+                                <ViewRecordingButton
+                                    inModal
+                                    type="secondary"
+                                    size="xsmall"
+                                    data-attr="llm-observability"
+                                    sessionId={getSessionID(event) || undefined}
+                                    timestamp={removeMilliseconds(event.createdAt)}
+                                />
                             )}
                         </div>
                     </header>
