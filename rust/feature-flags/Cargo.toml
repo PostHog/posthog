@@ -23,10 +23,11 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 bytes = { workspace = true }
 once_cell = "1.18.0"
 rand = { workspace = true }
-redis = { version = "0.23.3", features = [
+redis = { version = "0.32.2", features = [
     "tokio-comp",
     "cluster",
     "cluster-async",
+    "connection-manager",
 ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
