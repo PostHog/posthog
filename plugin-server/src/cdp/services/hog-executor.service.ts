@@ -322,6 +322,12 @@ export class HogExecutorService {
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
+            if (result && asyncFunctionCount > maxAsyncFunctions) {
+                // We don't want to block the consumer too much hence we have a limit on async functions
+                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
+                break
+            }
+
             if (nextInvocation.queueParameters?.type === 'fetch') {
                 asyncFunctionCount++
                 result = await this.executeFetch(nextInvocation)
@@ -331,13 +337,6 @@ export class HogExecutorService {
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
-
-            await new Promise((resolve) => process.nextTick(resolve))
-
-            if (result && asyncFunctionCount > maxAsyncFunctions) {
-                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
-                break
-            }
 
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
             if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
