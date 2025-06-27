@@ -5,6 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { generateUUID } from 'lib/utils/generateUUID'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -38,18 +39,6 @@ export interface CohortFilters {
 export const DEFAULT_COHORT_FILTERS: CohortFilters = {
     search: undefined,
     page: 1,
-}
-
-export function generateUUID(): string {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID()
-    }
-    // Fallback to a simple random string
-    return 'xxxx-xxxx-4xxx-yxxx-xxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
 }
 
 export function processCohort(cohort: CohortType): CohortType {
