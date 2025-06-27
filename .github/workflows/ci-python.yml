@@ -49,7 +49,14 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Skip python checks
+              if: needs.changes.outputs.python == 'false'
+              run: |
+                  echo "Skipping python checks - no python changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.python == 'true'
               with:
                   fetch-depth: 1
 
@@ -97,6 +104,15 @@ jobs:
               shell: bash
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
+
+            - name: Restore mypy cache
+              if: needs.changes.outputs.python == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  restore-keys: |
+                      mypy-cache-${{ runner.os }}-
 
             - name: Check static typing
               if: needs.changes.outputs.python == 'true'

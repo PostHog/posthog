@@ -23,7 +23,7 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     currency_aware_amount,
     is_zero_decimal_in_stripe,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_exprs_for_team
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
@@ -58,7 +58,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
             return []
 
         revenue_config = team.revenue_analytics_config
-        generic_team_exprs = events_exprs_for_team(team)
+        generic_team_expr = events_expr_for_team(team)
 
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
@@ -75,7 +75,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
 
             filter_exprs = [
                 comparison_expr,
-                *generic_team_exprs,
+                generic_team_expr,
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
                     left=ast.Field(chain=["amount"]),  # refers to the Alias above

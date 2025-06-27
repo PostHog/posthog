@@ -25,6 +25,9 @@ export interface ItemSelectModalProps {
     includeProtocol?: boolean
     /** Include root item in the tree as a selectable item */
     includeRoot?: boolean
+}
+
+export interface ItemSelectModalButtonProps {
     /** Trigger the modal */
     buttonProps?: ButtonPrimitiveProps
 }
@@ -43,7 +46,7 @@ function RootFolderButton({
 }): JSX.Element {
     return (
         <ButtonPrimitive
-            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-tertiary', {
+            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-secondary', {
                 'border-accent': active,
             })}
             onClick={onClick}
@@ -54,19 +57,26 @@ function RootFolderButton({
     )
 }
 
-export function ItemSelectModal({
-    className,
-    includeProtocol,
-    includeRoot,
-    buttonProps,
-}: ItemSelectModalProps): JSX.Element {
+export function ItemSelectModalButton({ buttonProps }: ItemSelectModalButtonProps): JSX.Element {
+    const { openItemSelectModal } = useActions(itemSelectModalLogic)
+
+    return (
+        <>
+            <ButtonPrimitive onClick={() => openItemSelectModal()} {...buttonProps}>
+                {buttonProps?.children || 'Select an item'}
+            </ButtonPrimitive>
+        </>
+    )
+}
+
+export function ItemSelectModal({ className, includeProtocol, includeRoot }: ItemSelectModalProps): JSX.Element {
     const [treeRoot, setTreeRoot] = useState('project://')
     const [key] = useState(() => `item-select-${counter++}`)
     const props: ProjectTreeLogicProps = { key, root: treeRoot, includeRoot, hideFolders: ['shortcuts://'] }
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
     const { isOpen } = useValues(itemSelectModalLogic)
-    const { openItemSelectModal, closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
+    const { closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
     const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
         useValues(projectTreeLogic(props))
     const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
@@ -92,10 +102,6 @@ export function ItemSelectModal({
 
     return (
         <>
-            <ButtonPrimitive onClick={() => openItemSelectModal()} {...buttonProps}>
-                {buttonProps ? buttonProps.children : 'Select an item'}
-            </ButtonPrimitive>
-
             <LemonModal
                 onClose={closeItemSelectModal}
                 isOpen={isOpen}
