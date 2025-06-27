@@ -65,7 +65,7 @@ class ExecutionTimeRecorder:
         self.additional_attributes = additional_attributes
         self.log = log
 
-        self._start_counter = None
+        self._start_counter: float | None = None
 
     def __enter__(self) -> typing.Self:
         """Start the counter and return."""
@@ -113,10 +113,11 @@ def get_metric_meter(additional_attributes: Attributes | None = None):
     """Return a meter depending on in which context we are."""
     if activity.in_activity():
         meter = activity.metric_meter()
-    elif workflow.in_workflow():
-        meter = workflow.metric_meter()
     else:
-        raise RuntimeError("Not within workflow or activity context")
+        try:
+            meter = workflow.metric_meter()
+        except Exception:
+            raise RuntimeError("Not within workflow or activity context")
 
     if additional_attributes:
         meter = meter.with_additional_attributes(additional_attributes)
@@ -128,10 +129,11 @@ def get_attributes(additional_attributes: Attributes | None = None) -> Attribute
     """Return attributes depending on in which context we are."""
     if activity.in_activity():
         attributes = get_activity_attributes()
-    elif workflow.in_workflow():
-        attributes = get_workflow_attributes()
     else:
-        attributes = {}
+        try:
+            attributes = get_workflow_attributes()
+        except Exception:
+            attributes = {}
 
     if additional_attributes:
         attributes = {**attributes, **additional_attributes}
