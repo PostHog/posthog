@@ -74,10 +74,11 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                         >
                             <>
                                 {group.values.map((criteria, criteriaIndex) => {
-                                    const key =
-                                        criteria.type != null ? `${criteria.type}-${criteriaIndex}` : `${criteriaIndex}`
                                     return isCohortCriteriaGroup(criteria) ? null : (
-                                        <Group key={key} name={['values', criteriaIndex]}>
+                                        <Group
+                                            key={criteria.sort_key ?? criteriaIndex}
+                                            name={['values', criteriaIndex]}
+                                        >
                                             <CohortCriteriaRowBuilder
                                                 id={logicProps.id}
                                                 groupIndex={groupIndex}
