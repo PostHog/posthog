@@ -247,20 +247,22 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
 }
 
 async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> {
-    return content.map(async (node) => {
-        if (node.type !== NotebookNodeType.Query || !node.attrs || !('query' in node.attrs)) {
-            return node
-        }
+    return Promise.all(
+        content.map(async (node) => {
+            if (node.type !== NotebookNodeType.Query || !node.attrs || !('query' in node.attrs)) {
+                return node
+            }
 
-        const query = node.attrs.query
-        const response = await api.schema.queryUpgrade({ query })
+            const query = node.attrs.query
+            const response = await api.schema.queryUpgrade({ query })
 
-        return {
-            ...node,
-            attrs: {
-                ...node.attrs,
-                query: response.query,
-            },
-        }
-    })
+            return {
+                ...node,
+                attrs: {
+                    ...node.attrs,
+                    query: response.query,
+                },
+            }
+        })
+    )
 }
