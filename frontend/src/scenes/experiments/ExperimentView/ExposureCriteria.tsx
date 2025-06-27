@@ -101,9 +101,9 @@ export function ExposureCriteriaModal(): JSX.Element {
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
-                        If you for some reason can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you
-                        can select a custom event to signal that users reached the part of your app where the experiment
-                        runs.
+                        If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
+                        custom event to signal that users reached the part of your app where the experiment runs. You
+                        can also filter out users you would like to exlucde from the analysis.
                     </div>
                 </LemonButton>
             </div>
