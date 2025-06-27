@@ -180,8 +180,9 @@ def sync_execute(
     update_query_tags_with_temporal_info()
 
     # Add tracing context manager
+    # codeql: suppress[py/sql-injection] - This is tracing, not SQL execution
     with trace_clickhouse_query(
-        query=prepared_sql,
+        query=prepared_sql,  # This is for observability only
         args=prepared_args,
         workload=workload,
         team_id=team_id,
