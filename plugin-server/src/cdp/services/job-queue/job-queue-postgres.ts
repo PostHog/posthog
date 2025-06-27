@@ -80,6 +80,11 @@ export class CyclotronJobQueuePostgres {
         await this.cyclotronWorker?.disconnect()
     }
 
+    public async stopProducer() {
+        // NOTE: Currently doesn't do anything as there is no disconnect logic - just keeps the interfaces the same
+        return Promise.resolve()
+    }
+
     public isHealthy() {
         return this.getCyclotronWorker().isHealthy()
     }
