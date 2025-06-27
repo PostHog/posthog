@@ -13,7 +13,7 @@ import {
     calculateViewportRange,
     DEFAULT_HEATMAP_FILTERS,
     PostHogAppToolbarEvent,
-} from 'lib/components/IframeToolbarBrowser/utils'
+} from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'

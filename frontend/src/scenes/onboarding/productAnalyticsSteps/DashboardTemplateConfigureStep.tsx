@@ -16,8 +16,8 @@ import {
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { StarHog } from 'lib/components/hedgehogs'
-import { IframedToolbarBrowser } from 'lib/components/IframeToolbarBrowser/IframedToolbarBrowser'
-import { iframedToolbarBrowserLogic } from 'lib/components/IframeToolbarBrowser/iframedToolbarBrowserLogic'
+import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
+import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { useEffect, useRef, useState } from 'react'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
