@@ -421,7 +421,7 @@ jobs:
             # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
 
             - name: Skip backend tests
-              if: ${{ needs.changes.outputs.backend == 'true' }}
+              if: ${{ needs.changes.outputs.backend == 'false' }}
               run: |
                   echo "Skipping backend tests - no backend changes detected"
                   exit 0
