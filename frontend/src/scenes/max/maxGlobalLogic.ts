@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -124,18 +124,16 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
-    subscriptions(({ values, actions }) => ({
+    listeners(({ actions, values }) => ({
+        acceptDataProcessing: async ({ testOnlyOverride }) => {
+            await organizationLogic.asyncActions.updateOrganization({
+                is_ai_data_processing_approved: testOnlyOverride ?? true,
+            })
+        },
         [router.actionTypes.locationChanged]: ({ pathname }: LocationChangedPayload) => {
             actions.registerTool({
                 ...values.toolMap.navigate,
                 context: { current_page: pathname },
-            })
-        },
-    })),
-    listeners(() => ({
-        acceptDataProcessing: async ({ testOnlyOverride }) => {
-            await organizationLogic.asyncActions.updateOrganization({
-                is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
         },
     })),
