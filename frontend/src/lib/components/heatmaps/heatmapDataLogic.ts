@@ -149,9 +149,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         throw new Error('API error')
                     }
 
-                    const json = await response.json()
-
-                    return json
+                    return await response.json()
                 },
             },
         ],
