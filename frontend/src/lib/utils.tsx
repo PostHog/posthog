@@ -606,7 +606,7 @@ export function humanFriendlyDuration(
     let m = Math.floor((d % 3600) / 60)
     let s = Math.round((d % 3600) % 60)
     if (s == 60) {
-        s == 59
+        s = 59
     }
 
     const dayDisplay = days > 0 ? days + 'd' : ''
