@@ -1942,11 +1942,12 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
-                ("uses", models.PositiveIntegerField(default=0)),
-                ("max_uses", models.PositiveIntegerField(blank=True, default=None, null=True)),
-                ("target_email", models.EmailField(blank=True, db_index=True, default=None, max_length=254, null=True)),
+                ("target_email", models.EmailField(db_index=True, max_length=254, null=True)),
+                ("first_name", models.CharField(blank=True, default="", max_length=30)),
+                ("emailing_attempt_made", models.BooleanField(default=False)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                ("message", models.TextField(blank=True, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -1958,21 +1959,28 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "last_used_by",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
                     "organization",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="invites",
                         related_query_name="invite",
                         to="posthog.organization",
+                    ),
+                ),
+                (
+                    "level",
+                    models.PositiveSmallIntegerField(
+                        choices=[(1, "member"), (8, "administrator"), (15, "owner")], default=1
+                    ),
+                ),
+                (
+                    "private_project_access",
+                    models.JSONField(
+                        blank=True,
+                        default=list,
+                        help_text="List of team IDs and corresponding access levels to private projects.",
+                        null=True,
+                        validators=[posthog.models.organization_invite.validate_private_project_access],
                     ),
                 ),
             ],
@@ -2012,12 +2020,6 @@ class Migration(migrations.Migration):
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
                 fields=("organization_id", "user_id"), name="unique_organization_membership"
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="organizationinvite",
-            constraint=models.CheckConstraint(
-                check=models.Q(("uses__lte", models.F("max_uses"))), name="max_uses_respected"
             ),
         ),
         migrations.AddField(
@@ -2070,27 +2072,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="name",
             field=models.CharField(default="Default Project", max_length=200, null=True),
-        ),
-        migrations.RemoveConstraint(
-            model_name="organizationinvite",
-            name="max_uses_respected",
-        ),
-        migrations.RemoveField(
-            model_name="organizationinvite",
-            name="last_used_by",
-        ),
-        migrations.RemoveField(
-            model_name="organizationinvite",
-            name="max_uses",
-        ),
-        migrations.RemoveField(
-            model_name="organizationinvite",
-            name="uses",
-        ),
-        migrations.AlterField(
-            model_name="organizationinvite",
-            name="target_email",
-            field=models.EmailField(db_index=True, max_length=254, null=True),
         ),
         migrations.CreateModel(
             name="MessagingRecord",
@@ -2188,11 +2169,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="plugins_opt_in",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="organizationinvite",
-            name="emailing_attempt_made",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
@@ -2377,11 +2353,6 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="setup_section_2_completed",
             field=models.BooleanField(default=True),
-        ),
-        migrations.AddField(
-            model_name="organizationinvite",
-            name="first_name",
-            field=models.CharField(blank=True, default="", max_length=30),
         ),
         migrations.AlterField(
             model_name="team",
@@ -4562,6 +4533,9 @@ class Migration(migrations.Migration):
                 ("last_verification_retry", models.DateTimeField(blank=True, default=None, null=True)),
                 ("jit_provisioning_enabled", models.BooleanField(default=False)),
                 ("sso_enforcement", models.CharField(blank=True, max_length=28)),
+                ("saml_entity_id", models.CharField(blank=True, max_length=512, null=True)),
+                ("saml_acs_url", models.CharField(blank=True, max_length=512, null=True)),
+                ("saml_x509_cert", models.TextField(blank=True, null=True)),
                 (
                     "organization",
                     models.ForeignKey(
@@ -4573,21 +4547,6 @@ class Migration(migrations.Migration):
                 "abstract": False,
                 "verbose_name": "domain",
             },
-        ),
-        migrations.AddField(
-            model_name="organizationdomain",
-            name="saml_acs_url",
-            field=models.CharField(blank=True, max_length=512, null=True),
-        ),
-        migrations.AddField(
-            model_name="organizationdomain",
-            name="saml_entity_id",
-            field=models.CharField(blank=True, max_length=512, null=True),
-        ),
-        migrations.AddField(
-            model_name="organizationdomain",
-            name="saml_x509_cert",
-            field=models.TextField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="InsightViewed",
@@ -4762,11 +4721,6 @@ class Migration(migrations.Migration):
         ),
         migrations.DeleteModel(
             name="PluginLogEntry",
-        ),
-        migrations.AddField(
-            model_name="organizationinvite",
-            name="message",
-            field=models.TextField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="Subscription",
@@ -5288,7 +5242,7 @@ class Migration(migrations.Migration):
                 ("cache_key", models.CharField(max_length=400)),
                 ("target_cache_age_seconds", models.IntegerField(null=True)),
                 ("last_refresh", models.DateTimeField(blank=True, null=True)),
-                ("last_refresh_queued_at", models.BooleanField(null=True)),
+                ("last_refresh_queued_at", models.DateTimeField(blank=True, null=True)),
                 ("refresh_attempt", models.IntegerField(default=0)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
@@ -5329,15 +5283,6 @@ class Migration(migrations.Migration):
                 fields=("insight", "dashboard_tile"),
                 name="unique_dashboard_tile_idx",
             ),
-        ),
-        migrations.RemoveField(
-            model_name="insightcachingstate",
-            name="last_refresh_queued_at",
-        ),
-        migrations.AddField(
-            model_name="insightcachingstate",
-            name="last_refresh_queued_at",
-            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.RemoveConstraint(
             model_name="insightcachingstate",
@@ -8340,28 +8285,6 @@ class Migration(migrations.Migration):
             model_name="organizationmembership",
             name="only_one_owner_per_organization",
         ),
-        migrations.AddField(
-            model_name="organizationinvite",
-            name="level",
-            field=models.PositiveSmallIntegerField(
-                blank=True, choices=[(1, "member"), (8, "administrator"), (15, "owner")], default=1, null=True
-            ),
-        ),
-        migrations.RunSQL(
-            sql="update posthog_organizationinvite set level = 1",
-            reverse_sql="update posthog_organizationinvite set level = NULL",
-        ),
-        migrations.RunSQL(
-            sql="ALTER TABLE posthog_organizationinvite ALTER COLUMN level SET NOT NULL -- existing-table-constraint-ignore",
-            reverse_sql="ALTER TABLE posthog_organizationinvite ALTER COLUMN level DROP NOT NULL",
-        ),
-        migrations.AlterField(
-            model_name="organizationinvite",
-            name="level",
-            field=models.PositiveSmallIntegerField(
-                choices=[(1, "member"), (8, "administrator"), (15, "owner")], default=1
-            ),
-        ),
         migrations.RunSQL(
             sql='ALTER TABLE "posthog_organization" DROP COLUMN "available_features" CASCADE -- drop-column-ignore',
             reverse_sql='ALTER TABLE "posthog_organization" ADD COLUMN "available_features" VARCHAR(64)[] DEFAULT array[]::varchar(64)[]',
@@ -8659,17 +8582,6 @@ class Migration(migrations.Migration):
             model_name="survey",
             name="actions",
             field=models.ManyToManyField(to="posthog.action"),
-        ),
-        migrations.AddField(
-            model_name="organizationinvite",
-            name="private_project_access",
-            field=models.JSONField(
-                blank=True,
-                default=list,
-                help_text="List of team IDs and corresponding access levels to private projects.",
-                null=True,
-                validators=[posthog.models.organization_invite.validate_private_project_access],
-            ),
         ),
         migrations.AlterField(
             model_name="datawarehousetable",
