@@ -468,7 +468,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 lemonToast.success('Your trial has been activated!')
                 await breakpoint(400)
                 window.location.reload()
-            } catch (e) {
+            } catch {
                 lemonToast.error('There was an error activating your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
                 actions.loadBilling()
@@ -480,7 +480,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
                 window.location.reload()
-            } catch (e) {
+            } catch {
                 lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
                 actions.setTrialLoading(false)
                 actions.loadBilling()

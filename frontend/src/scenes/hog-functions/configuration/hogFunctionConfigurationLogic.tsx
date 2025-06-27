@@ -7,7 +7,7 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,7 +27,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -114,7 +114,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
-                } catch (e) {
+                } catch {
                     // Ignore
                 }
             }
@@ -539,7 +539,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 let properties = {}
                                 try {
                                     properties = JSON.parse(tuple[3])
-                                } catch (e) {
+                                } catch {
                                     // Ignore
                                 }
                                 globals.groups![groupType.group_type] = {
@@ -718,7 +718,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (inputSchema.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
-                        } catch (e) {
+                        } catch {
                             inputErrors[key] = 'Invalid JSON'
                         }
 
@@ -1000,7 +1000,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 if (!TYPES_WITH_SPARKLINE.includes(type)) {
                     return null
                 }
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -1022,7 +1022,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
+                })
             },
             { resultEqualityCheck: equal },
         ],
@@ -1051,7 +1051,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return query
+                return setLatestVersionsOnQuery(query)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1060,13 +1060,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.baseEventsQuery],
             (baseEventsQuery): DataTableNode | null => {
                 return baseEventsQuery
-                    ? {
-                          kind: NodeKind.DataTableNode,
-                          source: {
-                              ...baseEventsQuery,
-                              select: defaultDataTableColumns(NodeKind.EventsQuery),
+                    ? setLatestVersionsOnQuery(
+                          {
+                              kind: NodeKind.DataTableNode,
+                              source: {
+                                  ...baseEventsQuery,
+                                  select: defaultDataTableColumns(NodeKind.EventsQuery),
+                              },
                           },
-                      }
+                          { recursion: false }
+                      )
                     : null
             },
         ],
@@ -1183,7 +1186,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
-                ...(cache.configFromUrl ?? {}),
+                ...cache.configFromUrl,
             }
 
             if (values.template?.mapping_templates) {
