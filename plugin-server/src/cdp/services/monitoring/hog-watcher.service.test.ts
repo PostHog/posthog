@@ -1,10 +1,4 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-
-jest.mock('../../../src/utils/posthog', () => {
+jest.mock('~/utils/posthog', () => {
     return {
         captureTeamEvent: jest.fn(),
     }
@@ -20,8 +14,8 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from 
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
-const mockCaptureTeamEvent: jest.Mock = require('../../../src/utils/posthog').captureTeamEvent as any
+const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
+const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
 
 const createResult = (options: {
     id: string
