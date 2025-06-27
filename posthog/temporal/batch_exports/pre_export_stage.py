@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
+from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -401,7 +402,7 @@ async def _get_query(
             logger.info("Using unbounded events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_backfill:
-            logger.info("Using events_batch_export_backfill view for batch export")
+            logger.info("Using events_batch_export_backfill query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
         else:
             logger.info("Using events table for batch export")
@@ -610,7 +611,7 @@ class ProducerFromInternalS3Stage:
                 await self.logger.ainfo("No files found in S3 -> assuming no data to export")
                 return
             keys = [obj["Key"] for obj in contents if "Key" in obj]
-            await self.logger.ainfo(f"Found {len(keys)} files in S3")
+            await self.logger.ainfo(f"Producer found {len(keys)} files in S3 stage")
 
             # Read in batches
             try:
@@ -631,7 +632,8 @@ class ProducerFromInternalS3Stage:
         for key in keys:
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
             assert "Body" in s3_ob, "Body not found in S3 object"
-            stream = s3_ob["Body"]
-            reader = asyncpa.AsyncRecordBatchReader(stream)
+            stream: StreamingBody = s3_ob["Body"]
+            # read in 128KB chunks of data from S3
+            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
             async for batch in reader:
                 yield batch

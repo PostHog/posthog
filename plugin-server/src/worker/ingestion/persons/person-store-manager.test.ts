@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { Hub, InternalPerson, PersonBatchWritingMode, TeamId } from '~/types'
 import { DB } from '~/utils/db/db'
+import { UUID7 } from '~/utils/utils'
 
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
@@ -86,6 +87,9 @@ describe('PersonStoreManager', () => {
                 return Promise.resolve([])
             }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
+            addDistinctId: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
         } as unknown as DB
@@ -226,6 +230,9 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             moveDistinctIds: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
+            addDistinctId: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
         } as unknown as DB
 
         const measuringStore = new MeasuringPersonsStore(db, {
@@ -273,10 +280,10 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(cachedUpdate!.distinct_id).toBe('test-distinct')
         })
 
-        it('should not overwrite existing cache in batch store', async () => {
+        it('should overwrite existing cache in batch store, but keep changeset', async () => {
             // Pre-populate batch store cache
             const existingUpdate = fromInternalPerson(person, 'test-distinct')
-            existingUpdate.properties = { pre_existing: 'value' }
+            existingUpdate.property_changeset = { pre_existing: 'value' }
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'test-distinct', existingUpdate)
 
             const result = await shadowManager.fetchForUpdate(teamId, 'test-distinct')
@@ -285,10 +292,11 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.flush()
             expect(db.fetchPerson).toHaveBeenCalledTimes(1)
 
-            // Cache should still have the pre-existing data
+            // Cache should override properties, but keep changeset
             const updateCache = batchStoreForBatch.getUpdateCache()
             const cachedUpdate = updateCache.get(`${teamId}:${person.uuid}`)
-            expect(cachedUpdate!.properties).toEqual({ pre_existing: 'value' })
+            expect(cachedUpdate!.properties).toEqual(person.properties)
+            expect(cachedUpdate!.property_changeset).toEqual(existingUpdate.property_changeset)
         })
     })
 
@@ -334,7 +342,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeDefined()
             expect(finalState?.person.properties).toEqual({ test: 'test', new_prop: 'new_value' })
             expect(finalState?.versionDisparity).toBe(false)
@@ -358,7 +366,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was tracked
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeDefined()
             expect(finalState?.person.properties).toEqual({ test: 'test', merge_prop: 'merge_value' })
             expect(finalState?.versionDisparity).toBe(false)
@@ -380,7 +388,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Check that final state was set to null
             const finalStates = shadowManager.getFinalStates()
-            const finalState = finalStates.get('1:test-distinct')
+            const finalState = finalStates.get(`${teamId}:${person.uuid}`)
             expect(finalState).toBeNull()
 
             // Check that batch store cache was cleared
@@ -469,7 +477,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(metricsData!.differentOutcomeDifferentBatch).toBe(0)
             expect(metricsData!.sameOutcomeDifferentBatch).toBe(0)
             expect(metricsData!.logicErrors).toHaveLength(1)
-            expect(metricsData!.logicErrors[0].key).toBe('1:test-distinct')
+            expect(metricsData!.logicErrors[0].key).toBe(`${teamId}:${person.uuid}`)
             expect(metricsData!.logicErrors[0].differences.length).toBeGreaterThan(0)
             expect(metricsData!.concurrentModifications).toHaveLength(0)
 
@@ -516,7 +524,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(metricsData!.logicErrors).toHaveLength(0)
             expect(metricsData!.concurrentModifications).toHaveLength(1)
             expect(metricsData!.concurrentModifications[0].type).toBe('different_outcome')
-            expect(metricsData!.concurrentModifications[0].key).toBe('1:test-distinct')
+            expect(metricsData!.concurrentModifications[0].key).toBe(`${teamId}:${person.uuid}`)
 
             // Test that reportBatch logs the concurrent modifications
             shadowManager.reportBatch()
@@ -699,7 +707,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     errorRate: '33.33%',
                     sampleErrors: expect.arrayContaining([
                         expect.objectContaining({
-                            key: '1:person2-distinct',
+                            key: `${teamId}:${person2.uuid}`,
                             differences: expect.any(Array),
                             mainPersonUuid: expect.any(String),
                             secondaryPersonUuid: expect.any(String),
@@ -718,7 +726,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     concurrentModificationRate: '33.33%',
                     sampleModifications: expect.arrayContaining([
                         expect.objectContaining({
-                            key: '1:person3-distinct',
+                            key: `${teamId}:${person3.uuid}`,
                             type: 'different_outcome',
                             mainPersonUuid: expect.any(String),
                             secondaryPersonUuid: expect.any(String),
@@ -726,6 +734,58 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     ]),
                 })
             )
+        })
+
+        it('should handle addDistinctId ', async () => {
+            const teamId = 126617
+            const personUuid = '483a46b9-aea8-5205-828e-85a6f77ad6b0'
+            const distinctId = '0197a209-f567-7daa-8810-900f7c7f7b5d'
+
+            const existingPerson: InternalPerson = {
+                id: '11212424398',
+                uuid: personUuid,
+                created_at: DateTime.fromISO('2025-04-11T00:22:49.998Z'),
+                team_id: teamId,
+                properties: {
+                    $os: 'Android',
+                    $app_name: 'Skorlife',
+                    $creator_event_uuid: '0196223a-5299-72a2-b7cd-3c9cc03d6869',
+                },
+                properties_last_updated_at: {
+                    $os: '2025-04-11T00:22:49.998Z',
+                    $app_name: '2025-04-11T00:22:49.998Z',
+                },
+                properties_last_operation: {},
+                is_user_id: null,
+                is_identified: true,
+                version: 1,
+            }
+
+            // Step 1: Add a distinct ID to an existing person
+            // This simulates the production scenario where we're adding a new distinct ID
+            await shadowManager.addDistinctId(existingPerson, distinctId, 0)
+
+            // Step 2: Flush to trigger comparison
+            await shadowManager.flush()
+
+            const metrics = shadowManager.getShadowMetrics()
+            const finalStates = shadowManager.getFinalStates()
+            const finalState = finalStates.get(`${teamId}:${existingPerson.uuid}`)
+
+            // Verify the final state is tracked correctly
+            expect(finalState?.person).toEqual(existingPerson)
+            expect(finalState?.operations).toEqual([
+                {
+                    type: 'addDistinctId',
+                    timestamp: expect.any(Number),
+                    distinctId: distinctId,
+                },
+            ])
+
+            expect(metrics.totalComparisons).toBe(1)
+            expect(metrics.sameOutcomeSameBatch).toBe(1)
+            expect(metrics.differentOutcomeSameBatch).toBe(0)
+            expect(metrics.logicErrors).toHaveLength(0)
         })
 
         it('should handle createPerson followed by moveDistinctIds', async () => {
@@ -767,6 +827,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const measuringStoreForBatch = measuringStore.forBatch() as MeasuringPersonsStoreForBatch
             const batchStoreForBatch = batchStore.forBatch() as BatchWritingPersonsStoreForBatch
             const shadowManager = new PersonStoreManagerForBatch(measuringStoreForBatch, batchStoreForBatch)
+            const distinctId = new UUID7().toString()
 
             // Step 1: Create person - this sets batch cache
             await shadowManager.createPerson(
@@ -778,7 +839,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 null,
                 false,
                 personUuid,
-                [{ distinctId: createdPerson.uuid, version: 0 }]
+                [{ distinctId: distinctId, version: 0 }]
             )
 
             // Verify batch cache was set after create
@@ -786,7 +847,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
 
             // Step 2: Move distinct IDs (simulate merge)
-            await shadowManager.moveDistinctIds(createdPerson, targetPerson, targetPerson.uuid)
+            await shadowManager.moveDistinctIds(createdPerson, targetPerson, distinctId)
 
             // Verify batch cache is populated after moveDistinctIds
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
@@ -804,12 +865,12 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 {
                     type: 'createPerson',
                     timestamp: expect.any(Number),
-                    distinctId: createdPerson.uuid,
+                    distinctId: distinctId,
                 },
                 {
                     type: 'moveDistinctIds',
                     timestamp: expect.any(Number),
-                    distinctId: createdPerson.uuid,
+                    distinctId: distinctId,
                 },
             ])
 
@@ -819,7 +880,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 {
                     type: 'moveDistinctIds',
                     timestamp: expect.any(Number),
-                    distinctId: targetPerson.uuid,
+                    distinctId: distinctId,
                 },
             ])
 
@@ -892,9 +953,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
-                    key: '1:test-distinct',
+                    key: `${teamId}:${person.uuid}`,
                     teamId: 1,
-                    distinctId: 'test-distinct',
                     methodName: 'updatePersonForUpdate',
                     samePersonResult: false,
                     differences: expect.arrayContaining([expect.stringContaining('person.properties')]),
@@ -932,9 +992,8 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(logger.info).toHaveBeenCalledWith(
                 'updatePersonForMerge returned inconsistent results between stores',
                 expect.objectContaining({
-                    key: '1:test-distinct',
+                    key: `${teamId}:${person.uuid}`,
                     teamId: 1,
-                    distinctId: 'test-distinct',
                     methodName: 'updatePersonForMerge',
                     samePersonResult: false,
                     differences: expect.arrayContaining([expect.stringContaining('person.properties')]),

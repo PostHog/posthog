@@ -86,10 +86,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             ])
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                await this.runManyWithHeartbeat(invocationGlobals, async (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
+                    const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,
                         globals
                     )
@@ -186,10 +186,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                await this.runManyWithHeartbeat(invocationGlobals, async (globals) => {
                     const teamHogFlows = hogFlowsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogFlowExecutor.buildHogFlowInvocations(
+                    const { invocations, metrics, logs } = await this.hogFlowExecutor.buildHogFlowInvocations(
                         teamHogFlows,
                         globals
                     )
@@ -305,6 +305,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Stopping cyclotron job queue...')
         await this.cyclotronJobQueue.stop()
         logger.info('💤', 'Stopping consumer...')
+        // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }

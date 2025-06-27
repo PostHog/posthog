@@ -12,8 +12,7 @@ import { HogFunctionManagerService } from '../services/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 
@@ -43,12 +42,6 @@ export const hogWatcherLatency = new Histogram({
     name: 'hog_watcher_latency_seconds',
     help: 'Time spent in HogWatcher operations in seconds during ingestion',
     labelNames: ['operation'],
-})
-
-export const hogTransformationExecutionDuration = new Histogram({
-    name: 'hog_transformation_execution_duration_ms',
-    help: 'Duration of Hog transformation executions in ms',
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000],
 })
 
 export interface TransformationResult {
@@ -204,7 +197,7 @@ export class HogTransformerService {
 
                     // Check if function has filters - if not, always apply
                     if (hogFunction.filters?.bytecode) {
-                        const filterResults = filterFunctionInstrumented({
+                        const filterResults = await filterFunctionInstrumented({
                             fn: hogFunction,
                             filters: hogFunction.filters,
                             filterGlobals,
@@ -339,23 +332,13 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = buildGlobalsWithInputs(globals, {
-            ...(hogFunction.inputs ?? {}),
-            ...(hogFunction.encrypted_inputs ?? {}),
-        })
+        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const result = isLegacyPluginHogFunction(hogFunction)
             ? await this.pluginExecutor.execute(invocation)
-            : // measures the duration of the hog code execution for transformations
-              (() => {
-                  const start = performance.now()
-                  const res = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
-                  const duration = performance.now() - start
-                  hogTransformationExecutionDuration.observe(duration)
-                  return res
-              })()
+            : await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
     }
 
