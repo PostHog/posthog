@@ -3642,8 +3642,35 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.CharField(max_length=400)),
                 ("is_numerical", models.BooleanField(default=False)),
-                ("volume_30_day", models.IntegerField(default=None, null=True)),
                 ("query_usage_30_day", models.IntegerField(default=None, null=True)),
+                (
+                    "property_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("DateTime", "DateTime"),
+                            ("String", "String"),
+                            ("Numeric", "Numeric"),
+                            ("Boolean", "Boolean"),
+                        ],
+                        max_length=50,
+                        null=True,
+                    ),
+                ),
+                (
+                    "property_type_format",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("unix_timestamp", "Unix Timestamp"),
+                            ("YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"),
+                            ("YYYY-MM-DD", "YYYY-MM-DD"),
+                        ],
+                        max_length=50,
+                        null=True,
+                    ),
+                ),
+                ("volume_30_day", models.IntegerField(default=None, null=True)),
                 (
                     "team",
                     models.ForeignKey(
@@ -3966,35 +3993,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="eventproperty",
             index=models.Index(fields=["team", "property"], name="posthog_eve_team_id_26dbfb_idx"),
-        ),
-        migrations.AddField(
-            model_name="propertydefinition",
-            name="property_type",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("DateTime", "DateTime"),
-                    ("String", "String"),
-                    ("Numeric", "Numeric"),
-                    ("Boolean", "Boolean"),
-                ],
-                max_length=50,
-                null=True,
-            ),
-        ),
-        migrations.AddField(
-            model_name="propertydefinition",
-            name="property_type_format",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("unix_timestamp", "Unix Timestamp"),
-                    ("YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"),
-                    ("YYYY-MM-DD", "YYYY-MM-DD"),
-                ],
-                max_length=50,
-                null=True,
-            ),
         ),
         migrations.AddConstraint(
             model_name="propertydefinition",
