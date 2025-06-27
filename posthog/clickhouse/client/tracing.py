@@ -19,11 +19,6 @@ def trace_clickhouse_query_decorator(func):
     - Result tracking
     - Exception handling
     - Execution time measurement
-
-    Note: This decorator captures the initial workload value passed to the function.
-    The workload can change during function execution based on various conditions
-    (e.g., API keys, celery tasks, etc.). If you need the final workload value
-    in traces, you can add it manually using add_clickhouse_span_attributes().
     """
 
     @wraps(func)
