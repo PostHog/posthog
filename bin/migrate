@@ -37,7 +37,7 @@ echo "0" > $CLICKHOUSE_STATUS
         echo "1" > $CLICKHOUSE_STATUS
         exit $SYNC_STATUS
     fi
-) & # ClickHouse migrations can run in parallel to most Postgres ones
+) & # ClickHouse migrations can run in parallel to Postgres ones
 CLICKHOUSE_PID=$!
 
 # Run postgres migrations
