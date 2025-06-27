@@ -222,8 +222,8 @@ describe.each([
                 [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
                 [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
             ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
 
                 const { invocations } = await processor.processBatch([globals])
 

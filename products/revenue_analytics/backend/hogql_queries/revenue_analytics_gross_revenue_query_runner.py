@@ -1,10 +1,10 @@
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
-    CachedRevenueAnalyticsInsightsQueryResponse,
-    RevenueAnalyticsInsightsQueryResponse,
-    RevenueAnalyticsInsightsQuery,
-    RevenueAnalyticsInsightsQueryGroupBy,
+    CachedRevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsGroupBy,
 )
 from posthog.utils import format_label_date
 
@@ -22,10 +22,10 @@ from products.revenue_analytics.backend.views import (
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
 
-class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
-    query: RevenueAnalyticsInsightsQuery
-    response: RevenueAnalyticsInsightsQueryResponse
-    cached_response: CachedRevenueAnalyticsInsightsQueryResponse
+class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
+    query: RevenueAnalyticsGrossRevenueQuery
+    response: RevenueAnalyticsGrossRevenueQueryResponse
+    cached_response: CachedRevenueAnalyticsGrossRevenueQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         subquery = self._get_subquery()
@@ -96,9 +96,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
 
         return query
 
-    def _append_group_by(
-        self, query: ast.SelectQuery, group_by: RevenueAnalyticsInsightsQueryGroupBy
-    ) -> ast.SelectQuery:
+    def _append_group_by(self, query: ast.SelectQuery, group_by: RevenueAnalyticsGroupBy) -> ast.SelectQuery:
         # Join with the subquery to get access to the coalesced field
         # and also change the `breakdown_by` to include that
         join_to, field_name = self._join_to_and_field_name_for_group_by(group_by)
@@ -149,21 +147,21 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
         return query
 
     def _join_to_and_field_name_for_group_by(
-        self, group_by: RevenueAnalyticsInsightsQueryGroupBy
+        self, group_by: RevenueAnalyticsGroupBy
     ) -> tuple[type[RevenueAnalyticsBaseView], str]:
-        if group_by == RevenueAnalyticsInsightsQueryGroupBy.PRODUCT:
+        if group_by == RevenueAnalyticsGroupBy.PRODUCT:
             return RevenueAnalyticsProductView, "name"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUNTRY:
+        elif group_by == RevenueAnalyticsGroupBy.COUNTRY:
             return RevenueAnalyticsCustomerView, "country"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COHORT:
+        elif group_by == RevenueAnalyticsGroupBy.COHORT:
             return RevenueAnalyticsCustomerView, "cohort"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUPON:
+        elif group_by == RevenueAnalyticsGroupBy.COUPON:
             return RevenueAnalyticsInvoiceItemView, "coupon"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.COUPON_ID:
+        elif group_by == RevenueAnalyticsGroupBy.COUPON_ID:
             return RevenueAnalyticsInvoiceItemView, "coupon_id"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON:
+        elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON:
             return RevenueAnalyticsCustomerView, "initial_coupon"
-        elif group_by == RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON_ID:
+        elif group_by == RevenueAnalyticsGroupBy.INITIAL_COUPON_ID:
             return RevenueAnalyticsCustomerView, "initial_coupon_id"
         else:
             raise ValueError(f"Invalid group by: {group_by}")
@@ -183,7 +181,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
 
     def calculate(self):
         response = execute_hogql_query(
-            query_type="revenue_analytics_insights_query",
+            query_type="revenue_analytics_gross_revenue_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
@@ -220,7 +218,7 @@ class RevenueAnalyticsInsightsQueryRunner(RevenueAnalyticsQueryRunner):
             for breakdown in breakdowns
         ]
 
-        return RevenueAnalyticsInsightsQueryResponse(
+        return RevenueAnalyticsGrossRevenueQueryResponse(
             results=results,
             hogql=response.hogql,
             modifiers=self.modifiers,

@@ -7,13 +7,11 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
-    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
     MinimalAppMetric,
 } from '../../types'
-import { convertToHogFunctionFilterGlobal } from '../../utils'
-import { filterFunctionInstrumented } from '../../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogFlowActionRunner } from './actions'
 
@@ -58,7 +56,7 @@ export class HogFlowExecutorService {
         const invocations: CyclotronJobInvocationHogFlow[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
+        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
         hogFlows.forEach((hogFlow) => {
             if (hogFlow.trigger.type !== 'event') {
