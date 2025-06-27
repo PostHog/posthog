@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
-import { LocationChangedPayload } from 'kea-router/lib/types'
 import type { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 
 export interface ToolDefinition {
@@ -130,7 +129,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
         },
-        [router.actionTypes.locationChanged]: ({ pathname }: LocationChangedPayload) => {
+        [router.actionTypes.locationChanged]: ({ pathname }) => {
             actions.registerTool({
                 ...values.toolMap.navigate,
                 context: { current_page: pathname },
