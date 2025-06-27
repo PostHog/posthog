@@ -15,26 +15,26 @@ export default defineConfig({
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 30 * 1000 : 30 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
          * For example in `await expect(locator).toHaveText();`
          */
-        timeout: process.env.CI ? 40 * 1000 : 10 * 1000,
+        timeout: process.env.CI ? 20 * 1000 : 10 * 1000,
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: process.env.CI ? 8 : 2,
+    retries: process.env.CI ? 2 : 2,
     /* 
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: process.env.CI ? 1 : 6,
+    workers: process.env.CI ? 3 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
