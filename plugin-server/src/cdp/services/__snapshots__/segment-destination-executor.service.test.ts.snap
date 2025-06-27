@@ -432,7 +432,12 @@ exports[`SegmentDestinationExecutorService segment plugins should handle non ret
   },
   {
     "level": "warn",
-    "message": "HTTP request failed with status 403 ({"error":"Forbidden"}).  max retries: 3",
+    "message": "disabling retries because of something, true, false, true",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "warn",
+    "message": "HTTP request failed with status 403 ({"error":"Forbidden"}).  max retries: 1/3",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -830,7 +835,12 @@ exports[`SegmentDestinationExecutorService segment plugins should handle throwHt
   },
   {
     "level": "warn",
-    "message": "HTTP request failed with status 403 ({"error":"Forbidden"}).  max retries: 3",
+    "message": "disabling retries because of something, true, false, true",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "warn",
+    "message": "HTTP request failed with status 403 ({"error":"Forbidden"}).  max retries: 1/3",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -937,7 +947,7 @@ exports[`SegmentDestinationExecutorService segment plugins should retry retryabl
   },
   {
     "level": "warn",
-    "message": "HTTP request failed with status 429 ({"error":"Too many requests"}). Scheduling retry... max retries: 3",
+    "message": "HTTP request failed with status 429 ({"error":"Too many requests"}). Scheduling retry... max retries: 1/3",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
 ]
