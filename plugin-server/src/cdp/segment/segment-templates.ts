@@ -379,24 +379,22 @@ const translateInputsSchema = (
 
 const getIconUrl = (id: string, slug: string | undefined) => {
     const icon_overrides = {
-        'segment-gameball': 'gameball.co',
-        'segment-angler-ai': 'getangler.ai',
-        'segment-amazon-amc': 'amazon.com',
-        'segment-canvas': 'supernova.ai',
+        'segment-actions-gameball': 'gameball.co',
+        'segment-actions-angler-ai': 'getangler.ai',
+        'segment-actions-amazon-amc': 'amazon.com',
+        'segment-actions-canvas': 'supernova.ai',
         'segment-voucherify-actions': 'voucherify.io',
-        'segment-voyage': 'voyagesms.com',
+        'segment-actions-voyage': 'voyagesms.com',
         'segment-encharge-cloud-actions': 'encharge.io',
-        'segment-cloud-gwen': 'gwenplatform.com',
-        'segment-heap-cloud': 'heap.io',
-        'segment-hyperengage': 'hyperengage.io',
+        'segment-actions-cloud-gwen': 'gwenplatform.com',
+        'segment-actions-hyperengage': 'hyperengage.io',
         'segment-inleads-ai': 'inleads.ai',
         'segment-metronome-actions': 'metronome.com',
-        'segment-movable-ink': 'movableink.com',
         'segment-outfunnel': 'outfunnel.com',
-        'segment-playerzero-cloud': 'playerzero.ai',
-        'segment-revx': 'revx.io',
-        'segment-saleswings': 'saleswingsapp.com',
-        'segment-schematic': 'schematichq.com',
+        'segment-actions-playerzero-cloud': 'playerzero.ai',
+        'segment-actions-revx': 'revx.io',
+        'segment-actions-saleswings': 'saleswingsapp.com',
+        'segment-actions-schematic': 'schematichq.com',
     }
 
     if (!slug && !(id in icon_overrides)) {
