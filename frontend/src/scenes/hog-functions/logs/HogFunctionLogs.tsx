@@ -141,6 +141,8 @@ function HogFunctionLogsStatus({
 
     const eventId = eventIdByInvocationId?.[record.instanceId]
 
+    const internalEvent = ['error-tracking', 'insight-alerts', 'activity-log'].includes(contextId)
+
     return (
         <div className="flex items-center gap-2">
             {selectingMany ? (
@@ -155,20 +157,20 @@ function HogFunctionLogsStatus({
 
             <LemonMenu
                 items={[
-                    eventId && contextId != 'error-tracking'
+                    eventId && !internalEvent
                         ? {
                               label: 'View event',
                               to: urls.event(eventId, ''),
                           }
                         : null,
-                    contextId == 'error-tracking'
+                    internalEvent
                         ? null
                         : {
                               label: 'Retry event',
                               disabledReason: !eventId ? 'Could not find the source event' : undefined,
                               onClick: () => retryInvocations([record]),
                           },
-                    contextId == 'error-tracking'
+                    internalEvent
                         ? null
                         : {
                               label: 'Select for retry',
