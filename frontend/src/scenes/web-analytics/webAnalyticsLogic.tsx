@@ -34,6 +34,7 @@ import {
     EventsNode,
     InsightVizNode,
     NodeKind,
+    QueryLogTags,
     QuerySchema,
     TrendsFilter,
     TrendsQuery,
@@ -59,6 +60,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    ProductKey,
     PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
@@ -73,6 +75,7 @@ import {
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
@@ -403,6 +406,10 @@ const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+
+export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.WEB_ANALYTICS,
+}
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -1071,6 +1078,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             filterTestAccounts,
                             conversionGoal,
                             properties: webAnalyticsFilters,
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
@@ -1130,6 +1138,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
@@ -1156,6 +1165,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 ...source,
                             },
                             embedded: false,
@@ -1200,6 +1210,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
@@ -1855,6 +1866,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   filterTestAccounts,
                                                   properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                               },
                                               hidePersonsModal: true,
                                               embedded: true,
@@ -1928,6 +1940,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,
                                       },
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   vizSpecificOptions: {
                                       [InsightType.RETENTION]: {
@@ -1993,6 +2006,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -2048,6 +2062,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -2111,6 +2126,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2210,6 +2226,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       compareFilter,
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2372,6 +2389,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     } as TrendsFilter,
                     filterTestAccounts,
                     properties: webAnalyticsFilters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
                 embedded: false,
             }),

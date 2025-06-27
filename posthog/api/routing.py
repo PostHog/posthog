@@ -122,13 +122,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if self.sharing_enabled_actions:
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend(
-            [
-                JwtAuthentication,
-                PersonalAPIKeyAuthentication,
-                SessionAuthentication,
-            ]
-        )
+        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
 
         return [auth() for auth in authentication_classes]
 

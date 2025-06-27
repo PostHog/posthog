@@ -22,8 +22,7 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
 
@@ -200,7 +199,7 @@ export class HogExecutorService {
         const invocations: CyclotronJobInvocationHogFunction[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
+        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
         const _filterHogFunction = (
             hogFunction: HogFunctionType,

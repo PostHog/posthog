@@ -12,7 +12,16 @@ import { urls } from 'scenes/urls'
 import { CachedExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
-import { formatPValue } from '../shared/utils'
+import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
+import {
+    formatPValue,
+    formatChanceToWin,
+    isBayesianResult,
+    isFrequentistResult,
+    getVariantInterval,
+    getIntervalLabel,
+    ExperimentVariantResult,
+} from '../shared/utils'
 
 export function ResultDetails({
     experiment,
@@ -27,7 +36,7 @@ export function ResultDetails({
     metricIndex: number
     isSecondary: boolean
 }): JSX.Element {
-    const columns: LemonTableColumns<any> = [
+    const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
             title: 'Variant',
@@ -47,13 +56,19 @@ export function ResultDetails({
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
-            key: 'p_value',
-            title: 'p-value',
-            render: (_, item) => {
+            key: 'statistical_measure',
+            title:
+                result.variant_results?.[0] && isBayesianResult(result.variant_results[0])
+                    ? 'Chance to win'
+                    : 'p-value',
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === 'control') {
                     return '—'
                 }
-                if ('p_value' in item) {
+
+                if (isBayesianResult(item)) {
+                    return <div className="font-semibold">{formatChanceToWin(item.chance_to_win)}</div>
+                } else if (isFrequentistResult(item)) {
                     return <div className="font-semibold">{formatPValue(item.p_value)}</div>
                 }
                 return '—'
@@ -62,21 +77,27 @@ export function ResultDetails({
         {
             key: 'significant',
             title: 'Significant',
-            render: (_, item) => {
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === 'control') {
                     return '—'
                 }
-                return item.significant ? <div className="text-success font-semibold">Yes</div> : 'No'
+                if (!('significant' in item)) {
+                    return '—'
+                }
+                const label = item.significant ? 'Yes' : 'No'
+                return item.significant ? <div className="text-success font-semibold">{label}</div> : label
             },
         },
         {
             key: 'interval',
-            title: 'Confidence interval (95%)',
-            render: (_, item) => {
+            title: result.variant_results?.[0]
+                ? `${getIntervalLabel(result.variant_results[0])} (95%)`
+                : 'Confidence interval (95%)',
+            render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === 'control') {
                     return '—'
                 }
-                const interval = 'confidence_interval' in item ? item.confidence_interval : null
+                const interval = getVariantInterval(item)
                 if (!interval) {
                     return '—'
                 }
@@ -125,7 +146,12 @@ export function ResultDetails({
         },
     ]
 
-    const dataSource = [{ ...result.baseline, key: 'control' }, ...(result.variant_results || [])]
+    const dataSource = [
+        ...(result.baseline
+            ? [{ ...result.baseline, key: 'control' } as ExperimentVariantResult & { key: string }]
+            : []),
+        ...(result.variant_results || []),
+    ]
 
     return (
         <div className="space-y-2">
@@ -137,12 +163,15 @@ export function ResultDetails({
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResultsLoading, breakdownResults }) => {
+                    {({ query, breakdownResultsLoading, breakdownResults, exposureDifference }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                 {query && breakdownResults && (
-                                    <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    <>
+                                        <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                        <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                    </>
                                 )}
                             </>
                         )

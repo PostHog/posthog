@@ -7,9 +7,10 @@ use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
-use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
 
+use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::db_monitor::DatabasePoolMonitor;
@@ -113,17 +114,28 @@ where
         db_monitor.start_monitoring().await;
     });
 
-    let billing_limiter = match RedisLimiter::new(
+    let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(5),
         redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::FeatureFlags,
-        ServiceName::FeatureFlags,
     ) {
         Ok(limiter) => limiter,
         Err(e) => {
-            tracing::error!("Failed to create billing limiter: {}", e);
+            tracing::error!("Failed to create feature flags billing limiter: {}", e);
+            return;
+        }
+    };
+
+    let session_replay_billing_limiter = match SessionReplayLimiter::new(
+        Duration::from_secs(5),
+        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+    ) {
+        Ok(limiter) => limiter,
+        Err(e) => {
+            tracing::error!("Failed to create session replay billing limiter: {}", e);
             return;
         }
     };
@@ -141,7 +153,8 @@ where
         cohort_cache,
         geoip_service,
         health,
-        billing_limiter,
+        feature_flags_billing_limiter,
+        session_replay_billing_limiter,
         cookieless_manager,
         config,
     );

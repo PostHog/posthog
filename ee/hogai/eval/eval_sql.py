@@ -20,15 +20,15 @@ class SQLSyntaxCorrectness(Scorer):
         return "sql_syntax_correctness"
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        query = output["query"]
-        if not query or not getattr(query, "query", None):
+        if not output:
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
+        query = {"query": output}
         team = await Team.objects.alatest("created_at")
         try:
             # Try to parse, print, and run the query
-            await sync_to_async(HogQLQueryRunner(query.model_dump(), team).calculate)()
+            await sync_to_async(HogQLQueryRunner(query, team).calculate)()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
         except InternalCHQueryError as e:
@@ -37,11 +37,11 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=1.0)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        if not query or not getattr(query, "query", None):
+        if not output:
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
+        query = {"query": output}
         team = Team.objects.latest("created_at")
         try:
             # Try to parse, print, and run the query
@@ -52,6 +52,18 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=0.5, metadata={"reason": f"ClickHouse-level error: {str(e)}"})
         else:
             return Score(name=self._name(), score=1.0)
+
+
+class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await super()._run_eval_async(
+            output["query"].query if output and output.get("query") else None, expected, **kwargs
+        )
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return super()._run_eval_sync(
+            output["query"].query if output and output.get("query") else None, expected, **kwargs
+        )
 
 
 @pytest.mark.django_db
@@ -88,7 +100,7 @@ Important points:
 - $identify generally should not be used, as they're mostly for internal purposes, and not useful for insights. A more useful event (or no event filter) should be used.
 - For session duration, `session.$session_duration` should be used instead of things like `properties.$session_duration`.""",
             ),
-            SQLSyntaxCorrectness(),
+            HogQLQuerySyntaxCorrectness(),
             TimeRangeRelevancy(query_kind=NodeKind.HOG_QL_QUERY),
         ],
         data=[
@@ -280,5 +292,5 @@ ORDER BY day
                     ),
                 ),
             ),
-        ][-1:],
+        ],
     )
