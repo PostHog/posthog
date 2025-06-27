@@ -21,16 +21,16 @@ def get_s3_function_args(s3_path: str) -> str:
         return f"'{s3_path}', 'Native'"
 
 
-def get_s3_url(table_name: str, team_id: int | None = None) -> str:
+def get_s3_url(table_name: str, team_id: int) -> str:
     if settings.DEBUG:
         s3_endpoint = "http://objectstorage:19000"
         bucket = "posthog"
-        key = f"{table_name}"
+        key = f"{table_name}/{team_id}/data.native"
         return f"{s3_endpoint}/{bucket}/{key}"
 
     base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com"
 
-    return f"{base_url}/{team_id}/{table_name}" if team_id else f"{base_url}/{table_name}"
+    return f"{base_url}/{table_name}/{team_id}/data.native"
 
 
 def get_s3_web_stats_structure() -> str:
@@ -76,7 +76,7 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 
 
 def create_s3_web_stats_table(team_id: int) -> S3Table:
-    url = get_s3_url(table_name="web_stats_daily_export.native", team_id=team_id)
+    url = get_s3_url(table_name="web_stats_daily_export", team_id=team_id)
 
     return S3Table(
         name="web_stats_daily_s3",
@@ -90,7 +90,7 @@ def create_s3_web_stats_table(team_id: int) -> S3Table:
 
 
 def create_s3_web_bounces_table(team_id: int) -> S3Table:
-    url = get_s3_url(table_name="web_bounces_daily_export.native", team_id=team_id)
+    url = get_s3_url(table_name="web_bounces_daily_export", team_id=team_id)
 
     return S3Table(
         name="web_bounces_daily_s3",
