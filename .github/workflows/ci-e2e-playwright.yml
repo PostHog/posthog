@@ -287,7 +287,7 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            - name: Start PostHog web & Celery worker & frontend server
+            - name: Start PostHog web & Celery worker
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
@@ -314,9 +314,6 @@ jobs:
               run: pnpm --filter=@posthog/playwright exec playwright test --shard=${{ matrix.shard }}/3
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Show frontend logs
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: cat /tmp/frontend.log
             - name: Show celery logs
               if: needs.changes.outputs.shouldRun == 'true'
               run: cat /tmp/celery.log
