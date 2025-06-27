@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
+from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -631,7 +632,8 @@ class ProducerFromInternalS3Stage:
         for key in keys:
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
             assert "Body" in s3_ob, "Body not found in S3 object"
-            stream = s3_ob["Body"]
-            reader = asyncpa.AsyncRecordBatchReader(stream)
+            stream: StreamingBody = s3_ob["Body"]
+            # read in 128KB chunks of data from S3
+            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
             async for batch in reader:
                 yield batch
