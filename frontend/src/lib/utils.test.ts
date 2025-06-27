@@ -517,7 +517,7 @@ describe('lib/utils', () => {
         })
 
         it('returns correct value for 1 < t <= 60', () => {
-            expect(humanFriendlyDuration(119.6)).toEqual('2m')
+            expect(humanFriendlyDuration(119.6)).toEqual('1m59s')
             expect(humanFriendlyDuration(60)).toEqual('1m')
             expect(humanFriendlyDuration(45)).toEqual('45s')
             expect(humanFriendlyDuration(44.8)).toEqual('45s')

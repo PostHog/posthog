@@ -605,10 +605,8 @@ export function humanFriendlyDuration(
     const h = Math.floor((d % 86400) / 3600)
     let m = Math.floor((d % 3600) / 60)
     let s = Math.round((d % 3600) % 60)
-    // Round is more accurate but can return 60 seconds
     if (s == 60) {
-        m += 1
-        s = 0
+        s == 59
     }
 
     const dayDisplay = days > 0 ? days + 'd' : ''
