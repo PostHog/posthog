@@ -419,7 +419,15 @@ jobs:
             # The first step is the only one that should run if `needs.changes.outputs.backend == 'false'`.
             # All the other ones should rely on `needs.changes.outputs.backend` directly or indirectly, so that they're
             # effectively skipped if backend code is unchanged. See https://github.com/PostHog/posthog/pull/15174.
+
+            - name: Skip backend tests
+              if: ${{ needs.changes.outputs.backend == 'false' }}
+              run: |
+                  echo "Skipping backend tests - no backend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
