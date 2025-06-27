@@ -243,3 +243,40 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["json_agg_null_result"], None)
         self.assertEqual(result_dict["string_agg_null_result"], None)
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
+
+    def test_map_function_with_multiple_key_value_pairs(self):
+        """Test that the map function accepts multiple key-value pairs (more than 2 arguments)."""
+        # This test ensures the fix for the issue where map function was incorrectly limited to 2 arguments
+        response = execute_hogql_query(
+            """
+            SELECT
+                map() as empty_map,
+                map('key1', 'value1') as single_pair_map,
+                map('key1', 'value1', 'key2', 'value2') as two_pair_map,
+                map(
+                    'date', toString('2023-01-01'),
+                    'total', toString(100),
+                    'ios', toString(50),
+                    'android', toString(50)
+                ) as multi_pair_map
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify that all map functions work with different numbers of arguments
+        self.assertEqual(result_dict["empty_map"], {})
+        self.assertEqual(result_dict["single_pair_map"], {"key1": "value1"})
+        self.assertEqual(result_dict["two_pair_map"], {"key1": "value1", "key2": "value2"})
+        self.assertEqual(
+            result_dict["multi_pair_map"],
+            {
+                "date": "2023-01-01",
+                "total": "100",
+                "ios": "50",
+                "android": "50",
+            },
+        )
