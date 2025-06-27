@@ -72,6 +72,16 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
         all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
         teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
 
+        # Create naming mapping for all affected teams upfront
+        team_naming_map = {}  # {team_id: "project_name (team_name)"}
+
+        for team in teams:
+            original_project_name = team.project.name
+            if team.name == original_project_name:
+                team_naming_map[team.id] = team.name
+            else:
+                team_naming_map[team.id] = f"{original_project_name} ({team.name})"
+
         # Verify each source-target pair belongs to the same project
         teams_by_id = {team.id: team for team in teams}
         for source_id_str, target_id in environment_mappings.items():
@@ -147,6 +157,18 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
 
                 team_to_move.project = new_project
                 team_to_move.save()
+
+            # Apply naming to all affected teams
+            for team in teams:
+                team.refresh_from_db()
+                new_name = team_naming_map[team.id]
+
+                # Skip renaming if environment originally had same name as project
+                team.project.name = new_name
+                team.project.save()
+
+                team.name = new_name
+                team.save()
 
         _capture_environments_rollback_event("organization environments rollback completed", context, posthog_client)
 
