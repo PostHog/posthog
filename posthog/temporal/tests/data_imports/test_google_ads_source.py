@@ -5,6 +5,8 @@ import pyarrow as pa
 import pytest
 from django.test import override_settings
 
+from posthog.models import Team
+from posthog.models.organization import Organization
 from posthog.temporal.data_imports.pipelines.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
     get_schemas,
@@ -123,10 +125,13 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
     This test is not exhaustive and merely limits itself to asserting a handful
     of well-known schemas are returned.
     """
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org)
+
     cfg = GoogleAdsServiceAccountSourceConfig(
         resource_name="campaign", customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
-    schemas = get_schemas(cfg)
+    schemas = get_schemas(cfg, team_id=team.id)
 
     assert "campaign" in schemas
     assert "ad_group" in schemas
@@ -158,6 +163,10 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
     This test is not exhaustive and merely limits itself to attempting to
     iterate a few sources.
     """
+
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org)
+
     cfg = GoogleAdsServiceAccountSourceConfig(
         resource_name="", customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
@@ -174,6 +183,6 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
         "video_stats",
     ):
         cfg.resource_name = resource
-        source = google_ads_source(cfg)
+        source = google_ads_source(cfg, team_id=team.id)
 
         _ = list(source.items)

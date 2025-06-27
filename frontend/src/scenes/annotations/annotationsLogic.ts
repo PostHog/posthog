@@ -1,8 +1,6 @@
 import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +14,21 @@ const isValidAnnotationScope = (scope: string): scope is AnnotationScope => {
     return Object.values(AnnotationScope).includes(scope as AnnotationScope)
 }
 
+export const annotationScopesMenuOptions = (): LemonSelectOptions<AnnotationType['scope'] | null> => {
+    const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(AnnotationScope).map(
+        (scope) => ({
+            value: scope,
+            label: annotationScopeToName[scope],
+        })
+    )
+    // add any with value null as the first option
+    scopeOptions.unshift({
+        value: null,
+        label: 'Any',
+    })
+    return scopeOptions
+}
+
 export const annotationsLogic = kea<annotationsLogicType>([
     path(['scenes', 'annotations', 'annotationsLogic']),
     connect(() => ({
@@ -24,8 +37,6 @@ export const annotationsLogic = kea<annotationsLogicType>([
             ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
             teamLogic,
             ['timezone'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions({
@@ -39,30 +50,6 @@ export const annotationsLogic = kea<annotationsLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
-            },
-        ],
-        allowRecordingScope: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE]
-            },
-        ],
-        scopeOptions: [
-            (s) => [s.allowRecordingScope],
-            (allowRecordingScope): LemonSelectOptions<AnnotationType['scope'] | null> => {
-                const scopes = Object.values(AnnotationScope).filter((scope) => {
-                    return allowRecordingScope ? true : scope !== AnnotationScope.Recording
-                })
-                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = scopes.map((scope) => ({
-                    value: scope,
-                    label: annotationScopeToName[scope],
-                }))
-                // add any with value null as the first option
-                scopeOptions.unshift({
-                    value: null,
-                    label: 'Any',
-                })
-                return scopeOptions
             },
         ],
         filteredAnnotations: [
