@@ -1790,7 +1790,7 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
