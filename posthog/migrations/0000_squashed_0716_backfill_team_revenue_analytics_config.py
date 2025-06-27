@@ -1815,6 +1815,31 @@ class Migration(migrations.Migration):
             field=models.UUIDField(db_index=True, default=uuid.uuid4, editable=False),
         ),
         migrations.CreateModel(
+            name="UploadedMedia",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("media_location", models.TextField(blank=True, max_length=1000, null=True)),
+                ("content_type", models.TextField(blank=True, max_length=100, null=True)),
+                ("file_name", models.TextField(blank=True, max_length=1000, null=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+            ],
+            options={
+                "abstract": False,
+            },
+        ),
+        migrations.CreateModel(
             name="Organization",
             fields=[
                 (
@@ -1824,12 +1849,67 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("name", models.CharField(max_length=64)),
+                ("slug", posthog.models.utils.LowercaseSlugField(max_length=48, unique=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "plugins_access_level",
+                    models.PositiveSmallIntegerField(
+                        choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=3
+                    ),
+                ),
+                ("for_internal_metrics", models.BooleanField(default=False)),
+                ("is_member_join_email_enabled", models.BooleanField(default=True)),
+                ("customer_id", models.CharField(blank=True, max_length=200, null=True)),
+                ("usage", models.JSONField(blank=True, null=True)),
+                ("setup_section_2_completed", models.BooleanField(default=True)),
+                ("personalization", models.JSONField(blank=True, default=dict)),
+                (
+                    "domain_whitelist",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=256), blank=True, default=list, size=None
+                    ),
+                ),
+                ("enforce_2fa", models.BooleanField(blank=True, null=True)),
+                (
+                    "available_product_features",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.JSONField(), blank=True, null=True, size=None
+                    ),
+                ),
+                ("never_drop_data", models.BooleanField(blank=True, default=False, null=True)),
+                ("customer_trust_scores", models.JSONField(blank=True, default=dict, null=True)),
+                ("is_hipaa", models.BooleanField(blank=True, default=False, null=True)),
             ],
             options={
                 "abstract": False,
             },
+        ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql='\n                    ALTER TABLE "posthog_organization" ADD COLUMN "logo_media_id" uuid NULL CONSTRAINT "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" REFERENCES "posthog_uploadedmedia"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
+                    reverse_sql='\n                        ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "logo_media_id";\n                    ',
+                ),
+                migrations.RunSQL(
+                    sql='\n                    CREATE INDEX "posthog_organization_logo_media_id_1c12c9dc" ON "posthog_organization" ("logo_media_id");\n                    ',
+                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_organization_logo_media_id_1c12c9dc";\n                    ',
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="organization",
+                    name="logo_media",
+                    field=models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.uploadedmedia"
+                    ),
+                ),
+            ],
+        ),
+        migrations.AddField(
+            model_name="organization",
+            name="is_ai_data_processing_approved",
+            field=models.BooleanField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="user",
@@ -1940,6 +2020,23 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.AddField(
+            model_name="organization",
+            name="members",
+            field=models.ManyToManyField(
+                related_name="organizations",
+                related_query_name="organization",
+                through="posthog.OrganizationMembership",
+                to=settings.AUTH_USER_MODEL,
+            ),
+        ),
+        migrations.AddField(
+            model_name="organization",
+            name="available_features",
+            field=django.contrib.postgres.fields.ArrayField(
+                base_field=models.CharField(max_length=64), blank=True, default=list, size=None
+            ),
+        ),
         migrations.CreateModel(
             name="OrganizationInvite",
             fields=[
@@ -1991,16 +2088,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="members",
-            field=models.ManyToManyField(
-                related_name="organizations",
-                related_query_name="organization",
-                through="posthog.OrganizationMembership",
-                to=settings.AUTH_USER_MODEL,
-            ),
         ),
         migrations.AddField(
             model_name="team",
@@ -2332,19 +2419,9 @@ class Migration(migrations.Migration):
             field=models.IntegerField(default=0),
             preserve_default=False,
         ),
-        migrations.AddField(
-            model_name="organization",
-            name="personalization",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
-        ),
         migrations.RunSQL(
             sql="CREATE INDEX IF NOT EXISTS posthog_person_email ON posthog_person((properties->>'email'));",
             reverse_sql='DROP INDEX "posthog_person_email";',
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="setup_section_2_completed",
-            field=models.BooleanField(default=True),
         ),
         migrations.AlterField(
             model_name="team",
@@ -2401,21 +2478,9 @@ class Migration(migrations.Migration):
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
         migrations.AddField(
-            model_name="organization",
-            name="plugins_access_level",
-            field=models.PositiveSmallIntegerField(
-                choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=9
-            ),
-        ),
-        migrations.AddField(
             model_name="plugin",
             name="is_global",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="organization",
-            name="personalization",
-            field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=dict),
         ),
         migrations.AlterField(
             model_name="team",
@@ -2428,13 +2493,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="session_recording_retention_period_days",
             field=models.IntegerField(blank=True, default=None, null=True),
-        ),
-        migrations.AlterField(
-            model_name="organization",
-            name="plugins_access_level",
-            field=models.PositiveSmallIntegerField(
-                choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=9
-            ),
         ),
         migrations.AlterField(
             model_name="pluginattachment",
@@ -3544,11 +3602,6 @@ class Migration(migrations.Migration):
             field=models.JSONField(default=dict),
         ),
         migrations.AlterField(
-            model_name="organization",
-            name="personalization",
-            field=models.JSONField(blank=True, default=dict),
-        ),
-        migrations.AlterField(
             model_name="person",
             name="properties",
             field=models.JSONField(default=dict),
@@ -3757,26 +3810,6 @@ class Migration(migrations.Migration):
             field=models.JSONField(default=dict),
         ),
         migrations.AddField(
-            model_name="organization",
-            name="for_internal_metrics",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddConstraint(
-            model_name="organization",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("for_internal_metrics", True)),
-                fields=("for_internal_metrics",),
-                name="single_for_internal_metrics",
-            ),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="available_features",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=64), blank=True, default=list, size=None
-            ),
-        ),
-        migrations.AddField(
             model_name="plugin",
             name="metrics",
             field=models.JSONField(default=dict, null=True),
@@ -3802,13 +3835,6 @@ class Migration(migrations.Migration):
                 ],
             ),
         ),
-        migrations.AddField(
-            model_name="organization",
-            name="domain_whitelist",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=256), blank=True, default=list, size=None
-            ),
-        ),
         django.contrib.postgres.operations.TrigramExtension(),
         migrations.AddIndex(
             model_name="eventdefinition",
@@ -3821,11 +3847,6 @@ class Migration(migrations.Migration):
             index=django.contrib.postgres.indexes.GinIndex(
                 fields=["name"], name="index_property_definition_name", opclasses=["gin_trgm_ops"]
             ),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="is_member_join_email_enabled",
-            field=models.BooleanField(default=True),
         ),
         migrations.RunSQL(
             sql=[
@@ -3876,16 +3897,6 @@ class Migration(migrations.Migration):
             model_name="person",
             name="properties_last_operation",
             field=models.JSONField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=48, null=True, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="organization",
-            name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=48, unique=True),
         ),
         migrations.AddField(
             model_name="team",
@@ -4973,50 +4984,13 @@ class Migration(migrations.Migration):
                 blank=True, related_name="dashboards", through="posthog.DashboardTile", to="posthog.insight"
             ),
         ),
-        migrations.CreateModel(
-            name="UploadedMedia",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
-                    ),
-                ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("media_location", models.TextField(blank=True, max_length=1000, null=True)),
-                ("content_type", models.TextField(blank=True, max_length=100, null=True)),
-                ("file_name", models.TextField(blank=True, max_length=1000, null=True)),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-                    ),
-                ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
-            ],
-            options={
-                "abstract": False,
-            },
-        ),
         migrations.DeleteModel(
             name="PromptSequenceState",
-        ),
-        migrations.AlterField(
-            model_name="organization",
-            name="plugins_access_level",
-            field=models.PositiveSmallIntegerField(
-                choices=[(0, "none"), (3, "config"), (6, "install"), (9, "root")], default=3
-            ),
         ),
         migrations.AddField(
             model_name="plugin",
             name="icon",
             field=models.CharField(blank=True, max_length=800, null=True),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="usage",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.CreateModel(
             name="SessionRecordingPlaylist",
@@ -5052,11 +5026,6 @@ class Migration(migrations.Migration):
             options={
                 "unique_together": {("team", "short_id")},
             },
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="customer_id",
-            field=models.CharField(blank=True, max_length=200, null=True),
         ),
         migrations.AddField(
             model_name="sessionrecordingplaylist",
@@ -5580,11 +5549,6 @@ class Migration(migrations.Migration):
             reverse_sql="DROP FUNCTION is_override_person_not_used_as_old_person",
         ),
         migrations.AddField(
-            model_name="organization",
-            name="enforce_2fa",
-            field=models.BooleanField(blank=True, null=True),
-        ),
-        migrations.AddField(
             model_name="user",
             name="is_email_verified",
             field=models.BooleanField(blank=True, null=True),
@@ -5758,13 +5722,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="\n                UPDATE posthog_dashboardtemplate SET scope = 'team' WHERE team_id IS NOT NULL -- not-null-ignore\n            ",
             reverse_sql="",
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="available_product_features",
-            field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.JSONField(), blank=True, null=True, size=None
-            ),
         ),
         migrations.CreateModel(
             name="EarlyAccessFeature",
@@ -6585,11 +6542,6 @@ class Migration(migrations.Migration):
                 help_text="The interval at which to export data.",
                 max_length=64,
             ),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="never_drop_data",
-            field=models.BooleanField(blank=True, default=False, null=True),
         ),
         migrations.AlterField(
             model_name="batchexportdestination",
@@ -7796,16 +7748,6 @@ class Migration(migrations.Migration):
                 "abstract": False,
             },
         ),
-        migrations.AddField(
-            model_name="organization",
-            name="customer_trust_scores",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="is_hipaa",
-            field=models.BooleanField(blank=True, default=False, null=True),
-        ),
         migrations.AlterField(
             model_name="batchexportbackfill",
             name="end_at",
@@ -8629,27 +8571,6 @@ class Migration(migrations.Migration):
             model_name="externaldatasource",
             name="updated_at",
             field=models.DateTimeField(auto_now=True, null=True),
-        ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='\n                    ALTER TABLE "posthog_organization" ADD COLUMN "logo_media_id" uuid NULL CONSTRAINT "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" REFERENCES "posthog_uploadedmedia"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_organization_logo_media_id_1c12c9dc_fk_posthog_u" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        ALTER TABLE "posthog_organization" DROP COLUMN IF EXISTS "logo_media_id";\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    CREATE INDEX "posthog_organization_logo_media_id_1c12c9dc" ON "posthog_organization" ("logo_media_id");\n                    ',
-                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_organization_logo_media_id_1c12c9dc";\n                    ',
-                ),
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name="organization",
-                    name="logo_media",
-                    field=models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.uploadedmedia"
-                    ),
-                ),
-            ],
         ),
         migrations.AlterField(
             model_name="errortrackinggroup",
@@ -10624,11 +10545,6 @@ class Migration(migrations.Migration):
                 null=True,
                 validators=[posthog.models.utils.validate_rate_limit],
             ),
-        ),
-        migrations.AddField(
-            model_name="organization",
-            name="is_ai_data_processing_approved",
-            field=models.BooleanField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="errortrackingissuefingerprintv2",
