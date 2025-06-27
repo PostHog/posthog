@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch, MagicMock
 from opentelemetry.trace import Status, StatusCode
 from clickhouse_driver.errors import ServerException
 
-from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator, add_clickhouse_span_attributes
+from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.client.connection import Workload, ClickHouseUser
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HOST
 
@@ -254,39 +254,6 @@ class TestTraceClickhouseQueryDecorator:
             # Verify result is returned
             assert result == []
 
-            # Verify no attributes were set
-            assert mock_span.set_attribute.call_count == 0
-
-
-class TestAddClickhouseSpanAttributes:
-    """Test the add_clickhouse_span_attributes helper function"""
-
-    def test_add_attributes_recording_span(self):
-        """Test adding attributes to a recording span"""
-        mock_span = Mock()
-        mock_span.is_recording.return_value = True
-
-        add_clickhouse_span_attributes(mock_span, test_attr="test_value", another_attr=123)
-
-        mock_span.set_attribute.assert_any_call("clickhouse.test_attr", "test_value")
-        mock_span.set_attribute.assert_any_call("clickhouse.another_attr", 123)
-
-    def test_add_attributes_non_recording_span(self):
-        """Test adding attributes to a non-recording span"""
-        mock_span = Mock()
-        mock_span.is_recording.return_value = False
-
-        add_clickhouse_span_attributes(mock_span, test_attr="test_value")
-
-        # Verify no attributes were set
-        assert mock_span.set_attribute.call_count == 0
-
-    def test_add_attributes_no_attributes(self):
-        """Test adding no attributes"""
-        mock_span = Mock()
-        mock_span.is_recording.return_value = True
-
-        add_clickhouse_span_attributes(mock_span)
-
-        # Verify no attributes were set
-        assert mock_span.set_attribute.call_count == 0
+            # When span is not recording, OpenTelemetry functions are no-ops
+            # but we still call them, so the mock will record the calls
+            # This is expected behavior since OpenTelemetry handles the no-op internally

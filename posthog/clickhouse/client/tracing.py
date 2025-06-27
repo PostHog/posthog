@@ -42,35 +42,34 @@ def trace_clickhouse_query_decorator(func):
         tracer = trace.get_tracer(__name__)
 
         with tracer.start_as_current_span("clickhouse.query") as span:
-            if span.is_recording():
-                # Set standard database attributes
-                span.set_attribute("db.system", "clickhouse")
-                span.set_attribute("db.name", CLICKHOUSE_DATABASE)
-                span.set_attribute("db.user", ch_user.value)
-                span.set_attribute("db.statement", query)
+            # Set standard database attributes
+            span.set_attribute("db.system", "clickhouse")
+            span.set_attribute("db.name", CLICKHOUSE_DATABASE)
+            span.set_attribute("db.user", ch_user.value)
+            span.set_attribute("db.statement", query)
 
-                # Set network attributes
-                span.set_attribute("net.peer.name", CLICKHOUSE_HOST)
-                span.set_attribute("net.peer.port", 9000)  # Default ClickHouse port
+            # Set network attributes
+            span.set_attribute("net.peer.name", CLICKHOUSE_HOST)
+            span.set_attribute("net.peer.port", 9000)  # Default ClickHouse port
 
-                # Set span kind
-                span.set_attribute("span.kind", "client")
+            # Set span kind
+            span.set_attribute("span.kind", "client")
 
-                # Add custom attributes for PostHog-specific context
-                # Note: This captures the initial workload value. The workload can change
-                # during function execution based on various conditions.
-                span.set_attribute("clickhouse.initial_workload", initial_workload.value)
-                span.set_attribute("clickhouse.team_id", str(team_id or ""))
-                span.set_attribute("clickhouse.readonly", readonly)
-                span.set_attribute("clickhouse.query_type", "Other")  # Will be updated by function
+            # Add custom attributes for PostHog-specific context
+            # Note: This captures the initial workload value. The workload can change
+            # during function execution based on various conditions.
+            span.set_attribute("clickhouse.initial_workload", initial_workload.value)
+            span.set_attribute("clickhouse.team_id", str(team_id or ""))
+            span.set_attribute("clickhouse.readonly", readonly)
+            span.set_attribute("clickhouse.query_type", "Other")  # Will be updated by function
 
-                # Add args info if present
-                if args_param:
-                    if isinstance(args_param, dict):
-                        span.set_attribute("clickhouse.args_count", len(args_param))
-                        span.set_attribute("clickhouse.args_keys", list(args_param.keys()))
-                    elif isinstance(args_param, list | tuple):
-                        span.set_attribute("clickhouse.args_count", len(args_param))
+            # Add args info if present
+            if args_param:
+                if isinstance(args_param, dict):
+                    span.set_attribute("clickhouse.args_count", len(args_param))
+                    span.set_attribute("clickhouse.args_keys", list(args_param.keys()))
+                elif isinstance(args_param, list | tuple):
+                    span.set_attribute("clickhouse.args_count", len(args_param))
 
             start_time = perf_counter()
             try:
@@ -78,39 +77,28 @@ def trace_clickhouse_query_decorator(func):
                 result = func(*args, **kwargs)
                 execution_time = perf_counter() - start_time
 
-                if span.is_recording():
-                    span.set_attribute("clickhouse.execution_time_ms", execution_time * 1000)
-                    span.set_attribute("clickhouse.success", True)
-                    span.set_status(Status(StatusCode.OK))
+                span.set_attribute("clickhouse.execution_time_ms", execution_time * 1000)
+                span.set_attribute("clickhouse.success", True)
+                span.set_status(Status(StatusCode.OK))
 
-                    # Add result info to span
-                    if isinstance(result, list | tuple):
-                        span.set_attribute("clickhouse.result_rows", len(result))
-                    elif isinstance(result, int):
-                        span.set_attribute("clickhouse.written_rows", result)
+                # Add result info to span
+                if isinstance(result, list | tuple):
+                    span.set_attribute("clickhouse.result_rows", len(result))
+                elif isinstance(result, int):
+                    span.set_attribute("clickhouse.written_rows", result)
 
                 return result
 
             except Exception as e:
                 execution_time = perf_counter() - start_time
 
-                if span.is_recording():
-                    span.set_attribute("clickhouse.execution_time_ms", execution_time * 1000)
-                    span.set_attribute("clickhouse.success", False)
-                    span.set_attribute("clickhouse.error_type", type(e).__name__)
-                    span.set_attribute("clickhouse.error_message", str(e))
-                    span.set_status(Status(StatusCode.ERROR, str(e)))
-                    span.record_exception(e)
+                span.set_attribute("clickhouse.execution_time_ms", execution_time * 1000)
+                span.set_attribute("clickhouse.success", False)
+                span.set_attribute("clickhouse.error_type", type(e).__name__)
+                span.set_attribute("clickhouse.error_message", str(e))
+                span.set_status(Status(StatusCode.ERROR, str(e)))
+                span.record_exception(e)
 
                 raise
 
     return wrapper
-
-
-def add_clickhouse_span_attributes(span, **attributes):
-    """
-    Helper function to add custom attributes to the current ClickHouse span.
-    """
-    if span.is_recording():
-        for key, value in attributes.items():
-            span.set_attribute(f"clickhouse.{key}", value)
