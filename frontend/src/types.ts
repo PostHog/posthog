@@ -1148,7 +1148,6 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
-    DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
 }
 
@@ -1421,6 +1420,7 @@ export interface CohortCriteriaType {
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
+    sort_key?: string // Client-side only stable id for sorting.
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -4139,6 +4139,7 @@ export type IntegrationKind =
     | 'intercom'
     | 'email'
     | 'linear'
+    | 'github'
 
 export interface IntegrationType {
     id: number
@@ -5044,6 +5045,7 @@ export interface SourceFieldOauthConfig {
     name: string
     label: string
     required: boolean
+    kind: string
 }
 
 export interface SourceFieldInputConfig {
