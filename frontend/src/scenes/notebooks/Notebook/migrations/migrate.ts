@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -53,6 +54,8 @@ export async function migrate(notebook: NotebookType): Promise<NotebookType> {
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
     content = convertPlaylistFiltersToUniversalFilters(content)
+    content = await upgradeQueryNode(content)
+
     return { ...notebook, content: { type: 'doc', content: content } }
 }
 
@@ -238,6 +241,25 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             attrs: {
                 ...node.attrs,
                 query: insightQuery,
+            },
+        }
+    })
+}
+
+async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> {
+    return content.map(async (node) => {
+        if (node.type !== NotebookNodeType.Query || !node.attrs || !('query' in node.attrs)) {
+            return node
+        }
+
+        const query = node.attrs.query
+        const response = await api.schema.queryUpgrade({ query })
+
+        return {
+            ...node,
+            attrs: {
+                ...node.attrs,
+                query: response.query,
             },
         }
     })
