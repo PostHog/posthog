@@ -32,6 +32,7 @@ env:
     CLICKHOUSE_VERIFY: 'False'
     CLICKHOUSE_DATABASE: posthog_test
     CYPRESS_BASE_URL: http://localhost:8080
+    JS_URL: http://localhost:8234
     PGHOST: localhost
     PGUSER: posthog
     PGPASSWORD: posthog
@@ -289,10 +290,11 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            # Launch PostHog web & worker in the background
-            - name: Start PostHog web & Celery worker
+            # Launch PostHog web & worker & frontend server in the background
+            - name: Start PostHog web & Celery worker & frontend server
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
+                  ./bin/start-frontend &> /tmp/frontend.log &
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py runserver 8080 &> /tmp/server.log &
 
@@ -310,6 +312,15 @@ jobs:
                   interval: 2000
                   verbose: true
 
+            - name: Wait for frontend server to be ready
+              if: needs.changes.outputs.shouldRun == 'true'
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
+              with:
+                  resource: http://localhost:8234
+                  timeout: 180000
+                  interval: 2000
+                  verbose: true
+
             - name: Run Playwright tests
               if: needs.changes.outputs.shouldRun == 'true'
               env:
@@ -317,6 +328,9 @@ jobs:
               run: pnpm --filter=@posthog/playwright exec playwright test --shard=${{ matrix.shard }}/3
 
             # ── Artifacts on failure / always ─────────────────────────────────────
+            - name: Show frontend logs
+              if: needs.changes.outputs.shouldRun == 'true'
+              run: cat /tmp/frontend.log
             - name: Show celery logs
               if: needs.changes.outputs.shouldRun == 'true'
               run: cat /tmp/celery.log
