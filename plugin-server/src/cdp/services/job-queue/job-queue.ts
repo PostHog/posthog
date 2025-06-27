@@ -139,7 +139,11 @@ export class CyclotronJobQueue {
     }
 
     public async stop() {
-        await Promise.all([this.jobQueuePostgres.stop(), this.jobQueueKafka.stop()])
+        // Important - first shut down the consumers so we aren't processing anything
+        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer()])
+
+        // Only then do we shut down the producers
+        await Promise.all([this.jobQueuePostgres.stopProducer(), this.jobQueueKafka.stopProducer()])
     }
 
     public isHealthy() {
