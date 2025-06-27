@@ -1,6 +1,7 @@
 name: AI
 on:
     pull_request:
+        types: [opened, synchronize, reopened, labeled, unlabeled]
     push:
         branches:
             - master
@@ -29,6 +30,7 @@ jobs:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
+                  fetch-depth: 0
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -57,7 +59,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval
+              run: pytest ee/hogai/eval -vv
               env:
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

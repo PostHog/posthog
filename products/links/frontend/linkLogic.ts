@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

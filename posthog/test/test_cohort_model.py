@@ -47,9 +47,10 @@ class TestCohort(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["010"])
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
-        cohort.insert_users_by_list(
+        batch_count = cohort.insert_users_by_list(
             ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"], batch_size=3
         )
+        self.assertEqual(batch_count, 5)
         cohort.refresh_from_db()
         self.assertEqual(cohort.people.count(), 11)
         self.assertEqual(cohort.is_calculating, False)

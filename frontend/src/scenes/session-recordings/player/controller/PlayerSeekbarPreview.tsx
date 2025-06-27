@@ -70,7 +70,7 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-function _PlayerSeekbarPreview({
+export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
     minMs,
     maxMs,
     seekBarRef,
@@ -145,6 +145,4 @@ function _PlayerSeekbarPreview({
             </div>
         </div>
     )
-}
-
-export const PlayerSeekbarPreview = memo(_PlayerSeekbarPreview)
+})

@@ -57,7 +57,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
-MAX_STUCK_COHORTS_TO_RESET = 2
+MAX_STUCK_COHORTS_TO_RESET = 3
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -273,8 +273,12 @@ def calculate_cohort_from_list(cohort_id: int, items: list[str], team_id: Option
     if team_id is None:
         team_id = cohort.team_id
 
-    cohort.insert_users_by_list(items, team_id=team_id)
-    logger.warn("Calculating cohort {} from CSV took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+    batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    logger.warn(
+        "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
+            cohort.pk, len(items), batch_count, (time.time() - start_time)
+        )
+    )
 
 
 @shared_task(ignore_result=True, max_retries=1)
