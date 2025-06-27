@@ -2,7 +2,7 @@ from typing import Protocol
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import EE_AVAILABLE
+from posthog.settings import EE_AVAILABLE, TEST, E2E_TESTING
 
 
 ColumnName = str
@@ -20,7 +20,7 @@ if EE_AVAILABLE:
     def get_materialized_column_for_property(
         table: TablesWithMaterializedColumns, table_column: TableColumn, property_name: PropertyName
     ) -> MaterializedColumn | None:
-        if not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
+        if not (TEST or E2E_TESTING) and not get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
             return None
 
         return get_enabled_materialized_columns(table).get((property_name, table_column))

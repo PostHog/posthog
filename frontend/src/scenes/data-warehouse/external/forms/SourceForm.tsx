@@ -161,6 +161,7 @@ const sourceFieldToElement = (
                         sourceConfig={sourceConfig}
                         value={value}
                         onChange={onChange}
+                        integration={field.kind}
                     />
                 )}
             </LemonField>

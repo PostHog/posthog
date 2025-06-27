@@ -16,10 +16,7 @@ import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { GrossRevenueTile } from './tiles/GrossRevenueTile'
-import { OverviewTile } from './tiles/OverviewTile'
-import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
-import { TopCustomersTile } from './tiles/TopCustomersTile'
+import { GrossRevenueTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile, RevenueTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -106,8 +103,9 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
                 directly to us!
             </LemonBanner>
 
-            <LemonBanner type="info" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
+            <LemonBanner type="warning" dismissKey="revenue-analytics-deferred-revenue-banner" className="mb-2">
                 <b>We've made some updates!</b>
+                <br />
                 We've recently introduced deferred revenue recognition for data warehouse sources. This means you will
                 see revenue in the future if you've created an invoice item with a <code>period.start</code> and{' '}
                 <code>period.end</code> that spans several months.
@@ -195,6 +193,7 @@ const RevenueAnalyticsTables = (): JSX.Element => {
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
             <GrossRevenueTile />
+            <RevenueTile />
 
             <LemonDivider className="mt-6" />
 

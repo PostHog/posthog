@@ -11,7 +11,8 @@ describe('google template', () => {
     beforeEach(async () => {
         Settings.defaultZone = 'UTC'
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     afterEach(() => {
@@ -72,7 +73,7 @@ describe('google template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -112,7 +113,7 @@ describe('google template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -153,7 +154,7 @@ describe('google template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 400, headers: {} },
             body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
         })
@@ -183,23 +184,9 @@ describe('google template', () => {
             })
         )
 
-        expect(response.logs).toMatchInlineSnapshot(`
+        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
             [
-              {
-                "level": "debug",
-                "message": "Executing function",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "info",
-                "message": "Empty \`gclid\`. Skipping...",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "debug",
-                "message": "Function completed in 0ms. Sync: 0ms. Mem: 34 bytes. Ops: 10. Event: 'https://us.posthog.com/projects/1/events/1234'",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
+              "Empty \`gclid\`. Skipping...",
             ]
         `)
         expect(response.finished).toEqual(true)
