@@ -35,6 +35,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema/schema-general'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
@@ -259,8 +260,12 @@ async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> 
             }
 
             const query = node.attrs.query
-            const response = await api.schema.queryUpgrade({ query })
 
+            if (checkLatestVersionsOnQuery(query)) {
+                return node
+            }
+
+            const response = await api.schema.queryUpgrade({ query })
             return {
                 ...node,
                 attrs: {

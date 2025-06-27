@@ -33,6 +33,7 @@ import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 import api from 'lib/api'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -278,13 +279,20 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
         upgradeQuery: async ({ query }) => {
-            const response = await api.schema.queryUpgrade({ query })
+            let upgradedQuery: Node | null = null
+
+            if (!checkLatestVersionsOnQuery(query)) {
+                const response = await api.schema.queryUpgrade({ query })
+                upgradedQuery = response.query
+            } else {
+                upgradedQuery = query
+            }
 
             values.insightLogicRef?.logic.actions.setInsight(
                 {
                     ...createEmptyInsight('new'),
                     ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: response.query,
+                    query: upgradedQuery,
                 },
                 {
                     fromPersistentApi: false,
