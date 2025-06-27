@@ -39,7 +39,14 @@ jobs:
         timeout-minutes: 15
         needs: changes
         steps:
+            - name: Skip storybook checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping storybook checks - no frontend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -90,7 +97,13 @@ jobs:
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
+            - name: Skip storybook checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping storybook checks - no frontend changes detected"
+                  exit 0
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
@@ -314,7 +327,14 @@ jobs:
             webkit-3-commitHash: ${{ steps.commit-hash.outputs.webkit-3-commitHash }}
             webkit-3-pathsFlapping: ${{ steps.flappy-bird.outputs.webkit-3-pathsFlapping }}
         steps:
+            - name: Skip storybook checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping storybook checks - no frontend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
               with:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
