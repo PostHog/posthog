@@ -1347,9 +1347,27 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("name", models.CharField(blank=True, max_length=400, null=True)),
+                ("description", models.CharField(blank=True, max_length=1000)),
                 ("deleted", models.BooleanField(default=False)),
-                ("groups", django.contrib.postgres.fields.jsonb.JSONField(default=list)),
+                ("filters", models.JSONField(blank=True, null=True)),
+                ("version", models.IntegerField(blank=True, null=True)),
+                ("pending_version", models.IntegerField(blank=True, null=True)),
+                ("count", models.IntegerField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(blank=True, default=django.utils.timezone.now, null=True)),
+                ("is_calculating", models.BooleanField(default=False)),
+                ("last_calculation", models.DateTimeField(blank=True, null=True)),
+                ("errors_calculating", models.IntegerField(default=0)),
+                ("is_static", models.BooleanField(default=False)),
+                ("groups", models.JSONField(default=list)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                    ),
+                ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                ("query", models.JSONField(blank=True, null=True)),
+                ("last_error_at", models.DateTimeField(blank=True, null=True)),
             ],
         ),
         migrations.CreateModel(
@@ -1482,32 +1500,11 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE, related_name="items", to="posthog.dashboard"
             ),
         ),
-        migrations.AddField(
-            model_name="cohort",
-            name="created_at",
-            field=models.DateTimeField(blank=True, default=django.utils.timezone.now, null=True),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="created_by",
-            field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
-            ),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="is_calculating",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="last_calculation",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
         migrations.CreateModel(
             name="CohortPeople",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("id", models.BigAutoField(primary_key=True, serialize=False)),
+                ("version", models.IntegerField(blank=True, null=True)),
                 ("cohort", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.cohort")),
                 ("person", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.person")),
             ],
@@ -1608,15 +1605,28 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("content", models.CharField(blank=True, max_length=400, null=True)),
-                ("created_at", models.DateTimeField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(default=django.utils.timezone.now, null=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "creation_type",
-                    models.CharField(choices=[("USR", "User"), ("GIT", "Github")], default="USR", max_length=3),
+                    "scope",
+                    models.CharField(
+                        choices=[
+                            ("dashboard_item", "insight"),
+                            ("dashboard", "dashboard"),
+                            ("project", "project"),
+                            ("organization", "organization"),
+                        ],
+                        default="dashboard_item",
+                        max_length=24,
+                    ),
                 ),
-                ("apply_all", models.BooleanField(default=False)),
-                ("deleted", models.BooleanField(default=False)),
+                (
+                    "creation_type",
+                    models.CharField(choices=[("USR", "user"), ("GIT", "GitHub")], default="USR", max_length=3),
+                ),
                 ("date_marker", models.DateTimeField(blank=True, null=True)),
+                ("deleted", models.BooleanField(default=False)),
+                ("apply_all", models.BooleanField(null=True)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -1629,7 +1639,6 @@ class Migration(migrations.Migration):
                         blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboarditem"
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
         migrations.AlterField(
@@ -1678,16 +1687,6 @@ class Migration(migrations.Migration):
                 max_length=200,
                 null=True,
             ),
-        ),
-        migrations.AlterField(
-            model_name="cohortpeople",
-            name="id",
-            field=models.BigIntegerField(primary_key=True, serialize=False),
-        ),
-        migrations.AlterField(
-            model_name="cohortpeople",
-            name="id",
-            field=models.BigAutoField(primary_key=True, serialize=False),
         ),
         migrations.AddField(
             model_name="dashboarditem",
@@ -1797,19 +1796,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.AddField(
-            model_name="annotation",
-            name="scope",
-            field=models.CharField(
-                choices=[
-                    ("dashboard_item", "dashboard item"),
-                    ("project", "project"),
-                    ("organization", "organization"),
-                ],
-                default="dashboard_item",
-                max_length=24,
-            ),
-        ),
-        migrations.AddField(
             model_name="user",
             name="current_team",
             field=models.ForeignKey(
@@ -1818,16 +1804,6 @@ class Migration(migrations.Migration):
                 related_name="teams_currently+",
                 to="posthog.team",
             ),
-        ),
-        migrations.AlterField(
-            model_name="annotation",
-            name="apply_all",
-            field=models.BooleanField(null=True),
-        ),
-        migrations.AlterField(
-            model_name="annotation",
-            name="creation_type",
-            field=models.CharField(choices=[("USR", "user"), ("GIT", "GitHub")], default="USR", max_length=3),
         ),
         migrations.AlterField(
             model_name="personalapikey",
@@ -1839,6 +1815,37 @@ class Migration(migrations.Migration):
                 related_name="personal_api_keys",
                 to="posthog.team",
             ),
+        ),
+        migrations.AddField(
+            model_name="annotation",
+            name="organization",
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
+        ),
+        migrations.AddField(
+            model_name="annotation",
+            name="team",
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+        ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql='\n                    ALTER TABLE "posthog_annotation" ADD COLUMN "dashboard_id" integer NULL CONSTRAINT "posthog_annotation_dashboard_id_91ef4125_fk_posthog_d" REFERENCES "posthog_dashboard"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_annotation_dashboard_id_91ef4125_fk_posthog_d" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
+                    reverse_sql='\n                        ALTER TABLE "posthog_annotation" DROP COLUMN IF EXISTS "dashboard_id";\n                    ',
+                ),
+                migrations.RunSQL(
+                    sql='\n                    CREATE INDEX "posthog_annotation_dashboard_id_91ef4125" ON "posthog_annotation" ("dashboard_id");\n                    ',
+                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_annotation_dashboard_id_91ef4125";\n                    ',
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="annotation",
+                    name="dashboard",
+                    field=models.ForeignKey(
+                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
+                    ),
+                ),
+            ],
         ),
         migrations.AlterField(
             model_name="team",
@@ -1952,11 +1959,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name="annotation",
-            name="organization",
-            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
-        ),
-        migrations.AddField(
             model_name="team",
             name="organization",
             field=models.ForeignKey(
@@ -1993,11 +1995,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="session_recording_opt_in",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="annotation",
-            name="created_at",
-            field=models.DateTimeField(default=django.utils.timezone.now, null=True),
         ),
         migrations.AlterField(
             model_name="user",
@@ -2217,11 +2214,6 @@ class Migration(migrations.Migration):
             name="Funnel",
         ),
         migrations.AddField(
-            model_name="cohort",
-            name="errors_calculating",
-            field=models.IntegerField(default=0),
-        ),
-        migrations.AddField(
             model_name="plugin",
             name="plugin_type",
             field=models.CharField(
@@ -2298,11 +2290,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="sessionsfilter",
             index=models.Index(fields=["team_id", "name"], name="posthog_ses_team_id_453d24_idx"),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="is_static",
-            field=models.BooleanField(default=False),
         ),
         migrations.CreateModel(
             name="SessionRecordingViewed",
@@ -3571,11 +3558,6 @@ class Migration(migrations.Migration):
             field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
         ),
         migrations.AlterField(
-            model_name="cohort",
-            name="groups",
-            field=models.JSONField(default=list),
-        ),
-        migrations.AlterField(
             model_name="dashboard",
             name="filters",
             field=models.JSONField(default=dict),
@@ -3978,11 +3960,6 @@ class Migration(migrations.Migration):
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name="cohort",
-            name="description",
-            field=models.CharField(blank=True, max_length=1000),
-        ),
-        migrations.AddField(
             model_name="person",
             name="properties_last_operation",
             field=models.JSONField(blank=True, null=True),
@@ -4105,15 +4082,6 @@ class Migration(migrations.Migration):
             model_name="persondistinctid",
             name="version",
             field=models.BigIntegerField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="annotation",
-            name="scope",
-            field=models.CharField(
-                choices=[("dashboard_item", "insight"), ("project", "project"), ("organization", "organization")],
-                default="dashboard_item",
-                max_length=24,
-            ),
         ),
         migrations.CreateModel(
             name="Experiment",
@@ -4335,21 +4303,6 @@ class Migration(migrations.Migration):
                 default=21,
             ),
         ),
-        migrations.AddField(
-            model_name="cohort",
-            name="version",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="pending_version",
-            field=models.IntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="cohortpeople",
-            name="version",
-            field=models.IntegerField(blank=True, null=True),
-        ),
         migrations.CreateModel(
             name="Tag",
             fields=[
@@ -4437,11 +4390,6 @@ class Migration(migrations.Migration):
         migrations.AlterUniqueTogether(
             name="tag",
             unique_together={("name", "team")},
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="count",
-            field=models.IntegerField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="plugin",
@@ -4603,6 +4551,10 @@ class Migration(migrations.Migration):
                 ),
                 ("team_id", models.PositiveIntegerField(null=True)),
                 ("organization_id", models.UUIDField(null=True)),
+                (
+                    "is_system",
+                    models.BooleanField(null=True),
+                ),
                 ("activity", models.CharField(max_length=79)),
                 ("item_id", models.CharField(max_length=72, null=True)),
                 ("scope", models.CharField(max_length=79)),
@@ -4722,11 +4674,6 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="dashboardtile",
             index=models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx"),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="filters",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboardtile",
@@ -5099,6 +5046,7 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("deletion_type", models.PositiveSmallIntegerField()),
+                ("team_id", models.IntegerField()),
                 ("key", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -5109,7 +5057,6 @@ class Migration(migrations.Migration):
                         null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
                     ),
                 ),
-                ("team_id", models.IntegerField()),
             ],
         ),
         migrations.AddIndex(
@@ -5203,11 +5150,6 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 on_delete=django.db.models.deletion.CASCADE, related_name="tiles", to="posthog.dashboard"
             ),
-        ),
-        migrations.AddField(
-            model_name="activitylog",
-            name="is_system",
-            field=models.BooleanField(null=True),
         ),
         migrations.CreateModel(
             name="Text",
@@ -7810,11 +7752,6 @@ class Migration(migrations.Migration):
                 ("oldest_event", models.DateTimeField()),
             ],
         ),
-        migrations.AddField(
-            model_name="cohort",
-            name="query",
-            field=models.JSONField(blank=True, null=True),
-        ),
         migrations.CreateModel(
             name="ExternalDataSchema",
             fields=[
@@ -8887,41 +8824,6 @@ class Migration(migrations.Migration):
                 check=models.Q(("project_id__isnull", False)), name="project_id_is_not_null"
             ),
         ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='\n                    ALTER TABLE "posthog_annotation" ADD COLUMN "dashboard_id" integer NULL CONSTRAINT "posthog_annotation_dashboard_id_91ef4125_fk_posthog_d" REFERENCES "posthog_dashboard"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore\n                    SET CONSTRAINTS "posthog_annotation_dashboard_id_91ef4125_fk_posthog_d" IMMEDIATE; -- existing-table-constraint-ignore\n                    ',
-                    reverse_sql='\n                        ALTER TABLE "posthog_annotation" DROP COLUMN IF EXISTS "dashboard_id";\n                    ',
-                ),
-                migrations.RunSQL(
-                    sql='\n                    CREATE INDEX "posthog_annotation_dashboard_id_91ef4125" ON "posthog_annotation" ("dashboard_id");\n                    ',
-                    reverse_sql='\n                        DROP INDEX IF EXISTS "posthog_annotation_dashboard_id_91ef4125";\n                    ',
-                ),
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name="annotation",
-                    name="dashboard",
-                    field=models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
-                    ),
-                ),
-            ],
-        ),
-        migrations.AlterField(
-            model_name="annotation",
-            name="scope",
-            field=models.CharField(
-                choices=[
-                    ("dashboard_item", "insight"),
-                    ("dashboard", "dashboard"),
-                    ("project", "project"),
-                    ("organization", "organization"),
-                ],
-                default="dashboard_item",
-                max_length=24,
-            ),
-        ),
         migrations.AlterField(
             model_name="integration",
             name="kind",
@@ -9733,11 +9635,6 @@ class Migration(migrations.Migration):
                 max_length=64,
                 null=True,
             ),
-        ),
-        migrations.AddField(
-            model_name="cohort",
-            name="last_error_at",
-            field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="team",
