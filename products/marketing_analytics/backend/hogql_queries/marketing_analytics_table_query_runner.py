@@ -165,10 +165,10 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         return final_query
 
     def _build_with_clause(self, union_query_string: str, processors: list) -> str:
-        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs using AST internally"""
-        # Build the campaign_costs CTE using AST internally
-        campaign_cost_select_ast = self._build_campaign_cost_select_ast(union_query_string)
-        campaign_cost_cte = f"{CAMPAIGN_COST_CTE_NAME} AS (\n{campaign_cost_select_ast.to_hogql()}\n)"
+        """Build the WITH clause including campaign_costs CTE and conversion goal CTEs"""
+        # Build the campaign_costs CTE
+        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_cte = f"{CAMPAIGN_COST_CTE_NAME} AS (\n{campaign_cost_select.to_hogql()}\n)"
 
         with_clause = f"WITH {campaign_cost_cte}"
 
@@ -180,9 +180,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return with_clause
 
-    def _build_campaign_cost_select_ast(self, union_query_string: str) -> ast.SelectQuery:
-        """Build the campaign_costs CTE SELECT query using AST internally"""
-        # Build SELECT columns for the CTE using AST
+    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
+        """Build the campaign_costs CTE SELECT query"""
+        # Build SELECT columns for the CTE
         select_columns = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
@@ -206,7 +206,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
-        # Build GROUP BY using AST
+        # Build GROUP BY
         group_by_exprs = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
@@ -216,7 +216,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
     def _build_order_by_clause(self) -> str:
-        """Build the ORDER BY clause with proper null handling using AST internally"""
+        """Build the ORDER BY clause with proper null handling"""
         order_by_parts = []
 
         if hasattr(self.query, "orderBy") and self.query.orderBy:
@@ -225,50 +225,44 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 if "nullif(" in order_expr and CONVERSION_GOAL_PREFIX in order_expr:
                     if order_expr.strip().endswith(" ASC"):
                         calc_part = order_expr.replace(" ASC", "").strip()
-                        # Build AST: COALESCE(calc_part, FALLBACK_COST_VALUE) ASC
+                        # Build: COALESCE(calc_part, FALLBACK_COST_VALUE) ASC
                         from posthog.hogql.parser import parse_expr
 
                         try:
-                            calc_expr_ast = parse_expr(calc_part)
+                            calc_expr = parse_expr(calc_part)
                         except:
-                            calc_expr_ast = ast.Field(chain=[calc_part])
+                            calc_expr = ast.Field(chain=[calc_part])
 
-                        coalesce_ast = ast.Call(
-                            name="COALESCE", args=[calc_expr_ast, ast.Constant(value=FALLBACK_COST_VALUE)]
-                        )
-                        order_expr = f"{coalesce_ast.to_hogql()} ASC"
+                        coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=FALLBACK_COST_VALUE)])
+                        order_expr = f"{coalesce.to_hogql()} ASC"
                     elif order_expr.strip().endswith(" DESC"):
                         calc_part = order_expr.replace(" DESC", "").strip()
-                        # Build AST: COALESCE(calc_part, -FALLBACK_COST_VALUE) DESC
+                        # Build: COALESCE(calc_part, -FALLBACK_COST_VALUE) DESC
                         from posthog.hogql.parser import parse_expr
 
                         try:
-                            calc_expr_ast = parse_expr(calc_part)
+                            calc_expr = parse_expr(calc_part)
                         except:
-                            calc_expr_ast = ast.Field(chain=[calc_part])
+                            calc_expr = ast.Field(chain=[calc_part])
 
-                        coalesce_ast = ast.Call(
-                            name="COALESCE", args=[calc_expr_ast, ast.Constant(value=-FALLBACK_COST_VALUE)]
-                        )
-                        order_expr = f"{coalesce_ast.to_hogql()} DESC"
+                        coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=-FALLBACK_COST_VALUE)])
+                        order_expr = f"{coalesce.to_hogql()} DESC"
                     else:
-                        # Build AST: COALESCE(order_expr, FALLBACK_COST_VALUE)
+                        # Build: COALESCE(order_expr, FALLBACK_COST_VALUE)
                         from posthog.hogql.parser import parse_expr
 
                         try:
-                            expr_ast = parse_expr(order_expr)
+                            expr = parse_expr(order_expr)
                         except:
-                            expr_ast = ast.Field(chain=[order_expr])
+                            expr = ast.Field(chain=[order_expr])
 
-                        coalesce_ast = ast.Call(
-                            name="COALESCE", args=[expr_ast, ast.Constant(value=FALLBACK_COST_VALUE)]
-                        )
-                        order_expr = coalesce_ast.to_hogql()
+                        coalesce = ast.Call(name="COALESCE", args=[expr, ast.Constant(value=FALLBACK_COST_VALUE)])
+                        order_expr = coalesce.to_hogql()
                 order_by_parts.append(order_expr)
         else:
-            # Build default order by using AST: campaign_costs.total_cost DESC
-            default_field_ast = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
-            order_by_parts = [f"{default_field_ast.to_hogql()} DESC"]
+            # Build default order by: campaign_costs.total_cost DESC
+            default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
+            order_by_parts = [f"{default_field.to_hogql()} DESC"]
 
         return "ORDER BY " + ", ".join(order_by_parts) if order_by_parts else ""
 
@@ -281,31 +275,31 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         return f"LIMIT {actual_limit}\nOFFSET {offset}"
 
     def _build_select_clause(self, processors: list) -> str:
-        """Build the SELECT clause with base columns and conversion goal columns using AST internally"""
+        """Build the SELECT clause with base columns and conversion goal columns"""
         # Get conversion goal components (processors already created and passed in)
         if processors:
             conversion_joins = self._generate_conversion_goal_joins_from_processors(processors)
             conversion_columns = self._generate_conversion_goal_selects_from_processors(processors)
         else:
             conversion_joins = ""
-            conversion_columns = ""
+            conversion_columns = []
 
-        # Build base columns using AST internally
-        base_columns_ast = self._build_base_columns_ast()
-        base_columns = ",\n".join([f"    {col.to_hogql()}" for col in base_columns_ast])
+        # Build base columns
+        base_columns = self._build_base_columns()
 
         # Combine base and conversion goal columns
-        all_columns = base_columns
-        if conversion_columns:
-            all_columns += f",\n{conversion_columns}"
+        all_columns = base_columns + conversion_columns
+
+        # Convert columns to strings - can't use backslash in f-string
+        columns_sql = ",\n".join([col.to_hogql() for col in all_columns])
 
         return f"""SELECT
-{all_columns}
+{columns_sql}
 FROM {CAMPAIGN_COST_CTE_NAME}
 {conversion_joins}"""
 
-    def _build_base_columns_ast(self) -> list[ast.Alias]:
-        """Build base columns using AST internally"""
+    def _build_base_columns(self) -> list[ast.Alias]:
+        """Build base columns"""
         return [
             # Campaign name
             ast.Alias(
@@ -417,7 +411,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             )
 
             # Let the processor generate its own CTE query
-            cte_query = processor.generate_cte_query(additional_conditions)
+            cte_query = processor.generate_cte_query_string(additional_conditions)
             ctes.append(cte_query)
 
         return ",\n".join(ctes)
@@ -435,10 +429,12 @@ FROM {CAMPAIGN_COST_CTE_NAME}
 
         return "\n".join(joins)
 
-    def _generate_conversion_goal_selects_from_processors(self, processors: list[ConversionGoalProcessor]) -> str:
+    def _generate_conversion_goal_selects_from_processors(
+        self, processors: list[ConversionGoalProcessor]
+    ) -> list[ast.Alias]:
         """Generate SELECT columns for conversion goals"""
         if not processors:
-            return ""
+            return []
 
         all_selects = []
         for processor in processors:
@@ -446,7 +442,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             select_columns = processor.generate_select_columns()
             all_selects.extend(select_columns)
 
-        return ",\n".join(all_selects)
+        return all_selects
 
     def _get_team_conversion_goals(self):
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
@@ -460,45 +456,41 @@ FROM {CAMPAIGN_COST_CTE_NAME}
         date_field="timestamp",
         use_date_not_datetime=False,
     ) -> list[ast.Expr]:
-        """Build WHERE conditions with common patterns using AST internally"""
+        """Build WHERE conditions with common patterns"""
         conditions = base_conditions or []
 
         if include_date_range:
             if use_date_not_datetime:
                 # For conversion goals that use toDate instead of toDateTime
-                # Build AST: date_field >= toDate('date_from')
-                date_field_ast = ast.Field(chain=[date_field])
-                from_date_ast = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
-                to_date_ast = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
+                # Build: date_field >= toDate('date_from')
+                date_field_expr = ast.Field(chain=[date_field])
+                from_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
+                to_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
 
                 gte_condition = ast.CompareOperation(
-                    left=date_field_ast, op=ast.CompareOperationOp.GtEq, right=from_date_ast
+                    left=date_field_expr, op=ast.CompareOperationOp.GtEq, right=from_date
                 )
                 lte_condition = ast.CompareOperation(
-                    left=date_field_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast
+                    left=date_field_expr, op=ast.CompareOperationOp.LtEq, right=to_date
                 )
 
                 conditions.extend([gte_condition, lte_condition])
             else:
-                # Build AST for regular datetime conditions
+                # Build for regular datetime conditions
                 if date_field != "timestamp":
-                    date_cast_ast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
                 else:
-                    date_cast_ast = ast.Field(chain=[date_field])
+                    date_cast = ast.Field(chain=[date_field])
 
-                from_datetime_ast = ast.Call(
+                from_datetime = ast.Call(
                     name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_from_str)]
                 )
-                to_datetime_ast = ast.Call(
-                    name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_to_str)]
-                )
+                to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_to_str)])
 
                 gte_condition = ast.CompareOperation(
-                    left=date_cast_ast, op=ast.CompareOperationOp.GtEq, right=from_datetime_ast
+                    left=date_cast, op=ast.CompareOperationOp.GtEq, right=from_datetime
                 )
-                lte_condition = ast.CompareOperation(
-                    left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_datetime_ast
-                )
+                lte_condition = ast.CompareOperation(left=date_cast, op=ast.CompareOperationOp.LtEq, right=to_datetime)
 
                 conditions.extend([gte_condition, lte_condition])
 

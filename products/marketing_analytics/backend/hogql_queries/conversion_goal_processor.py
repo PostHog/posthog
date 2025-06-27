@@ -68,14 +68,14 @@ class ConversionGoalProcessor:
         }
 
     def get_utm_expressions(self) -> tuple[ast.Expr, ast.Expr]:
-        """Get UTM campaign and source expressions as AST based on node kind"""
+        """Get UTM campaign and source expressions based on node kind"""
         kind = getattr(self.goal, "kind", None)
         schema_fields = self.get_schema_fields()
 
         if kind in [NodeKind.EVENTS_NODE, NodeKind.ACTIONS_NODE]:
             # For events: properties.utm_campaign, properties.utm_source
-            utm_campaign_expr = ast.Field(chain=["properties", schema_fields['utm_campaign_field']])
-            utm_source_expr = ast.Field(chain=["properties", schema_fields['utm_source_field']])
+            utm_campaign_expr = ast.Field(chain=["properties", schema_fields["utm_campaign_field"]])
+            utm_source_expr = ast.Field(chain=["properties", schema_fields["utm_source_field"]])
         else:
             # For data warehouse: direct field access
             utm_campaign_expr = ast.Field(chain=[schema_fields["utm_campaign_field"]])
@@ -93,21 +93,12 @@ class ConversionGoalProcessor:
         if math_type in [BaseMathType.DAU, "dau"]:
             if kind == NodeKind.EVENTS_NODE:
                 # uniq(distinct_id)
-                return ast.Call(
-                    name="uniq",
-                    args=[ast.Field(chain=["distinct_id"])]
-                )
+                return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
             elif kind == NodeKind.DATA_WAREHOUSE_NODE:
                 distinct_id_field = schema_fields.get("distinct_id_field", "distinct_id")
-                return ast.Call(
-                    name="uniq",
-                    args=[ast.Field(chain=[distinct_id_field])]
-                )
+                return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
             else:
-                return ast.Call(
-                    name="uniq",
-                    args=[ast.Field(chain=["distinct_id"])]
-                )
+                return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
         elif math_type == "sum" or str(math_type).endswith("_sum") or math_type == PropertyMathType.SUM:
             math_property = getattr(self.goal, "math_property", None)
             if not math_property:
@@ -116,8 +107,7 @@ class ConversionGoalProcessor:
                 if kind == NodeKind.EVENTS_NODE:
                     # round(sum(toFloat(JSONExtractRaw(properties, 'math_property'))), DECIMAL_PRECISION)
                     json_extract = ast.Call(
-                        name="JSONExtractRaw",
-                        args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
+                        name="JSONExtractRaw", args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
                     )
                     to_float = ast.Call(name="toFloat", args=[json_extract])
                     sum_expr = ast.Call(name="sum", args=[to_float])
@@ -130,8 +120,7 @@ class ConversionGoalProcessor:
                 else:
                     # Same as events node
                     json_extract = ast.Call(
-                        name="JSONExtractRaw",
-                        args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
+                        name="JSONExtractRaw", args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
                     )
                     to_float = ast.Call(name="toFloat", args=[json_extract])
                     sum_expr = ast.Call(name="sum", args=[to_float])
@@ -149,101 +138,34 @@ class ConversionGoalProcessor:
         if kind == NodeKind.EVENTS_NODE:
             # team_id = {self.team.pk}
             team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["team_id"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.team.pk)
+                left=ast.Field(chain=["team_id"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=self.team.pk)
             )
             conditions.append(team_condition)
-            
+
             event_name = getattr(self.goal, "event", None)
             if event_name:
                 # event = 'event_name'
                 event_condition = ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=event_name)
+                    left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=event_name)
                 )
                 conditions.append(event_condition)
-            else:
-                # 1=1 (always true)
-                conditions.append(ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=1)
-                ))
         elif kind == NodeKind.ACTIONS_NODE:
             # team_id = {self.team.pk}
             team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["team_id"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.team.pk)
+                left=ast.Field(chain=["team_id"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=self.team.pk)
             )
             conditions.append(team_condition)
-            
+
             # Handle ActionsNode by converting action to HogQL expression
             action_id = getattr(self.goal, "id", None)
             if action_id:
-                try:
-                    action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
+                action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
+                # action_to_expr handles all the action step logic internally
+                action_expr = action_to_expr(action)
+                conditions.append(action_expr)
 
-                    try:
-                        action_expr = action_to_expr(action)
-                        conditions.append(action_expr)
-                    except Exception:
-                        # Fallback: use basic event filter if action has steps
-                        action_steps = action.steps.all() if hasattr(action.steps, "all") else action.steps
-                        if action_steps:
-                            first_step = action_steps[0]
-                            if hasattr(first_step, "event") and first_step.event:
-                                # event = 'first_step.event'
-                                event_condition = ast.CompareOperation(
-                                    left=ast.Field(chain=["event"]),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Constant(value=first_step.event)
-                                )
-                                conditions.append(event_condition)
-                            else:
-                                # 1=0 (always false)
-                                conditions.append(ast.CompareOperation(
-                                    left=ast.Constant(value=1),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Constant(value=0)
-                                ))
-                        else:
-                            # 1=0 (always false)
-                            conditions.append(ast.CompareOperation(
-                                left=ast.Constant(value=1),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value=0)
-                            ))
-                except Action.DoesNotExist:
-                    # 1=0 (always false)
-                    conditions.append(ast.CompareOperation(
-                        left=ast.Constant(value=1),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=0)
-                    ))
-                except Exception:
-                    # 1=0 (always false)
-                    conditions.append(ast.CompareOperation(
-                        left=ast.Constant(value=1),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=0)
-                    ))
-            else:
-                # 1=0 (always false)
-                conditions.append(ast.CompareOperation(
-                    left=ast.Constant(value=1),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=0)
-                ))
         elif kind == NodeKind.DATA_WAREHOUSE_NODE:
-            # 1=1 (always true)
-            conditions.append(ast.CompareOperation(
-                left=ast.Constant(value=1),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=1)
-            ))
+            pass
 
         return conditions
 
@@ -257,60 +179,69 @@ class ConversionGoalProcessor:
         else:
             return "timestamp"
 
-    def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> str:
+    def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate the complete CTE query for this conversion goal"""
         from .constants import UNKNOWN_CAMPAIGN, UNKNOWN_SOURCE
 
-        # Get all required components as AST
-        cte_name = self.get_cte_name()
+        # Get all required components
         table = self.get_table_name()
-        select_field_ast = self.get_select_field()
-        utm_campaign_expr_ast, utm_source_expr_ast = self.get_utm_expressions()
+        select_field = self.get_select_field()
+        utm_campaign_expr, utm_source_expr = self.get_utm_expressions()
 
-        # Build WHERE conditions as AST
-        where_conditions_ast = self.get_base_where_conditions()
+        # Build WHERE conditions
+        where_conditions = self.get_base_where_conditions()
 
-        # Apply conversion goal specific property filters (returns AST)
-        where_conditions_ast = add_conversion_goal_property_filters(where_conditions_ast, self.goal, self.team)
+        # Apply conversion goal specific property filters
+        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
 
-        where_conditions_ast.extend(additional_conditions)
+        where_conditions.extend(additional_conditions)
 
-        # Build coalesce expressions for UTM fields as AST
-        campaign_coalesce_ast = ast.Call(
-            name="coalesce",
-            args=[utm_campaign_expr_ast, ast.Constant(value=UNKNOWN_CAMPAIGN)]
-        )
-        source_coalesce_ast = ast.Call(
-            name="coalesce", 
-            args=[utm_source_expr_ast, ast.Constant(value=UNKNOWN_SOURCE)]
-        )
+        # Build coalesce expressions for UTM fields
+        campaign_coalesce = ast.Call(name="coalesce", args=[utm_campaign_expr, ast.Constant(value=UNKNOWN_CAMPAIGN)])
+        source_coalesce = ast.Call(name="coalesce", args=[utm_source_expr, ast.Constant(value=UNKNOWN_SOURCE)])
 
-        # Convert to HogQL only at the end
-        campaign_select = campaign_coalesce_ast.to_hogql()
-        source_select = source_coalesce_ast.to_hogql()
-        value_select = select_field_ast.to_hogql()
-        where_clause = ' AND '.join(cond.to_hogql() for cond in where_conditions_ast)
+        # Build SELECT columns
+        select_columns = [
+            ast.Alias(alias=MarketingSourceAdapter.campaign_name_field, expr=campaign_coalesce),
+            ast.Alias(alias=MarketingSourceAdapter.source_name_field, expr=source_coalesce),
+            ast.Alias(alias=CONVERSION_GOAL_PREFIX + str(self.index), expr=select_field),
+        ]
 
-        # Build the CTE query
-        cte_query = f"""
-{cte_name} AS (
-    SELECT
-        {campaign_select} as {MarketingSourceAdapter.campaign_name_field},
-        {source_select} as {MarketingSourceAdapter.source_name_field},
-        {value_select} as {CONVERSION_GOAL_PREFIX}{self.index}
-    FROM {table}
-    WHERE {where_clause}
-    GROUP BY {MarketingSourceAdapter.campaign_name_field}, {MarketingSourceAdapter.source_name_field}
-)"""
+        # Build FROM clause
+        from_expr = ast.JoinExpr(table=ast.Field(chain=[table]))
 
-        return cte_query.strip()
+        # Build WHERE clause - combine all conditions
+        where_expr = None
+        if where_conditions:
+            if len(where_conditions) == 1:
+                where_expr = where_conditions[0]
+            else:
+                where_expr = ast.And(exprs=where_conditions)
+
+        # Build GROUP BY
+        group_by_exprs = [
+            ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
+            ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
+        ]
+
+        # Return complete SelectQuery
+        return ast.SelectQuery(select=select_columns, select_from=from_expr, where=where_expr, group_by=group_by_exprs)
+
+    def generate_cte_query_string(self, additional_conditions: list[ast.Expr]) -> str:
+        """Generate the complete CTE query string for this conversion goal"""
+        cte_name = self.get_cte_name()
+        select_query = self.generate_cte_query(additional_conditions)
+
+        # Convert to string and wrap in CTE
+        query_sql = select_query.to_hogql()
+        return f"{cte_name} AS (\n{query_sql}\n)"
 
     def generate_join_clause(self) -> str:
         """Generate the JOIN clause for this conversion goal"""
         cte_name = self.get_cte_name()
         return """LEFT JOIN {} {} ON {}.{} = {}.{}
     AND {}.{} = {}.{}""".format(
-            cte_name, 
+            cte_name,
             CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
             CAMPAIGN_COST_CTE_NAME,
             MarketingSourceAdapter.campaign_name_field,
@@ -319,31 +250,39 @@ class ConversionGoalProcessor:
             CAMPAIGN_COST_CTE_NAME,
             MarketingSourceAdapter.source_name_field,
             CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-            MarketingSourceAdapter.source_name_field
+            MarketingSourceAdapter.source_name_field,
         )
 
-    def generate_select_columns(self) -> list[str]:
+    def generate_select_columns(self) -> list[ast.Alias]:
         """Generate the SELECT columns for this conversion goal"""
         goal_name = getattr(self.goal, "conversion_goal_name", f"Goal {self.index + 1}")
+        alias_prefix = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
 
-        return [
-            '    {}.{} as "{}"'.format(
-                CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-                CONVERSION_GOAL_PREFIX + str(self.index),
-                goal_name
-            ),
-            '    round({}.{} / nullif({}.{}, 0), {}) as "Cost per {}"'.format(
-                CAMPAIGN_COST_CTE_NAME,
-                TOTAL_COST_FIELD,
-                CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index),
-                CONVERSION_GOAL_PREFIX + str(self.index),
-                DECIMAL_PRECISION,
-                goal_name
-            ),
-        ]
+        # First column: conversion goal value
+        # Original: '{}.{} as "{}"'
+        conversion_goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
+        conversion_goal_alias = ast.Alias(alias=goal_name, expr=conversion_goal_field)
+
+        # Second column: Cost per conversion goal
+        # Original: 'round({}.{} / nullif({}.{}, 0), {}) as "Cost per {}"'
+        cost_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])
+        goal_field = ast.Field(chain=[alias_prefix, CONVERSION_GOAL_PREFIX + str(self.index)])
+
+        # Build: nullif(goal_field, 0)
+        nullif_expr = ast.Call(name="nullif", args=[goal_field, ast.Constant(value=0)])
+
+        # Build: cost_field / nullif_expr
+        division_expr = ast.ArithmeticOperation(left=cost_field, op=ast.ArithmeticOperationOp.Div, right=nullif_expr)
+
+        # Build: round(division_expr, DECIMAL_PRECISION)
+        round_expr = ast.Call(name="round", args=[division_expr, ast.Constant(value=DECIMAL_PRECISION)])
+
+        cost_per_goal_alias = ast.Alias(alias=f"Cost per {goal_name}", expr=round_expr)
+
+        return [conversion_goal_alias, cost_per_goal_alias]
 
 
-def add_conversion_goal_property_filters(conditions, conversion_goal, team) -> list[str]:
+def add_conversion_goal_property_filters(conditions, conversion_goal, team) -> list[ast.Expr]:
     """Add conversion goal specific property filters to conditions"""
     conversion_goal_properties = getattr(conversion_goal, "properties", [])
     if conversion_goal_properties:

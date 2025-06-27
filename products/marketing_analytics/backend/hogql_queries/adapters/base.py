@@ -83,43 +83,43 @@ class MarketingSourceAdapter(ABC):
         pass
 
     @abstractmethod
-    def _get_campaign_name_field_ast(self) -> ast.Expr:
-        """Get the campaign name field expression as AST"""
+    def _get_campaign_name_field(self) -> ast.Expr:
+        """Get the campaign name field expression"""
         pass
 
     @abstractmethod
-    def _get_source_name_field_ast(self) -> ast.Expr:
-        """Get the source name field expression as AST"""
+    def _get_source_name_field(self) -> ast.Expr:
+        """Get the source name field expression"""
         pass
 
     @abstractmethod
-    def _get_impressions_field_ast(self) -> ast.Expr:
-        """Get the impressions field expression as AST"""
+    def _get_impressions_field(self) -> ast.Expr:
+        """Get the impressions field expression"""
         pass
 
     @abstractmethod
-    def _get_clicks_field_ast(self) -> ast.Expr:
-        """Get the clicks field expression as AST"""
+    def _get_clicks_field(self) -> ast.Expr:
+        """Get the clicks field expression"""
         pass
 
     @abstractmethod
-    def _get_cost_field_ast(self) -> ast.Expr:
-        """Get the cost field expression as AST"""
+    def _get_cost_field(self) -> ast.Expr:
+        """Get the cost field expression"""
         pass
 
     @abstractmethod
-    def _get_where_conditions_ast(self) -> list[ast.Expr]:
-        """Get WHERE condition expressions as AST"""
+    def _get_where_conditions(self) -> list[ast.Expr]:
+        """Get WHERE condition expressions"""
         pass
 
     @abstractmethod
-    def _get_from_ast(self) -> ast.JoinExpr:
-        """Get the FROM clause as AST JoinExpr"""
+    def _get_from(self) -> ast.JoinExpr:
+        """Get the FROM clause"""
         pass
 
     @abstractmethod
-    def _get_group_by_ast(self) -> list[ast.Expr]:
-        """Get GROUP BY expressions as AST"""
+    def _get_group_by(self) -> list[ast.Expr]:
+        """Get GROUP BY expressions"""
         pass
 
     def _log_validation_errors(self, errors: list[str], warnings: list[str] | None = None):
@@ -136,9 +136,9 @@ class MarketingSourceAdapter(ABC):
         else:
             self.logger.error("Query generation failed", error=error)
 
-    def build_query_ast(self) -> Optional[ast.SelectQuery]:
+    def build_query(self) -> Optional[ast.SelectQuery]:
         """
-        Build AST SelectQuery that returns marketing data in standardized format.
+        Build SelectQuery that returns marketing data in standardized format.
 
         MUST return columns in this exact order and format:
         - campaign_name (string): Campaign identifier
@@ -150,19 +150,19 @@ class MarketingSourceAdapter(ABC):
         Returns None if this source cannot provide data for the given context.
         """
         try:
-            # Build SELECT columns using AST
+            # Build SELECT columns
             select_columns = [
-                ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field_ast()),
-                ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field_ast()),
-                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field_ast()),
-                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field_ast()),
-                ast.Alias(alias=self.cost_field, expr=self._get_cost_field_ast()),
+                ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
+                ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
+                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
+                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
+                ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
             ]
 
-            # Build query components using AST
-            from_expr = self._get_from_ast()
-            where_conditions = self._get_where_conditions_ast()
-            group_by_exprs = self._get_group_by_ast()
+            # Build query components
+            from_expr = self._get_from()
+            where_conditions = self._get_where_conditions()
+            group_by_exprs = self._get_group_by()
 
             # Build WHERE clause
             where_expr = None
@@ -175,13 +175,8 @@ class MarketingSourceAdapter(ABC):
             # Build GROUP BY clause
             group_by = group_by_exprs if group_by_exprs else None
 
-            # Create the complete AST SelectQuery
-            query = ast.SelectQuery(
-                select=select_columns,
-                select_from=from_expr,
-                where=where_expr,
-                group_by=group_by
-            )
+            # Create the complete SelectQuery
+            query = ast.SelectQuery(select=select_columns, select_from=from_expr, where=where_expr, group_by=group_by)
 
             self._log_query_generation(True)
             return query
@@ -191,9 +186,9 @@ class MarketingSourceAdapter(ABC):
             self._log_query_generation(False, error_msg)
             return None
 
-    def build_query(self) -> Optional[str]:
+    def build_query_string(self) -> Optional[str]:
         """
         Build SQL query string (backwards compatibility).
         """
-        query_ast = self.build_query_ast()
-        return query_ast.to_hogql() if query_ast else None
+        query = self.build_query()
+        return query.to_hogql() if query else None

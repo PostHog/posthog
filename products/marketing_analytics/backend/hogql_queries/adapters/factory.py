@@ -231,7 +231,7 @@ class MarketingSourceFactory:
         queries = []
         for adapter in adapters:
             try:
-                query = adapter.build_query()
+                query = adapter.build_query_string()
                 if query:
                     queries.append(query)
             except Exception as e:

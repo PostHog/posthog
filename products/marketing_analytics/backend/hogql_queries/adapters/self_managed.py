@@ -1,6 +1,5 @@
 # Self-Managed Marketing Source Adapters
 
-from typing import Optional
 from posthog.hogql import ast
 from .base import MarketingSourceAdapter, ValidationResult
 from products.marketing_analytics.backend.hogql_queries.constants import (
@@ -89,24 +88,24 @@ class SelfManagedAdapter(MarketingSourceAdapter):
             self.logger.exception("Self-managed table validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
 
-    def _get_campaign_name_field_ast(self) -> ast.Expr:
+    def _get_campaign_name_field(self) -> ast.Expr:
         campaign_name_field = get_source_map_field(
             self.config.get("source_map"), SOURCE_MAP_UTM_CAMPAIGN_NAME
         ) or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CAMPAIGN_NAME)
-        
+
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_name_field])])
 
-    def _get_source_name_field_ast(self) -> ast.Expr:
+    def _get_source_name_field(self) -> ast.Expr:
         source_name_field = (
             get_source_map_field(self.config.get("source_map"), SOURCE_MAP_UTM_SOURCE_NAME)
             or get_source_map_field(self.config.get("source_map"), SOURCE_MAP_SOURCE_NAME)
-            or self.config.get('schema_name')
+            or self.config.get("schema_name")
         )
-        
+
         # Always treat as a constant value since it's likely a hardcoded schema name
         return ast.Call(name="toString", args=[ast.Constant(value=source_name_field)])
 
-    def _get_cost_field_ast(self) -> ast.Expr:
+    def _get_cost_field(self) -> ast.Expr:
         # Handle currency conversion
         total_cost_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_TOTAL_COST)
         currency_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CURRENCY)
@@ -114,80 +113,76 @@ class SelfManagedAdapter(MarketingSourceAdapter):
 
         if currency_field and total_cost_field:
             # toFloat(convertCurrency('currency_field', 'base_currency', toFloat(coalesce(total_cost_field, 0))))
-            coalesce_ast = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
-            inner_toFloat_ast = ast.Call(name="toFloat", args=[coalesce_ast])
-            convert_currency_ast = ast.Call(
+            coalesce = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
+            inner_toFloat = ast.Call(name="toFloat", args=[coalesce])
+            convert_currency = ast.Call(
                 name="convertCurrency",
-                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), inner_toFloat_ast],
+                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), inner_toFloat],
             )
-            return ast.Call(name="toFloat", args=[convert_currency_ast])
+            return ast.Call(name="toFloat", args=[convert_currency])
         elif total_cost_field:
             # toFloat(coalesce(total_cost_field, 0))
-            coalesce_ast = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
-            return ast.Call(name="toFloat", args=[coalesce_ast])
+            coalesce = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
+            return ast.Call(name="toFloat", args=[coalesce])
         else:
             # 0
             return ast.Constant(value=0)
 
-    def _get_impressions_field_ast(self) -> ast.Expr:
+    def _get_impressions_field(self) -> ast.Expr:
         impressions_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_IMPRESSIONS, "0")
-        
+
         if impressions_field == "0":
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[impressions_field])
-            
-        coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
-        return ast.Call(name="toFloat", args=[coalesce_ast])
 
-    def _get_clicks_field_ast(self) -> ast.Expr:
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
+    def _get_clicks_field(self) -> ast.Expr:
         clicks_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_CLICKS, "0")
-        
+
         if clicks_field == "0":
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[clicks_field])
-            
-        coalesce_ast = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
-        return ast.Call(name="toFloat", args=[coalesce_ast])
 
-    def _get_from_ast(self) -> ast.JoinExpr:
-        """Build FROM clause as AST JoinExpr""" # why join expr?
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
+    def _get_from(self) -> ast.JoinExpr:
+        """Build FROM clause"""
         table_name = self.config.get("table").name
-        table_ast = ast.Field(chain=[table_name])
-        return ast.JoinExpr(table=table_ast)
+        table = ast.Field(chain=[table_name])
+        return ast.JoinExpr(table=table)
 
-    def _get_where_conditions_ast(self) -> list[ast.Expr]:
-        """Build WHERE conditions as AST expressions"""
+    def _get_where_conditions(self) -> list[ast.Expr]:
+        """Build WHERE conditions"""
         date_field = get_source_map_field(self.config.get("source_map"), SOURCE_MAP_DATE)
         conditions = []
 
-        # Add date range filter  
+        # Add date range filter
         if self.context.date_range:
             if date_field != "timestamp":
                 # toDateTime(date_field) >= toDateTime('date_from')
-                date_cast_ast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+                date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
             else:
-                date_cast_ast = ast.Field(chain=[date_field])
-                
+                date_cast = ast.Field(chain=[date_field])
+
             # Build >= condition
-            from_date_ast = ast.Call(
-                name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)]
-            )
-            gte_condition = ast.CompareOperation(
-                left=date_cast_ast, op=ast.CompareOperationOp.GtEq, right=from_date_ast
-            )
-            
+            from_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_from_str)])
+            gte_condition = ast.CompareOperation(left=date_cast, op=ast.CompareOperationOp.GtEq, right=from_date)
+
             # Build <= condition
-            to_date_ast = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
-            lte_condition = ast.CompareOperation(left=date_cast_ast, op=ast.CompareOperationOp.LtEq, right=to_date_ast)
-            
+            to_date = ast.Call(name="toDateTime", args=[ast.Constant(value=self.context.date_range.date_to_str)])
+            lte_condition = ast.CompareOperation(left=date_cast, op=ast.CompareOperationOp.LtEq, right=to_date)
+
             conditions.extend([gte_condition, lte_condition])
 
         return conditions
 
-    def _get_group_by_ast(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions as AST"""
+    def _get_group_by(self) -> list[ast.Expr]:
+        """Build GROUP BY expressions"""
         # Self-managed tables typically don't need grouping
         return []
 
