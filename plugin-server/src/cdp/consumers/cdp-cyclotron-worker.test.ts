@@ -12,8 +12,9 @@ import {
     createExampleInvocation,
     createHogExecutionGlobals,
     createHogFunction,
-    insertHogFunction as _insertHogFunction,
+    insertHogFunction,
 } from '../_tests/fixtures'
+import { compileHog } from '../templates/compiler'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -36,10 +37,7 @@ describe('CdpCyclotronWorker', () => {
         team = await getFirstTeam(hub)
         processor = new CdpCyclotronWorker(hub)
 
-        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        fn = await _insertHogFunction(
+        fn = await insertHogFunction(
             hub.postgres,
             team.id,
             createHogFunction({
@@ -65,12 +63,11 @@ describe('CdpCyclotronWorker', () => {
         await closeHub(hub)
     })
 
-    afterAll(() => {
-        jest.useRealTimers()
-    })
-
     describe('processInvocation', () => {
         beforeEach(() => {
+            const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+            jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
             mockFetch.mockResolvedValue({
                 status: 200,
                 json: () => Promise.resolve({}),
@@ -189,7 +186,7 @@ describe('CdpCyclotronWorker', () => {
         })
 
         it('should skip a loaded function if it is disabled', async () => {
-            const fn2 = await _insertHogFunction(
+            const fn2 = await insertHogFunction(
                 hub.postgres,
                 team.id,
                 createHogFunction({
@@ -202,6 +199,75 @@ describe('CdpCyclotronWorker', () => {
 
             const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
             expect(results).toEqual([])
+        })
+
+        describe('thread relief', () => {
+            jest.setTimeout(10000)
+            let interval: NodeJS.Timeout
+            beforeEach(() => {
+                jest.spyOn(Date, 'now').mockRestore()
+                jest.useRealTimers()
+            })
+
+            afterEach(() => {
+                clearInterval(interval)
+            })
+
+            it('should process batches in a way that does not block the main thread', async () => {
+                const blockTime = 200
+                let lastCheck = Date.now()
+                let longestDelay = 0
+
+                interval = setInterval(() => {
+                    // Sets up an interval loop so we can see how long the longest delay between ticks is
+                    longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
+                    lastCheck = Date.now()
+                }, 1)
+
+                const evilFunctionCode = `
+                        fn fibonacci(number) {
+                            print('I AM FIBONACCI. ')
+                            if (number < 2) {
+                                return number;
+                            } else {
+                                return fibonacci(number - 1) + fibonacci(number - 2);
+                            }
+                        }
+                        print(f'fib {fibonacci(64)}');`
+
+                const evilFunction = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                        hog: evilFunctionCode,
+                        bytecode: await compileHog(evilFunctionCode),
+                    })
+                )
+
+                hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS = blockTime
+                hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS = 0
+
+                const numberToTest = 5
+                const invocations = Array.from({ length: numberToTest }, () =>
+                    createExampleInvocation(evilFunction, globals)
+                )
+                const results = await processor.processInvocations(invocations)
+
+                const timings = results.flatMap(
+                    (x) => (x.invocation.state as CyclotronJobInvocationHogFunction['state']).timings
+                )
+
+                const total = timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+
+                // Timings is semi random so we can't test for exact values
+                expect(total).toBeGreaterThan(200 * numberToTest)
+                expect(total).toBeLessThan(300 * numberToTest) // the hog exec limiter isn't exact
+
+                await new Promise((resolve) => setTimeout(resolve, 1))
+
+                expect(longestDelay).toBeLessThan(300) // Rough upper bound of the hog exec limiter
+            })
         })
     })
 })

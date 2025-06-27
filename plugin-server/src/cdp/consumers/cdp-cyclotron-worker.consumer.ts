@@ -44,7 +44,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queue === 'hog') {
-                result = this.hogExecutor.execute(nextInvocation)
+                result = await this.hogExecutor.execute(nextInvocation)
                 // Heartbeat and free the event loop to handle health checks
                 this.heartbeat()
                 await new Promise((resolve) => process.nextTick(resolve))
@@ -172,9 +172,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async stop() {
-        await super.stop()
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {
