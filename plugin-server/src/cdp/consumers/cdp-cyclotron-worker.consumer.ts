@@ -172,9 +172,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async stop() {
-        await super.stop()
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {
