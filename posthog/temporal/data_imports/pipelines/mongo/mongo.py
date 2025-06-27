@@ -20,9 +20,8 @@ from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
-
-DEFAULT_BATCH_SIZE = 5000
 
 
 @config.config
@@ -378,7 +377,7 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            cursor = read_collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
+            cursor = read_collection.find(query, batch_size=DEFAULT_CHUNK_SIZE)
 
             for doc in cursor:
                 # Convert ObjectId to string and handle nested objects
