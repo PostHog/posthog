@@ -105,7 +105,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
     }),
-    loaders(({ values, props, key }) => ({
+    loaders(({ values, props }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
             {
