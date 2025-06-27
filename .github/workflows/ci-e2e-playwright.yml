@@ -88,25 +88,57 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
+                clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
                 shard: [1, 2, 3]
         permissions:
             id-token: write
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-            - name: Start stack with Docker Compose
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+                  max_attempts=3
+                  attempt=1
+                  delay=5
+
+                  while [ $attempt -le $max_attempts ]; do
+                      echo "Attempt $attempt of $max_attempts to start stack..."
+                      
+                      if docker compose -f docker-compose.dev.yml down && \
+                        docker compose -f docker-compose.dev.yml up -d; then
+                          echo "Stack started successfully"
+                          exit 0
+                      fi
+                      
+                      echo "Failed to start stack on attempt $attempt"
+                      
+                      if [ $attempt -lt $max_attempts ]; then
+                          sleep_time=$((delay * 2 ** (attempt - 1)))
+                          echo "Waiting ${sleep_time} seconds before retry..."
+                          sleep $sleep_time
+                      fi
+                      
+                      attempt=$((attempt + 1))
+                  done
+
+                  echo "Failed to start stack after $max_attempts attempts"
+                  exit 1
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
-            - name: Set up Python 3.11.9
+            - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version: 3.11.9
-                  cache: 'pip'
+                  cache: pip
+                  cache-dependency-path: '**/requirements*.txt'
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
@@ -114,25 +146,70 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
-            - name: System deps for python3-saml
+            - name: Determine if hogql-parser has changed compared to master
+              shell: bash
+              id: hogql-parser-diff
+              run: |
+                  git fetch --no-tags --prune --depth=1 origin master
+                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
+                  echo "changed=$changed" >> $GITHUB_OUTPUT
+
+            - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl build-essential
-
-            - name: Install Python dependencies via uv
-              env:
-                  SETUPTOOLS_USE_DISTUTILS: stdlib
-              run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
               with:
                   node-version: 18.12.1
-                  cache: 'pnpm'
+                  cache: pnpm
+
+            # tests would intermittently fail in GH actions
+            # with exit code 134 _after passing_ all tests
+            # this appears to fix it
+            # absolute wild tbh https://stackoverflow.com/a/75503402
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+
+            - name: Install plugin_transpiler
+              shell: bash
+              run: |
+                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-transpiler build
+
+            - name: Install Python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install the working version of hogql-parser
+              if: ${{ steps.hogql-parser-diff.outputs.changed == 'true' }}
+              shell: bash
+              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # changed (requirements.txt has the already-published version)
+              run: |
+                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Check that the downloaded archive is the expected runtime - a security measure
+                  anltr_known_md5sum="c875c148991aacd043f733827644a76f"
+                  antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
+                  if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
+                      echo "Unexpected MD5 sum of antlr4-source.zip!"
+                      echo "Known: $anltr_known_md5sum"
+                      echo "Found: $antlr_found_ms5sum"
+                      exit 64
+                  fi
+                  unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
+                  cmake .
+                  DESTDIR=out make install
+                  sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
+                  sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
+                  sudo ldconfig
+                  cd ..
+                  uv pip install ./common/hogql_parser
 
             - name: Get pnpm cache directory path
               id: pnpm-cache-dir
