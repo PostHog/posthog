@@ -273,16 +273,13 @@ jobs:
                   echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
-            - name: Apply postgres and clickhouse migrations
+            - name: Apply postgres and clickhouse migrations and setup dev
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  python manage.py migrate --noinput &
                   python manage.py migrate_clickhouse &
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev
                   wait
-
-            - name: Seed dev data
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: python manage.py setup_dev
 
             - name: Source celery queues
               if: needs.changes.outputs.shouldRun == 'true'
@@ -290,7 +287,6 @@ jobs:
                   source ./bin/celery-queues.env
                   echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
 
-            # Launch PostHog web & worker & frontend server in the background
             - name: Start PostHog web & Celery worker & frontend server
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
