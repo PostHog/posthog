@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
+import { IconCopy, IconPlus, IconTrash, IconFlag } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -25,7 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -255,14 +255,25 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
-                                    {property?.type !== 'cohort' &&
+                                    {property?.type !== PropertyFilterType.Cohort &&
+                                        property?.type !== PropertyFilterType.FlagDependency &&
                                         getFilterLabel(
                                             property.key,
-                                            property.type === 'person'
+                                            property.type === PropertyFilterType.Person
                                                 ? TaxonomicFilterGroupType.PersonProperties
                                                 : TaxonomicFilterGroupType.EventProperties
                                         )}
-                                    <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
+                                    {property.type === PropertyFilterType.FlagDependency && (
+                                        <Tooltip title={property.key}>
+                                            <LemonSnack>
+                                                <IconFlag className="mr-1" />
+                                                {(property as any).label || property.key}
+                                            </LemonSnack>
+                                        </Tooltip>
+                                    )}
+                                    {property.type !== PropertyFilterType.FlagDependency && (
+                                        <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key}</LemonSnack>
+                                    )}
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
@@ -287,6 +298,11 @@ export function FeatureFlagReleaseConditions({
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions
+                                excludedProperties={
+                                    featureFlagKey
+                                        ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                        : undefined
+                                }
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {
