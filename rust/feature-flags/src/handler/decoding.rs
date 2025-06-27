@@ -43,7 +43,7 @@ fn decode_body(
     compression: Option<Compression>,
     headers: &HeaderMap,
 ) -> Result<Bytes, FlagError> {
-    // First try explicit compression parameter
+    // First try explicit compression parameter; Android doesn't send this but other clients do.
     if let Some(compression) = compression {
         return match compression {
             Compression::Gzip => decompress_gzip(body),
@@ -54,7 +54,7 @@ fn decode_body(
         };
     }
 
-    // Check Content-Encoding header
+    // Check Content-Encoding header (Android uses this primarily)
     if let Some(encoding) = headers.get("content-encoding") {
         if let Ok(encoding_str) = encoding.to_str() {
             if encoding_str.contains("gzip") {
