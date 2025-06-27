@@ -52,7 +52,7 @@ class TestTraceClickhouseQueryDecorator:
             mock_span.set_attribute.assert_any_call("net.peer.name", CLICKHOUSE_HOST)
             mock_span.set_attribute.assert_any_call("net.peer.port", 9000)
             mock_span.set_attribute.assert_any_call("span.kind", "client")
-            mock_span.set_attribute.assert_any_call("clickhouse.workload", Workload.ONLINE.value)
+            mock_span.set_attribute.assert_any_call("clickhouse.initial_workload", Workload.ONLINE.value)
             mock_span.set_attribute.assert_any_call("clickhouse.team_id", "123")
             mock_span.set_attribute.assert_any_call("clickhouse.readonly", True)
             mock_span.set_attribute.assert_any_call("clickhouse.query_type", "Other")
@@ -193,7 +193,7 @@ class TestTraceClickhouseQueryDecorator:
             test_function("SELECT 1")
 
             # Verify default values are used
-            mock_span.set_attribute.assert_any_call("clickhouse.workload", Workload.DEFAULT.value)
+            mock_span.set_attribute.assert_any_call("clickhouse.initial_workload", Workload.DEFAULT.value)
             mock_span.set_attribute.assert_any_call("clickhouse.readonly", False)
             mock_span.set_attribute.assert_any_call("clickhouse.query_type", "Other")
             mock_span.set_attribute.assert_any_call("db.user", ClickHouseUser.DEFAULT.value)

@@ -19,6 +19,11 @@ def trace_clickhouse_query_decorator(func):
     - Result tracking
     - Exception handling
     - Execution time measurement
+
+    Note: This decorator captures the initial workload value passed to the function.
+    The workload can change during function execution based on various conditions
+    (e.g., API keys, celery tasks, etc.). If you need the final workload value
+    in traces, you can add it manually using add_clickhouse_span_attributes().
     """
 
     @wraps(func)
@@ -26,7 +31,7 @@ def trace_clickhouse_query_decorator(func):
         # Extract parameters for tracing - handle both positional and keyword args
         query = args[0] if args else kwargs.get("query")
         args_param = kwargs.get("args")
-        workload = kwargs.get("workload", Workload.DEFAULT)
+        initial_workload = kwargs.get("workload", Workload.DEFAULT)
         team_id = kwargs.get("team_id")
         readonly = kwargs.get("readonly", False)
         ch_user = kwargs.get("ch_user", ClickHouseUser.DEFAULT)
@@ -57,7 +62,9 @@ def trace_clickhouse_query_decorator(func):
                 span.set_attribute("span.kind", "client")
 
                 # Add custom attributes for PostHog-specific context
-                span.set_attribute("clickhouse.workload", workload.value)
+                # Note: This captures the initial workload value. The workload can change
+                # during function execution based on various conditions.
+                span.set_attribute("clickhouse.initial_workload", initial_workload.value)
                 span.set_attribute("clickhouse.team_id", str(team_id or ""))
                 span.set_attribute("clickhouse.readonly", readonly)
                 span.set_attribute("clickhouse.query_type", "Other")  # Will be updated by function

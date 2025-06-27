@@ -27,7 +27,8 @@ from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
-from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
+from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator, add_clickhouse_span_attributes
+from opentelemetry import trace
 
 QUERY_STARTED_COUNTER = Counter(
     "posthog_clickhouse_query_sent",
@@ -157,6 +158,10 @@ def sync_execute(
 
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
+
+    # Add the final workload to the span
+    if trace.get_current_span().is_recording():
+        add_clickhouse_span_attributes(trace.get_current_span(), final_workload=workload.value)
 
     if team_id is not None:
         tags.team_id = team_id
