@@ -245,8 +245,7 @@ class TestMappings(BaseTest):
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
 
     def test_map_function_with_multiple_key_value_pairs(self):
-        """Test that the map function accepts multiple key-value pairs (more than 2 arguments)."""
-        # This test ensures the fix for the issue where map function was incorrectly limited to 2 arguments
+        """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(
             """
             SELECT
@@ -267,7 +266,6 @@ class TestMappings(BaseTest):
             raise ValueError("Query returned no columns")
         result_dict = dict(zip(response.columns, response.results[0]))
 
-        # Verify that all map functions work with different numbers of arguments
         self.assertEqual(result_dict["empty_map"], {})
         self.assertEqual(result_dict["single_pair_map"], {"key1": "value1"})
         self.assertEqual(result_dict["two_pair_map"], {"key1": "value1", "key2": "value2"})
