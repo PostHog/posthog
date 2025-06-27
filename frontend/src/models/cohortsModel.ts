@@ -40,6 +40,18 @@ export const DEFAULT_COHORT_FILTERS: CohortFilters = {
     page: 1,
 }
 
+export function generateUUID(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID()
+    }
+    // Fallback to a simple random string
+    return 'xxxx-xxxx-4xxx-yxxx-xxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0
+        const v = c === 'x' ? r : (r & 0x3) | 0x8
+        return v.toString(16)
+    })
+}
+
 export function processCohort(cohort: CohortType): CohortType {
     return {
         ...cohort,
@@ -98,6 +110,10 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
         COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
     ) {
         processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
+    }
+
+    if (processedCriteria.sort_key == null) {
+        processedCriteria.sort_key = generateUUID()
     }
 
     return processedCriteria

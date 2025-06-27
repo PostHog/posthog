@@ -20,7 +20,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { cohortsModel, generateUUID, processCohort } from '~/models/cohortsModel'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
@@ -98,7 +98,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             state,
                             (criteriaList) => [
                                 ...criteriaList.slice(0, criteriaIndex),
-                                criteriaList[criteriaIndex],
+                                {
+                                    ...criteriaList[criteriaIndex],
+                                    sort_key: generateUUID(),
+                                },
                                 ...criteriaList.slice(criteriaIndex),
                             ],
                             groupIndex
@@ -114,7 +117,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     if (groupIndex !== undefined) {
                         return applyAllNestedCriteria(
                             state,
-                            (criteriaList) => [...criteriaList, NEW_CRITERIA],
+                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: generateUUID() }],
                             groupIndex
                         )
                     }
