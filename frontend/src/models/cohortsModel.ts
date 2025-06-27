@@ -5,6 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { generateUUID } from 'lib/utils/generateUUID'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -95,6 +96,10 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
         COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
     ) {
         processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
+    }
+
+    if (processedCriteria.sort_key == null) {
+        processedCriteria.sort_key = generateUUID()
     }
 
     return processedCriteria

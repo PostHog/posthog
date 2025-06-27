@@ -17,8 +17,15 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     StringJSONDatabaseField,
 )
+from .revenue_analytics_base_view import events_expr_for_team
 
 SOURCE_VIEW_SUFFIX = "customer_revenue_view"
+EVENTS_VIEW_SUFFIX = "customer_events_revenue_view"
+
+
+def get_cohort_expr(field: str) -> ast.Expr:
+    return parse_expr(f"formatDateTime(toStartOfMonth({field}), '%Y-%m')")
+
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -43,7 +50,67 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
     # No customer views for events, we only have that for schema sources
     @classmethod
     def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
-        return []
+        if len(team.revenue_analytics_config.events) == 0:
+            return []
+
+        revenue_config = team.revenue_analytics_config
+
+        queries: list[tuple[str, str, ast.SelectQuery]] = []
+        for event in revenue_config.events:
+            prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+
+            events_query = ast.SelectQuery(
+                distinct=True,
+                select=[ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person", "id"]))],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=events_expr_for_team(team),
+            )
+
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="id", expr=ast.Call(name="toString", args=[ast.Field(chain=["id"])])),
+                    ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                    ast.Alias(alias="name", expr=ast.Field(chain=["properties", "name"])),
+                    ast.Alias(alias="email", expr=ast.Field(chain=["properties", "email"])),
+                    ast.Alias(alias="phone", expr=ast.Field(chain=["properties", "phone"])),
+                    ast.Alias(alias="address", expr=ast.Field(chain=["properties", "address"])),
+                    ast.Alias(alias="country", expr=ast.Field(chain=["properties", "$geoip_country_name"])),
+                    ast.Alias(alias="cohort", expr=get_cohort_expr("created_at")),
+                    ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["persons"]),
+                    next_join=ast.JoinExpr(
+                        table=events_query,
+                        alias="events",
+                        join_type="INNER JOIN",
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["persons", "id"]),
+                                right=ast.Field(chain=["events", "person_id"]),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                        ),
+                    ),
+                ),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+            )
+
+            queries.append((event.eventName, prefix, query))
+
+        return [
+            RevenueAnalyticsCustomerView(
+                id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=prefix,
+                query=query.to_hogql(),
+                fields=FIELDS,
+            )
+            for event_name, prefix, query in queries
+        ]
 
     @classmethod
     def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
@@ -108,7 +175,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 (alias for alias in query.select if isinstance(alias, ast.Alias) and alias.alias == "cohort"), None
             )
             if cohort_alias is not None:
-                cohort_alias.expr = ast.Field(chain=["cohort_readable"])
+                cohort_alias.expr = ast.Field(chain=["cohort"])
 
             initial_coupon_alias: ast.Alias | None = next(
                 (alias for alias in query.select if isinstance(alias, ast.Alias) and alias.alias == "initial_coupon"),
@@ -136,8 +203,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     table=ast.SelectQuery(
                         select=[
                             ast.Field(chain=["customer_id"]),
-                            ast.Alias(alias="cohort", expr=parse_expr("toStartOfMonth(min(created_at))")),
-                            ast.Alias(alias="cohort_readable", expr=parse_expr("formatDateTime(cohort, '%Y-%m')")),
+                            ast.Alias(alias="cohort", expr=get_cohort_expr("min(created_at)")),
                             ast.Alias(
                                 alias="initial_coupon",
                                 expr=parse_expr("argMin(JSONExtractString(discount, 'coupon', 'name'), created_at)"),

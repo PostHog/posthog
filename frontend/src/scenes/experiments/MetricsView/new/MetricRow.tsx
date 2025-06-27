@@ -5,6 +5,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
@@ -33,10 +34,23 @@ export function MetricRow({
     chartRadius: number
     error: any
 }): JSX.Element {
-    const { experiment, secondaryMetricsResultsLoading, primaryMetricsResultsLoading, hasMinimumExposureForResults } =
-        useValues(experimentLogic)
+    const {
+        experiment,
+        secondaryMetricsResultsLoading,
+        primaryMetricsResultsLoading,
+        hasMinimumExposureForResults,
+        primaryMetricsLengthWithSharedMetrics,
+        secondaryMetricsLengthWithSharedMetrics,
+    } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
     const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
+
+    // Check if duplicating would exceed the metric limit
+    const currentMetricCount = isSecondary
+        ? secondaryMetricsLengthWithSharedMetrics
+        : primaryMetricsLengthWithSharedMetrics
+    const canDuplicateMetric =
+        currentMetricCount < (isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS)
 
     const variantResults = result?.variant_results || []
 
@@ -63,6 +77,7 @@ export function MetricRow({
                             metric={metric}
                             metricType={metricType}
                             isPrimaryMetric={!isSecondary}
+                            canDuplicateMetric={canDuplicateMetric}
                             onDuplicateMetricClick={() => {
                                 duplicateMetric({ metricIndex, isSecondary })
                                 updateExperimentMetrics()

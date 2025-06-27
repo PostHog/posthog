@@ -64,7 +64,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True)
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
 
     def _parse_output(self, output: str) -> HogTransformationOutput:
         match = re.search(r"<hog_code>(.*?)</hog_code>", output, re.DOTALL)

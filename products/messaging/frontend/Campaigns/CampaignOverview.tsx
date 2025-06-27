@@ -49,7 +49,7 @@ function TriggerSection(): JSX.Element {
                 <p className="mb-1 text-lg font-semibold">Campaign trigger event</p>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
-            <LemonField name="triggerEvents">
+            <LemonField name={['trigger', 'filters']}>
                 {({ value, onChange }) => (
                     <HogFlowFilters
                         filters={value ?? {}}
