@@ -1508,10 +1508,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
 
                 connection_params = _parse_connection_string(connection_string)
-            except Exception as e:
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Invalid connection string: {str(e)}"},
+                    data={"message": f"Invalid connection string"},
                 )
 
             if not connection_params.get("database"):
