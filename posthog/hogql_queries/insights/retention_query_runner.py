@@ -249,6 +249,22 @@ class RetentionQueryRunner(QueryRunner):
                 "filter_timestamp": self.events_timestamp_filter,
             },
         )
+        return_event_timestamps = parse_expr(
+            """
+            arraySort(
+                groupArrayIf(
+                    {start_of_interval_timestamp},
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+            )
+            """,
+            {
+                "start_of_interval_timestamp": start_of_interval_sql,
+                "returning_entity_expr": return_entity_expr,
+                "filter_timestamp": self.events_timestamp_filter,
+            },
+        )
 
         if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             start_event_timestamps = parse_expr(
@@ -315,26 +331,6 @@ class RetentionQueryRunner(QueryRunner):
                 # start events between date_from and date_to (represented by start of interval)
                 # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
                 ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
-                # return events between date_from and date_to (represented by start of interval)
-                ast.Alias(
-                    alias="return_event_timestamps",
-                    expr=parse_expr(
-                        """
-                            arraySort(
-                                groupUniqArrayIf(
-                                    {start_of_interval_timestamp},
-                                    {returning_entity_expr} and
-                                    {filter_timestamp}
-                                )
-                            )
-                        """,
-                        {
-                            "start_of_interval_timestamp": start_of_interval_sql,
-                            "returning_entity_expr": return_entity_expr,
-                            "filter_timestamp": self.events_timestamp_filter,
-                        },
-                    ),
-                ),
                 # get all intervals between date_from and date_to (represented by start of interval)
                 ast.Alias(
                     alias="date_range",
@@ -353,6 +349,35 @@ class RetentionQueryRunner(QueryRunner):
                                 args=[ast.Field(chain=["x"])],
                             ),
                         },
+                    ),
+                ),
+                ast.Alias(
+                    alias="return_event_timestamps_with_dupes",
+                    expr=return_event_timestamps,
+                ),
+                ast.Alias(
+                    alias="return_event_counts_by_interval",
+                    expr=parse_expr(
+                        """
+                        arrayMap(
+                            interval_date -> countEqual(return_event_timestamps_with_dupes, interval_date),
+                            date_range
+                        )
+                        """
+                    ),
+                ),
+                # return events between date_from and date_to (represented by start of interval)
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr(
+                        """
+                            arrayFilter(
+                            (date, counts) -> counts >= {minimum_occurrences},
+                            date_range,
+                            return_event_counts_by_interval,
+                            )
+                        """,
+                        {"minimum_occurrences": ast.Constant(value=self.query.retentionFilter.totalOccurrences or 1)},
                     ),
                 ),
                 # exploded (0 based) indices of matching intervals for start event

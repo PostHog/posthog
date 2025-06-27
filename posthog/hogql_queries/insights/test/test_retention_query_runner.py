@@ -1055,6 +1055,56 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_all_events_with_minimum_occurrences(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "totalOccurrences": 2,
+                },
+            }
+        )
+        self.assertEqual(
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+            pluck(result, "values", "count"),
+        )
+
     def test_all_events_target_first_time(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
 
