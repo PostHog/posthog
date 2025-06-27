@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
-from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature
+from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature, Project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 
@@ -276,4 +276,53 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         self.assertIn(f"target environment {beta_env.id}", str(context.exception))
 
         mock_get_client.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_main_env_to_secondary(self, mock_get_client: MagicMock) -> None:
+        """Test migrating from main environment (team.id == project.id) to secondary environment"""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        project = Project.objects.create(id=100, organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            id=project.id, organization=self.organization, name="Production", project_id=project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
+
+        production_insight = Insight.objects.create(team=production_env, name="Production Insight")
+        production_dashboard = Dashboard.objects.create(team=production_env, name="Production Dashboard")
+        production_feature_flag = FeatureFlag.objects.create(
+            team=production_env, name="Production Flag", key="prod-flag"
+        )
+
+        environments_rollback_migration(
+            organization_id=self.organization.id,
+            environment_mappings={str(production_env.id): staging_env.id},
+            user_id=self.user.id,
+        )
+
+        production_insight.refresh_from_db()
+        production_dashboard.refresh_from_db()
+        production_feature_flag.refresh_from_db()
+
+        self.assertEqual(production_insight.team_id, staging_env.id)
+        self.assertEqual(production_dashboard.team_id, staging_env.id)
+        self.assertEqual(production_feature_flag.team_id, staging_env.id)
+
+        staging_env.refresh_from_db()
+        production_env.refresh_from_db()
+
+        self.assertEqual(staging_env.project_id, staging_env.id)
+        self.assertNotEqual(staging_env.project_id, project.id)
+
+        self.assertEqual(production_env.project_id, project.id)
+
+        staging_project = Project.objects.get(id=staging_env.id)
+        self.assertEqual(staging_project.name, "Main Project - Staging")
+        self.assertEqual(staging_project.organization, self.organization)
+
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
         mock_posthog_client.shutdown.assert_called_once()
