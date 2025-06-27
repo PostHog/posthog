@@ -249,7 +249,7 @@ class RetentionQueryRunner(QueryRunner):
                 "filter_timestamp": self.events_timestamp_filter,
             },
         )
-        return_event_timestamps = parse_expr(
+        return_event_timestamps_with_dupes = parse_expr(
             """
             arraySort(
                 groupArrayIf(
@@ -353,7 +353,7 @@ class RetentionQueryRunner(QueryRunner):
                 ),
                 ast.Alias(
                     alias="return_event_timestamps_with_dupes",
-                    expr=return_event_timestamps,
+                    expr=return_event_timestamps_with_dupes,
                 ),
                 ast.Alias(
                     alias="return_event_counts_by_interval",
@@ -366,7 +366,7 @@ class RetentionQueryRunner(QueryRunner):
                         """
                     ),
                 ),
-                # return events between date_from and date_to (represented by start of interval)
+                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
                 ast.Alias(
                     alias="return_event_timestamps",
                     expr=parse_expr(
