@@ -11,8 +11,8 @@ import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
-    RevenueAnalyticsInsightsQuery,
-    RevenueAnalyticsInsightsQueryResponse,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsGrossRevenueQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
@@ -29,8 +29,8 @@ const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
 }
 
 let uniqueNode = 0
-export function RevenueAnalyticsInsightsNode(props: {
-    query: RevenueAnalyticsInsightsQuery
+export function RevenueAnalyticsGrossRevenueNode(props: {
+    query: RevenueAnalyticsGrossRevenueQuery
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
@@ -38,7 +38,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `RevenueAnalyticsInsights.${uniqueNode++}`)
+    const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -49,7 +49,7 @@ export function RevenueAnalyticsInsightsNode(props: {
     })
 
     const { response, responseLoading, queryId } = useValues(logic)
-    const queryResponse = response as RevenueAnalyticsInsightsQueryResponse | undefined
+    const queryResponse = response as RevenueAnalyticsGrossRevenueQueryResponse | undefined
 
     if (responseLoading) {
         return (
