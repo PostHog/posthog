@@ -192,7 +192,6 @@ def sync_execute(
             # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
             # these disruptions
             settings["use_hedged_requests"] = "0"
-
         start_time = perf_counter()
         try:
             QUERY_STARTED_COUNTER.labels(
@@ -200,7 +199,6 @@ def sync_execute(
                 access_method=tags.access_method or "other",
                 chargeable=str(tags.chargeable or "0"),
             ).inc()
-
             with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
                 result = client.execute(
                     prepared_sql,
@@ -211,7 +209,6 @@ def sync_execute(
                 )
                 if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
                     result = client.last_query.progress.written_rows
-
         except Exception as e:
             exception_type = ch_error_type(e)
             QUERY_ERROR_COUNTER.labels(
