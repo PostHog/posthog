@@ -319,6 +319,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+    [PropertyFilterType.FlagDependency]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -399,6 +400,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
     if (filterType === TaxonomicFilterGroupType.EventFeatureFlags) {
         // Feature flags are just subgroup of event properties
         return PropertyFilterType.Event
+    }
+
+    if (filterType === TaxonomicFilterGroupType.FeatureFlags) {
+        // Feature flags dependencies (flag + value) as a property filter
+        return PropertyFilterType.FlagDependency
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {
