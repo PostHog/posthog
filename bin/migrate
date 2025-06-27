@@ -21,6 +21,7 @@ echo "0" > $CLICKHOUSE_STATUS
 
 # Run ClickHouse migrations in the background but track their status
 (
+    sleep 10 # gives us a chance for the InstanceSetting model to be added
     # Run migrations and capture status
     python manage.py migrate_clickhouse 
     CH_MIGRATE_STATUS=$?
@@ -37,7 +38,7 @@ echo "0" > $CLICKHOUSE_STATUS
         echo "1" > $CLICKHOUSE_STATUS
         exit $SYNC_STATUS
     fi
-) & # ClickHouse migrations can run in parallel to Postgres ones
+) & # ClickHouse migrations can run in parallel to most Postgres ones
 CLICKHOUSE_PID=$!
 
 # Run postgres migrations
