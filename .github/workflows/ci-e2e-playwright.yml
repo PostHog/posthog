@@ -240,7 +240,7 @@ jobs:
             - name: Archive report
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-report
+                  name: playwright-container-report
                   path: playwright/playwright-report/
                   retention-days: 30
               if: ${{ failure() }}
@@ -249,7 +249,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
-                  name: playwright-screenshots
+                  name: playwright-container-screenshots
                   path: playwright/test-results
                   retention-days: 30
 
