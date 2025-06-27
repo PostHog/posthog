@@ -19,29 +19,40 @@ export async function execHog(
     // Ensure we don't have more than one running in parallel
     return await semaphore.run(async () => {
         // Note - the setTimeout here forces the event loop to run fully before the next call. This is important as we never want hog execution to block the event loop
-        await new Promise((r) => setTimeout(r, 0))
-        const now = performance.now()
-        let execResult: ExecResult | undefined
-        let error: any
-        try {
-            execResult = exec(bytecode, {
-                timeout: DEFAULT_TIMEOUT_MS,
-                maxAsyncSteps: 0,
-                ...options,
-                external: {
-                    regex: { match: (regex, str) => new RE2(regex).test(str) },
-                    crypto,
-                    ...options?.external,
-                },
-            })
-        } catch (e) {
-            error = e
-        }
-
-        return {
-            execResult,
-            error,
-            durationMs: performance.now() - now,
-        }
+        // await new Promise((r) => setTimeout(r, 0))
+        return execHogImmediate(bytecode, options)
     })
+}
+
+export function execHogImmediate(
+    bytecode: any,
+    options?: ExecOptions
+): {
+    execResult?: ExecResult
+    error?: any
+    durationMs: number
+} {
+    const now = performance.now()
+    let execResult: ExecResult | undefined
+    let error: any
+    try {
+        execResult = exec(bytecode, {
+            timeout: DEFAULT_TIMEOUT_MS,
+            maxAsyncSteps: 0,
+            ...options,
+            external: {
+                regex: { match: (regex, str) => new RE2(regex).test(str) },
+                crypto,
+                ...options?.external,
+            },
+        })
+    } catch (e) {
+        error = e
+    }
+
+    return {
+        execResult,
+        error,
+        durationMs: performance.now() - now,
+    }
 }
