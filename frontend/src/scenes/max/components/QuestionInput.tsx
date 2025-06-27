@@ -163,13 +163,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {tools.length > 0 && (
                     <div
                         className={clsx(
-                            'flex gap-1 text-xs font-medium cursor-default px-1.5',
+                            'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 *:whitespace-nowrap',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                                 : 'w-full -mb-1 py-0.5'
                         )}
                     >
-                        <span>Tools in context:</span>
+                        <span>Tools here:</span>
                         {tools.map((tool) => (
                             <i key={tool.name} className="flex items-center gap-1">
                                 <IconTools />
