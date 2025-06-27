@@ -183,7 +183,7 @@ jobs:
             - name: Install Python dependencies
               shell: bash
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen
 
             - name: Install the working version of hogql-parser
               if: ${{ steps.hogql-parser-diff.outputs.changed == 'true' }}
