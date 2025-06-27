@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantContextualTool
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -141,54 +141,8 @@ class MaxTool(BaseTool):
         return self.root_system_prompt_template.format(**formatted_context)
 
 
-# Define the exact possible page keys for navigation. Extracted using the following Claude Code prompt, tweaked manually:
-# "
-# List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
-# whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
-# Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
-# Your only output should be a list of those string keys in Python `Literal[..., ..., ...]` syntax.
-# Once done, verify whether indeed each item of the output satisfies the criteria.
-# "
-PageKeyLiterals = Literal[
-    "createAction",
-    "actions",
-    "cohorts",
-    "projectHomepage",
-    "max",
-    "settings",
-    "eventDefinitions",
-    "propertyDefinitions",
-    "database",
-    "activity",
-    "ingestionWarnings",
-    "insights",
-    "insightNew",
-    "savedInsights",
-    "webAnalytics",
-    "webAnalyticsWebVitals",
-    "alerts",
-    "dashboards",
-    "experiments",
-    "featureFlags",
-    "surveys",
-    "surveyTemplates",
-    "replay",
-    "replaySettings",
-    "pipeline",
-    "sqlEditor",
-    "annotations",
-    "heatmaps",
-    "earlyAccessFeatures",
-    "errorTracking",
-    "game368hedgehogs",
-    "notebooks",
-    "persons",
-    "toolbarLaunch",
-]
-
-
 class NavigateToolArgs(BaseModel):
-    page_key: PageKeyLiterals = Field(
+    page_key: AssistantNavigateUrls = Field(
         description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
     )
 
@@ -209,7 +163,7 @@ class NavigateTool(MaxTool):
     thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
 
-    def _run_impl(self, page_key: PageKeyLiterals) -> tuple[str, Any]:
+    def _run_impl(self, page_key: AssistantNavigateUrls) -> tuple[str, Any]:
         # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
         # but it's useful for the LLM to still have the page_key in chat history
         return f"Navigated to **{page_key}**.", {"page_key": page_key}

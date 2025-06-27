@@ -1677,6 +1677,46 @@
                 }
             ]
         },
+        "AssistantNavigateUrls": {
+            "description": "Exact possible `urls` keys for the `navigate` tool.",
+            "enum": [
+                "createAction",
+                "actions",
+                "cohorts",
+                "projectHomepage",
+                "max",
+                "settings",
+                "eventDefinitions",
+                "propertyDefinitions",
+                "database",
+                "activity",
+                "ingestionWarnings",
+                "insights",
+                "insightNew",
+                "savedInsights",
+                "webAnalytics",
+                "webAnalyticsWebVitals",
+                "alerts",
+                "dashboards",
+                "experiments",
+                "featureFlags",
+                "surveys",
+                "surveyTemplates",
+                "replay",
+                "replaySettings",
+                "pipeline",
+                "sqlEditor",
+                "annotations",
+                "heatmaps",
+                "earlyAccessFeatures",
+                "errorTracking",
+                "game368hedgehogs",
+                "notebooks",
+                "persons",
+                "toolbarLaunch"
+            ],
+            "type": "string"
+        },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {

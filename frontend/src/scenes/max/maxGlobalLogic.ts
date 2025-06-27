@@ -9,6 +9,7 @@ import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { LocationChangedPayload } from 'kea-router/lib/types'
+import type { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
@@ -60,7 +61,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         if (!(pageKey in urls)) {
                             throw new Error(`${pageKey} not in urls`)
                         }
-                        const url = urls[pageKey]()
+                        const url = urls[pageKey as AssistantNavigateUrls]()
                         router.actions.push(url)
                         // First wait for navigation to complete
                         await new Promise<void>((resolve, reject) => {
