@@ -262,13 +262,20 @@ export class SegmentDestinationExecutorService {
                                 metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                             )
                         ) {
+                            addLog(
+                                'warn',
+                                'disabling retries because of something',
+                                retriesPossible,
+                                isFetchResponseRetriable(fetchResponse, fetchError),
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
                             retriesPossible = false
                         }
                         addLog(
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${metadata.tries}/${
                                 this.serverConfig.CDP_FETCH_RETRIES
                             }`
                         )

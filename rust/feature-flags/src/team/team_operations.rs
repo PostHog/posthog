@@ -147,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         let team = insert_new_team_in_redis(client.clone())
             .await
@@ -165,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_invalid_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), "banana").await {
             Err(FlagError::TokenValidationError) => (),
@@ -174,13 +174,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "Failed to create redis client")]
     async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
-        let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
-
-        match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::RedisUnavailable) => (),
-            _ => panic!("Expected RedisUnavailable"),
-        };
+        // Test that client creation fails when Redis is unavailable
+        setup_redis_client(Some("redis://localhost:1111/".to_string())).await;
     }
 
     #[tokio::test]
@@ -213,7 +210,7 @@ mod tests {
         .expect("Failed to write data to redis");
 
         // now get client connection for data
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
@@ -224,7 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
         let target_token = "phc_123456789012".to_string();
         // A payload form before December 2025, it's missing `project_id`
         let test_team = Team {
