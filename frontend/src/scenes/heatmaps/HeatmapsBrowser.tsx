@@ -19,7 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
-import { SimpleIframeHeatmapBrowser } from './SimpleIframeHeatmapBrowser'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -314,7 +314,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
                                 ) : (
-                                    <SimpleIframeHeatmapBrowser iframeRef={iframeRef} />
+                                    <IframeHeatmapBrowser iframeRef={iframeRef} />
                                 )}
                             </>
                         ) : (
