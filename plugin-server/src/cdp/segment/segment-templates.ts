@@ -269,8 +269,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof val === 'object' && val['@path']) {
                     val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
-                } else if (typeof defaultVal === 'object' && defaultVal['@template']) {
-                    defaultVal = `'${defaultVal['@template']}'`
+                } else if (typeof val === 'object' && val['@template']) {
+                    val = `'${val['@template']}'`
                 } else if (typeof val === 'string') {
                     val = `'${val}'`
                 }
