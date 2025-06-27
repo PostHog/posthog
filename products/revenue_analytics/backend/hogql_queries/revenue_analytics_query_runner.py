@@ -10,6 +10,7 @@ from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
 )
 from products.revenue_analytics.backend.utils import (
@@ -36,6 +37,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
 

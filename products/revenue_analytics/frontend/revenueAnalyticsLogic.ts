@@ -9,7 +9,7 @@ import {
     DataTableNode,
     NodeKind,
     QuerySchema,
-    RevenueAnalyticsGrossRevenueQueryGroupBy,
+    RevenueAnalyticsGroupBy,
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
@@ -21,6 +21,7 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
+    REVENUE,
     GROSS_REVENUE,
     REVENUE_GROWTH_RATE,
     TOP_CUSTOMERS,
@@ -96,7 +97,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
-        setGroupBy: (groupBy: RevenueAnalyticsGrossRevenueQueryGroupBy[]) => ({ groupBy }),
+        setGroupBy: (groupBy: RevenueAnalyticsGroupBy[]) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -116,7 +117,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
         ],
         groupBy: [
-            [] as RevenueAnalyticsGrossRevenueQueryGroupBy[],
+            [] as RevenueAnalyticsGroupBy[],
             persistConfig,
             {
                 setGroupBy: (_, { groupBy }) => groupBy,
@@ -227,6 +228,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     [RevenueAnalyticsQuery.OVERVIEW]: {
                         kind: NodeKind.RevenueAnalyticsOverviewQuery,
                         properties: revenueAnalyticsFilter,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.REVENUE]: {
+                        kind: NodeKind.RevenueAnalyticsRevenueQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
                         dateRange,
                     },
                     [RevenueAnalyticsQuery.GROSS_REVENUE]: {
