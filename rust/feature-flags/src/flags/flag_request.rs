@@ -319,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn token_is_returned_correctly() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -351,8 +351,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_reader_client = setup_redis_client(None);
-        let redis_writer_client = setup_redis_client(None);
+        let redis_reader_client = setup_redis_client(None).await;
+        let redis_writer_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
