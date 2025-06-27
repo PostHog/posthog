@@ -20,6 +20,20 @@ import {
     MaxInsightContext,
 } from './maxTypes'
 
+// Type definitions for better reusability
+export type TaxonomicItem = DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
+
+export type DashboardItemInfo = { id: number; preloaded: DashboardType<QueryBasedInsightModel> | null }
+export type InsightItemInfo = { id: InsightShortId; preloaded: QueryBasedInsightModel | null }
+
+type EntityWithId = { id: string | number }
+
+type EntityReducerConfig<TContext extends EntityWithId, TInput> = {
+    addOrUpdate: (state: TContext[], input: TInput) => TContext[]
+    remove: (state: TContext[], { id }: { id: string | number }) => TContext[]
+    reset: () => TContext[]
+}
+
 // Utility functions for transforming data to max context
 const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
     const source = (insight.query as any)?.source
@@ -77,14 +91,10 @@ const createResetReducer =
         []
 
 // Generic reducer creator
-const createEntityReducers = <TContext extends { id: string | number }, TInput>(
+const createEntityReducers = <TContext extends EntityWithId, TInput>(
     transformer: (input: TInput) => TContext,
     getId: (input: TInput) => string | number
-): {
-    addOrUpdate: (state: TContext[], input: TInput) => TContext[]
-    remove: (state: TContext[], { id }: { id: string | number }) => TContext[]
-    reset: () => TContext[]
-} => ({
+): EntityReducerConfig<TContext, TInput> => ({
     addOrUpdate: createAddOrUpdateReducer(transformer, getId),
     remove: createRemoveReducer<TContext>(),
     reset: createResetReducer<TContext>(),
@@ -114,11 +124,13 @@ export const maxContextLogic = kea<maxContextLogicType>([
         clearActiveInsights: true,
         setActiveDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         clearActiveDashboard: true,
+        loadAndProcessDashboard: (data: DashboardItemInfo) => ({ data }),
+        loadAndProcessInsight: (data: InsightItemInfo) => ({ data }),
         setSelectedContextOption: (value: string) => ({ value }),
         handleTaxonomicFilterChange: (
             value: string | number,
             groupType: TaxonomicFilterGroupType,
-            item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
+            item: TaxonomicItem
         ) => ({ value, groupType, item }),
         resetContext: true,
     }),
@@ -251,18 +263,73 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 shouldResetContext()
             }
         },
-        handleTaxonomicFilterChange: async (
-            {
-                value,
-                groupType,
-                item,
-            }: {
-                value: string | number
-                groupType: TaxonomicFilterGroupType
-                item: DashboardType | QueryBasedInsightModel | EventDefinition | ActionType | MaxContextOption
-            },
-            breakpoint
-        ) => {
+        setActiveDashboard: async ({ data }: { data: DashboardType<QueryBasedInsightModel> }) => {
+            actions.loadAndProcessDashboard({ id: data.id, preloaded: data })
+        },
+        loadAndProcessDashboard: async ({ data }: { data: DashboardItemInfo }, breakpoint) => {
+            let dashboard = data.preloaded
+
+            if (!dashboard || !dashboard.tiles) {
+                const dashboardLogicInstance = dashboardLogic.build({ id: data.id })
+                dashboardLogicInstance.mount()
+
+                try {
+                    dashboardLogicInstance.actions.loadDashboard({ action: 'initial_load' })
+
+                    await breakpoint(50)
+                    while (!dashboardLogicInstance.values.dashboard) {
+                        await breakpoint(50)
+                    }
+
+                    dashboard = dashboardLogicInstance.values.dashboard
+
+                    // Wait for dashboard items to refresh for cached insights
+                    while (
+                        Object.values(dashboardLogicInstance.values.refreshStatus).some(
+                            (status: RefreshStatus) => status.loading
+                        )
+                    ) {
+                        await breakpoint(50)
+                    }
+                } finally {
+                    dashboardLogicInstance.unmount()
+                }
+            }
+
+            actions.addOrUpdateContextDashboard(dashboard)
+        },
+        loadAndProcessInsight: async ({ data }: { data: InsightItemInfo }, breakpoint) => {
+            let insight = data.preloaded
+
+            if (!insight || !insight.query) {
+                const insightLogicInstance = insightLogic.build({ dashboardItemId: undefined })
+                insightLogicInstance.mount()
+
+                try {
+                    insightLogicInstance.actions.loadInsight(data.id)
+
+                    await breakpoint(50)
+                    while (!insightLogicInstance.values.insight.query) {
+                        await breakpoint(50)
+                    }
+
+                    insight = insightLogicInstance.values.insight as QueryBasedInsightModel
+                } finally {
+                    insightLogicInstance.unmount()
+                }
+            }
+
+            actions.addOrUpdateContextInsight(insight)
+        },
+        handleTaxonomicFilterChange: async ({
+            value,
+            groupType,
+            item,
+        }: {
+            value: string | number
+            groupType: TaxonomicFilterGroupType
+            item: TaxonomicItem
+        }) => {
             try {
                 // Handle current page context selection
                 if (groupType === TaxonomicFilterGroupType.MaxAIContext && value === 'current_page') {
@@ -329,61 +396,18 @@ export const maxContextLogic = kea<maxContextLogicType>([
 
                 // Handle dashboard selection
                 if (itemInfo.type === 'dashboard') {
-                    let dashboard = itemInfo.preloaded as DashboardType<QueryBasedInsightModel> | null
-
-                    if (!dashboard || !dashboard.tiles) {
-                        const dashboardLogicInstance = dashboardLogic.build({ id: itemInfo.id as number })
-                        dashboardLogicInstance.mount()
-
-                        try {
-                            dashboardLogicInstance.actions.loadDashboard({ action: 'initial_load' })
-
-                            await breakpoint(50)
-                            while (!dashboardLogicInstance.values.dashboard) {
-                                await breakpoint(50)
-                            }
-
-                            dashboard = dashboardLogicInstance.values.dashboard
-
-                            // Wait for dashboard items to refresh for cached insights
-                            while (
-                                Object.values(dashboardLogicInstance.values.refreshStatus).some(
-                                    (status: RefreshStatus) => status.loading
-                                )
-                            ) {
-                                await breakpoint(50)
-                            }
-                        } finally {
-                            dashboardLogicInstance.unmount()
-                        }
-                    }
-
-                    actions.addOrUpdateContextDashboard(dashboard)
+                    actions.loadAndProcessDashboard({
+                        id: itemInfo.id as number,
+                        preloaded: itemInfo.preloaded as DashboardType<QueryBasedInsightModel> | null,
+                    })
                 }
 
                 // Handle insight selection
                 if (itemInfo.type === 'insight') {
-                    let insight = itemInfo.preloaded as QueryBasedInsightModel | null
-
-                    if (!insight || !insight.query) {
-                        const insightLogicInstance = insightLogic.build({ dashboardItemId: undefined })
-                        insightLogicInstance.mount()
-
-                        try {
-                            insightLogicInstance.actions.loadInsight(itemInfo.id as InsightShortId)
-
-                            await breakpoint(50)
-                            while (!insightLogicInstance.values.insight.query) {
-                                await breakpoint(50)
-                            }
-
-                            insight = insightLogicInstance.values.insight as QueryBasedInsightModel
-                        } finally {
-                            insightLogicInstance.unmount()
-                        }
-                    }
-
-                    actions.addOrUpdateContextInsight(insight)
+                    actions.loadAndProcessInsight({
+                        id: itemInfo.id as InsightShortId,
+                        preloaded: itemInfo.preloaded as QueryBasedInsightModel | null,
+                    })
                 }
             } catch (error) {
                 console.error('Error handling taxonomic filter change:', error)
@@ -392,7 +416,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
     })),
     selectors({
         contextOptions: [
-            (s: any) => [s.activeInsights, s.activeDashboard, s.contextInsights, s.contextDashboards],
+            (s: any) => [s.activeInsights, s.activeDashboard],
             (activeInsights: MaxInsightContext[], activeDashboard: MaxDashboardContext | null): MaxContextOption[] => {
                 const options: MaxContextOption[] = []
 
@@ -422,17 +446,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 }
 
                 // Add individual insights from context
-                if (activeInsights.length > 0) {
-                    activeInsights.forEach((insight) => {
-                        options.push({
-                            id: insight.id.toString(),
-                            name: insight.name || `Insight ${insight.id}`,
-                            value: insight.id,
-                            type: 'insight',
-                            icon: IconGraph,
-                        })
+                activeInsights.forEach((insight) => {
+                    options.push({
+                        id: insight.id.toString(),
+                        name: insight.name || `Insight ${insight.id}`,
+                        value: insight.id,
+                        type: 'insight',
+                        icon: IconGraph,
                     })
-                }
+                })
 
                 return options
             },
@@ -574,14 +596,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 activeInsights: MaxInsightContext[],
                 activeDashboard: MaxDashboardContext | null
             ): boolean => {
-                return (
-                    contextInsights.length > 0 ||
-                    contextDashboards.length > 0 ||
-                    contextEvents.length > 0 ||
-                    contextActions.length > 0 ||
-                    (useCurrentPageContext && activeInsights && activeInsights.length > 0) ||
-                    (useCurrentPageContext && activeDashboard !== null)
+                const hasContextData = [contextInsights, contextDashboards, contextEvents, contextActions].some(
+                    (arr) => arr.length > 0
                 )
+
+                const hasActiveData =
+                    useCurrentPageContext && ((activeInsights && activeInsights.length > 0) || activeDashboard !== null)
+
+                return hasContextData || hasActiveData
             },
         ],
     }),
