@@ -24,9 +24,9 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
-    SESSION_SUMMARY = "session_summary"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
 
 
