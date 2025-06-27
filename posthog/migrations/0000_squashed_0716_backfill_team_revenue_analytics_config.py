@@ -952,28 +952,8 @@ class Migration(migrations.Migration):
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("password", models.CharField(max_length=128, verbose_name="password")),
                 ("last_login", models.DateTimeField(blank=True, null=True, verbose_name="last login")),
-                (
-                    "is_superuser",
-                    models.BooleanField(
-                        default=False,
-                        help_text="Designates that this user has all permissions without explicitly assigning them.",
-                        verbose_name="superuser status",
-                    ),
-                ),
-                (
-                    "username",
-                    models.CharField(
-                        error_messages={"unique": "A user with that username already exists."},
-                        help_text="Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
-                        max_length=150,
-                        unique=True,
-                        validators=[django.contrib.auth.validators.UnicodeUsernameValidator()],
-                        verbose_name="username",
-                    ),
-                ),
-                ("first_name", models.CharField(blank=True, max_length=30, verbose_name="first name")),
+                ("first_name", models.CharField(blank=True, max_length=150, verbose_name="first name")),
                 ("last_name", models.CharField(blank=True, max_length=150, verbose_name="last name")),
-                ("email", models.EmailField(blank=True, max_length=254, verbose_name="email address")),
                 (
                     "is_staff",
                     models.BooleanField(
@@ -986,33 +966,13 @@ class Migration(migrations.Migration):
                     "is_active",
                     models.BooleanField(
                         default=True,
-                        help_text="Designates whether this user should be treated as active. Unselect this instead of deleting accounts.",
+                        help_text="Unselect this to temporarily disable an account.",
                         verbose_name="active",
                     ),
                 ),
                 ("date_joined", models.DateTimeField(default=django.utils.timezone.now, verbose_name="date joined")),
-                (
-                    "groups",
-                    models.ManyToManyField(
-                        blank=True,
-                        help_text="The groups this user belongs to. A user will get all permissions granted to each of their groups.",
-                        related_name="user_set",
-                        related_query_name="user",
-                        to="auth.group",
-                        verbose_name="groups",
-                    ),
-                ),
-                (
-                    "user_permissions",
-                    models.ManyToManyField(
-                        blank=True,
-                        help_text="Specific permissions for this user.",
-                        related_name="user_set",
-                        related_query_name="user",
-                        to="auth.permission",
-                        verbose_name="user permissions",
-                    ),
-                ),
+                ("uuid", models.UUIDField(default=posthog.models.utils.UUIDT, editable=False)),
+                ("email", models.EmailField(max_length=254, verbose_name="email address")),
             ],
             options={
                 "verbose_name": "user",
@@ -1022,6 +982,16 @@ class Migration(migrations.Migration):
             managers=[
                 ("objects", django.contrib.auth.models.UserManager()),
             ],
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="uuid",
+            field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.EmailField(max_length=254, unique=True, verbose_name="email address"),
         ),
         migrations.CreateModel(
             name="Team",
@@ -1284,20 +1254,6 @@ class Migration(migrations.Migration):
                 ("objects", posthog.models.user.UserManager()),
             ],
         ),
-        migrations.RemoveField(
-            model_name="user",
-            name="username",
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="email",
-            field=models.EmailField(max_length=254, unique=True, verbose_name="email address"),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="temporary_token",
-            field=models.CharField(blank=True, max_length=200, null=True),
-        ),
         migrations.AddField(
             model_name="funnel",
             name="deleted",
@@ -1306,11 +1262,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="name",
-            field=models.CharField(blank=True, max_length=200, null=True),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="distinct_id",
             field=models.CharField(blank=True, max_length=200, null=True),
         ),
         migrations.AddField(
@@ -1401,11 +1352,6 @@ class Migration(migrations.Migration):
             reverse_sql="SELECT 1;",
         ),
         migrations.AddField(
-            model_name="user",
-            name="email_opt_in",
-            field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
             model_name="team",
             name="slack_incoming_webhook",
             field=models.CharField(blank=True, max_length=200, null=True),
@@ -1428,11 +1374,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="event_properties",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="email_opt_in",
-            field=models.BooleanField(blank=True, default=False, null=True),
         ),
         migrations.RemoveIndex(
             model_name="event",
@@ -1608,11 +1549,6 @@ class Migration(migrations.Migration):
             model_name="cohortpeople",
             index=models.Index(fields=["cohort_id", "person_id"], name="posthog_coh_cohort__89c25f_idx"),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="anonymize_data",
-            field=models.BooleanField(blank=True, default=False, null=True),
-        ),
         migrations.AlterField(
             model_name="element",
             name="href",
@@ -1652,11 +1588,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="completed_snippet_onboarding",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="toolbar_mode",
-            field=models.CharField(blank=True, default="default", max_length=200, null=True),
         ),
         migrations.AddIndex(
             model_name="action",
@@ -1714,32 +1645,10 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        migrations.AlterField(
-            model_name="user",
-            name="toolbar_mode",
-            field=models.CharField(
-                blank=True,
-                choices=[("default", "default"), ("toolbar", "toolbar")],
-                default="default",
-                max_length=200,
-                null=True,
-            ),
-        ),
         migrations.AddField(
             model_name="team",
             name="event_properties_numerical",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="toolbar_mode",
-            field=models.CharField(
-                blank=True,
-                choices=[("default", "default"), ("toolbar", "toolbar")],
-                default="toolbar",
-                max_length=200,
-                null=True,
-            ),
         ),
         migrations.CreateModel(
             name="PersonalAPIKey",
@@ -1873,6 +1782,140 @@ class Migration(migrations.Migration):
                 name="single_for_internal_metrics",
             ),
         ),
+        migrations.AddField(
+            model_name="user", name="temporary_token", field=models.CharField(blank=True, max_length=200, null=True)
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="temporary_token",
+            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
+        ),
+        migrations.AddField(
+            model_name="user", name="distinct_id", field=models.CharField(blank=True, max_length=200, null=True)
+        ),
+        migrations.AlterField(
+            model_name="user",
+            name="distinct_id",
+            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
+        ),
+        migrations.AddField(
+            model_name="user", name="email_opt_in", field=models.BooleanField(blank=True, default=False, null=True)
+        ),
+        migrations.AddField(
+            model_name="user", name="partial_notification_settings", field=models.JSONField(blank=True, null=True)
+        ),
+        migrations.AddField(
+            model_name="user", name="anonymize_data", field=models.BooleanField(blank=True, default=False, null=True)
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="toolbar_mode",
+            field=models.CharField(
+                blank=True,
+                choices=[("disabled", "disabled"), ("toolbar", "toolbar")],
+                default="toolbar",
+                max_length=200,
+                null=True,
+            ),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="events_column_config",
+            field=models.JSONField(default=posthog.models.user.events_column_config_default),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="current_organization",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="users_currently+",
+                to="posthog.organization",
+            ),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="current_team",
+            field=models.ForeignKey(
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="teams_currently+",
+                to="posthog.team",
+            ),
+        ),
+        migrations.AddField(
+            model_name="user", name="is_email_verified", field=models.BooleanField(blank=True, null=True)
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="pending_email",
+            field=models.EmailField(
+                blank=True, max_length=254, null=True, verbose_name="pending email address awaiting verification"
+            ),
+        ),
+        migrations.AddField(
+            model_name="user", name="requested_password_reset_at", field=models.DateTimeField(blank=True, null=True)
+        ),
+        migrations.AddField(
+            model_name="user", name="has_seen_product_intro_for", field=models.JSONField(blank=True, null=True)
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="theme_mode",
+            field=models.CharField(
+                blank=True,
+                choices=[("light", "Light"), ("dark", "Dark"), ("system", "System")],
+                max_length=20,
+                null=True,
+            ),
+        ),
+        migrations.AddField(
+            model_name="user", name="strapi_id", field=models.PositiveSmallIntegerField(blank=True, null=True)
+        ),
+        migrations.AddField(model_name="user", name="hedgehog_config", field=models.JSONField(blank=True, null=True)),
+        migrations.AddField(
+            model_name="user",
+            name="role_at_organization",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("engineering", "Engineering"),
+                    ("data", "Data"),
+                    ("product", "Product Management"),
+                    ("founder", "Founder"),
+                    ("leadership", "Leadership"),
+                    ("marketing", "Marketing"),
+                    ("sales", "Sales / Success"),
+                    ("other", "Other"),
+                ],
+                max_length=64,
+                null=True,
+            ),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="groups",
+            field=models.ManyToManyField(
+                blank=True,
+                help_text="The groups this user belongs to. A user will get all permissions granted to each of their groups.",
+                related_name="user_set",
+                related_query_name="user",
+                to="auth.group",
+                verbose_name="groups",
+            ),
+        ),
+        migrations.AddField(
+            model_name="user",
+            name="user_permissions",
+            field=models.ManyToManyField(
+                blank=True,
+                help_text="Specific permissions for this user.",
+                related_name="user_set",
+                related_query_name="user",
+                to="auth.permission",
+                verbose_name="user permissions",
+            ),
+        ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
@@ -1898,16 +1941,6 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="is_ai_data_processing_approved",
             field=models.BooleanField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="current_team",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="teams_currently+",
-                to="posthog.team",
-            ),
         ),
         migrations.AlterField(
             model_name="personalapikey",
@@ -1965,16 +1998,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="uuid",
             field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="distinct_id",
-            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="temporary_token",
-            field=models.CharField(blank=True, max_length=200, null=True, unique=True),
         ),
         migrations.CreateModel(
             name="OrganizationMembership",
@@ -2088,16 +2111,6 @@ class Migration(migrations.Migration):
                 to="posthog.organization",
             ),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="current_organization",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="users_currently+",
-                to="posthog.organization",
-            ),
-        ),
         migrations.AddConstraint(
             model_name="organizationmembership",
             constraint=models.UniqueConstraint(
@@ -2108,17 +2121,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="session_recording_opt_in",
             field=models.BooleanField(default=False),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="toolbar_mode",
-            field=models.CharField(
-                blank=True,
-                choices=[("disabled", "disabled"), ("toolbar", "toolbar")],
-                default="toolbar",
-                max_length=200,
-                null=True,
-            ),
         ),
         migrations.AlterField(
             model_name="personalapikey",
@@ -2168,18 +2170,15 @@ class Migration(migrations.Migration):
                 "unique_together": {("email_hash", "campaign_key")},
             },
         ),
-        migrations.RemoveField(
-            model_name="user",
-            name="is_superuser",
-        ),
         migrations.CreateModel(
             name="SessionRecordingEvent",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("timestamp", models.DateTimeField(blank=True, default=django.utils.timezone.now)),
-                ("session_id", models.CharField(max_length=200)),
                 ("distinct_id", models.CharField(max_length=200)),
+                ("session_id", models.CharField(max_length=200)),
+                ("window_id", models.CharField(blank=True, max_length=200, null=True)),
                 ("snapshot_data", django.contrib.postgres.fields.jsonb.JSONField(default=dict)),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
@@ -3541,16 +3540,6 @@ class Migration(migrations.Migration):
                 max_length=240,
             ),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="uuid",
-            field=models.UUIDField(blank=True, null=True),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="uuid",
-            field=models.UUIDField(default=posthog.models.utils.UUIDT, editable=False, unique=True),
-        ),
         migrations.AlterField(
             model_name="element",
             name="attributes",
@@ -3625,11 +3614,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="test_account_filters",
             field=models.JSONField(default=list),
-        ),
-        migrations.AlterField(
-            model_name="user",
-            name="first_name",
-            field=models.CharField(blank=True, max_length=150, verbose_name="first name"),
         ),
         migrations.CreateModel(
             name="PropertyDefinition",
@@ -3776,11 +3760,6 @@ class Migration(migrations.Migration):
             name="text",
             field=models.CharField(blank=True, max_length=10000, null=True),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="events_column_config",
-            field=models.JSONField(default=posthog.models.user.events_column_config_default),
-        ),
         migrations.AlterField(
             model_name="personalapikey",
             name="value",
@@ -3890,11 +3869,6 @@ class Migration(migrations.Migration):
             model_name="team",
             name="correlation_config",
             field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AddField(
-            model_name="sessionrecordingevent",
-            name="window_id",
-            field=models.CharField(blank=True, max_length=200, null=True),
         ),
         migrations.CreateModel(
             name="Group",
@@ -4768,11 +4742,6 @@ class Migration(migrations.Migration):
             name="inject_web_apps",
             field=models.BooleanField(null=True),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="partial_notification_settings",
-            field=models.JSONField(blank=True, null=True),
-        ),
         migrations.CreateModel(
             name="Text",
             fields=[
@@ -4893,6 +4862,7 @@ class Migration(migrations.Migration):
                 ("filters", models.JSONField(default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                ("is_static", models.BooleanField(default=False)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -4914,11 +4884,6 @@ class Migration(migrations.Migration):
             options={
                 "unique_together": {("team", "short_id")},
             },
-        ),
-        migrations.AddField(
-            model_name="sessionrecordingplaylist",
-            name="is_static",
-            field=models.BooleanField(default=False),
         ),
         migrations.CreateModel(
             name="SessionRecordingPlaylistItem",
@@ -5417,18 +5382,6 @@ class Migration(migrations.Migration):
             reverse_sql="DROP FUNCTION is_override_person_not_used_as_old_person",
         ),
         migrations.AddField(
-            model_name="user",
-            name="is_email_verified",
-            field=models.BooleanField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="pending_email",
-            field=models.EmailField(
-                blank=True, max_length=254, null=True, verbose_name="pending email address awaiting verification"
-            ),
-        ),
-        migrations.AddField(
             model_name="team",
             name="session_recording_version",
             field=models.CharField(blank=True, max_length=24, null=True),
@@ -5872,11 +5825,6 @@ class Migration(migrations.Migration):
                 max_length=40,
             ),
         ),
-        migrations.AddField(
-            model_name="user",
-            name="requested_password_reset_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
         migrations.CreateModel(
             name="Survey",
             fields=[
@@ -5997,11 +5945,6 @@ class Migration(migrations.Migration):
                 help_text="A choice of supported BatchExportDestination types.",
                 max_length=64,
             ),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="has_seen_product_intro_for",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="dashboardtemplate",
@@ -7263,13 +7206,6 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, max_length=100, null=True),
         ),
         migrations.AddField(
-            model_name="user",
-            name="theme_mode",
-            field=models.CharField(
-                blank=True, choices=[("light", "Light"), ("dark", "Dark")], max_length=20, null=True
-            ),
-        ),
-        migrations.AddField(
             model_name="externaldatajob",
             name="workflow_id",
             field=models.CharField(blank=True, max_length=400, null=True),
@@ -7399,16 +7335,6 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AlterField(
-            model_name="user",
-            name="theme_mode",
-            field=models.CharField(
-                blank=True,
-                choices=[("light", "Light"), ("dark", "Dark"), ("system", "System")],
-                max_length=20,
-                null=True,
-            ),
-        ),
-        migrations.AlterField(
             model_name="scheduledchange",
             name="record_id",
             field=models.CharField(max_length=200),
@@ -7461,11 +7387,6 @@ class Migration(migrations.Migration):
             model_name="externaldatasource",
             name="source_type",
             field=models.CharField(choices=[("Stripe", "Stripe"), ("Hubspot", "Hubspot")], max_length=128),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="strapi_id",
-            field=models.PositiveSmallIntegerField(blank=True, null=True),
         ),
         migrations.AlterField(
             model_name="externaldataschema",
@@ -7868,11 +7789,6 @@ class Migration(migrations.Migration):
             options={
                 "abstract": False,
             },
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="hedgehog_config",
-            field=models.JSONField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="personalapikey",
@@ -9105,13 +9021,6 @@ class Migration(migrations.Migration):
             field=models.JSONField(blank=True, null=True),
         ),
         migrations.AlterField(
-            model_name="user",
-            name="is_active",
-            field=models.BooleanField(
-                default=True, help_text="Unselect this to temporarily disable an account.", verbose_name="active"
-            ),
-        ),
-        migrations.AlterField(
             model_name="integration",
             name="kind",
             field=models.CharField(
@@ -10021,25 +9930,6 @@ class Migration(migrations.Migration):
             model_name="experiment",
             name="stats_config",
             field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AddField(
-            model_name="user",
-            name="role_at_organization",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("engineering", "Engineering"),
-                    ("data", "Data"),
-                    ("product", "Product Management"),
-                    ("founder", "Founder"),
-                    ("leadership", "Leadership"),
-                    ("marketing", "Marketing"),
-                    ("sales", "Sales / Success"),
-                    ("other", "Other"),
-                ],
-                max_length=64,
-                null=True,
-            ),
         ),
         migrations.AddField(
             model_name="team",
