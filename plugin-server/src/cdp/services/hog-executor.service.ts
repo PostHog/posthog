@@ -28,7 +28,6 @@ import { LiquidRenderer } from '../utils/liquid'
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
-
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -274,7 +273,6 @@ export class HogExecutorService {
 
                 await Promise.all(
                     hogFunction.mappings.map(async (mapping) => {
-                        // For mappings we want to match against both the mapping filters and the global filters
                         if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
                             return
                         }
