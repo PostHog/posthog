@@ -1,17 +1,10 @@
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { uuid } from 'lib/utils'
+import { useCallback, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import {
-    DataTableNode,
-    MarketingAnalyticsTableQuery,
-    NodeKind,
-    ConversionGoalFilter,
-} from '~/queries/schema/schema-general'
+import { DataTableNode, MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -21,8 +14,8 @@ interface ColumnConfig {
     align?: 'left' | 'center' | 'right'
 }
 
-import { webAnalyticsDataTableQueryContext } from '../../../../tiles/WebAnalyticsTile'
-import { marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
+import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
     CAMPAIGN_COST_CTE_NAME,
     CAMPAIGN_NAME_FIELD,
@@ -32,9 +25,8 @@ import {
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
-} from '../logic/utils'
-import { ConversionGoalDropdown } from './common/ConversionGoalDropdown'
-import { defaultConversionGoalFilter } from '../components/settings/constants'
+} from '../../logic/utils'
+import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -44,15 +36,8 @@ interface MarketingAnalyticsTableProps {
 // TODO: refactor this component to support column actions (`...` button) to be more explicit on the different actions
 // Also we need to centralize the column names and orderBy fields whether in the backend or frontend
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
-    const {
-        setMarketingAnalyticsOrderBy,
-        clearMarketingAnalyticsOrderBy,
-        setDynamicConversionGoal,
-        clearDynamicConversionGoal,
-    } = useActions(marketingAnalyticsLogic)
+    const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy } = useActions(marketingAnalyticsLogic)
     const { marketingAnalyticsOrderBy, conversion_goals, dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
-
-    const [localConversionGoal, setLocalConversionGoal] = useState<ConversionGoalFilter | null>(null)
 
     // Create a new query object with the orderBy field when sorting state changes
     const queryWithOrderBy = useMemo(() => {
@@ -81,29 +66,6 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         }
         return goals
     }, [conversion_goals, dynamicConversionGoal])
-
-    // Dynamic conversion goal handlers
-    const handleConversionGoalChange = useCallback((filter: ConversionGoalFilter): void => {
-        const newGoal: ConversionGoalFilter = {
-            ...filter,
-            conversion_goal_id: filter.conversion_goal_id || uuid(),
-            conversion_goal_name: 'Dynamic Goal',
-        }
-        setLocalConversionGoal(newGoal)
-    }, [])
-
-    const handleApplyConversionGoal = useCallback((): void => {
-        setDynamicConversionGoal(localConversionGoal)
-    }, [localConversionGoal])
-
-    const handleClearConversionGoal = useCallback((): void => {
-        setLocalConversionGoal(null)
-        clearDynamicConversionGoal()
-    }, [])
-
-    // Check if there are changes to apply
-    const hasChanges = JSON.stringify(localConversionGoal) !== JSON.stringify(dynamicConversionGoal)
-    const hasActiveGoal = !!dynamicConversionGoal
 
     const MarketingSortableCell = useCallback(
         (name: string, orderByField: string): QueryContextColumnTitleComponent =>
@@ -230,41 +192,9 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
     return (
         <div className="bg-surface-primary">
-            {/* Dynamic Conversion Goal Controls - moved from MarketingAnalyticsFilters */}
+            {/* Dynamic Conversion Goal Controls */}
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex flex-col gap-4">
-                    <h3 className="text-sm font-medium">Dynamic Conversion Goal</h3>
-                    <ConversionGoalDropdown
-                        value={localConversionGoal || defaultConversionGoalFilter}
-                        onChange={handleConversionGoalChange}
-                        typeKey="dynamic-conversion-goal"
-                    />
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={handleApplyConversionGoal}
-                            disabledReason={!localConversionGoal || !hasChanges ? 'No changes to apply' : undefined}
-                        >
-                            Apply
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={handleClearConversionGoal}
-                            disabledReason={
-                                !hasActiveGoal && !localConversionGoal ? 'No active goal to clear' : undefined
-                            }
-                        >
-                            Clear
-                        </LemonButton>
-                        {hasActiveGoal && (
-                            <span className="text-xs text-muted self-center">
-                                Active: {dynamicConversionGoal.conversion_goal_name}
-                            </span>
-                        )}
-                    </div>
-                </div>
+                <DynamicConversionGoalControls />
             </div>
             <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />
         </div>

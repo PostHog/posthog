@@ -2433,7 +2433,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts, s.dynamicConversionGoal],
+            (s) => [
+                s.loading,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+                s.dynamicConversionGoal,
+            ],
             (
                 loading: boolean,
                 dateFilter: any,
@@ -2441,7 +2447,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts: boolean,
                 dynamicConversionGoal: ConversionGoalFilter | null
             ): DataTableNode | null => {
-                console.log('JFBW dynamicConversionGoal', dynamicConversionGoal)
                 if (loading) {
                     return null
                 }
