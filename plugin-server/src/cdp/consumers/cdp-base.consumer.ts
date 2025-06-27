@@ -67,16 +67,6 @@ export abstract class CdpConsumerBase {
         return res
     }
 
-    protected async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
-        const results = []
-
-        for (const item of items) {
-            results.push(await this.runWithHeartbeat(() => func(item)))
-        }
-        return results
-    }
-
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([

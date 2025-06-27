@@ -38,8 +38,13 @@ def reload_hog_functions_on_workers(team_id: int, hog_function_ids: list[str]):
     publish_message("reload-hog-functions", {"teamId": team_id, "hogFunctionIds": hog_function_ids})
 
 
+def reload_hog_flows_on_workers(team_id: int, hog_flow_ids: list[str]):
+    logger.info(f"Reloading hog flows {hog_flow_ids} on workers")
+    publish_message("reload-hog-flows", {"teamId": team_id, "hogFlowIds": hog_flow_ids})
+
+
 def reload_all_hog_functions_on_workers():
-    logger.info(f"Reloading all hog functionson workers")
+    logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})
 
 
@@ -57,6 +62,14 @@ def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
     return requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
+        json=payload,
+    )
+
+
+def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    logger.info(f"Creating hog flow invocation test for hog flow {hog_flow_id} on workers")
+    return requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations",
         json=payload,
     )
 

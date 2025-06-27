@@ -20,10 +20,14 @@ class AccessMethod(StrEnum):
 
 
 class Product(StrEnum):
-    BATCH_EXPORT = "batch_export"
-    PRODUCT_ANALYTICS = "product_analytics"
-    FEATURE_FLAGS = "feature_flags"
     API = "api"
+    BATCH_EXPORT = "batch_export"
+    FEATURE_FLAGS = "feature_flags"
+    MAX_AI = "max_ai"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REPLAY = "replay"
+    SESSION_SUMMARY = "session_summary"
+    WAREHOUSE = "warehouse"
 
 
 class Feature(StrEnum):

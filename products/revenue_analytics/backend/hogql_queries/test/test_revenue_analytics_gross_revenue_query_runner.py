@@ -4,16 +4,16 @@ from decimal import Decimal
 from unittest.mock import ANY
 
 from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_insights_query_runner import (
-    RevenueAnalyticsInsightsQueryRunner,
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
+    RevenueAnalyticsGrossRevenueQueryRunner,
 )
 from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueAnalyticsInsightsQuery,
-    RevenueAnalyticsInsightsQueryResponse,
-    RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsGroupBy,
     IntervalType,
     HogQLQueryModifiers,
     RevenueAnalyticsPropertyFilter,
@@ -44,13 +44,49 @@ INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_q
 PRODUCTS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products"
 CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
 
-LAST_6_MONTHS_LABELS = ["Nov 2024", "Dec 2024", "Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
-LAST_6_MONTHS_DAYS = ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"]
-LAST_6_MONTHS_FAKEDATETIMES = [ANY] * 7
+ALL_MONTHS_LABELS = [
+    "Nov 2024",
+    "Dec 2024",
+    "Jan 2025",
+    "Feb 2025",
+    "Mar 2025",
+    "Apr 2025",
+    "May 2025",
+    "Jun 2025",
+    "Jul 2025",
+    "Aug 2025",
+    "Sep 2025",
+    "Oct 2025",
+    "Nov 2025",
+    "Dec 2025",
+    "Jan 2026",
+]
+ALL_MONTHS_DAYS = [
+    "2024-11-01",
+    "2024-12-01",
+    "2025-01-01",
+    "2025-02-01",
+    "2025-03-01",
+    "2025-04-01",
+    "2025-05-01",
+    "2025-06-01",
+    "2025-07-01",
+    "2025-08-01",
+    "2025-09-01",
+    "2025-10-01",
+    "2025-11-01",
+    "2025-12-01",
+    "2026-01-01",
+]
+ALL_MONTHS_FAKEDATETIMES = [ANY] * 15
+
+LAST_6_MONTHS_LABELS = ALL_MONTHS_LABELS[:7].copy()
+LAST_6_MONTHS_DAYS = ALL_MONTHS_DAYS[:7].copy()
+LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
 
     def _create_purchase_events(self, data):
@@ -163,11 +199,11 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.customers_cleanup_filesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_insights_query(
+    def _run_revenue_analytics_gross_revenue_query(
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
-        group_by: list[RevenueAnalyticsInsightsQueryGroupBy] | None = None,
+        group_by: list[RevenueAnalyticsGroupBy] | None = None,
         properties: list[RevenueAnalyticsPropertyFilter] | None = None,
     ):
         if date_range is None:
@@ -180,7 +216,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsInsightsQuery(
+            query = RevenueAnalyticsGrossRevenueQuery(
                 dateRange=date_range,
                 interval=interval,
                 groupBy=group_by,
@@ -188,25 +224,25 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
-            runner = RevenueAnalyticsInsightsQueryRunner(
+            runner = RevenueAnalyticsGrossRevenueQueryRunner(
                 team=self.team,
                 query=query,
             )
             response = runner.calculate()
 
-            RevenueAnalyticsInsightsQueryResponse.model_validate(response)
+            RevenueAnalyticsGrossRevenueQueryResponse.model_validate(response)
             return response
 
     def test_no_crash_when_no_data(self):
         self.invoices_table.delete()
         self.products_table.delete()
         self.customers_table.delete()
-        results = self._run_revenue_analytics_insights_query().results
+        results = self._run_revenue_analytics_gross_revenue_query().results
 
         self.assertEqual(results, [])
 
     def test_no_crash_when_no_source_is_selected(self):
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -219,26 +255,37 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results, [])
 
     def test_with_data(self):
-        results = self._run_revenue_analytics_insights_query().results
+        # Use huge date range to collect all data
+        results = self._run_revenue_analytics_gross_revenue_query(
+            date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
+        ).results
 
         self.assertEqual(
             results,
             [
                 {
                     "label": "stripe.posthog_test",
-                    "days": LAST_6_MONTHS_DAYS,
-                    "labels": LAST_6_MONTHS_LABELS,
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
                     "data": [
                         0,
                         0,
-                        Decimal("9025.20409"),
-                        Decimal("9474.87946"),
-                        Decimal("9009.96545"),
-                        Decimal("8882.54906"),
-                        Decimal("8864.83175"),
+                        Decimal("8755.6188399999"),
+                        Decimal("9499.3872099999"),
+                        Decimal("9034.4731999999"),
+                        Decimal("8907.0568099999"),
+                        Decimal("8889.3394999999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        Decimal("24.5077499999"),
+                        0,
                     ],
                     "action": {
-                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "days": ALL_MONTHS_FAKEDATETIMES,
                         "id": "stripe.posthog_test",
                         "name": "stripe.posthog_test",
                     },
@@ -247,7 +294,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_data_and_date_range(self):
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             date_range=DateRange(date_from="2025-02-01", date_to="2025-05-01")
         ).results
 
@@ -259,23 +306,21 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "label": "stripe.posthog_test",
                     "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
                     "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-                    "data": [Decimal("9474.87946"), Decimal("9009.96545"), Decimal("8882.54906"), 0],
+                    "data": [Decimal("9499.3872099999"), Decimal("9034.4731999999"), Decimal("8907.0568099999"), 0],
                     "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
                 }
             ],
         )
 
     def test_with_empty_data_range(self):
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")
         ).results
 
         self.assertEqual(results, [])
 
     def test_with_data_for_product_grouping(self):
-        results = self._run_revenue_analytics_insights_query(
-            group_by=[RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]
-        ).results
+        results = self._run_revenue_analytics_gross_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
         self.assertEqual(len(results), 6)
         self.assertEqual(
@@ -313,20 +358,20 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [
                     0,
                     0,
-                    Decimal("98.4295"),
-                    Decimal("170.9565"),
-                    Decimal("215.3494"),
-                    Decimal("83.16695"),
-                    Decimal("115.9635"),
+                    Decimal("8.2024583333"),
+                    Decimal("179.1589583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("91.3694083333"),
+                    Decimal("124.1659583333"),
                 ],
                 [
                     0,
                     0,
-                    Decimal("195.6635"),
-                    Decimal("547.1405"),
-                    Decimal("72.2879"),
-                    Decimal("79.69203"),
-                    Decimal("19.5265"),
+                    Decimal("16.3052916666"),
+                    Decimal("563.4457916666"),
+                    Decimal("88.5931916666"),
+                    Decimal("95.9973216666"),
+                    Decimal("35.8317916666"),
                 ],
                 [
                     0,
@@ -350,8 +395,8 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_data_with_double_grouping(self):
-        results = self._run_revenue_analytics_insights_query(
-            group_by=[RevenueAnalyticsInsightsQueryGroupBy.COHORT, RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]
+        results = self._run_revenue_analytics_gross_revenue_query(
+            group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
         ).results
 
         # 12 comes from the 6 products and 2 cohorts
@@ -378,8 +423,24 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 [0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
                 [0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0, Decimal("386.90365")],
-                [0, 0, Decimal("98.4295"), 0, Decimal("215.3494"), 0, Decimal("115.9635")],
-                [0, 0, Decimal("195.6635"), 0, Decimal("72.2879"), 0, Decimal("19.5265")],
+                [
+                    0,
+                    0,
+                    Decimal("8.2024583333"),
+                    Decimal("8.2024583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("8.2024583333"),
+                    Decimal("124.1659583333"),
+                ],
+                [
+                    0,
+                    0,
+                    Decimal("16.3052916666"),
+                    Decimal("16.3052916666"),
+                    Decimal("88.5931916666"),
+                    Decimal("16.3052916666"),
+                    Decimal("35.8317916666"),
+                ],
                 [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
                 [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
                 [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
@@ -396,7 +457,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0, 0, Decimal("11.51665"), Decimal("37.18802"), Decimal("2.73371"), Decimal("0.09564"), Decimal("9.74731")]
         ]
 
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -411,8 +472,8 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["data"] for result in results], expected_data)
 
         # When grouping results should be exactly the same, just the label changes
-        results = self._run_revenue_analytics_insights_query(
-            group_by=[RevenueAnalyticsInsightsQueryGroupBy.PRODUCT],
+        results = self._run_revenue_analytics_gross_revenue_query(
+            group_by=[RevenueAnalyticsGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -427,7 +488,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["data"] for result in results], expected_data)
 
     def test_with_country_filter(self):
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="country",
@@ -441,7 +502,17 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
         self.assertEqual(
             [result["data"] for result in results],
-            [[0, 0, Decimal("294.093"), 0, Decimal("287.6373"), 0, Decimal("135.49")]],
+            [
+                [
+                    0,
+                    0,
+                    Decimal("24.5077499999"),
+                    Decimal("24.5077499999"),
+                    Decimal("312.1450499999"),
+                    Decimal("24.5077499999"),
+                    Decimal("159.9977499999"),
+                ]
+            ],
         )
 
     def test_with_events_data(self):
@@ -454,7 +525,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -496,7 +567,7 @@ class TestRevenueAnalyticsInsightsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_revenue_analytics_insights_query(
+        results = self._run_revenue_analytics_gross_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
