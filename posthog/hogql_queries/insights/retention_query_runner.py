@@ -377,7 +377,7 @@ class RetentionQueryRunner(QueryRunner):
                             return_event_counts_by_interval,
                             )
                         """,
-                        {"minimum_occurrences": ast.Constant(value=self.query.retentionFilter.totalOccurrences or 1)},
+                        {"minimum_occurrences": ast.Constant(value=self.query.retentionFilter.minimumOccurrences or 1)},
                     ),
                 ),
                 # exploded (0 based) indices of matching intervals for start event

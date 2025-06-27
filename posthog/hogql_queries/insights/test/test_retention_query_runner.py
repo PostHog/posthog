@@ -1082,7 +1082,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "totalIntervals": 11,
                     "targetEntity": {"id": None, "name": "All events"},
                     "returningEntity": {"id": "$pageview", "type": "events"},
-                    "totalOccurrences": 2,
+                    "minimumOccurrences": 2,
                 },
             }
         )
