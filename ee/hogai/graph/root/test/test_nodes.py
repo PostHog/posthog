@@ -711,13 +711,6 @@ class TestRootNodeTools(BaseTest):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
         node = RootNodeTools(self.team, self.user)
 
-        # Mock the navigate tool to return a tool message
-        mock_tool_message = LangchainToolMessage(
-            content="Navigation completed successfully",
-            tool_call_id="nav-123",
-            artifact={"page_key": "insights", "url": "/insights"},
-        )
-
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -728,11 +721,13 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.graph.root.nodes.CONTEXTUAL_TOOL_NAME_TO_TOOL") as mock_tools:
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
             # Mock the navigate tool
             mock_navigate_tool = MagicMock()
-            mock_navigate_tool.invoke.return_value = mock_tool_message
-            mock_tools.get.return_value = lambda _: mock_navigate_tool
+            mock_navigate_tool.invoke.return_value = LangchainToolMessage(
+                content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
+            )
+            mock_tools.return_value = lambda _: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -744,10 +739,10 @@ class TestRootNodeTools(BaseTest):
             if isinstance(interrupt_data, list):
                 interrupt_data = interrupt_data[0].value
             self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
-            self.assertEqual(interrupt_data.content, "Navigation completed successfully")
+            self.assertEqual(interrupt_data.content, "XXX")
             self.assertEqual(interrupt_data.tool_call_id, "nav-123")
             self.assertTrue(interrupt_data.visible)
-            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights", "url": "/insights"}})
+            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
     def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
         """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
@@ -765,10 +760,14 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch(
-            "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
-            return_value=("Search completed", {}),
-        ):
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the search_session_recordings tool
+            mock_search_session_recordings = MagicMock()
+            mock_search_session_recordings.invoke.return_value = LangchainToolMessage(
+                content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
+            )
+            mock_tools.return_value = lambda _: mock_search_session_recordings
+
             # This should not raise NodeInterrupt
             result = node.run(
                 state,
