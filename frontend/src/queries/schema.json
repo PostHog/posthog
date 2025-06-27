@@ -391,7 +391,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQuery"
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -4328,7 +4328,7 @@
             ],
             "type": "object"
         },
-        "CachedRevenueAnalyticsGrowthRateQueryResponse": {
+        "CachedRevenueAnalyticsGrossRevenueQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -4397,7 +4397,7 @@
             ],
             "type": "object"
         },
-        "CachedRevenueAnalyticsInsightsQueryResponse": {
+        "CachedRevenueAnalyticsGrowthRateQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "cache_key": {
@@ -8076,7 +8076,7 @@
                             "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                         },
                         {
-                            "$ref": "#/definitions/RevenueAnalyticsInsightsQuery"
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
                         },
                         {
                             "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -14398,7 +14398,7 @@
                 "WebPageURLSearchQuery",
                 "WebAnalyticsExternalSummaryQuery",
                 "RevenueAnalyticsGrowthRateQuery",
-                "RevenueAnalyticsInsightsQuery",
+                "RevenueAnalyticsGrossRevenueQuery",
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsTopCustomersQuery",
                 "MarketingAnalyticsTableQuery",
@@ -18222,7 +18222,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQuery"
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
@@ -18948,6 +18948,36 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -18966,36 +18996,6 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "properties"],
-            "type": "object"
-        },
-        "RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse>": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "properties": {
-                    "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -19133,14 +19133,23 @@
             "required": ["name", "due_date", "goal"],
             "type": "object"
         },
-        "RevenueAnalyticsGrowthRateQuery": {
+        "RevenueAnalyticsGrossRevenueQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "groupBy": {
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryGroupBy"
+                    },
+                    "type": "array"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                },
                 "kind": {
-                    "const": "RevenueAnalyticsGrowthRateQuery",
+                    "const": "RevenueAnalyticsGrossRevenueQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -19151,7 +19160,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
                 },
                 "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -19161,10 +19170,14 @@
                     "type": "number"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": ["groupBy", "interval", "kind", "properties"],
             "type": "object"
         },
-        "RevenueAnalyticsGrowthRateQueryResponse": {
+        "RevenueAnalyticsGrossRevenueQueryGroupBy": {
+            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
+            "type": "string"
+        },
+        "RevenueAnalyticsGrossRevenueQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
@@ -19201,23 +19214,14 @@
             "required": ["results"],
             "type": "object"
         },
-        "RevenueAnalyticsInsightsQuery": {
+        "RevenueAnalyticsGrowthRateQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "groupBy": {
-                    "items": {
-                        "$ref": "#/definitions/RevenueAnalyticsInsightsQueryGroupBy"
-                    },
-                    "type": "array"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType"
-                },
                 "kind": {
-                    "const": "RevenueAnalyticsInsightsQuery",
+                    "const": "RevenueAnalyticsGrowthRateQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -19228,7 +19232,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilters"
                 },
                 "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsInsightsQueryResponse"
+                    "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -19238,14 +19242,10 @@
                     "type": "number"
                 }
             },
-            "required": ["groupBy", "interval", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
-        "RevenueAnalyticsInsightsQueryGroupBy": {
-            "enum": ["cohort", "country", "coupon", "coupon_id", "initial_coupon", "initial_coupon_id", "product"],
-            "type": "string"
-        },
-        "RevenueAnalyticsInsightsQueryResponse": {
+        "RevenueAnalyticsGrowthRateQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {

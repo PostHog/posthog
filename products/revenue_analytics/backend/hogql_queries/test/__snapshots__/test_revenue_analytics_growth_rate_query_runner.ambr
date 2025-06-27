@@ -22,8 +22,9 @@
           (SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                  `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                  `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                  `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                   `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -42,8 +43,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -59,7 +61,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
         GROUP BY month
@@ -102,6 +104,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -122,6 +125,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -141,6 +145,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -152,13 +157,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -177,8 +183,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -194,7 +201,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_invoice_item.source_label, 'non-existent-source'), 0))
         GROUP BY month
@@ -237,6 +244,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -257,6 +265,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -276,6 +285,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -287,13 +297,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -312,8 +323,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -329,7 +341,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0))
         GROUP BY month
@@ -372,6 +384,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -392,6 +405,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -411,6 +425,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -422,13 +437,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -447,8 +463,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -464,7 +481,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-02-03 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-04-04 23:59:59', 'UTC'))), 0))
         GROUP BY month
@@ -507,6 +524,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -527,6 +545,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -546,6 +565,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -557,13 +577,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -582,8 +603,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -599,7 +621,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-01-02 23:59:59', 'UTC'))), 0))
         GROUP BY month
@@ -642,6 +664,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -662,6 +685,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -681,6 +705,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -692,13 +717,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -717,8 +743,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -734,7 +761,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_invoice_item.source_label, 'revenue_analytics.purchase'), 0))
         GROUP BY month
@@ -777,6 +804,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -797,6 +825,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -816,6 +845,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -827,13 +857,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -852,8 +883,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -870,7 +902,7 @@
                        'GBP' AS currency,
                        if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2015-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_invoice_item.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(equals(revenue_analytics_invoice_item.source_label, 'revenue_analytics.purchase'), 0))
         GROUP BY month
@@ -913,6 +945,7 @@
                   `stripe.posthog_test.invoice_item_revenue_view`.source_label AS source_label,
                   `stripe.posthog_test.invoice_item_revenue_view`.timestamp AS timestamp,
                   `stripe.posthog_test.invoice_item_revenue_view`.created_at AS created_at,
+                  `stripe.posthog_test.invoice_item_revenue_view`.is_recurring AS is_recurring,
                   `stripe.posthog_test.invoice_item_revenue_view`.product_id AS product_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.customer_id AS customer_id,
                   `stripe.posthog_test.invoice_item_revenue_view`.invoice_id AS invoice_id,
@@ -933,6 +966,7 @@
                      'stripe.posthog_test' AS source_label,
                      addMonths(invoice.timestamp, invoice.month_index) AS timestamp,
                      invoice.created_at AS created_at,
+                     isNotNull(invoice.subscription_id) AS is_recurring,
                      invoice.product_id AS product_id,
                      invoice.customer_id AS customer_id,
                      id AS invoice_id,
@@ -952,6 +986,7 @@
                 (SELECT posthog_test_stripe_invoice.id AS id,
                         parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
                         posthog_test_stripe_invoice.customer AS customer_id,
+                        posthog_test_stripe_invoice.subscription AS subscription_id,
                         posthog_test_stripe_invoice.discount AS discount,
                         arrayJoin(JSONExtractArrayRaw(assumeNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(posthog_test_stripe_invoice.lines, 'data'), ''), 'null'), '^"|"$', '')))) AS data,
                         JSONExtractString(data, 'id') AS invoice_item_id,
@@ -963,13 +998,14 @@
                         greatest(toInt16(round(divide(dateDiff('day', ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')), ifNull(period_end, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC'))), 30.44))), 1) AS period_months,
                         arrayJoin(range(0, period_months)) AS month_index,
                         ifNull(period_start, parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC')) AS timestamp
-                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `subscription_id` String, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
+                 FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.growth_rate_query_runner.stripe_invoices/posthog_test_stripe_invoice/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `tax` Int64, `paid` UInt8, `lines` String, `total` Int64, `charge` String, `issuer` String, `number` String, `object` String, `status` String, `created` DateTime, `currency` String, `customer` String, `discount` String, `due_date` DateTime, `livemode` UInt8, `metadata` String, `subtotal` Int64, `attempted` UInt8, `discounts` String, `rendering` String, `amount_due` Int64, `amount_paid` Int64, `description` String, `invoice_pdf` String, `account_name` String, `auto_advance` UInt8, `effective_at` DateTime, `subscription` String, `attempt_count` UInt8, `automatic_tax` String, `customer_name` String, `period_end_at` DateTime, `billing_reason` String, `customer_email` String, `ending_balance` Int64, `payment_intent` String, `account_country` String, `amount_shipping` Int64, `period_start_at` DateTime, `amount_remaining` Int64, `customer_address` String, `customer_tax_ids` String, `paid_out_of_band` UInt8, `payment_settings` String, `starting_balance` Int64, `collection_method` String, `default_tax_rates` String, `total_tax_amounts` String, `hosted_invoice_url` String, `status_transitions` String, `customer_tax_exempt` String, `total_excluding_tax` Int64, `subscription_details` String, `webhooks_delivered_at` DateTime, `subtotal_excluding_tax` Int64, `total_discount_amounts` String, `pre_payment_credit_notes_amount` Int64, `post_payment_credit_notes_amount` Int64') AS posthog_test_stripe_invoice
                  WHERE posthog_test_stripe_invoice.paid) AS invoice) AS `stripe.posthog_test.invoice_item_revenue_view`
            UNION ALL SELECT `revenue_analytics.purchase.invoice_item_revenue_view_events`.id AS id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_item_id AS invoice_item_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.source_label AS source_label,
-                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.timestamp AS timestamp,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.created_at AS created_at,
+                            `revenue_analytics.purchase.invoice_item_revenue_view_events`.is_recurring AS is_recurring,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.product_id AS product_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.customer_id AS customer_id,
                             `revenue_analytics.purchase.invoice_item_revenue_view_events`.invoice_id AS invoice_id,
@@ -988,8 +1024,9 @@
              (SELECT toString(events.uuid) AS id,
                      toString(events.uuid) AS invoice_item_id,
                      'revenue_analytics.purchase' AS source_label,
-                     toTimeZone(events.timestamp, 'UTC') AS created_at,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                     timestamp AS created_at,
+                     0 AS is_recurring,
                      NULL AS product_id,
                      events.distinct_id AS customer_id,
                      NULL AS invoice_id,
@@ -1005,7 +1042,7 @@
                      'GBP' AS currency,
                      if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
-              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_revenue_view_events`) AS revenue_analytics_invoice_item
         LEFT JOIN
           (SELECT `stripe.posthog_test.product_revenue_view`.id AS id,

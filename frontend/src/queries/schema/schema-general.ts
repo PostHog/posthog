@@ -117,7 +117,7 @@ export enum NodeKind {
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsInsightsQuery = 'RevenueAnalyticsInsightsQuery',
+    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
@@ -160,7 +160,7 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
@@ -225,7 +225,7 @@ export type QuerySchema =
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsInsightsQuery
+    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
 
@@ -751,7 +751,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsInsightsQuery
+                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
@@ -782,7 +782,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsInsightsQuery
+        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
@@ -1915,7 +1915,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export enum RevenueAnalyticsInsightsQueryGroupBy {
+export enum RevenueAnalyticsGrossRevenueQueryGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
     COUPON = 'coupon',
@@ -1925,17 +1925,18 @@ export enum RevenueAnalyticsInsightsQueryGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsInsightsQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsInsightsQuery
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy[]
+export interface RevenueAnalyticsGrossRevenueQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
+    groupBy: RevenueAnalyticsGrossRevenueQueryGroupBy[]
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsInsightsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     columns?: string[]
 }
-export type CachedRevenueAnalyticsInsightsQueryResponse = CachedQueryResponse<RevenueAnalyticsInsightsQueryResponse>
+export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {

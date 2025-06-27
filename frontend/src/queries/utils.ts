@@ -41,7 +41,7 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
+    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
@@ -157,10 +157,10 @@ export function isRevenueAnalyticsOverviewQuery(
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export function isRevenueAnalyticsInsightsQuery(
+export function isRevenueAnalyticsGrossRevenueQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsGrossRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
