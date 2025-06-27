@@ -414,7 +414,9 @@ export function EditAlertModal({
                                                 <AlertDestinationSelector alertId={alertId} />
                                             </div>
                                         ) : (
-                                            <div className="text-muted-alt">Save alert first to add destinations (e.g. Slack)</div>
+                                            <div className="text-muted-alt">
+                                                Save alert first to add destinations (e.g. Slack)
+                                            </div>
                                         )}
                                     </div>
                                 )}
