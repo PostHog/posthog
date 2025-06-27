@@ -17,8 +17,15 @@ def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> Sel
     :param node: The DataWarehouseNode containing the table name and timestamp field.
     :return: A SelectQuery object that retrieves the earliest timestamp from the specified data warehouse table.
     """
+    # Cast timestamp field to DateTime64 to ensure type compatibility across different data sources
+    # This handles Date32, DateTime64, and String timestamp fields uniformly
+    timestamp_field = ast.Call(
+        name="toDateTime",
+        args=[ast.Field(chain=[node.timestamp_field])],
+    )
+
     return ast.SelectQuery(
-        select=[ast.Call(name="min", args=[ast.Field(chain=[node.timestamp_field])])],
+        select=[ast.Call(name="min", args=[timestamp_field])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[node.table_name])),
     )
 

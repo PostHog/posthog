@@ -4,7 +4,12 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ConversionGoalFilter,
+    DataTableNode,
+    MarketingAnalyticsTableQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -60,9 +65,12 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
     // Combined conversion goals - static from settings + dynamic goal
     const allConversionGoals = useMemo(() => {
-        const goals = [...(conversion_goals || [])]
+        const goals: ConversionGoalFilter[] = []
         if (dynamicConversionGoal) {
             goals.push(dynamicConversionGoal)
+        }
+        if (conversion_goals) {
+            goals.push(...conversion_goals)
         }
         return goals
     }, [conversion_goals, dynamicConversionGoal])
@@ -104,11 +112,10 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         [marketingAnalyticsOrderBy, setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy]
     )
 
-    // Generate dynamic column mappings for conversion goals (now includes dynamic goal)
     const conversionGoalColumns = useMemo(() => {
         const columns: Record<string, ColumnConfig> = {}
 
-        allConversionGoals?.forEach((goal, index) => {
+        allConversionGoals?.forEach((goal: ConversionGoalFilter, index: number) => {
             const goalName = goal.conversion_goal_name || `Goal ${index + 1}`
             const costPerGoalName = `Cost per ${goalName}`
 
@@ -185,14 +192,12 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 render: webAnalyticsDataTableQueryContext.columns?.ctr?.render,
                 align: 'right',
             },
-            // Add dynamic conversion goal columns
             ...conversionGoalColumns,
         },
     }
 
     return (
         <div className="bg-surface-primary">
-            {/* Dynamic Conversion Goal Controls */}
             <div className="p-4 border-b border-border bg-bg-light">
                 <DynamicConversionGoalControls />
             </div>
