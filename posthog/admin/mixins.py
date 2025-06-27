@@ -3,6 +3,8 @@ from typing import Protocol
 
 
 class AdminQuerySetProvider(Protocol):
+    model: type[models.Model]
+
     def get_queryset(self, request) -> models.QuerySet: ...
 
 
