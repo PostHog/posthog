@@ -411,7 +411,7 @@ FROM {CAMPAIGN_COST_CTE_NAME}
             )
 
             # Let the processor generate its own CTE query
-            cte_query = processor.generate_cte_query_string(additional_conditions)
+            cte_query = processor.generate_cte_query_expr(additional_conditions).to_hogql()
             ctes.append(cte_query)
 
         return ",\n".join(ctes)

@@ -380,7 +380,7 @@ const Filters = (): JSX.Element => {
         case ProductTab.MARKETING:
             return <MarketingAnalyticsFilters />
         default:
-        }
+    }
     return <WebAnalyticsFilters />
 }
 

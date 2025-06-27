@@ -227,14 +227,13 @@ class ConversionGoalProcessor:
         # Return complete SelectQuery
         return ast.SelectQuery(select=select_columns, select_from=from_expr, where=where_expr, group_by=group_by_exprs)
 
-    def generate_cte_query_string(self, additional_conditions: list[ast.Expr]) -> str:
+    def generate_cte_query_expr(self, additional_conditions: list[ast.Expr]) -> ast.Expr:
         """Generate the complete CTE query string for this conversion goal"""
         cte_name = self.get_cte_name()
         select_query = self.generate_cte_query(additional_conditions)
 
-        # Convert to string and wrap in CTE
-        query_sql = select_query.to_hogql()
-        return f"{cte_name} AS (\n{query_sql}\n)"
+        cte_alias = ast.Alias(alias=cte_name, expr=select_query)
+        return cte_alias
 
     def generate_join_clause(self) -> str:
         """Generate the JOIN clause for this conversion goal"""
