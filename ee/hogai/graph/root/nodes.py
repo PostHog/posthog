@@ -511,38 +511,73 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := _get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(state)
-            result = tool_class.invoke(tool_call.model_dump(), config)
-            assert isinstance(result, LangchainToolMessage)
+            # Handle experiment_results_summary tool
+            if tool_call.name == "experiment_results_summary":
+                tool_class = ToolClass(state)
+                result = tool_class.invoke(tool_call.model_dump(), config)
+                assert isinstance(result, LangchainToolMessage)
 
-            new_state = tool_class._state  # latest state, in case the tool has updated it
-            last_message = new_state.messages[-1]
-            if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
+                new_state = tool_class._state  # latest state, in case the tool has updated it
+                last_message = new_state.messages[-1]
+                if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
+                    return PartialAssistantState(
+                        messages=new_state.messages[
+                            len(state.messages) :
+                        ],  # we send all messages from the tool call onwards
+                        root_tool_call_id=None,  # Tool handled already
+                        root_tool_insight_plan=None,  # No insight plan here
+                        root_tool_insight_type=None,  # No insight type here
+                        root_tool_calls_count=tool_call_count + 1,
+                    )
+
                 return PartialAssistantState(
-                    messages=new_state.messages[
-                        len(state.messages) :
-                    ],  # we send all messages from the tool call onwards
+                    messages=[
+                        AssistantToolCallMessage(
+                            content=str(result.content) if result.content else "",
+                            ui_payload={tool_call.name: result.artifact},
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=True,
+                        )
+                    ],
                     root_tool_call_id=None,  # Tool handled already
                     root_tool_insight_plan=None,  # No insight plan here
                     root_tool_insight_type=None,  # No insight type here
                     root_tool_calls_count=tool_call_count + 1,
                 )
+            else:
+                tool_class = ToolClass(state)
+                result = tool_class.invoke(tool_call.model_dump(), config)
+                assert isinstance(result, LangchainToolMessage)
 
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                        visible=True,
+                new_state = tool_class._state  # latest state, in case the tool has updated it
+                last_message = new_state.messages[-1]
+                if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
+                    return PartialAssistantState(
+                        messages=new_state.messages[
+                            len(state.messages) :
+                        ],  # we send all messages from the tool call onwards
+                        root_tool_call_id=None,  # Tool handled already
+                        root_tool_insight_plan=None,  # No insight plan here
+                        root_tool_insight_type=None,  # No insight type here
+                        root_tool_calls_count=tool_call_count + 1,
                     )
-                ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
-                root_tool_calls_count=tool_call_count + 1,
-            )
+
+                return PartialAssistantState(
+                    messages=[
+                        AssistantToolCallMessage(
+                            content=str(result.content) if result.content else "",
+                            ui_payload={tool_call.name: result.artifact},
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=True,
+                        )
+                    ],
+                    root_tool_call_id=None,  # Tool handled already
+                    root_tool_insight_plan=None,  # No insight plan here
+                    root_tool_insight_type=None,  # No insight type here
+                    root_tool_calls_count=tool_call_count + 1,
+                )
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
 
