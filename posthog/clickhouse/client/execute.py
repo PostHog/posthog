@@ -159,9 +159,7 @@ def sync_execute(
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
-    # Add the final workload to the span
-    if trace.get_current_span().is_recording():
-        add_clickhouse_span_attributes(trace.get_current_span(), final_workload=workload.value)
+    add_clickhouse_span_attributes(trace.get_current_span(), final_workload=workload.value)
 
     if team_id is not None:
         tags.team_id = team_id
