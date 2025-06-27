@@ -34,7 +34,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
-    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
@@ -78,6 +78,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
                             datasets={datasets}
                             labels={labels}
                             isArea={insightsDisplayMode !== 'line'}
+                            isInProgress={!dateFilter.dateTo}
                             legend={{
                                 display: groupBy.length > 0 && datasets.length > 1,
                                 position: 'right',
