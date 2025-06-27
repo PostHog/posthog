@@ -27,6 +27,7 @@ describe('insightSceneLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
@@ -62,11 +63,7 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
-            'PathsQuery'
-        )
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {
