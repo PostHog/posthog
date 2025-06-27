@@ -13,6 +13,8 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { HogExecutorService } from '../hog-executor.service'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFlowActionRunner } from './actions'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
@@ -39,8 +41,16 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private hogFlowActionRunner: HogFlowActionRunner
 
-    constructor(private hub: Hub) {
-        this.hogFlowActionRunner = new HogFlowActionRunner(this.hub)
+    constructor(
+        private hub: Hub,
+        private hogFunctionExecutor: HogExecutorService,
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+    ) {
+        this.hogFlowActionRunner = new HogFlowActionRunner(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager
+        )
     }
 
     async buildHogFlowInvocations(

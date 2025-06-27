@@ -1,6 +1,8 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
+import { CyclotronInputSchemaType } from '~/schema/cyclotron'
+
 import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
@@ -345,7 +347,7 @@ export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_d
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType> | null
+    inputs?: Record<string, CyclotronInputSchemaType> | null
     filters?: HogFunctionFilters | null
 }
 
@@ -359,8 +361,8 @@ export type HogFunctionType = {
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType | null>
-    encrypted_inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, CyclotronInputSchemaType | null>
+    encrypted_inputs?: Record<string, CyclotronInputSchemaType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
@@ -372,12 +374,41 @@ export type HogFunctionType = {
     updated_at: string
 }
 
-export type HogFunctionInputType = {
-    value: any
-    templating?: 'hog' | 'liquid'
-    secret?: boolean
-    bytecode?: HogBytecode | object
-    order?: number
+export type HogFunctionMappingTemplate = HogFunctionMappingType & {
+    name: string
+    include_by_default?: boolean
+}
+
+export type HogFunctionTemplate = {
+    status: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
+    free: boolean
+    type: HogFunctionTypeType
+    id: string
+    name: string
+    description: string
+    hog: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    category: string[]
+    filters?: HogFunctionFilters
+    mappings?: HogFunctionMappingType[]
+    mapping_templates?: HogFunctionMappingTemplate[]
+    masking?: HogFunctionMasking
+    icon_url?: string
+}
+
+export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
+    bytecode: HogBytecode
+}
+
+// Slightly different model from the DB
+export type DBHogFunctionTemplate = {
+    id: string
+    template_id: string
+    sha: string
+    name: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    bytecode: HogBytecode
+    type: HogFunctionTypeType
 }
 
 export type IntegrationType = {

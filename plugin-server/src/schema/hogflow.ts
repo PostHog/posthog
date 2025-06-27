@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CyclotronInputSchema } from './cyclotron'
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -100,7 +102,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            function_id: z.string(),
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
+            template_id: z.string(),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
