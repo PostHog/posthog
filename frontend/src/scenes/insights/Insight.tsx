@@ -17,8 +17,6 @@ import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { SceneLayout } from '~/layout/scenes/SceneLayout'
-import { useEffect } from 'react'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }

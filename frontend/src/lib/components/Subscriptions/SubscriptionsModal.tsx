@@ -11,9 +11,6 @@ import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuOpenIndicator, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconBell, IconPlusSmall } from '@posthog/icons'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     isOpen: boolean
@@ -64,26 +61,26 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive fullWidth>
-                    <IconBell />
-                    Subscribe
-                    <DropdownMenuOpenIndicator />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <DropdownMenuItem asChild onClick={() => push(urlForSubscription('new', props))}>
-                    <ButtonPrimitive data-attr="new-subscription-button" fullWidth>
-                        New subscription
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild onClick={() => push(urlForSubscriptions(props))}>
-                    <ButtonPrimitive data-attr="manage-subscriptions-button" fullWidth>
-                        Manage subscriptions
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <LemonButtonWithDropdown
+            fullWidth
+            {...props.buttonProps}
+            dropdown={{
+                actionable: true,
+                closeParentPopoverOnClickInside: true,
+                placement: 'right-start',
+                overlay: (
+                    <>
+                        <LemonButton onClick={() => push(urlForSubscription('new', props))} fullWidth>
+                            New subscription
+                        </LemonButton>
+                        <LemonButton onClick={() => push(urlForSubscriptions(props))} fullWidth>
+                            Manage subscriptions
+                        </LemonButton>
+                    </>
+                ),
+            }}
+        >
+            Subscribe
+        </LemonButtonWithDropdown>
     )
 }

@@ -21,7 +21,7 @@ export const textInputVariants = cva({
     },
 })
 
-type TextInputBaseProps = {
+export type TextInputBaseProps = {
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
     autoFocus?: boolean
     dataAttr?: string

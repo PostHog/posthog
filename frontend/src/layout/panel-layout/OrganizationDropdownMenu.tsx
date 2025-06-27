@@ -1,4 +1,4 @@
-import { IconCheck, IconChevronRight, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -20,8 +20,8 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
-import { panelLayoutLogic } from './panelLayoutLogic'
 import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu(): JSX.Element {
     const { preflight } = useValues(preflightLogic)

@@ -15,14 +15,6 @@ export type SceneHeaderItemProps = {
 
 export type SceneHeaderChildItemProps = SceneHeaderItemProps & { icon: React.ReactNode }
 
-// interface Breadcrumb {
-//     name: ReactNode
-//     to: string
-//     id: string
-//     icon?: ReactNode
-//     iconColor?: string
-// }
-
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
     actions({
@@ -37,6 +29,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setDescriptionRenameCallback: (callback?: (value: string) => void) => ({
             callback,
         }),
+        setPanelInfoActive: (active: boolean) => ({ active }),
     }),
     reducers({
         fileActionsContainer: [
@@ -59,5 +52,11 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             },
         ],
         helpActions: [[] as SceneHeaderItemProps[], { setAddHelpActions: (_, { actions }) => actions }],
+        panelInfoActive: [
+            false,
+            {
+                setPanelInfoActive: (_, { active }) => active,
+            },
+        ],
     }),
 ])

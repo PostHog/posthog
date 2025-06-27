@@ -1,12 +1,10 @@
 import './SceneHeader.scss'
 
 import { IconChevronDown, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
-import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -38,7 +36,7 @@ export function SceneHeader(): JSX.Element | null {
     // const { addShortcutItem } = useActions(projectTreeDataLogic)
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
     // const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
-    const isOnboarding = router.values.location.pathname.includes('/onboarding/')
+    // const isOnboarding = router.values.location.pathname.includes('/onboarding/')
     // const hasRenameState = !!renameState
 
     // useLayoutEffect(() => {
@@ -116,9 +114,6 @@ export function SceneHeader(): JSX.Element | null {
                     </div>
                 </FlaggedFeature>
                 <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
-                <div className="shrink-1">
-                    <TopBarSettingsButton />
-                </div>
             </div>
         </div>
     ) : null
@@ -183,56 +178,56 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
 
-interface HereProps {
-    breadcrumb: IBreadcrumb
-    isOnboarding?: boolean
-}
+// interface HereProps {
+//     breadcrumb: IBreadcrumb
+//     isOnboarding?: boolean
+// }
 
-function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
-    // const { renameState } = useValues(breadcrumbsLogic)
-    // const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+// function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
+//     // const { renameState } = useValues(breadcrumbsLogic)
+//     // const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
-    // const joinedKey = joinBreadcrumbKey(breadcrumb.key)
-    const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
+//     // const joinedKey = joinBreadcrumbKey(breadcrumb.key)
+//     const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
 
-    return (
-        <h1 className="TopBar3000__here" data-attr="top-bar-name">
-            {breadcrumb.name == null ? (
-                <LemonSkeleton className="w-40 h-4" />
-            // ) : breadcrumb.onRename ? (
-            //     <EditableField
-            //         name="item-name-large"
-            //         value={renameState && renameState[0] === joinedKey ? renameState[1] : hereName}
-            //         onChange={(newName) => {
-            //             tentativelyRename(joinedKey, newName)
-            //             if (breadcrumb.forceEditMode) {
-            //                 // In this case there's no "Save" button, we update on input
-            //                 void breadcrumb.onRename?.(newName)
-            //             }
-            //         }}
-            //         onSave={(newName) => {
-            //             void breadcrumb.onRename?.(newName)
-            //         }}
-            //         mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
-            //         onModeToggle={(newMode) => {
-            //             if (newMode === 'edit') {
-            //                 tentativelyRename(joinedKey, hereName)
-            //             } else {
-            //                 finishRenaming()
-            //             }
-            //         }}
-            //         saveOnBlur={breadcrumb.forceEditMode}
-            //         placeholder="Unnamed"
-            //         compactButtons="xsmall"
-            //         editingIndication="underlined"
-            //         autoFocus
-            //     />
-            ) : (
-                <span>{hereName}</span>
-            )}
-        </h1>
-    )
-}
+//     return (
+//         <h1 className="TopBar3000__here" data-attr="top-bar-name">
+//             {breadcrumb.name == null ? (
+//                 <LemonSkeleton className="w-40 h-4" />
+//             // ) : breadcrumb.onRename ? (
+//             //     <EditableField
+//             //         name="item-name-large"
+//             //         value={renameState && renameState[0] === joinedKey ? renameState[1] : hereName}
+//             //         onChange={(newName) => {
+//             //             tentativelyRename(joinedKey, newName)
+//             //             if (breadcrumb.forceEditMode) {
+//             //                 // In this case there's no "Save" button, we update on input
+//             //                 void breadcrumb.onRename?.(newName)
+//             //             }
+//             //         }}
+//             //         onSave={(newName) => {
+//             //             void breadcrumb.onRename?.(newName)
+//             //         }}
+//             //         mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
+//             //         onModeToggle={(newMode) => {
+//             //             if (newMode === 'edit') {
+//             //                 tentativelyRename(joinedKey, hereName)
+//             //             } else {
+//             //                 finishRenaming()
+//             //             }
+//             //         }}
+//             //         saveOnBlur={breadcrumb.forceEditMode}
+//             //         placeholder="Unnamed"
+//             //         compactButtons="xsmall"
+//             //         editingIndication="underlined"
+//             //         autoFocus
+//             //     />
+//             ) : (
+//                 <span>{hereName}</span>
+//             )}
+//         </h1>
+//     )
+// }
 
 function joinBreadcrumbKey(key: IBreadcrumb['key']): string {
     return Array.isArray(key) ? key.map(String).join(':') : String(key)
