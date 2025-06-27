@@ -79,7 +79,7 @@ class ErrorTrackingExternalReference(UUIDModel):
         on_delete=models.CASCADE,
     )
     provider = models.TextField(choices=Provider.choices, null=False, blank=False)
-    external_id = models.ForeignKey(Team, on_delete=models.CASCADE)
+    external_id = models.TextField(null=False, blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
