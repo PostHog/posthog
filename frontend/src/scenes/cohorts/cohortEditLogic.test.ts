@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import { api } from 'lib/api.mock'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { generateUUID } from 'lib/utils/generateUUID'
 import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -22,9 +23,12 @@ import {
     TimeUnitType,
 } from '~/types'
 
+jest.mock('lib/utils/generateUUID', () => ({
+    generateUUID: jest.fn().mockReturnValue('mocked-uuid'), // This mocks the generateUUID function
+}))
+
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
-
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
         await expectLogic(teamLogic).toFinishAllListeners()
         cohortsModel.mount()
@@ -617,6 +621,7 @@ describe('cohortEditLogic', () => {
                     {
                         ...(mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter).values[0],
                         explicit_datetime: '-30d',
+                        sort_key: generateUUID(),
                     },
                 ],
             }) // Backwards compatible processing adds explicit_datetime
@@ -670,6 +675,7 @@ describe('cohortEditLogic', () => {
                                                     mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter
                                                 ).values[0],
                                                 explicit_datetime: '-30d',
+                                                sort_key: generateUUID(),
                                             },
                                         ],
                                     }), // Backwards compatible processing adds explicit_datetime
@@ -749,7 +755,7 @@ describe('cohortEditLogic', () => {
                                                 (mockCohort.filters.properties.values[0] as CohortCriteriaGroupFilter)
                                                     .values[0]
                                             ),
-                                            NEW_CRITERIA,
+                                            { ...NEW_CRITERIA, sort_key: generateUUID() },
                                         ],
                                     }),
                                 ],
