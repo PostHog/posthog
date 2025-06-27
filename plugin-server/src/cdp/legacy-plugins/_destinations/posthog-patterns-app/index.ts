@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
-
+import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export type PatternsMeta = LegacyDestinationPluginMeta & {
@@ -32,14 +31,14 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, global, fet
         }
     }
 
-    const response: Response = await fetch(config.webhookUrl, {
+    const response: FetchResponse = await fetch(config.webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify([event]),
     })
 
     if (response.status != 200) {
-        const data = await response.json()
-        throw new RetryError(`Export events failed: ${JSON.stringify(data)}`)
+        const data = await response.text()
+        throw new RetryError(`Export events failed: ${data}`)
     }
 }

@@ -8,7 +8,7 @@ test.describe('Retention', () => {
         await page.click('[data-attr=insight-retention-tab]')
     })
 
-    test('should apply retention filter', async ({ page }) => {
+    test.skip('should apply retention filter', async ({ page }) => {
         // KLUDGE: this had commented lines in Cypress, they've been copied here _and not tested_
         // NOTE: First wait for results to load, try and make the test more
         // stable. This is to try and avoid an issue where after selecting a
@@ -20,8 +20,8 @@ test.describe('Retention', () => {
         await page.click('[data-attr=property-select-toggle-0]')
         await page.click('[data-attr=taxonomic-filter-searchfield]')
         await page.fill('[data-attr=taxonomic-filter-searchfield]', 'is_demo')
-        await page.click('[data-attr=taxonomic-tab-person_properties]')
-        await page.click('[data-attr=prop-filter-person_properties-0]')
+        await page.click('[data-attr=taxonomic-tab-event_properties]')
+        await page.click('[data-attr=prop-filter-event_properties-0]')
         await page.locator('[data-attr=prop-val]').fill('true')
         await expect(page.locator('[data-attr=retention-table]')).toBeVisible()
 

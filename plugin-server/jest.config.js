@@ -12,6 +12,7 @@ module.exports = {
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
-        '^~/(.*)$': '<rootDir>/$1',
+        '^~/tests/(.*)$': '<rootDir>/tests/$1',
+        '^~/(.*)$': '<rootDir>/src/$1',
     },
 }

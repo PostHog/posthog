@@ -21,5 +21,13 @@ if (typeof (globalThis as any).CSS.escape !== 'function') {
   ;(globalThis as any).CSS.escape = (value: string) => value
 }
 
+const mockIntersectionObserver = jest.fn();
+  mockIntersectionObserver.mockReturnValue({
+      observe: () => null,
+      unobserve: () => null,
+      disconnect: () => null,
+  });
+  ;(globalThis as any).IntersectionObserver = mockIntersectionObserver;
+
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })

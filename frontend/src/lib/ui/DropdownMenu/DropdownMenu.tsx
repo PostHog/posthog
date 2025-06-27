@@ -20,7 +20,13 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 
-const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
+const DropdownMenuRadioGroup = React.forwardRef<
+    React.ElementRef<typeof DropdownMenuPrimitive.RadioGroup>,
+    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioGroup>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <DropdownMenuPrimitive.RadioGroup ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+DropdownMenuRadioGroup.displayName = DropdownMenuPrimitive.RadioGroup.displayName
 
 const DropdownMenuItemIndicator = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.ItemIndicator>,
@@ -33,12 +39,14 @@ const DropdownMenuItemIndicator = React.forwardRef<
         radio: 'relative',
     }
     return (
-        <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
-            {intent === 'checkbox' && <IconCheck />}
-            {intent === 'radio' && (
-                <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
-            )}
-        </DropdownMenuPrimitive.ItemIndicator>
+        <div className="size-4">
+            <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
+                {intent === 'checkbox' && <IconCheck />}
+                {intent === 'radio' && (
+                    <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
+                )}
+            </DropdownMenuPrimitive.ItemIndicator>
+        </div>
     )
 })
 DropdownMenuItemIndicator.displayName = DropdownMenuPrimitive.ItemIndicator.displayName
@@ -49,7 +57,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName
 
@@ -57,15 +65,20 @@ const DropdownMenuSubContent = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
 >(
-    ({ className, ...props }, ref): JSX.Element => (
+    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
         <DropdownMenuPrimitive.SubContent
             ref={ref}
+            collisionPadding={collisionPadding}
             className={cn(
-                'z-[var(--z-popover)] min-w-[8rem] max-w-[200px] overflow-hidden rounded-md border border-secondary bg-surface-primary p-1 text-primary shadow',
+                'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
                 className
             )}
             {...props}
-        />
+        >
+            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
+                {children}
+            </ScrollableShadows>
+        </DropdownMenuPrimitive.SubContent>
     )
 )
 DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName
@@ -75,28 +88,43 @@ const DropdownMenuContent = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
         matchTriggerWidth?: boolean
     }
->(({ className, children, sideOffset = 4, matchTriggerWidth, ...props }, ref): JSX.Element => {
-    return (
-        <DropdownMenuPrimitive.Portal>
-            <DropdownMenuPrimitive.Content
-                ref={ref}
-                sideOffset={sideOffset}
-                className={cn(
-                    'z-[var(--z-popover)] min-w-[8rem] overflow-hidden rounded-md border border-secondary bg-surface-primary text-primary shadow flex flex-col gap-px',
-                    'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
-                    'max-h-[calc(var(--radix-dropdown-menu-content-available-height)-100px)]',
-                    matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
-                    className
-                )}
-                {...props}
-            >
-                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="p-1">
-                    {children}
-                </ScrollableShadows>
-            </DropdownMenuPrimitive.Content>
-        </DropdownMenuPrimitive.Portal>
-    )
-})
+>(
+    (
+        {
+            className,
+            children,
+            sideOffset = 4,
+            collisionPadding = { top: 50, bottom: 50 },
+            matchTriggerWidth,
+            ...props
+        },
+        ref
+    ): JSX.Element => {
+        return (
+            <DropdownMenuPrimitive.Portal>
+                <DropdownMenuPrimitive.Content
+                    ref={ref}
+                    sideOffset={sideOffset}
+                    collisionPadding={collisionPadding}
+                    className={cn(
+                        'primitive-menu-content max-h-[var(--radix-dropdown-menu-content-available-height)]',
+                        matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
+                        className
+                    )}
+                    {...props}
+                >
+                    <ScrollableShadows
+                        direction="vertical"
+                        styledScrollbars
+                        innerClassName="primitive-menu-content-inner"
+                    >
+                        {children}
+                    </ScrollableShadows>
+                </DropdownMenuPrimitive.Content>
+            </DropdownMenuPrimitive.Portal>
+        )
+    }
+)
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName
 
 const DropdownMenuItem = React.forwardRef<
@@ -105,7 +133,7 @@ const DropdownMenuItem = React.forwardRef<
         inset?: boolean
     }
 >(({ className, inset, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+    return <DropdownMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
 })
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName
 
@@ -151,7 +179,7 @@ const DropdownMenuLabel = React.forwardRef<
     }
 >(
     ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-8', className)} asChild {...props}>
+        <DropdownMenuPrimitive.Label ref={ref} className={cn('px-2', inset && 'pl-7', className)} asChild {...props}>
             <Label intent="menu">{children}</Label>
         </DropdownMenuPrimitive.Label>
     )

@@ -5,6 +5,7 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
+import { HOG_FUNCTION_TEMPLATES } from '../templates'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 
 const HOG_FUNCTION_FIELDS = [
@@ -60,6 +61,23 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
     })
 }
 
+const isAddonRequired = (hogFunction: HogFunctionType): boolean => {
+    if (typeof hogFunction.is_addon_required === 'boolean') {
+        // Don't double check
+        return hogFunction.is_addon_required
+    }
+
+    if (hogFunction.type !== 'destination') {
+        // Only destinations are part of the paid plan
+        return false
+    }
+
+    // TODO: ensure all free-templates are moved to the templates here
+    // FUTURE: When we move templates fully to the DB we should be loading it from there
+    const template = HOG_FUNCTION_TEMPLATES.find((t) => t.id === hogFunction.template_id)
+    return template?.free !== true
+}
+
 export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
@@ -74,6 +92,7 @@ export class HogFunctionManagerService {
                 const { integrationIds } = parseJSON(message) as {
                     integrationIds: IntegrationType['id'][]
                 }
+                logger.info('⚡', '[PubSub] Reloading integrations!', { integrationIds })
                 this.onIntegrationsReloaded(integrationIds)
             },
             'reload-hog-functions': (message) => {
@@ -81,11 +100,7 @@ export class HogFunctionManagerService {
                     teamId: Team['id']
                     hogFunctionIds: HogFunctionType['id'][]
                 }
-
-                logger.info('[HogFunctionManager]', 'Marking hog functions for refresh', {
-                    teamId,
-                    hogFunctionIds,
-                })
+                logger.info('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
                 this.onHogFunctionsReloaded(teamId, hogFunctionIds)
             },
         })
@@ -123,16 +138,9 @@ export class HogFunctionManagerService {
             return acc
         }, {})
 
-        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
-
-        if (!teamHogFunctions) {
-            return result
-        }
-
-        const hogFunctionIds = Object.values(teamHogFunctions).flatMap(
-            (teamFns) => teamFns?.filter((fn) => types.includes(fn.type)).map((fn) => fn.id) ?? []
-        )
-        const hogFunctions = await this.lazyLoader.getMany(hogFunctionIds)
+        const teamHogFunctionIds = await this.getHogFunctionIdsForTeams(teamIds, types)
+        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+        const hogFunctions = await this.lazyLoader.getMany(allHogFunctionIds)
 
         for (const fn of Object.values(hogFunctions)) {
             if (!fn) {
@@ -145,6 +153,31 @@ export class HogFunctionManagerService {
         for (const [teamId, fns] of Object.entries(result)) {
             result[parseInt(teamId)] = sortHogFunctions(fns)
         }
+
+        return result
+    }
+
+    public async getHogFunctionIdsForTeams(
+        teamIds: Team['id'][],
+        types: HogFunctionTypeType[]
+    ): Promise<Record<Team['id'], string[]>> {
+        const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
+            acc[teamId] = []
+            return acc
+        }, {})
+
+        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
+
+        if (!teamHogFunctions) {
+            return result
+        }
+
+        // For each team, filter functions by type and collect their IDs
+        Object.entries(teamHogFunctions).forEach(([teamId, teamFns]) => {
+            if (teamFns) {
+                result[parseInt(teamId)] = teamFns.filter((fn) => types.includes(fn.type)).map((fn) => fn.id)
+            }
+        })
 
         return result
     }
@@ -245,6 +278,9 @@ export class HogFunctionManagerService {
 
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
+            item.is_addon_required = isAddonRequired(item)
+
+            // Decrypt inputs
             const encryptedInputs = item.encrypted_inputs
 
             if (!Array.isArray(item.inputs_schema)) {
@@ -321,19 +357,16 @@ export class HogFunctionManagerService {
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
-                // Decrypt the sensitive config here
-                return {
-                    ...acc,
-                    [`${integration.team_id}:${integration.id}`]: {
-                        ...integration.config,
-                        ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
-                            ignoreDecryptionErrors: true,
-                        }),
-                        integrationId: integration.id,
-                    },
+                acc[`${integration.team_id}:${integration.id}`] = {
+                    ...integration.config,
+                    ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
+                        ignoreDecryptionErrors: true,
+                    }),
+                    integrationId: integration.id,
                 }
+                return acc
             },
-            {}
+            {} as Record<string, Record<string, any>>
         )
         logger.info('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
 

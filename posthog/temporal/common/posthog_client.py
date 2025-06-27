@@ -28,7 +28,7 @@ async def _add_inputs_to_properties(
         await logger.awarning(
             "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
         )
-        capture_exception(e)
+        capture_exception(e, properties=properties)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):

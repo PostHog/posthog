@@ -7,7 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -129,7 +129,7 @@ export function PersonScene(): JSX.Element | null {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
@@ -219,11 +219,12 @@ export function PersonScene(): JSX.Element | null {
                                 query={{
                                     kind: NodeKind.DataTableNode,
                                     full: true,
-                                    hiddenColumns: ['person'],
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
                                     source: {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         personId: person.id,
+                                        where: ["notEquals(event, '$exception')"],
                                         after: '-24h',
                                     },
                                 }}
@@ -265,6 +266,27 @@ export function PersonScene(): JSX.Element | null {
                                     />
                                 </div>
                             </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    full: true,
+                                    showEventFilter: false,
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        personId: person.id,
+                                        event: '$exception',
+                                        after: '-24h',
+                                    },
+                                }}
+                            />
                         ),
                     },
                     {

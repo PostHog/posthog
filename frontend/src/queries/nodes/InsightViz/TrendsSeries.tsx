@@ -92,6 +92,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.DataWarehouse,
                 ]}
                 hideDeleteBtn={series?.length === 1}
+                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
         </>
     )

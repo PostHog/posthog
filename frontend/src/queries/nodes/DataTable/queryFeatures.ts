@@ -5,6 +5,8 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
@@ -90,11 +92,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
-        isWebGoalsQuery(query)
+        isWebGoalsQuery(query) ||
+        isRevenueAnalyticsGrowthRateQuery(query) ||
+        isRevenueAnalyticsTopCustomersQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isTracesQuery(query)) {

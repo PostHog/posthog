@@ -90,8 +90,8 @@ export function PageReports(): JSX.Element {
     }
 
     return (
-        <div className="space-y-2 mt-2">
-            <Tiles tiles={tiles} />
+        <div className="space-y-2 mt-2 h-full min-h-0">
+            <Tiles tiles={tiles} compact={true} />
         </div>
     )
 }

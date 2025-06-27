@@ -54,6 +54,9 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub sourcemap_timeout_seconds: u64,
 
+    #[envconfig(default = "5")]
+    pub sourcemap_connect_timeout_seconds: u64,
+
     #[envconfig(default = "100000000")] // 100MB - in prod, we should use closer to 1-10GB
     pub symbol_store_cache_max_bytes: usize,
 
@@ -105,6 +108,20 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub max_team_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub assignment_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_assignment_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub grouping_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_grouping_rule_cache_size: u64,
+
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
 
@@ -116,6 +133,9 @@ pub struct Config {
 
     #[envconfig(default = "out")]
     pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
+
+    #[envconfig(default = "false")]
+    pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
 }
 
 impl Config {

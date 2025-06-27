@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -58,7 +59,7 @@ import {
     isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
-    isHogQlAggregation,
+    isHogQLAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
     isRevenueExampleEventsQuery,
@@ -76,7 +77,7 @@ interface DataTableProps {
     uniqueKey?: string | number
     query: DataTableNode
     setQuery: (query: DataTableNode) => void
-    /** Custom table columns */
+    /** Custom table columns and export configuration */
     context?: QueryContext<DataTableNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
@@ -136,6 +137,14 @@ export function DataTable({
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
+    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
+    const usedWebAnalyticsPreAggregatedTables =
+        canUseWebAnalyticsPreAggregatedTables &&
+        response &&
+        'usedPreAggregatedTables' in response &&
+        response.usedPreAggregatedTables &&
+        response?.hogql
+
     const dataTableLogicProps: DataTableLogicProps = {
         query,
         vizKey,
@@ -182,7 +191,12 @@ export function DataTable({
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
+            render: function RenderDataTableColumn(
+                _: any,
+                { result, label }: DataTableRow,
+                recordIndex: number,
+                rowCount: number
+            ) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -193,9 +207,9 @@ export function DataTable({
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, rowCount, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, rowCount, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -226,7 +240,7 @@ export function DataTable({
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
                                     setQuery({
@@ -299,7 +313,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery({
@@ -330,7 +344,7 @@ export function DataTable({
                                     ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
                                     const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                     setQuery?.({
@@ -446,7 +460,12 @@ export function DataTable({
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
-            <GroupsSearch key="groups-search" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <GroupsSearch
+                key="groups-search"
+                query={query.source as GroupsQuery}
+                setQuery={setQuerySource}
+                groupTypeLabel={context?.groupTypeLabel}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
@@ -487,7 +506,14 @@ export function DataTable({
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
-        showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
+        showExport ? (
+            <DataTableExport
+                key="data-table-export"
+                query={query}
+                setQuery={setQuery}
+                fileNameForExport={context?.fileNameForExport}
+            />
+        ) : null,
         showExport && showOpenEditorButton ? (
             <DataTableOpenEditor key="data-table-open-editor" query={query} setQuery={setQuery} />
         ) : null,
@@ -500,7 +526,7 @@ export function DataTable({
     const editorButton = (
         <>
             <OpenEditorButton query={query} />
-            {response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
+            {response && 'hogql' in response && response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
         </>
     )
 
@@ -512,7 +538,6 @@ export function DataTable({
             secondRowRight.push(editorButton)
         }
     }
-
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -540,7 +565,9 @@ export function DataTable({
                     {showResultsTable && (
                         <LemonTable
                             data-attr={dataAttr}
-                            className="DataTable"
+                            className={clsx('DataTable', {
+                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
+                            })}
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
                             embedded={embedded}
@@ -565,7 +592,7 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? (response as any).error
+                                                    ? response.error
                                                     : responseError
                                             }
                                         />

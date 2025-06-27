@@ -1,0 +1,9 @@
+["_H", 1, 32, "__hx_ast", 32, "Field", 32, "chain", 32, "event", 43, 1, 42, 2, 32, "__hx_ast", 32, "Field", 32, "chain",
+32, "uuid", 43, 1, 42, 2, 33, 3, 32, "__hx_ast", 32, "SelectQuery", 32, "select", 32, "__hx_ast", 32, "Field", 32,
+"chain", 32, "*", 43, 1, 42, 2, 33, 0, 36, 2, 13, 40, 4, 36, 0, 39, 2, 36, 1, 43, 2, 32, "select_from", 32, "__hx_ast",
+32, "JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "events", 43, 1, 42, 2, 42, 2, 42, 3, 36, 3,
+2, "print", 1, 35, 36, 3, 32, "select", 45, 2, "print", 1, 35, 32, "$pageview", 32, "__hx_ast", 32, "SelectQuery", 32,
+"select", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "*", 43, 1, 42, 2, 43, 1, 32, "select_from", 32, "__hx_ast", 32,
+"JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "events", 43, 1, 42, 2, 42, 2, 32, "where", 32,
+"__hx_ast", 32, "CompareOperation", 32, "left", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "event", 43, 1, 42, 2, 32,
+"right", 36, 4, 32, "op", 32, "==", 42, 4, 42, 4, 36, 5, 2, "print", 1, 35, 35, 35, 35, 35, 35, 35]

@@ -13,7 +13,7 @@ import { ReplayTabs } from '~/types'
 import { recordingPlaylists } from './__mocks__/recording_playlists'
 
 const meta: Meta = {
-    title: 'Replay/Listings',
+    title: 'Replay/Tabs/Collections',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

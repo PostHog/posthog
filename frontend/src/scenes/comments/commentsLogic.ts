@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -7,10 +7,12 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
+import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
     item_id?: CommentType['item_id']
+    disabled?: boolean
 }
 
 export type CommentWithRepliesType = {
@@ -29,7 +31,10 @@ export const commentsLogic = kea<commentsLogicType>([
     props({} as CommentsLogicProps),
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
-    // TODO: Connect to sidePanelDiscussionLogic and update the commentCount
+    connect(() => ({
+        actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
+    })),
+
     actions({
         loadComments: true,
         maybeLoadComments: true,
@@ -164,6 +169,9 @@ export const commentsLogic = kea<commentsLogicType>([
             if (!values.comments && !values.commentsLoading) {
                 actions.loadComments()
             }
+        },
+        sendComposedContentSuccess: () => {
+            actions.incrementCommentCount()
         },
     })),
 

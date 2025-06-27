@@ -17,6 +17,7 @@ import { surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
+    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyTemplates(): JSX.Element {
@@ -85,6 +86,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     ...template.appearance,
                                                     ...surveyAppearance,
                                                     disabledButtonOpacity: '1',
+                                                    maxWidth: '300px',
                                                 },
                                             } as Survey
                                         }

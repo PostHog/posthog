@@ -14,6 +14,7 @@ from posthog.schema import (
     AutocompleteCompletionItemKind,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
@@ -435,6 +436,40 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "some_table" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_warehouse_table_with_source_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSource.Type.STRIPE)
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="some_table",
+            format="CSV",
+            url_pattern="http://localhost/file.csv",
+            credential=credentials,
+            external_data_source=source,
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSource.Type.STRIPE, prefix="prefix"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="some_table",
+            format="CSV",
+            url_pattern="http://localhost/file.csv",
+            credential=credentials,
+            external_data_source=source,
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "stripe.prefix.some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

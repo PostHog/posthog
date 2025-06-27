@@ -36,4 +36,8 @@ Run it!
 go run .
 ```
 
+## Notice
+If modifying fields with `//easyjson:json` comment, one must regenerate the easyjson marshaller / unmarshaller.
+It requires to install: `go install github.com/mailru/easyjson/...@latest`
+
 [sse-moz]: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events

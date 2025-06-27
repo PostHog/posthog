@@ -76,6 +76,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -107,6 +108,9 @@ function InsightCardInternal(
         doNotLoad,
         variablesOverride,
         children,
+        noCache,
+        breakdownColorOverride: _breakdownColorOverride,
+        dataColorThemeId: _dataColorThemeId,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -147,11 +151,11 @@ function InsightCardInternal(
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
+            style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={mergedRefs}
         >
             {isVisible ? (
-                <ErrorBoundary tags={{ feature: 'insight' }}>
+                <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
                             insight={insight}
@@ -176,7 +180,7 @@ function InsightCardInternal(
                         <div className="InsightCard__viz">
                             <Query
                                 query={insight.query}
-                                cachedResults={insight}
+                                cachedResults={noCache ? undefined : insight}
                                 context={{
                                     insightProps: insightLogicProps,
                                 }}

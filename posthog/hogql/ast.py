@@ -537,6 +537,7 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -853,13 +854,17 @@ SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DIS
 
 
 @dataclass(kw_only=True)
-class SelectSetNode:
+class SelectSetNode(AST):
     select_query: Union[SelectQuery, "SelectSetQuery"]
     set_operator: SetOperator
 
     def __post_init__(self):
         if self.set_operator not in get_args(SetOperator):
             raise ValueError("Invalid Set Operator")
+
+    # This is part of the visitor pattern from visitor.py, so we can visit and copy the SelectSetNode
+    def accept(self, visitor):
+        return visitor.visit_select_set_node(self)
 
 
 @dataclass(kw_only=True)
@@ -875,6 +880,9 @@ class SelectSetQuery(Expr):
     def create_from_queries(
         cls, queries: Sequence[Union[SelectQuery, "SelectSetQuery"]], set_operator: SetOperator
     ) -> "SelectSetQuery":
+        if len(queries) == 0:
+            raise ValueError("Cannot create a SelectSetQuery from an empty list of queries")
+
         return SelectSetQuery(
             initial_select_query=queries[0],
             subsequent_select_queries=[

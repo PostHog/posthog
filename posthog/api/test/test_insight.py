@@ -3468,3 +3468,79 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
+
+    def test_create_insight_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": "My test insight in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Subfolder",
+                "saved": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        insight_id = response.json()["short_id"]
+
+        assert insight_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(insight_id), type="insight").first()
+        assert fs_entry is not None
+        assert "Special Folder/Subfolder" in fs_entry.path
+
+    def test_insight_with_variables_match_existing_variables(self):
+        """Test that variables on insights are always referencing existing variables"""
+
+        # Create an insight with a DataVisualizationNode query that references a fake variable
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.test_var}",
+                    "variables": {
+                        "123e4567-e89b-12d3-a456-426614174000": {
+                            "code_name": "test_var",
+                            "variableId": "123e4567-e89b-12d3-a456-426614174000",
+                        }
+                    },
+                },
+                "display": "ActionsTable",
+                "chartSettings": {"seriesBreakdownColumn": None},
+                "tableSettings": {"conditionalFormatting": []},
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # only one variable should be included
+        self.assertEqual(len(response_data["query"]["source"]["variables"]), 0)
+
+        variable = InsightVariable.objects.create(team=self.team, code_name="test_var", name="Test Variable")
+
+        # # Get the insight via the API
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        # # Verify both variables are properly included in the response
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # # Check that the variable properties are included
+        variable_id = str(variable.id)
+        self.assertIn(variable_id, response_data["query"]["source"]["variables"])
+        variable_data = response_data["query"]["source"]["variables"][variable_id]
+        self.assertEqual(variable_data["code_name"], "test_var")
+        self.assertEqual(variable_data["variableId"], variable_id)

@@ -1,23 +1,26 @@
 import { LogicWrapper } from 'kea'
 
-import { ActivityScope } from '~/types'
+import { AccessControlResourceType, ActivityScope } from '~/types'
+
+import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
     Error404 = '404',
+    ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     RevenueAnalytics = 'RevenueAnalytics',
     Cohort = 'Cohort',
@@ -88,12 +91,25 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Links = 'Links',
+    Link = 'Link',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
-    MessagingCampaigns = 'MessagingCampaigns',
-    MessagingProviders = 'MessagingProviders',
-    MessagingBroadcasts = 'MessagingBroadcasts',
-    MessagingLibrary = 'MessagingLibrary',
+    Messaging = 'Messaging',
+    MessagingCampaign = 'MessagingCampaign',
     Wizard = 'Wizard',
+    StartupProgram = 'StartupProgram',
+    OAuthAuthorize = 'OAuthAuthorize',
+    HogFunction = 'HogFunction',
+    DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
+    DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceNew = 'DataWarehouseSourceNew',
+    LegacyPlugin = 'LegacyPlugin',
+    BatchExport = 'BatchExport',
+    BatchExportNew = 'BatchExportNew',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>
@@ -105,6 +121,8 @@ export interface SceneExport {
     component: SceneComponent
     /** logic to mount for this scene */
     logic?: LogicWrapper
+    /** setting section id to open when clicking the settings button */
+    settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => SceneProps
     /** when was the scene last touched, unix timestamp for sortability */
@@ -159,4 +177,23 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+}
+
+// Map scenes to their access control resource types
+export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Feature flags
+    [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
+    [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
+
+    // Dashboards
+    [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.Dashboards]: AccessControlResourceType.Dashboard,
+
+    // Insights
+    [Scene.Insight]: AccessControlResourceType.Insight,
+    [Scene.SavedInsights]: AccessControlResourceType.Insight,
+
+    // Notebooks
+    [Scene.Notebook]: AccessControlResourceType.Notebook,
+    [Scene.Notebooks]: AccessControlResourceType.Notebook,
 }

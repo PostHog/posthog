@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import fetch, { FetchError } from 'node-fetch'
+import { fetch } from 'undici'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
@@ -35,9 +35,7 @@ describe('hooks', () => {
             hookCommander = new HookCommander(
                 {} as any,
                 {} as any,
-                {} as any,
-                // @ts-expect-error - we don't need the whole Hook object
-                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
+                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) } as any,
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
                 20000
             )
@@ -48,12 +46,9 @@ describe('hooks', () => {
 
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/",
-                  {
-                    "body": "{
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
                     "hook": {
                         "id": "id",
                         "event": "foo",
@@ -65,14 +60,7 @@ describe('hooks', () => {
                         "elementsList": [],
                         "person": {}
                     }
-                }",
-                    "headers": {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
@@ -98,12 +86,9 @@ describe('hooks', () => {
             )
             expect(fetch).toHaveBeenCalledTimes(1)
 
-            // @ts-expect-error mock exists because we mock it ourselves
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/",
-                  {
-                    "body": "{
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
                     "hook": {
                         "id": "id",
                         "event": "foo",
@@ -125,26 +110,23 @@ describe('hooks', () => {
                             "created_at": "2024-01-01T00:00:00.000Z"
                         }
                     }
-                }",
-                    "headers": {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
         test('private IP hook forbidden in prod', async () => {
             process.env.NODE_ENV = 'production'
 
-            await expect(
-                hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
+            const err = await hookCommander
+                .postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
                     ...hook,
-                    target: 'http://127.0.0.1',
+                    target: 'http://localhost:8000',
                 })
-            ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
+                .catch((err) => err)
+
+            expect(err.name).toBe('TypeError')
+            expect(err.cause.name).toBe('SecureRequestError')
+            expect(err.cause.message).toContain('Internal hostname')
         })
     })
 })

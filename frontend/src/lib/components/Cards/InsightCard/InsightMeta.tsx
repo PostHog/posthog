@@ -23,6 +23,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isDataVisualizationNode } from '~/queries/utils'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -72,7 +73,7 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const { short_id, query, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps } = useValues(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
@@ -100,7 +101,7 @@ export function InsightMeta({
             refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading query={insight.query} />}
+            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
                     link={urls.insightView(short_id, dashboardId, variablesOverride)}
@@ -111,7 +112,9 @@ export function InsightMeta({
                     tags={insight.tags}
                 />
             }
-            metaDetails={<InsightDetails query={insight.query} footerInfo={insight} />}
+            metaDetails={
+                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+            }
             samplingFactor={samplingFactor}
             moreButtons={
                 <>
@@ -187,7 +190,14 @@ export function InsightMeta({
                     )}
                     <LemonDivider />
                     {editable && (
-                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
+                        <LemonButton
+                            to={
+                                isDataVisualizationNode(query)
+                                    ? urls.sqlEditor(undefined, undefined, short_id)
+                                    : urls.insightEdit(short_id)
+                            }
+                            fullWidth
+                        >
                             Edit
                         </LemonButton>
                     )}

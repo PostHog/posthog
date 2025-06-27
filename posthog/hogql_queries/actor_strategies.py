@@ -1,6 +1,7 @@
 from typing import cast, Literal, Optional
 
 from django.db import connection
+from django.db import connections
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -54,7 +55,10 @@ class PersonStrategy(ActorStrategy):
             AND posthog_person.team_id = %(team_id)s"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
-        with connection.cursor() as cursor:
+
+        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
+
+        with conn.cursor() as cursor:
             cursor.execute(
                 persons_query,
                 {"uuids": list(actor_ids), "team_id": self.team.pk},

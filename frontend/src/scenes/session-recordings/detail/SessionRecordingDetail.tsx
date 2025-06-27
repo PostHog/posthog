@@ -1,7 +1,6 @@
 import './SessionRecordingScene.scss'
 
 import { useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -22,6 +21,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof sessionRecordingDetailLogic)['props'] => ({
         id,
     }),
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
@@ -32,7 +32,6 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps 
 
     return (
         <div className="SessionRecordingScene">
-            <PageHeader />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <LemonBanner type="info">

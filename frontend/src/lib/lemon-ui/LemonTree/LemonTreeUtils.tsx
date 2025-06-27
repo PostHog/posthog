@@ -1,61 +1,103 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
+import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
-const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 
-type CheckboxProps = {
+type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
-    expandedItemIds: string[]
-    enableMultiSelection?: boolean
-    handleCheckedChange?: (checked: boolean) => void
+    style?: CSSProperties
+    handleCheckedChange?: (checked: boolean, shift: boolean) => void
+    className?: string
 }
 
-// Render an icon or checkbox
-export function renderTreeNodeDisplayCheckbox({
+export const TreeNodeDisplayCheckbox = ({
     item,
-    enableMultiSelection = false,
     handleCheckedChange,
-}: CheckboxProps): JSX.Element {
-    const isChecked = !!item.checked
+    style,
+    className,
+}: TreeNodeDisplayCheckboxProps): JSX.Element => {
+    const isChecked = item.checked
 
     return (
-        <>
-            {((enableMultiSelection && !item.disableSelect) || isChecked) && (
-                <div className={cn(ICON_CLASSES, 'z-3 relative')}>
-                    <LemonCheckbox
-                        className="size-5 ml-[2px]"
-                        checked={item.checked ?? false}
-                        onChange={(checked) => {
-                            handleCheckedChange?.(checked)
-                        }}
-                    />
-                </div>
-            )}
-        </>
+        <div
+            className={cn('size-5', className)}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={style}
+        >
+            <div className={ICON_CLASSES}>
+                <LemonCheckbox
+                    className={cn(
+                        'size-5 ml-[2px] starting:opacity-0 starting:-translate-x-2 translate-x-0 opacity-100 motion-safe:transition-all [transition-behavior:allow-discrete] duration-100',
+                        {
+                            // Hide the checkbox if...
+                            // - the item is disabled from being checked AND
+                            // - the item is a folder
+                            // - or, the item is a loading indicator
+                            // - or, the item is an empty folder
+                            hidden:
+                                item.disableSelect &&
+                                (item.record?.type === 'folder' ||
+                                    item.type === 'loading-indicator' ||
+                                    item.type === 'empty-folder'),
+                        }
+                    )}
+                    checked={isChecked ?? false}
+                    onChange={(checked, event) => {
+                        // Just in case
+                        if (item.disableSelect) {
+                            return
+                        }
+                        let shift = false
+                        if (event.nativeEvent && 'shiftKey' in event.nativeEvent) {
+                            shift = !!(event.nativeEvent as PointerEvent).shiftKey
+                            if (shift) {
+                                event.stopPropagation()
+                            }
+                        }
+                        handleCheckedChange?.(checked, shift)
+                    }}
+                />
+            </div>
+        </div>
     )
 }
 
-type IconProps = {
+type TreeNodeDisplayIconProps = {
     item: TreeDataItem
     expandedItemIds: string[]
     defaultNodeIcon?: React.ReactNode
+    defaultFolderIcon?: React.ReactNode
+    size?: 'default' | 'narrow'
 }
 
 // Get display item for the tree node
 // This is used to render the tree node in the tree view
-export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
+export const TreeNodeDisplayIcon = ({
+    item,
+    expandedItemIds,
+    defaultNodeIcon,
+    defaultFolderIcon,
+    size = 'default',
+}: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
-    const isFolder = item.record?.type === 'folder'
+    const isFolder = item.record?.type === 'folder' || (item.children && item.children.length > 0)
+    const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
-    if (isFolder) {
-        iconElement = isOpen ? <IconFolderOpen /> : <IconFolder />
+    // use provided icon as the default icon for folder nodes
+    if (isFolder && !item.icon) {
+        iconElement = defaultFolderIcon ? defaultFolderIcon : isOpen ? <IconFolderOpenFilled /> : <IconFolder />
+    }
+
+    if (isEmptyFolder) {
+        iconElement = <IconCircleDashed />
     }
 
     if (isFile) {
@@ -63,7 +105,11 @@ export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIc
     }
 
     return (
-        <div className="flex gap-1 relative group/lemon-tree-icon-group [&_svg]:size-4">
+        <div
+            className={cn('h-[var(--lemon-tree-button-height)] flex gap-1 relative items-start ', {
+                '-ml-px': size === 'default',
+            })}
+        >
             {isFolder && (
                 <div
                     className={cn(
@@ -81,7 +127,7 @@ export function renderTreeNodeDisplayIcon({ item, expandedItemIds, defaultNodeIc
                         'text-tertiary': item.disabledReason,
                         'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
-                    'transition-opacity duration-150'
+                    'transition-opacity duration-150 top-[var(--lemon-tree-button-icon-offset-top)]'
                 )}
             >
                 {iconElement}
@@ -104,7 +150,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         attributes,
         listeners: originalListeners,
         setNodeRef,
-        transform,
     } = useDraggable({
         id: props.id,
     })
@@ -124,21 +169,11 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
           )
         : {}
 
-    const style = transform
-        ? {
-              transform: CSS.Translate.toString(transform),
-              zIndex: props.enableDragging ? 10 : undefined,
-              opacity: props.enableDragging ? 0.5 : 1,
-          }
-        : undefined
-
     return (
         // Apply transform to the entire container and make it the drag reference
         <div
             className={cn('relative w-full', props.className)}
             ref={setNodeRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
             {...(props.enableDragging ? listeners : {})}
         >
             <div
@@ -157,6 +192,9 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
 type DroppableProps = DragAndDropProps & {
     isDroppable: boolean
     className?: string
+    isDragging?: boolean
+    isRoot?: boolean
+    style?: CSSProperties
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
@@ -166,12 +204,93 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         <div
             ref={setNodeRef}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded',
+                'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                // If the item is a root item and it's dragging, make it take up the full height
+                props.isRoot && props.isDragging && 'h-full'
             )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={props.style}
         >
             {props.children}
         </div>
+    )
+}
+
+export const InlineEditField = ({
+    value,
+    handleSubmit,
+    style,
+    className,
+    children,
+    inputStyle,
+}: {
+    value: string
+    style?: CSSProperties
+    handleSubmit: (value: string) => void
+    className?: string
+    children: React.ReactNode
+    inputStyle?: CSSProperties
+}): JSX.Element => {
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus()
+                inputRef.current.select()
+            }
+        }, 100)
+        return () => clearTimeout(timeout)
+    }, [])
+
+    function onSubmit(e: React.FormEvent<HTMLFormElement>): void {
+        e.preventDefault()
+        handleSubmit(inputRef.current?.value || '')
+    }
+
+    function handleBlur(): void {
+        handleSubmit(inputRef.current?.value || '')
+    }
+
+    return (
+        <form
+            onSubmit={onSubmit}
+            className={cn(
+                buttonPrimitiveVariants({ menuItem: true, size: 'base', hasSideActionRight: true }),
+                className,
+                'bg-fill-button-tertiary-active pl-px'
+            )}
+        >
+            {/* Spacer to offset button padding */}
+            <div
+                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={style}
+            />
+
+            {children}
+            <input
+                ref={inputRef}
+                type="text"
+                defaultValue={value}
+                onBlur={handleBlur}
+                autoFocus
+                className="w-full"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={inputStyle}
+                onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleSubmit(inputRef.current?.value || '')
+                    }
+                    if (e.key === 'Escape') {
+                        handleSubmit(value)
+                    }
+                }}
+            />
+        </form>
     )
 }

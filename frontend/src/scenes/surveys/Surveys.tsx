@@ -1,4 +1,3 @@
-import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -18,30 +17,29 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog, SurveySettings } from './SurveySettings'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
+import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
 export function Surveys(): JSX.Element {
@@ -53,9 +51,7 @@ export function Surveys(): JSX.Element {
         surveysResponsesCountLoading,
         searchTerm,
         filters,
-        showSurveysDisabledBanner,
         tab,
-        globalSurveyAppearanceConfigAvailable,
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
@@ -64,15 +60,16 @@ export function Surveys(): JSX.Element {
         useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
+                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                            Have any questions or feedback?
+                        </LemonButton>
                         <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
@@ -94,22 +91,26 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
+                className="flex gap-2 justify-between items-center min-w-full"
                 caption={
                     <>
-                        Check out our
-                        <Link
-                            data-attr="survey-help"
-                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                            target="_blank"
-                        >
-                            {' '}
-                            surveys docs
-                        </Link>{' '}
-                        to learn more.
+                        <div>
+                            Check out our
+                            <Link
+                                data-attr="survey-help"
+                                to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                                target="_blank"
+                            >
+                                {' '}
+                                surveys docs
+                            </Link>{' '}
+                            to learn more.
+                        </div>
                     </>
                 }
                 tabbedPage
             />
+            <SurveysDisabledBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
@@ -118,27 +119,14 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
-                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        logicKey="surveys"
-                        type="destination"
-                        subTemplateId="survey-response"
-                        filters={{
-                            events: [
-                                {
-                                    id: 'survey sent',
-                                    type: 'events',
-                                    order: 0,
-                                },
-                            ],
-                        }}
-                    />
+                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
             )}
 
@@ -148,22 +136,6 @@ export function Surveys(): JSX.Element {
                 <>
                     <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
-
-                        {showSurveysDisabledBanner ? (
-                            <LemonBanner
-                                type="warning"
-                                action={{
-                                    type: 'secondary',
-                                    icon: <IconGear />,
-                                    onClick: () => openSurveysSettingsDialog(),
-                                    children: 'Configure',
-                                }}
-                                className="mb-2"
-                            >
-                                Survey popovers are currently disabled for this {settingLevel}. Re-enable them in the
-                                settings, otherwise surveys will not be visible.
-                            </LemonBanner>
-                        ) : null}
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
@@ -179,14 +151,14 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex flex-wrap justify-between gap-2 mb-4">
+                                <div className="flex flex-wrap gap-2 justify-between mb-4">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
                                         onChange={setSearchTerm}
                                         value={searchTerm || ''}
                                     />
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex gap-2 items-center">
                                         <span>
                                             <b>Status</b>
                                         </span>
@@ -279,6 +251,9 @@ export function Surveys(): JSX.Element {
                                     {
                                         dataIndex: 'type',
                                         title: 'Mode',
+                                        render: function RenderType(_, survey) {
+                                            return SURVEY_TYPE_LABEL_MAP[survey.type]
+                                        },
                                     },
                                     {
                                         title: 'Question type',
@@ -350,7 +325,7 @@ export function Surveys(): JSX.Element {
                                                                     Launch survey
                                                                 </LemonButton>
                                                             )}
-                                                            {survey.start_date && !survey.end_date && (
+                                                            {isSurveyRunning(survey) && (
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {

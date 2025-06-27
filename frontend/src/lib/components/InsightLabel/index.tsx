@@ -48,8 +48,8 @@ interface InsightsLabelProps {
 
 interface MathTagProps {
     math: string | undefined
-    mathProperty: string | undefined
-    mathHogQL: string | undefined
+    mathProperty: string | undefined | null
+    mathHogQL: string | undefined | null
     mathGroupTypeIndex: number | null | undefined
 }
 
@@ -165,12 +165,14 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathHogQL={action?.math_hogql}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <div className="flex flex-nowrap items-center gap-x-1">
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathHogQL={action?.math_hogql}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </div>
                     )}
 
                     {pillValues.length > 0 && (

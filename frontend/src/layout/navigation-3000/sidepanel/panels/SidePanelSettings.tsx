@@ -17,7 +17,7 @@ export const SidePanelSettings = (): JSX.Element => {
 
     const settingsLogicProps: SettingsLogicProps = {
         ...settings,
-        logicKey: 'sidepanel',
+        logicKey: `sidepanel:${settings.sectionId}`,
     }
     const { selectedSectionId, selectedLevel } = useValues(settingsLogic(settingsLogicProps))
 
@@ -26,14 +26,11 @@ export const SidePanelSettings = (): JSX.Element => {
             sectionId: selectedSectionId ?? undefined,
             settingLevelId: selectedLevel,
         })
-    }, [selectedSectionId, selectedLevel])
+    }, [selectedSectionId, selectedLevel, setSettings])
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <SidePanelPaneHeader>
-                <span className="flex-1 px-2 font-semibold text-base truncate">
-                    {capitalizeFirstLetter(selectedLevel)} settings
-                </span>
+            <SidePanelPaneHeader title={`${capitalizeFirstLetter(selectedLevel)} settings`}>
                 <LemonButton
                     size="small"
                     to={urls.settings(settings.sectionId ?? settings.settingLevelId, settings.settingId)}

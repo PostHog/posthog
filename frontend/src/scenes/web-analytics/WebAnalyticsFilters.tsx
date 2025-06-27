@@ -68,6 +68,8 @@ export const WebAnalyticsFilters = (): JSX.Element => {
 const FoldableFilters = (): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
+        preAggregatedEnabled,
+        productTab,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
@@ -76,13 +78,13 @@ const FoldableFilters = (): JSX.Element => {
             <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <WebAnalyticsCompareFilter />
 
-            <WebConversionGoal />
+            {!preAggregatedEnabled && <WebConversionGoal />}
             <TableSortingIndicator />
 
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            <WebPropertyFilters />
+            {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
         </div>
     )
 }

@@ -21,7 +21,7 @@ def test_salesforce_refresh_access_token_raises_on_client_failure():
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
-        _ = auth.salesforce_refresh_access_token("something")
+        _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert exc.value.response == response
     assert "Client Error" in str(exc.value)
@@ -43,7 +43,7 @@ def test_salesforce_refresh_access_token_raises_on_server_failure():
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
-        _ = auth.salesforce_refresh_access_token("something")
+        _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert exc.value.response == response
     assert "Server Error" in str(exc.value)
@@ -65,7 +65,7 @@ def test_get_salesforce_access_token_from_code_raises_on_client_failure():
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
-        _ = auth.get_salesforce_access_token_from_code("something", "something")
+        _ = auth.get_salesforce_access_token_from_code("something", "something", "https://login.salesforce.com")
 
     assert exc.value.response == response
     assert "Client Error" in str(exc.value)
@@ -87,7 +87,7 @@ def test_get_salesforce_access_token_from_code_raises_on_server_failure():
         ),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
-        _ = auth.get_salesforce_access_token_from_code("something", "something")
+        _ = auth.get_salesforce_access_token_from_code("something", "something", "https://login.salesforce.com")
 
     assert exc.value.response == response
     assert "Server Error" in str(exc.value)

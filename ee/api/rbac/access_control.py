@@ -9,7 +9,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.documentation import extend_schema
 
 from ee.models.rbac.access_control import AccessControl
-from posthog.models.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -89,9 +89,47 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
-    # Adds an "access_controls" action to the viewset that handles access control for the given resource
     # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
     # as the current users access level to any response.
+    # This mixin does:
+    #    1. Adds an "access_controls" action to the viewset that handles access control for the given resource.
+    #    2. Adds user access control information to list responses without modifying the pagination behavior.
+
+    # We decided to go with the resource access level in the context of the app instead but we're
+    # keeping this here in case it would be helpful in the future.
+    # def get_paginated_response_with_access_control(self, data):
+    #     """
+    #     Returns a paginated response with user access level for the resource added.
+    #     """
+    #     response = self.get_paginated_response(data)
+
+    #     resource_type = getattr(self, "scope_object", None)
+    #     if resource_type and hasattr(self, "user_access_control"):
+    #         response_data = {
+    #             **response.data,
+    #             "user_access_level": self.user_access_control.access_level_for_resource(resource_type),
+    #         }
+    #         return Response(response_data)
+
+    #     return response
+
+    # def get_list_response_with_access_control(self, queryset):
+    #     page = self.paginate_queryset(queryset)
+    #     if page is not None:
+    #         serializer = self.get_serializer(page, many=True)
+    #         return self.get_paginated_response_with_access_control(serializer.data)
+
+    #     serializer = self.get_serializer(queryset, many=True)
+    #     return Response(serializer.data)
+
+    # def list(self, request, *args, **kwargs):
+    #     """
+    #     Note: this overrides the default list method to add user access control information to the response. If you
+    #     need to override this method, you can call "get_list_response_with_access_control" directly in your
+    #     own implementation of the list method.
+    #     """
+    #     queryset = self.filter_queryset(self.get_queryset())
+    #     return self.get_list_response_with_access_control(queryset)
 
     # 1. Know that the project level access is covered by the Permission check
     # 2. Get the actual object which we can pass to the serializer to check if the user created it

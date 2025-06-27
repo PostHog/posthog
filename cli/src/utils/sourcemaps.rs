@@ -64,8 +64,12 @@ pub struct ChunkUpload {
 }
 
 impl SourcePair {
+    pub fn has_chunk_id(&self) -> bool {
+        self.chunk_id.is_some()
+    }
+
     pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
-        if self.chunk_id.is_some() {
+        if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
         let (new_source_content, source_adjustment) = {
@@ -99,8 +103,18 @@ impl SourcePair {
         let new_sourcemap = {
             // Update the sourcemap with the new mappings
             let mut original_sourcemap =
-                SourceMap::from_slice(self.sourcemap.content.as_bytes())
-                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?;
+                match sourcemap::decode_slice(self.sourcemap.content.as_bytes())
+                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?
+                {
+                    sourcemap::DecodedMap::Regular(map) => map,
+                    sourcemap::DecodedMap::Index(index_map) => index_map
+                        .flatten()
+                        .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?,
+                    sourcemap::DecodedMap::Hermes(_) => {
+                        anyhow::bail!("Hermes source maps are not supported")
+                    }
+                };
+
             original_sourcemap.adjust_mappings(&source_adjustment);
 
             let mut new_sourcemap_bytes = Vec::new();
@@ -146,8 +160,8 @@ pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     let mut pairs = Vec::new();
     for entry in WalkDir::new(directory).into_iter().filter_map(|e| e.ok()) {
         let entry_path = entry.path().canonicalize()?;
-        info!("Processing file: {}", entry_path.display());
         if is_javascript_file(&entry_path) {
+            info!("Processing file: {}", entry_path.display());
             let source = SourceFile::load(&entry_path)?;
             let sourcemap_path = guess_sourcemap_path(&source.path);
             if sourcemap_path.exists() {

@@ -115,7 +115,7 @@ export function InsightViz({
     )
 
     return (
-        <ErrorBoundary tags={{ feature: 'InsightViz' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <BindLogic logic={insightVizDataLogic} props={insightProps}>

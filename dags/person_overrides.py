@@ -110,7 +110,7 @@ class PersonOverridesSnapshotDictionary:
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -118,6 +118,7 @@ class PersonOverridesSnapshotDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
         )
@@ -172,8 +173,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
-            EVENTS_DATA_TABLE(),
-            {
+            table=EVENTS_DATA_TABLE(),
+            commands={
                 "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
             },
             parameters={"name": self.qualified_name},
@@ -182,8 +183,8 @@ class PersonOverridesSnapshotDictionary:
     @property
     def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
         return LightweightDeleteMutationRunner(
-            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
+            table=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+            predicate="isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
             parameters={"name": self.qualified_name},
         )
 

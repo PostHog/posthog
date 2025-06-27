@@ -107,7 +107,6 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                ;(window as any).Sentry?.captureException(error)
                 posthog.captureException(error)
             },
         }),

@@ -13,7 +13,18 @@ export interface ToolDefinition {
     displayName: string
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
-    /** When in context, the tool can add items to the pool of Max's suggested questions */
+    /**
+     * Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted.
+     *
+     * Note that if more than one mounted tool has an intro override, only one will take effect.
+     */
+    introOverride?: {
+        /** The default is something like "How can I help you build?" - stick true to this question form. */
+        headline: string
+        /** The default is "Ask me about your product and your users." */
+        description: string
+    }
+    /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
     callback: (toolOutput: any) => void
@@ -22,13 +33,16 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        actions: [organizationLogic, ['updateOrganization']],
         values: [organizationLogic, ['currentOrganization']],
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        setIsFloatingMaxExpanded: (isExpanded: boolean) => ({ isExpanded }),
+        setFloatingMaxPosition: (position: { x: number; y: number; side: 'left' | 'right' }) => ({ position }),
+        setShowFloatingMaxSuggestions: (value: boolean) => ({ value }),
+        setFloatingMaxDragState: (dragState: { isDragging: boolean; isAnimating: boolean }) => ({ dragState }),
     }),
     reducers({
         toolMap: [
@@ -45,10 +59,42 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
+        isFloatingMaxExpanded: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setIsFloatingMaxExpanded: (_, { isExpanded }) => isExpanded,
+            },
+        ],
+        floatingMaxPosition: [
+            null as { x: number; y: number; side: 'left' | 'right' } | null,
+            {
+                persist: true,
+            },
+            {
+                setFloatingMaxPosition: (_, { position }) => position,
+            },
+        ],
+        showFloatingMaxSuggestions: [
+            false,
+            {
+                setShowFloatingMaxSuggestions: (_, { value }) => value,
+            },
+        ],
+        floatingMaxDragState: [
+            { isDragging: false, isAnimating: false } as { isDragging: boolean; isAnimating: boolean },
+            {
+                setFloatingMaxDragState: (_, { dragState }) => dragState,
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
-        acceptDataProcessing: ({ testOnlyOverride }) => {
-            actions.updateOrganization({ is_ai_data_processing_approved: testOnlyOverride ?? true })
+    listeners(() => ({
+        acceptDataProcessing: async ({ testOnlyOverride }) => {
+            await organizationLogic.asyncActions.updateOrganization({
+                is_ai_data_processing_approved: testOnlyOverride ?? true,
+            })
         },
     })),
     selectors({

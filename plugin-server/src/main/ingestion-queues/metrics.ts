@@ -8,6 +8,12 @@ export const kafkaRebalancePartitionCount = new Gauge({
     labelNames: ['topic'],
 })
 
+export const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
+})
+
 export const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
@@ -42,12 +48,6 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     name: 'kafka_consumer_event_request_pending_ms',
     help: 'Pending duration of Kafka consumer event requests',
     percentiles: [0.5, 0.9, 0.95, 0.99],
-})
-
-export const ingestionPartitionKeyOverflowed = new Counter({
-    name: 'ingestion_partition_key_overflowed',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
 })
 
 export const cookielessRedisErrorCounter = new Counter({

@@ -1,13 +1,11 @@
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, Optional
 
 from django.db.models import Manager
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
@@ -19,6 +17,57 @@ from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
+
+
+def create_event_definitions_sql(
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
+) -> str:
+    if order_expressions is None:
+        order_expressions = []
+    if is_enterprise:
+        from ee.models import EnterpriseEventDefinition
+
+        ee_model = EnterpriseEventDefinition
+    else:
+        # telling mypy to ignore this...
+        # it's fine to assign EventDefinition
+        ee_model = EventDefinition  # type: ignore
+
+    event_definition_fields = {
+        f'"{f.column}"'
+        for f in ee_model._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
+    }
+
+    enterprise_join = (
+        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        if is_enterprise
+        else ""
+    )
+
+    if event_type == EventDefinitionType.EVENT_CUSTOM:
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+    if event_type == EventDefinitionType.EVENT_POSTHOG:
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+
+    additional_ordering = []
+    for order_expression, order_direction in order_expressions:
+        if order_expression:
+            additional_ordering.append(
+                f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
+            )
+
+    return f"""
+            SELECT {",".join(event_definition_fields)}
+            FROM posthog_eventdefinition
+            {enterprise_join}
+            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s))
+            {conditions}
+            ORDER BY {",".join(additional_ordering)}
+        """
 
 
 class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -91,7 +140,7 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
-        order_expressions = [self._ordering_params_from_request()]
+        order_expressions = self._ordering_params_from_request()
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
@@ -119,21 +168,28 @@ class EventDefinitionViewSet(
 
     def _ordering_params_from_request(
         self,
-    ) -> tuple[str, Literal["ASC", "DESC"]]:
+    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
         order_direction: Literal["ASC", "DESC"]
-        ordering = self.request.GET.get("ordering")
 
-        if ordering and ordering.replace("-", "") in self.ordering_fields:
-            order = ordering.replace("-", "")
-            if "-" in ordering:
-                order_direction = "DESC"
-            else:
-                order_direction = "ASC"
-        else:
-            order = "last_seen_at"
-            order_direction = "DESC"
+        results = []
 
-        return order, order_direction
+        # API client can send more than one ordering
+        orderings = self.request.GET.getlist("ordering")
+
+        for ordering in orderings:
+            if ordering and ordering.replace("-", "") in ["name", "last_seen_at", "last_seen_at::date"]:
+                order = ordering.replace("-", "")
+                if "-" in ordering:
+                    order_direction = "DESC"
+                else:
+                    order_direction = "ASC"
+
+                results.append((order, order_direction))
+
+        if not results:
+            results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
+
+        return results
 
     def dangerously_get_object(self):
         id = self.kwargs["id"]

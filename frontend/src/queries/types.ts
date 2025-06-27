@@ -21,7 +21,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showQueryHelp?: boolean
     insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
-    emptyStateDetail?: string
+    emptyStateDetail?: string | JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
@@ -35,6 +35,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
+    /** Allow customization of file name when exporting */
+    fileNameForExport?: string
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -47,6 +49,7 @@ export type QueryContextColumnComponent = ComponentType<{
     query: DataTableNode | DataVisualizationNode
     record: unknown
     recordIndex: number
+    rowCount: number
     value: unknown
 }>
 

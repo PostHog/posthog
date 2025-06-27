@@ -13,7 +13,7 @@ export interface ProcessedRetentionValue {
 }
 
 export interface ProcessedRetentionPayload {
-    date: string
+    date: Dayjs
     label: string
     people_url: string
     values: ProcessedRetentionValue[]

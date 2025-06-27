@@ -11,6 +11,7 @@ import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilte
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
@@ -23,10 +24,13 @@ export function DashboardEditBar(): JSX.Element {
         temporaryFilters,
         dashboardMode,
         filtersUpdated,
+        dashboardVariables,
     } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const hasVariables = Object.keys(dashboardVariables).length > 0
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -45,7 +49,6 @@ export function DashboardEditBar(): JSX.Element {
         // Only show preview button for large dashboards where we don't automatically preview filter changes */
         <Popover
             visible={!canAutoPreview && filtersUpdated}
-            className="z-1" // So that Cancel/Apply isn't above filter popovers
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
@@ -61,75 +64,87 @@ export function DashboardEditBar(): JSX.Element {
                     </LemonButton>
                 </div>
             }
-            placement="top"
+            placement="bottom"
             showArrow
         >
             <div
                 className={clsx(
-                    'flex gap-2 items-center justify-between flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                     dashboardMode === DashboardMode.Edit
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
                 )}
             >
-                <DateFilter
-                    showCustom
-                    dateFrom={temporaryFilters.date_from}
-                    dateTo={temporaryFilters.date_to}
-                    onChange={(from_date, to_date) => {
-                        if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, null)
-                        }
-                        setDates(from_date, to_date)
-                    }}
-                    makeLabel={(key) => (
-                        <>
-                            <IconCalendar />
-                            <span className="hide-when-small"> {key}</span>
-                        </>
-                    )}
-                />
-                <PropertyFilters
-                    onChange={(properties) => {
-                        if (dashboardMode !== DashboardMode.Edit) {
-                            setDashboardMode(DashboardMode.Edit, null)
-                        }
-                        setProperties(properties)
-                    }}
-                    pageKey={'dashboard_' + dashboard?.id}
-                    propertyFilters={temporaryFilters.properties}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
-                />
-                <BindLogic logic={insightLogic} props={insightProps}>
-                    <TaxonomicBreakdownFilter
-                        insightProps={insightProps}
-                        breakdownFilter={temporaryFilters.breakdown_filter}
-                        isTrends={false}
-                        showLabel={false}
-                        updateBreakdownFilter={(breakdown_filter) => {
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <DateFilter
+                        showCustom
+                        dateFrom={temporaryFilters.date_from}
+                        dateTo={temporaryFilters.date_to}
+                        onChange={(from_date, to_date) => {
                             if (dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
-                            let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
-                            // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                            if (breakdown_filter && !breakdown_filter.breakdown_type && !breakdown_filter.breakdowns) {
-                                saved_breakdown_filter = null
-                            }
-                            setBreakdownFilter(saved_breakdown_filter)
+                            setDates(from_date, to_date)
                         }}
-                        updateDisplay={() => {}}
-                        size="small"
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar />
+                                <span className="hide-when-small"> {key}</span>
+                            </>
+                        )}
                     />
-                </BindLogic>
+                </div>
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <PropertyFilters
+                        onChange={(properties) => {
+                            if (dashboardMode !== DashboardMode.Edit) {
+                                setDashboardMode(DashboardMode.Edit, null)
+                            }
+                            setProperties(properties)
+                        }}
+                        pageKey={'dashboard_' + dashboard?.id}
+                        propertyFilters={temporaryFilters.properties}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.EventMetadata,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                    />
+                </div>
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <BindLogic logic={insightLogic} props={insightProps}>
+                        <TaxonomicBreakdownFilter
+                            insightProps={insightProps}
+                            breakdownFilter={temporaryFilters.breakdown_filter}
+                            isTrends={false}
+                            showLabel={false}
+                            updateBreakdownFilter={(breakdown_filter) => {
+                                if (dashboardMode !== DashboardMode.Edit) {
+                                    setDashboardMode(DashboardMode.Edit, null)
+                                }
+                                let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
+                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                if (
+                                    breakdown_filter &&
+                                    !breakdown_filter.breakdown_type &&
+                                    !breakdown_filter.breakdowns
+                                ) {
+                                    saved_breakdown_filter = null
+                                }
+                                setBreakdownFilter(saved_breakdown_filter)
+                            }}
+                            updateDisplay={() => {}}
+                            size="small"
+                        />
+                    </BindLogic>
+                </div>
+
+                <VariablesForDashboard />
             </div>
         </Popover>
     )

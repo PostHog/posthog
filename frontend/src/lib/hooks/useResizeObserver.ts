@@ -7,8 +7,10 @@ if (!window.ResizeObserver) {
     window.ResizeObserver = ResizeObserver
 }
 
+/** @deprecated Use CSS container or media queries instead. ResizeObserver use causes flapping of UI snapshots. */
 export const useResizeObserver = useResizeObserverImport
 
+/** @deprecated Use CSS container or media queries instead. ResizeObserver use causes flapping of UI snapshots. */
 export function useResizeBreakpoints<T extends string>(
     breakpoints: { [key: number]: T },
     options?: {

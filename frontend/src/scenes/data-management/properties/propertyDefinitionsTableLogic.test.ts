@@ -93,7 +93,7 @@ describe('propertyDefinitionsTableLogic', () => {
                     }),
                 })
 
-            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(1)
             expect(api.get).toHaveBeenCalledWith(startingUrl)
 
             await expectLogic(logic, () => {
@@ -101,7 +101,7 @@ describe('propertyDefinitionsTableLogic', () => {
             }).toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
 
             // Doesn't call api.get again
-            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(1)
         })
 
         it('pagination forwards and backwards', async () => {
@@ -119,7 +119,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`,
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(api.get).toHaveBeenCalledTimes(1)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(
@@ -135,7 +135,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: null,
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(2)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(startingUrl)
@@ -147,7 +147,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`,
                     }),
                 })
-            expect(api.get).toHaveBeenCalledTimes(3)
+            expect(api.get).toHaveBeenCalledTimes(2)
         })
     })
 })

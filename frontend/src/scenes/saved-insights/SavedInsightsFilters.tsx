@@ -22,9 +22,20 @@ export function SavedInsightsFilters({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const calendarHeatmapInsightEnabled = !!featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
+
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
 
-    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
+    const insightTypeOptions = INSIGHT_TYPE_OPTIONS.filter((option) => {
+        if (option.value === InsightType.CALENDAR_HEATMAP && !calendarHeatmapInsightEnabled) {
+            return false
+        }
+        if (option.value === InsightType.PATHS_V2 && !showPathsV2) {
+            return false
+        }
+        return true
+    })
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
@@ -58,11 +69,9 @@ export function SavedInsightsFilters({
                     <span>Type:</span>
                     <LemonSelect
                         size="small"
-                        options={INSIGHT_TYPE_OPTIONS.filter((option) =>
-                            option.value === InsightType.PATHS_V2 ? showPathsV2 : true
-                        )}
+                        options={insightTypeOptions}
                         value={insightType}
-                        onChange={(v: any): void => setFilters({ insightType: v })}
+                        onChange={(v?: string): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}
                         data-attr="insight-type"
                     />

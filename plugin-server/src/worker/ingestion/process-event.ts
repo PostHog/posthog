@@ -8,6 +8,7 @@ import {
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
+    KafkaConsumerBreadcrumb,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -23,11 +24,11 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { upsertGroup } from './properties-updater'
-import { TeamManager } from './team-manager'
+import { GroupStoreForBatch } from './groups/group-store-for-batch'
 import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
@@ -70,7 +71,8 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean
+        processPerson: boolean,
+        groupStoreForBatch: GroupStoreForBatch
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -83,7 +85,7 @@ export class EventsProcessor {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
-            const team = await this.teamManager.fetchTeam(teamId)
+            const team = await this.teamManager.getTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
@@ -99,7 +101,8 @@ export class EventsProcessor {
                     distinctId,
                     properties,
                     timestamp,
-                    processPerson
+                    processPerson,
+                    groupStoreForBatch
                 )
                 processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
@@ -144,7 +147,8 @@ export class EventsProcessor {
         distinctId: string,
         properties: Properties,
         timestamp: DateTime,
-        processPerson: boolean
+        processPerson: boolean,
+        groupStoreForBatch: GroupStoreForBatch
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
 
@@ -170,7 +174,7 @@ export class EventsProcessor {
             properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
+                await this.upsertGroup(team.id, team.project_id, properties, timestamp, groupStoreForBatch)
             }
         }
 
@@ -255,12 +259,15 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
+                headers: {
+                    'kafka-consumer-breadcrumbs': JSON.stringify(breadcrumbs),
+                },
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
@@ -280,7 +287,8 @@ export class EventsProcessor {
         teamId: TeamId,
         projectId: ProjectId,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
@@ -288,16 +296,15 @@ export class EventsProcessor {
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
         const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
-
         if (groupTypeIndex !== null) {
-            await upsertGroup(
-                this.db,
+            await groupStoreForBatch.upsertGroup(
                 teamId,
                 projectId,
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},
-                timestamp
+                timestamp,
+                !this.hub.DISABLE_GROUP_SELECT_FOR_UPDATE
             )
         }
     }

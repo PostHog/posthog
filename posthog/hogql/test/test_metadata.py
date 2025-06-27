@@ -286,7 +286,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -503,3 +503,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             LEFT JOIN cohorts c ON p.cohort_id = c.id
         """)
         self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))
+
+    def test_experimental_join_condition(self):
+        metadata = self._select("""
+        SELECT t1.a
+        FROM
+            (SELECT number AS a, number * 10 AS b FROM numbers(5)) AS t1
+        JOIN
+            (SELECT number AS key, number * 2 AS c, number * 3 AS d FROM numbers(5)) AS t2
+        ON t1.a = t2.key
+        WHERE t1.b > 0 AND t2.c < t2.d
+        """)
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["numbers"]))

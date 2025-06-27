@@ -1,0 +1,15 @@
+print({})
+print({'key': 'value'})
+print({'key': 'value', 'other': 'thing'})
+print({'key': {'otherKey': 'value'}})
+
+// We support non-string keys... in the HogVM.
+// Keys are always converted to a string in the transpiled JS version.
+// TODO: this might be worth revisiting
+let key := 'kk'
+print({key: 'value'})
+
+print({'key': 'value', }.key)
+print({'key': 'value'}['key'])
+print({'key': {'otherKey': 'value'}}.key.otherKey)
+print({'key': {'otherKey': 'value', } , }['key'].otherKey)

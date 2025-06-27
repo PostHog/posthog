@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     distinct_id VARCHAR,
     first_timestamp DateTime64(6, 'UTC'),
     last_timestamp DateTime64(6, 'UTC'),
+    block_url Nullable(String),
     first_url Nullable(VARCHAR),
     urls Array(String),
     click_count Int64,
@@ -59,6 +60,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     distinct_id VARCHAR,
     min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+    -- session recording v2 blocks
+    block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
     -- store the first url of the session so we can quickly show that in playlists
     first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
     -- but also store each url so we can query by visited page without having to scan all events
@@ -136,6 +141,9 @@ team_id,
 any(distinct_id) as distinct_id,
 min(first_timestamp) AS min_first_timestamp,
 max(last_timestamp) AS max_last_timestamp,
+groupArray(if(block_url != '', first_timestamp, NULL)) AS block_first_timestamps,
+groupArray(if(block_url != '', last_timestamp, NULL)) AS block_last_timestamps,
+groupArray(block_url) AS block_urls,
 -- TRICKY: ClickHouse will pick a relatively random first_url
 -- when it collapses the aggregating merge tree
 -- unless we teach it what we want...
@@ -174,6 +182,9 @@ group by session_id, team_id
 `session_id` String, `team_id` Int64, `distinct_id` String,
 `min_first_timestamp` DateTime64(6, 'UTC'),
 `max_last_timestamp` DateTime64(6, 'UTC'),
+`block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+`block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+`block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
 `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 `click_count` Int64, `keypress_count` Int64,

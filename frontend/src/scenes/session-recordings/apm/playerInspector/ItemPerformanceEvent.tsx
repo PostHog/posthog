@@ -2,6 +2,7 @@ import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { useState } from 'react'
@@ -13,8 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
-
-import { SimpleKeyValueList } from '../../player/inspector/components/SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -273,10 +272,8 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             return acc
         }
 
-        return {
-            ...acc,
-            [key]: typeof value === 'number' ? Math.round(value) : value,
-        }
+        acc[key] = typeof value === 'number' ? Math.round(value) : value
+        return acc
     }, {} as Record<string, any>)
 
     return (

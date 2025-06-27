@@ -3,6 +3,8 @@ import './InviteModal.scss'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -219,11 +221,19 @@ export function InviteTeamMatesComponent(): JSX.Element {
 
 export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
+
+    const minAdminRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
+
+    const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
 
     return (
         <div className="InviteModal">
@@ -270,7 +280,13 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                 <LemonButton
                                     onClick={() => inviteTeamMembers()}
                                     type="primary"
-                                    disabledReason={!canSubmit ? 'Please fill out all fields' : undefined}
+                                    disabledReason={
+                                        userCannotInvite
+                                            ? "You don't have permissions to invite others."
+                                            : !canSubmit
+                                            ? 'Please fill out all fields'
+                                            : undefined
+                                    }
                                     data-attr="invite-team-member-submit"
                                 >
                                     {validInvitesCount

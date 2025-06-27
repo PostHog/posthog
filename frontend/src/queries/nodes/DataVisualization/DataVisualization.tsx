@@ -1,15 +1,11 @@
-import './Components/Chart.scss'
-
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useCallback, useState } from 'react'
-import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -33,9 +29,7 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { HogQLQueryEditor } from '../HogQLQuery/HogQLQueryEditor'
 import { LineGraph } from './Components/Charts/LineGraph'
-import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -152,7 +146,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const {
         query,
         visualizationType,
-        showEditingUI,
         showResultControls,
         sourceFeatures,
         response,
@@ -161,9 +154,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         queryCancelled,
         isChartSettingsPanelOpen,
     } = useValues(dataVisualizationLogic)
-    const { setEditorQuery } = useActions(variablesLogic)
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+
+    const { queryId, pollResponse } = useValues(dataNodeLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -173,10 +167,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!response || responseLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <LoadingBar />
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
@@ -200,24 +194,12 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1 gap-2">
-            {!readOnly && showEditingUI && (
-                <div className="max-sm:hidden max-w-xs">
-                    <DatabaseTableTreeWithItems inline />
-                </div>
-            )}
+        <div
+            className={clsx('DataVisualization flex flex-1 gap-2', {
+                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
+            })}
+        >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                {!readOnly && showEditingUI && (
-                    <>
-                        <HogQLQueryEditor
-                            query={query.source}
-                            queryResponse={response ?? undefined}
-                            setQuery={setQuerySource}
-                            embedded
-                            onChange={setEditorQuery}
-                        />
-                    </>
-                )}
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
@@ -280,18 +262,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <VariablesForInsight />
 
                 <div className="flex flex-1 flex-row gap-4">
-                    {showEditingUI && isChartSettingsPanelOpen && (
-                        <div className="h-full">
-                            <SideBar />
-                        </div>
-                    )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div
-                                className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
-                                    border: showEditingUI,
-                                })}
-                            >
+                            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
                                 <InsightErrorState
                                     query={props.query}
                                     excludeDetail

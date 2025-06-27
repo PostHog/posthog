@@ -13,16 +13,20 @@ from temporalio.client import (
 )
 import temporalio
 from temporalio.common import RetryPolicy
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
+    trigger_schedule,
     update_schedule,
     schedule_exists,
     delete_schedule,
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from django.db import transaction
+from posthog.warehouse.models import DataWarehouseModelPath
+import logging
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
@@ -52,12 +56,12 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             "data-modeling-run",
             asdict(inputs),
             id=str(saved_query.id),
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+            task_queue=str(DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),
                 maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError"],
+                non_retryable_error_types=["NondeterminismError", "CancelledError"],
             ),
         ),
         spec=ScheduleSpec(
@@ -97,3 +101,30 @@ def delete_saved_query_schedule(schedule_id: str):
 def saved_query_workflow_exists(id: str) -> bool:
     temporal = sync_connect()
     return schedule_exists(temporal, schedule_id=id)
+
+
+def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
+    temporal = sync_connect()
+    trigger_schedule(temporal, schedule_id=str(saved_query.id))
+
+
+def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
+    """
+    Recreate model paths for a saved query after materialization.
+    After a query has been reverted and then re-materialized, we need to ensure
+    the model paths exist for the temporal workflow to properly build the DAG.
+    """
+
+    try:
+        with transaction.atomic():
+            if not DataWarehouseModelPath.objects.filter(
+                team=saved_query.team, path__contains=[saved_query.id.hex]
+            ).exists():
+                DataWarehouseModelPath.objects.update_or_create(team=saved_query.team, path=[saved_query.id.hex])
+                for table_name in saved_query.s3_tables:
+                    DataWarehouseModelPath.objects.update_or_create(
+                        team=saved_query.team, path=[table_name, saved_query.id.hex]
+                    )
+    except Exception as e:
+        logging.exception(f"Failed to recreate model paths for {saved_query.id}: {str(e)}")
+        raise

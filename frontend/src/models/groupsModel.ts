@@ -138,6 +138,10 @@ export const groupsModel = kea<groupsModelType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadAllGroupTypes()
+        if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
+            actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
+        } else {
+            actions.loadAllGroupTypes()
+        }
     }),
 ])

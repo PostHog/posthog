@@ -85,6 +85,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -153,17 +157,21 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
+
+    @property
     def url_pattern(self):
-        normalized_name = NamingConvention().normalize_identifier(self.name)
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+    @property
+    def is_materialized(self):
+        return self.table is not None and (
+            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
+        )
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
-        if (
-            self.table is not None
-            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and modifiers is not None
-            and modifiers.useMaterializedViews
-        ):
+        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
         columns = self.columns or {}

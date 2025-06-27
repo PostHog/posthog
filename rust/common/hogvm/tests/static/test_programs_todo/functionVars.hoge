@@ -1,0 +1,10 @@
+["_H", 1, 52, "execFunction", 0, 0, 8, 32, "execFunction", 2, "print", 1, 35, 31, 38, 53, 0, 52, "execFunctionNested",
+0, 0, 29, 52, "execFunction", 0, 0, 8, 32, "execFunctionNew", 2, "print", 1, 35, 31, 38, 53, 0, 32,
+"execFunctionNested", 2, "print", 1, 35, 36, 0, 54, 0, 35, 31, 38, 35, 53, 0, 36, 0, 54, 0, 35, 36, 1, 54, 0, 35, 36, 0,
+54, 0, 35, 32, "--------", 2, "print", 1, 35, 52, "secondExecFunction", 0, 0, 8, 32, "secondExecFunction", 2, "print",
+1, 35, 31, 38, 53, 0, 52, "secondExecFunctionNested", 0, 1, 13, 32, "secondExecFunctionNested", 2, "print", 1, 35, 55,
+0, 54, 0, 35, 31, 38, 53, 1, true, 2, 36, 2, 54, 0, 35, 36, 3, 54, 0, 35, 36, 2, 54, 0, 35, 32, "--------", 2, "print",
+1, 35, 52, "lambda", 0, 0, 5, 32, "base64Decode", 1, 1, 38, 53, 0, 32, "base64Encode", 1, 1, 32,
+"http://www.google.com", 36, 5, 54, 1, 2, "print", 1, 35, 32, "http://www.google.com", 36, 5, 54, 1, 36, 4, 54, 0, 54,
+1, 2, "print", 1, 35, 32, "http://www.google.com", 36, 5, 54, 1, 36, 4, 54, 0, 54, 1, 2, "print", 1, 35, 35, 35, 35, 57,
+35, 35]

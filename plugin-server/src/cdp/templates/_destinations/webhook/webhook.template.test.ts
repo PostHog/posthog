@@ -8,7 +8,8 @@ describe('webhook template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('should invoke the function', async () => {
@@ -41,7 +42,7 @@ describe('webhook template', () => {
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"message": "Hello, world!"}',
         })
@@ -63,7 +64,7 @@ describe('webhook template', () => {
             ]
         `)
 
-        response = tester.invokeFetchResponse(response.invocation, {
+        response = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"message": "Hello, world!"}',
         })
@@ -72,6 +73,25 @@ describe('webhook template', () => {
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
               "Response, 200, {"message":"Hello, world!"}",
+            ]
+        `)
+    })
+
+    it('should throw an error if the webhook fails', async () => {
+        let response = await tester.invoke({
+            url: 'https://example.com?v={event.properties.$lib_version}',
+            debug: true,
+        })
+
+        response = await tester.invokeFetchResponse(response.invocation, {
+            response: { status: 400, headers: {} },
+            body: '{"message": "Bad Request"}',
+        })
+
+        expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)
+        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
+            [
+              "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
             ]
         `)
     })

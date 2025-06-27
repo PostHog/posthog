@@ -1,5 +1,5 @@
-import { Tick } from 'chart.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { Tick } from 'lib/Chart'
 import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { groupBy } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'

@@ -37,7 +37,7 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: CohortLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'cohort', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'cohort', ref: id === 'new' ? null : String(id) }),
         ],
     }),
 ])

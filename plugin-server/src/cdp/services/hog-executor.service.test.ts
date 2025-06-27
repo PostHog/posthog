@@ -2,18 +2,19 @@ import { DateTime } from 'luxon'
 
 import { truth } from '~/tests/helpers/truth'
 
-import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
+import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
+import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import { EXTEND_OBJECT_KEY } from './hog-executor.service'
 
 const setupFetchResponse = (
-    invocation: HogFunctionInvocation,
-    options?: Partial<HogFunctionInvocation['queueParameters']>
+    invocation: CyclotronJobInvocationHogFunction,
+    options?: Partial<CyclotronJobInvocationHogFunction['queueParameters']>
 ): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
@@ -32,20 +33,28 @@ const setupFetchResponse = (
     }
 }
 
+const cleanLogs = (logs: string[]): string[] => {
+    // Replaces the function time with a fixed value to simplify testing
+    return logs.map((log) => {
+        return log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms')
+    })
+}
+
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorService
     let hub: Hub
 
     beforeEach(async () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
         hub = await createHub()
         executor = new HogExecutorService(hub)
     })
 
     describe('formatInput', () => {
-        it('can handle null values in input objects', () => {
+        it('can handle null values in input objects', async () => {
             const globals = {
                 ...createHogExecutionGlobals({
                     event: {
@@ -68,7 +77,7 @@ describe('Hog Executor', () => {
             }
 
             // Call formatInput directly to test that it handles null values
-            const result = formatInput(inputWithNulls, globals)
+            const result = await formatHogInput(inputWithNulls, globals)
 
             // Verify that null values are preserved
             expect(result.body.value.person).toBeNull()
@@ -76,7 +85,7 @@ describe('Hog Executor', () => {
             expect(result.body.value.event).toBe('{event}')
         })
 
-        it('can handle deep null and undefined values', () => {
+        it('can handle deep null and undefined values', async () => {
             const globals = {
                 ...createHogExecutionGlobals({
                     event: {
@@ -101,7 +110,7 @@ describe('Hog Executor', () => {
                 },
             }
 
-            const result = formatInput(complexInput, globals)
+            const result = await formatHogInput(complexInput, globals)
 
             // Verify all null and undefined values are properly preserved
             expect(result.body.value.data.first).toBeNull()
@@ -121,45 +130,128 @@ describe('Hog Executor', () => {
             })
         })
 
-        it('can execute an invocation', () => {
-            const invocation = createInvocation(hogFunction)
+        it('can execute an invocation', async () => {
+            const invocation = createExampleInvocation(hogFunction)
 
-            const result = executor.execute(invocation)
+            const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 invocation: {
+                    state: {
+                        globals: invocation.state.globals,
+                        timings: [
+                            {
+                                kind: 'hog',
+                                duration_ms: expect.any(Number),
+                            },
+                        ],
+                        vmState: expect.any(Object),
+                    },
                     id: expect.any(String),
                     teamId: 1,
-                    priority: 0,
-                    globals: invocation.globals,
                     hogFunction: invocation.hogFunction,
+                    functionId: invocation.functionId,
                     queue: 'fetch',
+                    queueMetadata: undefined,
+                    queueScheduledAt: undefined,
+                    queueSource: undefined,
                     queueParameters: expect.any(Object),
-                    timings: [
-                        {
-                            kind: 'hog',
-                            duration_ms: 0,
-                        },
-                    ],
-                    vmState: expect.any(Object),
+                    queuePriority: 0,
                 },
                 finished: false,
                 logs: expect.any(Array),
+                metrics: [],
             })
         })
 
-        it('can handle null input values', () => {
+        it('can handle null input values', async () => {
             hogFunction.inputs!.debug = null
-            const invocation = createInvocation(hogFunction)
+            const invocation = createExampleInvocation(hogFunction)
 
-            const result = executor.execute(invocation)
+            const result = await executor.execute(invocation)
             expect(result.finished).toBe(false)
             expect(result.error).toBeUndefined()
         })
 
-        it('collects logs from the function', () => {
-            const invocation = createInvocation(hogFunction)
-            const result = executor.execute(invocation)
+        it('can handle selecting entire object', async () => {
+            const invocation = createExampleInvocation({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    headers: {
+                        value: {
+                            [EXTEND_OBJECT_KEY]: '{person.properties}',
+                        },
+                        templating: 'hog',
+                        bytecode: {
+                            [EXTEND_OBJECT_KEY]: ['_H', 1, 32, 'properties', 32, 'person', 1, 2],
+                        },
+                        order: 3,
+                    },
+                },
+            })
+
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
+
+            const result = await executor.execute(invocation)
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"event":{"uuid":"uuid","event":"test","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2024-06-07T12:00:00.000Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                  "headers": {
+                    "email": "test@posthog.com",
+                    "first_name": "Pumpkin",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://example.com/posthog-webhook",
+                }
+            `)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
+        it('can handle selecting entire object with overrides', async () => {
+            const invocation = createExampleInvocation({
+                ...hogFunction,
+                inputs: {
+                    ...hogFunction.inputs,
+                    headers: {
+                        value: {
+                            [EXTEND_OBJECT_KEY]: '{person.properties}',
+                            email: 'email-is-hidden',
+                        },
+                        templating: 'hog',
+                        bytecode: {
+                            [EXTEND_OBJECT_KEY]: ['_H', 1, 32, 'properties', 32, 'person', 1, 2],
+                            email: ['_H', 1, 32, 'email-is-hidden'],
+                        },
+                        order: 3,
+                    },
+                },
+            })
+
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
+
+            const result = await executor.execute(invocation)
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"event":{"uuid":"uuid","event":"test","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$lib_version":"1.2.3"},"timestamp":"2024-06-07T12:00:00.000Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                  "headers": {
+                    "email": "email-is-hidden",
+                    "first_name": "Pumpkin",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://example.com/posthog-webhook",
+                }
+            `)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
+        it('collects logs from the function', async () => {
+            const invocation = createExampleInvocation(hogFunction)
+            const result = await executor.execute(invocation)
             expect(result.logs).toMatchObject([
                 {
                     timestamp: expect.any(DateTime),
@@ -174,15 +266,15 @@ describe('Hog Executor', () => {
             ])
         })
 
-        it('redacts secret values from the logs', () => {
+        it('redacts secret values from the logs', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.input_printer,
                 ...HOG_INPUTS_EXAMPLES.secret_inputs,
             })
-            const invocation = createInvocation(fn)
-            const result = executor.execute(invocation)
+            const invocation = createExampleInvocation(fn)
+            const result = await executor.execute(invocation)
 
-            expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(result.logs.map((x) => x.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "test",
@@ -190,14 +282,15 @@ describe('Hog Executor', () => {
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
                   "substring: ***REDACTED***",
                   "{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","null":null,"bool":false},"secret_input_3":"***REDACTED***"}",
-                  "Function completed in 0ms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 169 bytes. Ops: 28. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
 
-        it('queues up an async function call', () => {
-            const invocation = createInvocation(hogFunction)
-            const result = executor.execute(invocation)
+        it('queues up an async function call', async () => {
+            const invocation = createExampleInvocation(hogFunction)
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
+            const result = await executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({
                 queue: 'fetch',
@@ -231,54 +324,54 @@ describe('Hog Executor', () => {
             })
         })
 
-        it('executes the full function in a loop', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+        it('executes the full function in a loop', async () => {
+            const result = await executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeTruthy()
+            expect(result.invocation.state.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
 
-            const secondResult = executor.execute(result.invocation)
+            const secondResult = await executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
             expect(secondResult.finished).toBe(true)
             expect(secondResult.error).toBeUndefined()
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
 
-        it('parses the responses body if a string', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+        it('parses the responses body if a string', async () => {
+            const result = await executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
             setupFetchResponse(result.invocation, { body: JSON.stringify({ foo: 'bar' }) })
 
-            const secondResult = executor.execute(result.invocation)
+            const secondResult = await executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
 
-        it('handles fetch errors', () => {
-            const result = executor.execute(createInvocation(hogFunction))
+        it('handles fetch errors', async () => {
+            const result = await executor.execute(createExampleInvocation(hogFunction))
             const logs = result.logs.splice(0, 100)
             setupFetchResponse(result.invocation, {
                 body: JSON.stringify({ foo: 'bar' }),
@@ -294,10 +387,10 @@ describe('Hog Executor', () => {
                 ],
             })
 
-            const secondResult = executor.execute(result.invocation)
+            const secondResult = await executor.execute(result.invocation)
             logs.push(...secondResult.logs)
 
-            expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
                   "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
@@ -305,14 +398,14 @@ describe('Hog Executor', () => {
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
                   "Resuming function",
                   "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
-                  "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
         })
     })
 
     describe('filtering', () => {
-        it('builds the correct globals object when filtering', () => {
+        it('builds the correct globals object when filtering', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -321,31 +414,31 @@ describe('Hog Executor', () => {
 
             const inputGlobals = createHogExecutionGlobals({ groups: {} })
             expect(inputGlobals.source).toBeUndefined()
-            const results = executor.buildHogFunctionInvocations([fn], inputGlobals)
+            const results = await executor.buildHogFunctionInvocations([fn], inputGlobals)
 
             expect(results.invocations).toHaveLength(1)
 
-            expect(results.invocations[0].globals.source).toEqual({
+            expect(results.invocations[0].state.globals.source).toEqual({
                 name: 'Hog Function',
                 url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
             })
         })
 
-        it('can filters incoming messages correctly', () => {
+        it('can filters incoming messages correctly', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            const resultsShouldntMatch = executor.buildHogFunctionInvocations(
+            const resultsShouldntMatch = await executor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({ groups: {} })
             )
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
-            const resultsShouldMatch = executor.buildHogFunctionInvocations(
+            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({
                     groups: {},
@@ -371,7 +464,7 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.broken_filters,
             })
 
-            const resultsShouldMatch = executor.buildHogFunctionInvocations(
+            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({
                     groups: {},
@@ -399,7 +492,7 @@ describe('Hog Executor', () => {
             )
         })
 
-        it('can use elements_chain_texts', () => {
+        it('can use elements_chain_texts', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -424,7 +517,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -443,12 +536,12 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
 
-        it('can use elements_chain_href', () => {
+        it('can use elements_chain_href', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -473,7 +566,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -492,12 +585,12 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
 
-        it('can use elements_chain_tags and _ids', () => {
+        it('can use elements_chain_tags and _ids', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -522,7 +615,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
+            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -541,7 +634,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
+            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -593,7 +686,7 @@ describe('Hog Executor', () => {
             })
         })
 
-        it('can build mappings', () => {
+        it('can build mappings', async () => {
             const pageviewGlobals = createHogExecutionGlobals({
                 event: {
                     event: '$pageview',
@@ -603,7 +696,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const results1 = executor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const results1 = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
             expect(results1.invocations).toHaveLength(2)
             expect(results1.metrics).toHaveLength(1)
             expect(results1.logs).toHaveLength(1)
@@ -611,7 +704,7 @@ describe('Hog Executor', () => {
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
 
-            const results2 = executor.buildHogFunctionInvocations(
+            const results2 = await executor.buildHogFunctionInvocations(
                 [fn],
                 createHogExecutionGlobals({
                     event: {
@@ -627,7 +720,7 @@ describe('Hog Executor', () => {
             expect(results2.metrics[1].metric_name).toBe('filtering_failed')
         })
 
-        it('generates the correct inputs', () => {
+        it('generates the correct inputs', async () => {
             const pageviewGlobals = createHogExecutionGlobals({
                 event: {
                     event: '$pageview',
@@ -637,24 +730,26 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const result = executor.buildHogFunctionInvocations([fn], pageviewGlobals)
+            const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
             // First mapping has input overrides that should be applied
-            expect(result.invocations[0].globals.inputs.headers).toEqual({
+            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[0].globals.inputs.url).toMatchInlineSnapshot(`"https://example.com?q=$pageview"`)
+            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
+                `"https://example.com?q=$pageview"`
+            )
             // Second mapping has no input overrides
-            expect(result.invocations[1].globals.inputs.headers).toEqual({
+            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
                 version: 'v=',
             })
-            expect(result.invocations[1].globals.inputs.url).toMatchInlineSnapshot(
+            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
                 `"https://example.com/posthog-webhook"`
             )
         })
     })
 
     describe('async functions', () => {
-        it('prevents large looped fetch calls', () => {
+        it('prevents large looped fetch calls', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.recursive_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -662,23 +757,23 @@ describe('Hog Executor', () => {
             })
 
             // Simulate the recusive loop
-            const invocation = createInvocation(fn)
+            const invocation = createExampleInvocation(fn)
 
             // Start the function
-            const result1 = executor.execute(invocation)
+            let result = await executor.execute(invocation)
 
             for (let i = 0; i < 4; i++) {
                 // Run the response one time simulating a successful fetch
-                setupFetchResponse(result1.invocation)
-                const result2 = executor.execute(result1.invocation)
-                expect(result2.finished).toBe(false)
-                expect(result2.error).toBe(undefined)
-                expect(result2.invocation.queue).toBe('fetch')
+                setupFetchResponse(result.invocation)
+                result = await executor.execute(result.invocation)
+                expect(result.finished).toBe(false)
+                expect(result.error).toBe(undefined)
+                expect(result.invocation.queue).toBe('fetch')
             }
 
             // This time we should see an error for hitting the loop limit
-            setupFetchResponse(result1.invocation)
-            const result3 = executor.execute(result1.invocation)
+            setupFetchResponse(result.invocation)
+            const result3 = await executor.execute(result.invocation)
             expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
@@ -687,7 +782,7 @@ describe('Hog Executor', () => {
             ])
         })
 
-        it('adds secret headers for certain endpoints', () => {
+        it('adds secret headers for certain endpoints', async () => {
             hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
 
             const fn = createHogFunction({
@@ -703,8 +798,8 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const invocation = createInvocation(fn)
-            const result1 = executor.execute(invocation)
+            const invocation = createExampleInvocation(fn)
+            const result1 = await executor.execute(invocation)
             expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
                   "developer-token": "ADWORDS_TOKEN",
@@ -713,52 +808,28 @@ describe('Hog Executor', () => {
             `)
             // Check it doesn't do it for redirect
             fn.inputs!.url!.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
-            const invocation2 = createInvocation(fn)
-            const result2 = executor.execute(invocation2)
+            const invocation2 = createExampleInvocation(fn)
+            const result2 = await executor.execute(invocation2)
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
                 {
                   "version": "v=1.2.3",
                 }
             `)
         })
-
-        it('crafts a mailjet request', () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.send_email,
-                ...HOG_INPUTS_EXAMPLES.email,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const result = executor.execute(createInvocation(fn))
-            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
-                {
-                  "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
-                  "headers": {
-                    "Authorization": "Basic dGVzdF9hcGlfa2V5OnRlc3Rfc2VjcmV0X2tleQ==",
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                  "return_queue": "hog",
-                  "url": "https://api.mailjet.com/v3.1/send",
-                }
-            `)
-        })
     })
 
     describe('slow functions', () => {
-        beforeEach(() => {
-            // We need to use real timers for this test as the timeout is based on real time
-            jest.useRealTimers()
-        })
-        it('limits the execution time and exits appropriately', () => {
+        it('limits the execution time and exits appropriately', async () => {
+            jest.spyOn(Date, 'now').mockRestore()
+
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.malicious_function,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const result = executor.execute(createInvocation(fn))
-            expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result.error).toContain('Execution timed out after 0.55 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
                 'Executing function',
@@ -788,35 +859,37 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'Function exceeded maximum log entries. No more logs will be collected. Event: uuid',
                 expect.stringContaining(
-                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.1 seconds. Performed'
+                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.55 seconds. Performed'
                 ),
             ])
         })
     })
 
     describe('posthogCaptue', () => {
-        it('captures events', () => {
+        it('captures events', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            const result = executor.execute(createInvocation(fn))
-            expect(result?.capturedPostHogEvents).toEqual([
-                {
-                    distinct_id: 'distinct_id',
-                    event: 'test (copy)',
-                    properties: {
-                        $hog_function_execution_count: 1,
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result?.capturedPostHogEvents).toMatchInlineSnapshot(`
+                [
+                  {
+                    "distinct_id": "distinct_id",
+                    "event": "test (copy)",
+                    "properties": {
+                      "$hog_function_execution_count": 1,
                     },
-                    team_id: 1,
-                    timestamp: '2024-06-07T12:00:00.000Z',
-                },
-            ])
+                    "team_id": 1,
+                    "timestamp": "2025-01-01T00:00:00.000Z",
+                  },
+                ]
+            `)
         })
 
-        it('ignores events that have already used their postHogCapture', () => {
+        it('ignores events that have already used their postHogCapture', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -831,7 +904,7 @@ describe('Hog Executor', () => {
                     },
                 },
             } as any)
-            const result = executor.execute(createInvocation(fn, globals))
+            const result = await executor.execute(createExampleInvocation(fn, globals))
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(result?.logs[1].message).toMatchInlineSnapshot(
                 `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`

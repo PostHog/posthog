@@ -11,10 +11,6 @@
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="KAFKA_HOSTS" value="localhost:9092" />
       <env name="OBJECT_STORAGE_ENABLED" value="True" />
-      <env name="SESSION_RECORDING_KAFKA_BATCH_SIZE" value="200" />
-      <env name="SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS" value="180" />
-      <env name="SESSION_RECORDING_SUMMARY_INGESTION_ENABLED_TEAMS" value="all" />
-      <env name="SESSION_RECORDING_KAFKA_QUEUE_SIZE" value="600" />
     </envs>
     <method v="2" />
   </configuration>

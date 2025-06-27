@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,7 +14,7 @@ export function Wizard(): JSX.Element {
     const { view } = useValues(wizardLogic)
 
     return (
-        <BridgePage view="wizard" fixedWidth={false}>
+        <div className="flex h-full w-full items-center justify-center">
             <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
                 {(view === 'pending' || view === 'creating') && (
                     <>
@@ -42,6 +41,6 @@ export function Wizard(): JSX.Element {
                     </>
                 )}
             </div>
-        </BridgePage>
+        </div>
     )
 }

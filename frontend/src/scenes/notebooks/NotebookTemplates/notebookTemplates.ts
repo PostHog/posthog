@@ -1,4 +1,4 @@
-import { NotebookType, UserBasicType } from '~/types'
+import { AccessControlLevel, NotebookType, UserBasicType } from '~/types'
 
 const TEMPLATE_USERS: Record<string, UserBasicType> = {
     posthog: {
@@ -19,7 +19,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
         last_modified_at: '2023-06-02T00:00:00Z',
         created_by: TEMPLATE_USERS.posthog,
         last_modified_by: TEMPLATE_USERS.posthog,
-        user_access_level: 'viewer' as const,
+        user_access_level: AccessControlLevel.Viewer,
         version: 1,
         content: {
             type: 'doc',

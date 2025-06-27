@@ -64,10 +64,16 @@ export function FilterPanel({
     return (
         <div
             className={clsx(
-                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-surface-primary mt-2',
+                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-surface-primary mt-2 relative',
                 !filterPanelCollapsed && 'w-100'
             )}
         >
+            {debouncedLoading && (
+                <LoadingBar
+                    wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
+                    className="h-1 rounded-none"
+                />
+            )}
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton
@@ -88,7 +94,6 @@ export function FilterPanel({
                         </Tooltip>
                         <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
                     </div>
-                    {debouncedLoading && <LoadingBar />}
                     {isEmpty ? (
                         <LemonBanner type="info">
                             No data found. Try changing your filters or the URL above.
@@ -98,7 +103,7 @@ export function FilterPanel({
                         dateFrom={commonFilters?.date_from}
                         dateTo={commonFilters?.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ ...(commonFilters || {}), date_from: fromDate, date_to: toDate })
+                            setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
                     />
@@ -106,7 +111,7 @@ export function FilterPanel({
                         filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
                         onChange={(value) => {
                             setCommonFilters?.({
-                                ...(commonFilters || {}),
+                                ...commonFilters,
                                 filter_test_accounts: value.filter_test_accounts,
                             })
                         }}

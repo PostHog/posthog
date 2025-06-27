@@ -2,7 +2,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -27,11 +27,7 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
 }
 
-export interface FeatureFlagsResult {
-    results: FeatureFlagType[]
-    count: number
-    next?: string | null
-    previous?: string | null
+export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
 }

@@ -16,7 +16,7 @@ const meta: Meta<typeof LemonTree> = {
             // eslint-disable-next-line no-console
             console.log('clicked folder', item)
         },
-        onNodeClick: (item) => {
+        onItemClick: (item) => {
             // It's important to set focus to your desired content (in scene)
             // so that the keyboard navigation works
             // eslint-disable-next-line no-console

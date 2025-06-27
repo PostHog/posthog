@@ -44,30 +44,18 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                 <div className="px-2 py-1" data-attr="path-regex-modal-content">
                     <div className="deprecated-space-y-2">
                         <div>
-                            <span>Alias</span>
-                            <LemonInput
-                                value={alias}
-                                onChange={(alias) => setAlias(alias)}
-                                onPressEnter={() => false}
-                            />
-                            <div className="text-muted">
-                                We suggest you use <code>&lt;id&gt;</code> or <code>&lt;slug&gt;</code> to indicate a
-                                dynamic part of the path.
-                            </div>
-                        </div>
-                        <div>
                             <span>Regex</span>
                             <LemonInput
                                 value={regex}
                                 onChange={(regex) => setRegex(regex)}
                                 onPressEnter={() => false}
                             />
-                            <p className="text-secondary">
+                            <p className="text-muted">
                                 <span>
                                     Example:{' '}
                                     <span className="font-mono text-accent text-xs">/merchant/\d+/dashboard$</span> (no
                                     need to escape slashes)
-                                </span>{' '}
+                                </span>
                                 <br />
                                 <span>
                                     We use the{' '}
@@ -75,6 +63,22 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                         re2
                                     </Link>{' '}
                                     syntax.
+                                </span>
+                            </p>
+                        </div>
+                        <div>
+                            <span>Alias</span>
+                            <LemonInput
+                                value={alias}
+                                onChange={(alias) => setAlias(alias)}
+                                onPressEnter={() => false}
+                            />
+                            <p className="text-muted">
+                                <span>How the path will appear after path cleaning</span>
+                                <br />
+                                <span>
+                                    Example:{' '}
+                                    <span className="font-mono text-accent text-xs">{'/merchant/<id>/dashboard'}</span>
                                 </span>
                             </p>
                         </div>

@@ -216,10 +216,31 @@ describe('the property definitions model', () => {
                     propertyDefinitionStorage: {
                         'event/$session_duration': partial({ name: '$session_duration' }),
                         'session/snapshot_source': partial({ name: 'snapshot_source' }),
+                        'event_metadata/$group_0': {
+                            id: '$group_0',
+                            name: 'organization',
+                            property_type: 'String',
+                            type: 'event_metadata',
+                        },
+                        'event_metadata/$group_1': {
+                            id: '$group_1',
+                            name: 'instance',
+                            property_type: 'String',
+                            type: 'event_metadata',
+                        },
+                        'event_metadata/$group_2': {
+                            id: '$group_2',
+                            name: 'project',
+                            property_type: 'String',
+                            type: 'event_metadata',
+                        },
                         'event_metadata/distinct_id': partial({ name: 'distinct_id' }),
                         'event_metadata/event': partial({ name: 'event' }),
                         'event_metadata/person_id': partial({ name: 'person_id' }),
-                        'event_metadata/timestamp': partial({ name: 'timestamp' }),
+                        'event_metadata/timestamp': partial({
+                            name: 'timestamp',
+                        }),
+                        'resource/assignee': partial({ name: 'assignee' }),
                     },
                 })
         })

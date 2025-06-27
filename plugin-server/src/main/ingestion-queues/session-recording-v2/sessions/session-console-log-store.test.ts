@@ -35,7 +35,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -77,7 +77,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: 'log',
+                level: 'info',
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -126,7 +126,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -144,7 +144,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 1',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session1',
                 instance_id: null,
@@ -154,7 +154,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message 2',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session2',
                 instance_id: null,
@@ -180,7 +180,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -202,7 +202,7 @@ describe('SessionConsoleLogStore', () => {
             {
                 team_id: 1,
                 message: 'Test log message',
-                level: ConsoleLogLevel.Log,
+                level: ConsoleLogLevel.Info,
                 log_source: 'session_replay',
                 log_source_id: 'session123',
                 instance_id: null,
@@ -237,7 +237,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -273,7 +273,7 @@ describe('SessionConsoleLogStore', () => {
                 {
                     team_id: 1,
                     message: 'Test log message',
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'session123',
                     instance_id: null,
@@ -305,7 +305,7 @@ describe('SessionConsoleLogStore', () => {
         const createTestLog = (id: string): ConsoleLogEntry => ({
             team_id: 1,
             message: `Test message ${id}`,
-            level: ConsoleLogLevel.Log,
+            level: ConsoleLogLevel.Info,
             log_source: 'session_replay',
             log_source_id: `session${id}`,
             instance_id: null,

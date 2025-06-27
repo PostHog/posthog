@@ -1,0 +1,22 @@
+// Printing recursive objects.
+let obj := {'key': 'value', 'key2': 'value2'}
+let str := 'na'
+for (let i := 0; i < 100; i := i + 1) {
+  str := str || 'na'
+  obj[f'key_{i}'] := {
+    'wasted': 'memory: ' || str || ' batman!',
+    'something': obj,  // something links to obj
+  }
+}
+
+// printing works without loops
+print(obj)
+
+// this doesn't crash
+let json := jsonStringify(obj)
+
+// Commented out because JSON output is slightly different in python vs nodejs
+// print(json)
+
+// Should be equal to the original printed object -> nulls instead of recursive nodes
+print(jsonParse(json))

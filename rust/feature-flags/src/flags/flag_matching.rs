@@ -1,43 +1,39 @@
 use crate::api::errors::FlagError;
-use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
-use crate::client::database::Client as DatabaseClient;
+use crate::api::types::{
+    ConfigResponse, FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch,
+};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
-use crate::cohorts::cohort_operations::{
-    apply_cohort_membership_logic, evaluate_dynamic_cohorts, evaluate_static_cohorts,
-};
+use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
+use crate::flags::flag_matching_utils::{
+    all_flag_condition_properties_match, all_properties_match, calculate_hash,
+    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
+};
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
 use crate::metrics::consts::{
-    DB_GROUP_PROPERTIES_READS_COUNTER, DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER,
-    DB_PERSON_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
+    DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
-    FLAG_STATIC_COHORT_DB_EVALUATION_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
     PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use anyhow::Result;
-use common_metrics::inc;
+use common_database::Client as DatabaseClient;
+use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::error;
-
-#[cfg(test)]
-use crate::api::types::{FlagValue, LegacyFlagsResponse};
-
-use super::flag_matching_utils::{
-    all_properties_match, calculate_hash, fetch_and_locally_cache_all_relevant_properties,
-    fetch_group_properties_from_db, fetch_person_properties_from_db,
-    get_feature_flag_hash_key_overrides, locally_computable_property_overrides,
-    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
-}; // Only used in the tests
+use tracing::{error, warn};
+use uuid::Uuid;
 
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
 pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
@@ -58,6 +54,16 @@ pub struct FeatureFlagMatch {
     pub payload: Option<Value>,
 }
 
+impl FeatureFlagMatch {
+    pub fn get_flag_value(&self) -> FlagValue {
+        match (self.matches, &self.variant) {
+            (true, Some(variant)) => FlagValue::String(variant.clone()),
+            (true, None) => FlagValue::Boolean(true),
+            (false, _) => FlagValue::Boolean(false),
+        }
+    }
+}
+
 /// This struct maintains evaluation state by caching database-sourced data during feature flag evaluation.
 /// It stores person IDs, properties, group properties, and cohort matches that are fetched from the database,
 /// allowing them to be reused across multiple flag evaluations within the same request without additional DB lookups.
@@ -68,11 +74,15 @@ pub struct FlagEvaluationState {
     /// The person ID associated with the distinct_id being evaluated
     person_id: Option<PersonId>,
     /// Properties associated with the person, fetched from the database
-    person_properties: Option<HashMap<String, Value>>,
+    pub(crate) person_properties: Option<HashMap<String, Value>>,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+    /// Cohorts for the current request
+    cohorts: Option<Vec<Cohort>>,
     /// Cache of static cohort membership results to avoid repeated DB lookups
     static_cohort_matches: Option<HashMap<CohortId, bool>>,
+    /// Cache of flag evaluation results to avoid repeated DB lookups
+    flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
 }
 
 impl FlagEvaluationState {
@@ -100,6 +110,10 @@ impl FlagEvaluationState {
         self.person_properties = Some(properties);
     }
 
+    pub fn set_cohorts(&mut self, cohorts: Vec<Cohort>) {
+        self.cohorts = Some(cohorts);
+    }
+
     pub fn set_group_properties(
         &mut self,
         group_type_index: GroupTypeIndex,
@@ -110,6 +124,10 @@ impl FlagEvaluationState {
 
     pub fn set_static_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
         self.static_cohort_matches = Some(matches);
+    }
+
+    pub fn add_flag_evaluation_result(&mut self, flag_id: FeatureFlagId, flag_value: FlagValue) {
+        self.flag_evaluation_results.insert(flag_id, flag_value);
     }
 }
 
@@ -149,7 +167,7 @@ pub struct FeatureFlagMatcher {
     /// Cache for mapping between group types and their indices
     group_type_mapping_cache: GroupTypeMappingCache,
     /// State maintained during flag evaluation, including cached DB lookups
-    flag_evaluation_state: FlagEvaluationState,
+    pub(crate) flag_evaluation_state: FlagEvaluationState,
     /// Group key mappings for group-based flag evaluation
     groups: HashMap<String, Value>,
 }
@@ -174,7 +192,7 @@ impl FeatureFlagMatcher {
             writer: writer.clone(),
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
-                .unwrap_or_else(|| GroupTypeMappingCache::new(project_id, reader.clone())),
+                .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
         }
@@ -198,44 +216,21 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
+        request_id: Uuid,
     ) -> FlagsResponse {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
-
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
             .any(|flag| flag.ensure_experience_continuity);
 
         // Process any hash key overrides
-        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        let (hash_key_overrides, initial_error) = if flags_have_experience_continuity_enabled {
-            match hash_key_override {
-                Some(hash_key) => {
-                    let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                    self.process_hash_key_override(hash_key, target_distinct_ids)
-                        .await
-                }
-                // if a flag has experience continuity enabled but no hash key override is provided,
-                // we don't need to write an override, we can just use the distinct_id
-                None => (None, false),
-            }
-        } else {
-            // if experience continuity is not enabled, we don't need to worry about hash key overrides
-            (None, false)
-        };
-        hash_key_timer
-            .label("outcome", if initial_error { "error" } else { "success" })
-            .fin();
-
-        // If there was an initial error in processing hash key overrides, increment the error counter
-        if initial_error {
-            let reason = "hash_key_override_error";
-            common_metrics::inc(
-                FLAG_EVALUATION_ERROR_COUNTER,
-                &[("reason".to_string(), reason.to_string())],
-                1,
-            );
-        }
+        let (hash_key_overrides, flag_hash_key_override_error) = self
+            .process_hash_key_override_if_needed(
+                flags_have_experience_continuity_enabled,
+                hash_key_override,
+            )
+            .await;
 
         let flags_response = self
             .evaluate_flags_with_overrides(
@@ -243,13 +238,14 @@ impl FeatureFlagMatcher {
                 person_property_overrides,
                 group_property_overrides,
                 hash_key_overrides,
+                request_id,
             )
             .await;
 
         eval_timer
             .label(
                 "outcome",
-                if flags_response.errors_while_computing_flags || initial_error {
+                if flags_response.errors_while_computing_flags || flag_hash_key_override_error {
                     "error"
                 } else {
                     "success"
@@ -257,11 +253,14 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse::new(
-            initial_error || flags_response.errors_while_computing_flags,
-            flags_response.flags,
-            None,
-        )
+        FlagsResponse {
+            errors_while_computing_flags: flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags,
+            flags: flags_response.flags,
+            quota_limited: None,
+            request_id,
+            config: ConfigResponse::default(),
+        }
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -296,8 +295,8 @@ impl FeatureFlagMatcher {
             Ok(should_write) => should_write,
             Err(e) => {
                 error!(
-                    "Failed to check if hash key override should be written: {:?}",
-                    e
+                    "Failed to check if hash key override should be written for team {} project {} distinct_id {}: {:?}",
+                    self.team_id, self.project_id, self.distinct_id, e
                 );
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
@@ -322,7 +321,7 @@ impl FeatureFlagMatcher {
             )
             .await
             {
-                error!("Failed to set feature flag hash key overrides: {:?}", e);
+                error!("Failed to set feature flag hash key overrides for team {} project {} distinct_id {} hash_key {}: {:?}", self.team_id, self.project_id, self.distinct_id, hash_key, e);
                 let reason = parse_exception_for_prometheus_label(&e);
                 inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
@@ -343,8 +342,17 @@ impl FeatureFlagMatcher {
             1,
         );
 
+        // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
+        // This is because we need to make sure the write is successful before we read it back
+        // to avoid read-after-write consistency issues with database replication lag
+        let database_for_reading = if writing_hash_key_override {
+            self.writer.clone()
+        } else {
+            self.reader.clone()
+        };
+
         match get_feature_flag_hash_key_overrides(
-            self.reader.clone(),
+            database_for_reading,
             self.team_id,
             target_distinct_ids,
         )
@@ -352,9 +360,9 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides) => (Some(overrides), false),
             Err(e) => {
-                error!("Failed to get feature flag hash key overrides: {:?}", e);
+                error!("Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
                 let reason = parse_exception_for_prometheus_label(&e);
-                common_metrics::inc(
+                inc(
                     FLAG_EVALUATION_ERROR_COUNTER,
                     &[("reason".to_string(), reason.to_string())],
                     1,
@@ -364,56 +372,20 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Evaluates and caches static cohort memberships for the current person.
-    /// This should be called once per request to avoid multiple DB lookups.
-    async fn evaluate_and_cache_static_cohorts(
-        &mut self,
-        cohorts: &[Cohort],
-    ) -> Result<HashMap<CohortId, bool>, FlagError> {
-        // Skip if we've already cached the results
-        if let Some(matches) = self.flag_evaluation_state.get_static_cohort_matches() {
-            return Ok(matches.clone());
-        }
-
-        let person_id = self.get_person_id().await?;
-        let static_cohorts: Vec<_> = cohorts.iter().filter(|c| c.is_static).collect();
-
-        if static_cohorts.is_empty() {
-            // Cache empty map to indicate we've checked
-            let empty_map = HashMap::new();
-            self.flag_evaluation_state
-                .set_static_cohort_matches(empty_map.clone());
-            return Ok(empty_map);
-        }
-
-        let results = evaluate_static_cohorts(
-            self.reader.clone(),
-            person_id,
-            static_cohorts.iter().map(|c| c.id).collect(),
-        )
-        .await?
-        .into_iter()
-        .collect::<HashMap<_, _>>();
-
-        self.flag_evaluation_state
-            .set_static_cohort_matches(results.clone());
-        Ok(results)
-    }
-
-    /// Evaluates cohort filters using cached static cohort results where possible.
-    /// For dynamic cohorts, evaluates them based on the provided properties.
-    pub async fn evaluate_cohort_filters(
-        &mut self,
+    /// Evaluates cohort filters
+    /// Uses the static cohort results from the cache, and
+    /// evaluates dynamic cohorts based on the provided properties
+    /// (converts dynamic cohorts into property filters and then evaluates them)
+    pub fn evaluate_cohort_filters(
+        &self,
         cohort_property_filters: &[PropertyFilter],
         target_properties: &HashMap<String, Value>,
+        cohorts: Vec<Cohort>,
     ) -> Result<bool, FlagError> {
-        // At the start of the request, fetch all of the cohorts for the project from the cache
-        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
-
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
             Some(matches) => matches.clone(),
-            None => self.evaluate_and_cache_static_cohorts(&cohorts).await?,
+            None => HashMap::new(), // NB: this happens if a flag has static cohort filters but is targeting an anonymous user.  Shouldn't error, just return empty.
         };
 
         // Store all cohort match results, starting with static cohort results
@@ -448,32 +420,106 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_id: Uuid,
     ) -> FlagsResponse {
+        // Initialize group type mappings if needed
+        let mut errors_while_computing_flags = self
+            .initialize_group_type_mappings_if_needed(&feature_flags)
+            .await;
+
+        // Evaluate all flags in the current level
+        let (flag_details_map, level_errors) = self
+            .evaluate_flags_in_level(
+                &feature_flags.flags,
+                &person_property_overrides,
+                &group_property_overrides,
+                &hash_key_overrides,
+            )
+            .await;
+        errors_while_computing_flags |= level_errors;
+
+        FlagsResponse {
+            errors_while_computing_flags,
+            flags: flag_details_map,
+            quota_limited: None,
+            request_id,
+            config: ConfigResponse::default(),
+        }
+    }
+
+    /// Evaluates a set of flags using a fallback strategy:
+    /// 1. First tries to evaluate with property overrides (i.e., can be computed exclusively from the property overrides)
+    /// 2. For flags that need DB properties, prepares evaluation state (i.e., fetches the properties from the DB)
+    /// 3. Evaluates remaining flags with a combination of property overrides and DB properties
+    ///
+    /// This function is designed to be used as part of a level-based evaluation strategy
+    /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    async fn evaluate_flags_in_level(
+        &mut self,
+        flags: &[FeatureFlag],
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+    ) -> (HashMap<String, FlagDetails>, bool) {
+        // initialize some state
         let mut errors_while_computing_flags = false;
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
+        let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
+            HashMap::new();
 
-        // Step 1: Evaluate flags with locally computable property overrides first
-        for flag in &feature_flags.flags {
-            // we shouldn't have any disabled or deleted flags (the query should filter them out),
-            // but just in case, we skip them here
+        // Step 0: Pre-compute property overrides for all flags upfront
+        for flag in flags {
+            // Skip disabled or deleted flags early
             if !flag.active || flag.deleted {
                 continue;
             }
 
+            let relevant_property_overrides = match flag.get_group_type_index() {
+                Some(group_type_index) => {
+                    // For group flags, extract the relevant group overrides
+                    match self.group_overrides_to_property_overrides(
+                        group_type_index,
+                        group_property_overrides,
+                    ) {
+                        Ok(overrides) => overrides,
+                        Err(e) => {
+                            warn!(
+                                "Failed to get group type mapping for flag '{}' with group_type_index {}: {:?}. Treating as no overrides.",
+                                flag.key, group_type_index, e
+                            );
+                            None // If we can't get the mapping, treat as no overrides; we'll hit the DB later if needed, but odds are that this is an error on the client side
+                        }
+                    }
+                }
+                None => person_property_overrides.clone(),
+            };
+            precomputed_property_overrides.insert(flag.key.clone(), relevant_property_overrides);
+        }
+
+        // Begin flag evaluation
+        for flag in flags {
+            // Skip disabled or deleted flags
+            if !flag.active || flag.deleted {
+                continue;
+            }
+
+            // Step 1: Evaluate flags with locally computable (i.e., can be computed exclusively from the property overrides) properties first
             let property_override_match_timer =
                 common_metrics::timing_guard(FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, &[]);
 
-            match self
-                .match_flag_with_property_overrides(
-                    flag,
-                    &person_property_overrides,
-                    &group_property_overrides,
-                    hash_key_overrides.clone(),
-                )
-                .await
-            {
+            let property_overrides = precomputed_property_overrides
+                .get(&flag.key)
+                .unwrap_or(&None); // Safe fallback: if flag not in map, treat as no overrides.  Shouldn't happen, but is here to avoid panics
+
+            match self.match_flag_exclusively_with_overrides(
+                flag,
+                property_overrides,
+                hash_key_overrides.clone(),
+            ) {
                 Ok(Some(flag_match)) => {
+                    self.flag_evaluation_state
+                        .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
                     flag_details_map
                         .insert(flag.key.clone(), FlagDetails::create(flag, &flag_match));
                 }
@@ -482,11 +528,21 @@ impl FeatureFlagMatcher {
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
-                    error!(
-                        "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
-                        flag.key, self.distinct_id, e
-                    );
                     let reason = parse_exception_for_prometheus_label(&e);
+
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag.key, dependency_type, dependency_id, self.distinct_id, e
+                        );
+                    } else {
+                        error!(
+                            "Error evaluating feature flag '{}' with overrides for distinct_id '{}': {:?}",
+                            flag.key, self.distinct_id, e
+                        );
+                    }
+
                     inc(
                         FLAG_EVALUATION_ERROR_COUNTER,
                         &[("reason".to_string(), reason.to_string())],
@@ -512,142 +568,206 @@ impl FeatureFlagMatcher {
                 .prepare_flag_evaluation_state(&flags_needing_db_properties)
                 .await
             {
+                // Handle database errors
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                for flag in flags_needing_db_properties {
-                    flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                for flag in &flags_needing_db_properties {
+                    flag_details_map.insert(
+                        flag.key.clone(),
+                        FlagDetails::create_error(flag, reason, None),
+                    );
                 }
-                return FlagsResponse::new(errors_while_computing_flags, flag_details_map, None);
+                error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
+                return (flag_details_map, errors_while_computing_flags);
             }
+        }
 
-            // Step 3: Evaluate remaining flags with cached properties
-            let flag_get_match_timer = common_metrics::timing_guard(FLAG_GET_MATCH_TIME, &[]);
-            for flag in flags_needing_db_properties {
-                match self
-                    .get_match(&flag, None, hash_key_overrides.clone())
-                    .await
-                {
-                    Ok(flag_match) => {
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create(&flag, &flag_match));
-                    }
-                    Err(e) => {
-                        errors_while_computing_flags = true;
-                        // TODO add posthog error tracking
+        // Step 3: Evaluate remaining flags with cached properties using pre-computed overrides
+        let flag_get_match_timer = timing_guard(FLAG_GET_MATCH_TIME, &[]);
+
+        let flags_map: HashMap<&String, &FeatureFlag> = flags_needing_db_properties
+            .iter()
+            .map(|flag| (&flag.key, flag))
+            .collect();
+
+        let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> =
+            flags_needing_db_properties
+                .par_iter()
+                .map(|flag| {
+                    // If the overrides for this flag are not in the pre-computed map, assume no overrides
+                    // this shouldn't happen, but it's here to avoid panics
+                    let property_overrides = precomputed_property_overrides
+                        .get(&flag.key)
+                        .unwrap_or(&None)
+                        .clone();
+                    (
+                        flag.key.clone(),
+                        self.get_match(flag, property_overrides, hash_key_overrides.clone()),
+                    )
+                })
+                .collect();
+
+        for (flag_key, result) in results {
+            // If flag not found in map, skip it (this shouldn't happen but is safe)
+            let Some(flag) = flags_map.get(&flag_key) else {
+                error!(
+                    "Flag '{}' not found in flags_map during evaluation - this shouldn't happen",
+                    flag_key
+                );
+                continue;
+            };
+
+            match result {
+                Ok(flag_match) => {
+                    self.flag_evaluation_state
+                        .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
+                    flag_details_map.insert(flag_key, FlagDetails::create(flag, &flag_match));
+                }
+                Err(e) => {
+                    errors_while_computing_flags = true;
+                    let reason = parse_exception_for_prometheus_label(&e);
+
+                    // Handle DependencyNotFound errors differently since they indicate a deleted dependency
+                    if let FlagError::DependencyNotFound(dependency_type, dependency_id) = &e {
+                        warn!(
+                            "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
+                            flag.key, dependency_type, dependency_id, self.distinct_id, e
+                        );
+                    } else {
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
                         );
-                        let reason = parse_exception_for_prometheus_label(&e);
-                        inc(
-                            FLAG_EVALUATION_ERROR_COUNTER,
-                            &[("reason".to_string(), reason.to_string())],
-                            1,
-                        );
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
+
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason.to_string())],
+                        1,
+                    );
+                    flag_details_map
+                        .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
-            flag_get_match_timer
-                .label(
-                    "outcome",
-                    if errors_while_computing_flags {
-                        "error"
-                    } else {
-                        "success"
-                    },
-                )
-                .fin();
         }
+        flag_get_match_timer
+            .label(
+                "outcome",
+                if errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
 
-        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
+        (flag_details_map, errors_while_computing_flags)
     }
 
-    /// Matches a feature flag with property overrides.
+    /// Attempts to match a feature flag using only property overrides (no database access).
     ///
-    /// This function attempts to match a feature flag using either group or person property overrides,
-    /// depending on whether the flag is group-based or person-based. It first collects all property
-    /// filters from the flag's conditions, then retrieves the appropriate overrides, and finally
-    /// attempts to match the flag using these overrides.
-    async fn match_flag_with_property_overrides(
+    /// This function tries to evaluate the flag using only the provided overrides,
+    /// without fetching any properties from the database. It returns Some(match) if
+    /// the overrides are sufficient, or None if database properties are needed.
+    ///
+    /// The logic is:
+    /// 1. If flag has super conditions and overrides contain all super condition properties -> use overrides only
+    /// 2. If flag has no super conditions and overrides contain all flag properties -> use overrides only  
+    /// 3. Otherwise -> return None to trigger DB fetch + merge path
+    fn match_flag_exclusively_with_overrides(
         &mut self,
         flag: &FeatureFlag,
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        property_overrides: &Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
-        let flag_property_filters: Vec<PropertyFilter> = flag
-            .get_conditions()
-            .iter()
-            .flat_map(|c| c.properties.clone().unwrap_or_default())
-            .collect();
-
-        let overrides = match flag.get_group_type_index() {
-            Some(group_type_index) => {
-                self.get_group_overrides(
-                    group_type_index,
-                    group_property_overrides,
-                    &flag_property_filters,
-                )
-                .await?
-            }
-            None => self.get_person_overrides(person_property_overrides, &flag_property_filters),
-        };
-
-        match overrides {
-            Some(props) => self
-                .get_match(flag, Some(props), hash_key_overrides)
-                .await
-                .map(Some),
-            None => Ok(None),
+        // Check if overrides are sufficient for independent evaluation
+        if self.are_overrides_sufficient_for_match_predicate(flag, property_overrides) {
+            // Fast path: evaluate using overrides only
+            self.get_match(flag, property_overrides.clone(), hash_key_overrides)
+                .map(Some)
+        } else {
+            // Overrides are insufficient, return None to trigger DB merge path
+            Ok(None)
         }
     }
 
-    /// Retrieves group overrides for a specific group type index.
+    /// Checks if the provided overrides are sufficient to independently evaluate the flag.
     ///
-    /// This function attempts to find and return property overrides for a given group type.
-    /// It first maps the group type index to a group type, then checks if there are any
-    /// overrides for that group type in the provided group property overrides.
-    async fn get_group_overrides(
+    /// For flags with super conditions: overrides must contain all super condition properties
+    /// For flags without super conditions: overrides must contain ALL properties used by the flag
+    fn are_overrides_sufficient_for_match_predicate(
+        &self,
+        flag: &FeatureFlag,
+        overrides: &Option<HashMap<String, Value>>,
+    ) -> bool {
+        let Some(ref overrides_map) = overrides else {
+            return false;
+        };
+
+        // Check super conditions first (special case)
+        if let Some(super_groups) = &flag.filters.super_groups {
+            if !super_groups.is_empty() {
+                // For super conditions, we need ALL super condition properties
+                return super_groups.iter().all(|super_group| {
+                    super_group.properties.as_ref().map_or(true, |props| {
+                        props
+                            .iter()
+                            .all(|prop| overrides_map.contains_key(&prop.key))
+                    })
+                });
+            }
+        }
+
+        // For regular conditions, check if ALL properties across ALL conditions are in overrides
+        // This is conservative but safe - we only use fast path when we have complete information
+        let all_properties: HashSet<String> = flag
+            .get_conditions()
+            .iter()
+            .flat_map(|condition| condition.properties.as_deref().unwrap_or(&[]).iter())
+            .map(|prop| prop.key.clone())
+            .collect();
+
+        // If no properties are needed, overrides are sufficient
+        if all_properties.is_empty() {
+            return true;
+        }
+
+        // Check if overrides contain ALL properties the flag needs
+        all_properties
+            .iter()
+            .all(|prop_key| overrides_map.contains_key(prop_key))
+    }
+
+    /// Convert group overrides to property overrides
+    fn group_overrides_to_property_overrides(
         &mut self,
         group_type_index: GroupTypeIndex,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<Option<HashMap<String, Value>>, FlagError> {
-        let index_to_type_map = self
+        // If we can't get the mapping, just return None
+        let index_to_type_map = match self
             .group_type_mapping_cache
-            .group_type_index_to_group_type_map()
-            .await?;
+            .get_group_type_index_to_type_map()
+        {
+            Ok(map) => map,
+            Err(FlagError::NoGroupTypeMappings) => return Ok(None),
+            Err(e) => return Err(e),
+        };
 
         if let Some(group_type) = index_to_type_map.get(&group_type_index) {
             if let Some(group_overrides) = group_property_overrides {
                 if let Some(group_overrides_by_type) = group_overrides.get(group_type) {
-                    return Ok(locally_computable_property_overrides(
-                        &Some(group_overrides_by_type.clone()),
-                        flag_property_filters,
-                    ));
+                    return Ok(Some(group_overrides_by_type.clone()));
                 }
             }
         }
 
         Ok(None)
-    }
-
-    /// Retrieves person overrides for feature flag evaluation.
-    ///
-    /// This function attempts to find and return property overrides for a person.
-    /// It uses the provided person property overrides and filters them based on
-    /// the property filters defined in the feature flag.
-    fn get_person_overrides(
-        &self,
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        flag_property_filters: &[PropertyFilter],
-    ) -> Option<HashMap<String, Value>> {
-        person_property_overrides.as_ref().and_then(|overrides| {
-            locally_computable_property_overrides(&Some(overrides.clone()), flag_property_filters)
-        })
     }
 
     /// Determines if a feature flag matches for the current context.
@@ -663,15 +783,14 @@ impl FeatureFlagMatcher {
     ///
     /// The method also keeps track of the highest priority match reason and index,
     /// which are used even if no conditions ultimately match.
-    pub async fn get_match(
-        &mut self,
+    pub fn get_match(
+        &self,
         flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         if self
-            .hashed_identifier(flag, hash_key_overrides.clone())
-            .await?
+            .hashed_identifier(flag, hash_key_overrides.clone())?
             .is_empty()
         {
             return Ok(FeatureFlagMatch {
@@ -689,13 +808,11 @@ impl FeatureFlagMatcher {
         // Evaluate any super conditions first
         if let Some(super_groups) = &flag.filters.super_groups {
             if !super_groups.is_empty() {
-                let super_condition_evaluation = self
-                    .is_super_condition_match(
-                        flag,
-                        property_overrides.clone(),
-                        hash_key_overrides.clone(),
-                    )
-                    .await?;
+                let super_condition_evaluation = self.is_super_condition_match(
+                    flag,
+                    property_overrides.clone(),
+                    hash_key_overrides.clone(),
+                )?;
 
                 if super_condition_evaluation.should_evaluate {
                     let payload = self.get_matching_payload(None, flag);
@@ -723,7 +840,7 @@ impl FeatureFlagMatcher {
         if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag).await?;
+                    self.is_holdout_condition_match(flag)?;
                 if is_match {
                     let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
                     return Ok(FeatureFlagMatch {
@@ -737,7 +854,7 @@ impl FeatureFlagMatcher {
             }
         }
         // Sort conditions with variant overrides to the top so that we can evaluate them first
-        let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
+        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
         sorted_conditions
@@ -745,14 +862,12 @@ impl FeatureFlagMatcher {
 
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in sorted_conditions {
-            let (is_match, reason) = self
-                .is_condition_match(
-                    flag,
-                    condition,
-                    property_overrides.clone(),
-                    hash_key_overrides.clone(),
-                )
-                .await?;
+            let (is_match, reason) = self.is_condition_match(
+                flag,
+                condition,
+                property_overrides.clone(),
+                hash_key_overrides.clone(),
+            )?;
 
             // Update highest_match and highest_index
             let (new_highest_match, new_highest_index) = self
@@ -781,13 +896,11 @@ impl FeatureFlagMatcher {
                         Some(variant_override.clone())
                     } else {
                         // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(flag, hash_key_overrides.clone())
-                            .await?
+                        self.get_matching_variant(flag, hash_key_overrides.clone())?
                     }
                 } else {
                     // No override, use computed variant
-                    self.get_matching_variant(flag, hash_key_overrides.clone())
-                        .await?
+                    self.get_matching_variant(flag, hash_key_overrides.clone())?
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -837,10 +950,10 @@ impl FeatureFlagMatcher {
     /// It first checks if the condition has any property filters. If not, it performs a rollout check.
     /// Otherwise, it fetches the relevant properties and checks if they match the condition's filters.
     /// The function returns a tuple indicating whether the condition matched and the reason for the match.
-    async fn is_condition_match(
-        &mut self,
+    pub(crate) fn is_condition_match(
+        &self,
         feature_flag: &FeatureFlag,
-        condition: &FlagGroupType,
+        condition: &FlagPropertyGroup,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -848,22 +961,35 @@ impl FeatureFlagMatcher {
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
-                return self
-                    .check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
-                    .await;
+                return self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides);
+            }
+
+            // Separate flag value filters from other filters
+            let (flag_value_filters, other_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
+                flag_property_filters
+                    .iter()
+                    .cloned()
+                    .partition(|prop| prop.depends_on_feature_flag());
+
+            if !flag_value_filters.is_empty()
+                && !all_flag_condition_properties_match(
+                    &flag_value_filters,
+                    &self.flag_evaluation_state.flag_evaluation_results,
+                )
+            {
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
             }
 
             // Separate cohort and non-cohort filters
             let (cohort_filters, non_cohort_filters): (Vec<PropertyFilter>, Vec<PropertyFilter>) =
-                flag_property_filters
+                other_filters
                     .iter()
                     .cloned()
                     .partition(|prop| prop.is_cohort());
 
             // Get the properties we need to check for in this condition match from the flag + any overrides
-            let person_or_group_properties = self
-                .get_properties_to_check(feature_flag, property_overrides, &non_cohort_filters)
-                .await?;
+            let person_or_group_properties =
+                self.get_properties_to_check(feature_flag, property_overrides)?;
 
             // Evaluate non-cohort filters first, since they're cheaper to evaluate and we can return early if they don't match
             if !all_properties_match(&non_cohort_filters, &person_or_group_properties) {
@@ -872,118 +998,78 @@ impl FeatureFlagMatcher {
 
             // Evaluate cohort filters, if any.
             if !cohort_filters.is_empty() {
-                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
-                if !self
-                    .evaluate_cohort_filters(&cohort_filters, &person_or_group_properties)
-                    .await?
-                {
+                let cohorts = match &self.flag_evaluation_state.cohorts {
+                    Some(cohorts) => cohorts.clone(),
+                    None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
+                };
+                if !self.evaluate_cohort_filters(
+                    &cohort_filters,
+                    &person_or_group_properties,
+                    cohorts,
+                )? {
                     return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                 }
             }
         }
 
         self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
-            .await
     }
 
-    /// Get properties to check for a feature flag.
-    ///
-    /// This function determines which properties to check based on the feature flag's group type index.
-    /// If the flag is group-based, it fetches group properties; otherwise, it fetches person properties.
-    async fn get_properties_to_check(
-        &mut self,
+    /// Gets the properties to check for a feature flag condition, merging DB properties with overrides.
+    /// Overrides take precedence over DB properties when both are present.
+    fn get_properties_to_check(
+        &self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(group_type_index) = feature_flag.get_group_type_index() {
-            self.get_group_properties(group_type_index, property_overrides, flag_property_filters)
-                .await
-        } else {
-            self.get_person_properties(property_overrides, flag_property_filters)
-                .await
+        match feature_flag.get_group_type_index() {
+            Some(group_type_index) => {
+                self.get_group_properties(group_type_index, property_overrides)
+            }
+            None => self.get_person_properties(property_overrides),
         }
     }
 
-    /// Get group properties from overrides, cache or database.
-    ///
-    /// This function attempts to retrieve group properties either from a cache or directly from the database.
-    /// It first checks if there are any locally computable property overrides. If so, it returns those.
-    /// Otherwise, it fetches the properties from the cache or database and returns them.
-    async fn get_group_properties(
-        &mut self,
+    /// Gets group properties by merging DB properties with overrides (overrides take precedence).
+    fn get_group_properties(
+        &self,
         group_type_index: GroupTypeIndex,
         property_overrides: Option<HashMap<String, Value>>,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(overrides) =
-            locally_computable_property_overrides(&property_overrides, flag_property_filters)
-        {
-            Ok(overrides)
-        } else {
-            self.get_group_properties_from_cache_or_db(group_type_index)
-                .await
+        // Start with DB properties
+        let mut merged_properties =
+            self.get_group_properties_from_evaluation_state(group_type_index)?;
+
+        // Merge in overrides (overrides take precedence)
+        if let Some(overrides) = property_overrides {
+            merged_properties.extend(overrides);
         }
+
+        // Return all merged properties
+        Ok(merged_properties)
     }
 
-    /// Retrieves the `PersonId` from the properties cache.
-    /// If the cache does not contain a `PersonId`, it fetches it from the database
-    /// and updates the cache accordingly.
-    async fn get_person_id(&mut self) -> Result<PersonId, FlagError> {
-        match self.flag_evaluation_state.get_person_id() {
-            Some(id) => {
-                inc(
-                    PROPERTY_CACHE_HITS_COUNTER,
-                    &[("type".to_string(), "person_id".to_string())],
-                    1,
-                );
-                Ok(id)
-            }
-            None => {
-                let id = self.get_person_id_from_db().await?;
-                inc(DB_PERSON_PROPERTIES_READS_COUNTER, &[], 1);
-                self.flag_evaluation_state.set_person_id(id);
-                Ok(id)
-            }
-        }
-    }
-
-    /// Fetches the `PersonId` from the database based on the current `distinct_id` and `team_id`.
-    /// This method is called when the `PersonId` is not present in the properties cache.
-    async fn get_person_id_from_db(&mut self) -> Result<PersonId, FlagError> {
-        let reader = self.reader.clone();
-        let distinct_id = self.distinct_id.clone();
-        let team_id = self.team_id;
-        fetch_person_properties_from_db(reader, distinct_id, team_id)
-            .await
-            .map(|(_, person_id)| person_id)
-    }
-
-    /// Get person properties from overrides, cache or database.
-    ///
-    /// This function attempts to retrieve person properties either from a cache or directly from the database.
-    /// It first checks if there are any locally computable property overrides. If so, it returns those.
-    /// Otherwise, it fetches the properties from the cache or database and returns them.
-    async fn get_person_properties(
-        &mut self,
+    /// Gets person properties by merging DB properties with overrides (overrides take precedence).
+    fn get_person_properties(
+        &self,
         property_overrides: Option<HashMap<String, Value>>,
-        flag_property_filters: &[PropertyFilter],
     ) -> Result<HashMap<String, Value>, FlagError> {
-        if let Some(overrides) =
-            locally_computable_property_overrides(&property_overrides, flag_property_filters)
-        {
-            Ok(overrides)
-        } else {
-            match self.get_person_properties_from_cache_or_db().await {
-                Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
-                Err(e) => Err(e),
-            }
+        // Start with DB properties
+        let mut merged_properties = self
+            .get_person_properties_from_evaluation_state()
+            .unwrap_or_default();
+
+        // Merge in overrides (overrides take precedence)
+        if let Some(overrides) = property_overrides {
+            merged_properties.extend(overrides);
         }
+
+        // Return all merged properties
+        Ok(merged_properties)
     }
 
-    async fn is_holdout_condition_match(
-        &mut self,
+    fn is_holdout_condition_match(
+        &self,
         flag: &FeatureFlag,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
@@ -1004,7 +1090,7 @@ impl FeatureFlagMatcher {
                 let rollout_percentage = condition.rollout_percentage;
 
                 if let Some(percentage) = rollout_percentage {
-                    if self.get_holdout_hash(flag, None).await? > (percentage / 100.0) {
+                    if self.get_holdout_hash(flag, None)? > (percentage / 100.0) {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
                     }
@@ -1015,8 +1101,7 @@ impl FeatureFlagMatcher {
                 let variant = if let Some(variant_override) = condition.variant.as_ref() {
                     variant_override.clone()
                 } else {
-                    self.get_matching_variant(flag, None)
-                        .await?
+                    self.get_matching_variant(flag, None)?
                         .unwrap_or_else(|| "holdout".to_string())
                 };
 
@@ -1033,54 +1118,44 @@ impl FeatureFlagMatcher {
     /// Check if a super condition matches for a feature flag.
     ///
     /// This function evaluates the super conditions of a feature flag to determine if any of them should be enabled.
-    /// It first checks if there are any super conditions. If so, it evaluates the first condition.
+    /// It merges property overrides with cached DB properties, with overrides taking precedence.
     /// The function returns a struct indicating whether a super condition should be evaluated,
     /// whether it matches if evaluated, and the reason for the match.
-    async fn is_super_condition_match(
-        &mut self,
+    fn is_super_condition_match(
+        &self,
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
-        if let Some(first_condition) = feature_flag
+        if let Some(super_condition) = feature_flag
             .filters
             .super_groups
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Need to fetch person properties to check super conditions.  If these properties are already locally computable,
-            // we don't need to fetch from the database, but if they aren't we need to fetch from the database and then we'll cache them.
-            let person_properties = self
-                .get_person_properties(
-                    property_overrides,
-                    first_condition.properties.as_deref().unwrap_or(&[]),
-                )
-                .await?;
+            // Merge DB properties with overrides (overrides take precedence)
+            let merged_properties = self.get_person_properties(property_overrides)?;
 
             let has_relevant_super_condition_properties =
-                first_condition.properties.as_ref().map_or(false, |props| {
+                super_condition.properties.as_ref().map_or(false, |props| {
                     props
                         .iter()
-                        .any(|prop| person_properties.contains_key(&prop.key))
+                        .any(|prop| merged_properties.contains_key(&prop.key))
                 });
 
-            let (is_match, _) = self
-                .is_condition_match(
-                    feature_flag,
-                    first_condition,
-                    Some(person_properties),
-                    hash_key_overrides,
-                )
-                .await?;
-
             if has_relevant_super_condition_properties {
+                let (is_match, _) = self.is_condition_match(
+                    feature_flag,
+                    super_condition,
+                    Some(merged_properties),
+                    hash_key_overrides,
+                )?;
+
                 return Ok(SuperConditionEvaluation {
                     should_evaluate: true,
                     is_match,
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                 });
-                // If there is a super condition evaluation, return early with those results.
-                // The reason is super condition value because we're not evaluating the rest of the conditions.
             }
         }
 
@@ -1091,147 +1166,33 @@ impl FeatureFlagMatcher {
         })
     }
 
-    /// Get group properties from cache or database.
-    ///
-    /// This function attempts to retrieve group properties either from a cache or directly from the database.
-    /// It first checks if the properties are already cached. If so, it returns those.
-    /// Otherwise, it fetches the properties from the database and caches them.
-    async fn get_group_properties_from_cache_or_db(
-        &mut self,
-        group_type_index: GroupTypeIndex,
-    ) -> Result<HashMap<String, Value>, FlagError> {
-        // check if the properties are already cached, if so return them
-        let group_properties = self.flag_evaluation_state.get_group_properties();
-        if let Some(properties) = group_properties.get(&group_type_index) {
-            inc(
-                PROPERTY_CACHE_HITS_COUNTER,
-                &[("type".to_string(), "group_properties".to_string())],
-                1,
-            );
-            let mut result = HashMap::new();
-            result.clone_from(properties);
-            return Ok(result);
-        }
-
-        inc(
-            PROPERTY_CACHE_MISSES_COUNTER,
-            &[("type".to_string(), "group_properties".to_string())],
-            1,
-        );
-
-        let reader = self.reader.clone();
-        let team_id = self.team_id;
-        // groups looks like this {"project": "project_123"}
-        // and then the group type index looks like this {"project": 1}
-        // so I want my group keys to look like this ["project_123"],
-        // but they need to be aware of the different group types
-        // Retrieve group_type_name using group_type_index from the cache
-        let group_type_mapping = self
-            .group_type_mapping_cache
-            .group_type_index_to_group_type_map()
-            .await?;
-        let group_type_name = match group_type_mapping.get(&group_type_index) {
-            Some(name) => name.clone(),
-            None => {
-                error!(
-                    "No group_type_name found for group_type_index {}",
-                    group_type_index
-                );
-                return Err(FlagError::NoGroupTypeMappings);
-            }
-        };
-
-        // Retrieve the corresponding group_key from self.groups using group_type_name
-        let group_key = match self.groups.get(&group_type_name) {
-            Some(Value::String(key)) => key.clone(),
-            Some(_) => {
-                error!(
-                    "Group key for group_type_name '{}' is not a string",
-                    group_type_name
-                );
-                return Err(FlagError::NoGroupTypeMappings);
-            }
-            None => {
-                // If there's no group_key provided for this group_type_name, we consider that there are no properties to fetch
-                return Ok(HashMap::new());
-            }
-        };
-        let db_properties =
-            fetch_group_properties_from_db(reader, team_id, group_type_index, group_key).await?;
-
-        inc(DB_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
-
-        // once the properties are fetched, cache them so we don't need to fetch again in a given request
-        self.flag_evaluation_state
-            .set_group_properties(group_type_index, db_properties.clone());
-
-        Ok(db_properties)
-    }
-
-    /// Get person properties from cache or database.
-    ///
-    /// This function attempts to retrieve person properties either from a cache or directly from the database.
-    /// It first checks if the properties are already cached. If so, it returns those.
-    /// Otherwise, it fetches the properties from the database and caches them.
-    async fn get_person_properties_from_cache_or_db(
-        &mut self,
-    ) -> Result<HashMap<String, Value>, FlagError> {
-        // check if the properties are already cached, if so return them
-        if let Some(properties) = self.flag_evaluation_state.get_person_properties() {
-            inc(
-                PROPERTY_CACHE_HITS_COUNTER,
-                &[("type".to_string(), "person_properties".to_string())],
-                1,
-            );
-            let mut result = HashMap::new();
-            result.clone_from(properties);
-            return Ok(result);
-        }
-
-        inc(
-            PROPERTY_CACHE_MISSES_COUNTER,
-            &[("type".to_string(), "person_properties".to_string())],
-            1,
-        );
-
-        let reader = self.reader.clone();
-        let distinct_id = self.distinct_id.clone();
-        let team_id = self.team_id;
-        let (db_properties, person_id) =
-            fetch_person_properties_from_db(reader, distinct_id, team_id).await?;
-
-        inc(DB_PERSON_PROPERTIES_READS_COUNTER, &[], 1);
-
-        // once the properties and person ID are fetched, cache them so we don't need to fetch again in a given request
-        self.flag_evaluation_state
-            .set_person_properties(db_properties.clone());
-        self.flag_evaluation_state.set_person_id(person_id);
-
-        Ok(db_properties)
-    }
-
     /// Get hashed identifier for a feature flag.
     ///
     /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
     /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
-    async fn hashed_identifier(
-        &mut self,
+    fn hashed_identifier(
+        &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
-            let group_key = self
+            let group_key = match self
                 .group_type_mapping_cache
-                .group_type_index_to_group_type_map()
-                .await?
+                .get_group_type_index_to_type_map()?
                 .get(&group_type_index)
                 .and_then(|group_type_name| self.groups.get(group_type_name))
-                .and_then(|group_key_value| group_key_value.as_str())
-                // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
-                // and I don't want to break parity with the old service since I don't want the hash values to change
-                .unwrap_or("")
-                .to_string();
+            {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Number(n)) => n.to_string(),
+                Some(_) => {
+                    // For any other JSON type (bool, array, object, null), use empty string
+                    // NB: we currently use empty string ("") as the hashed identifier for group flags without a group key,
+                    // and I don't want to break parity with the old service since I don't want the hash values to change
+                    "".to_string()
+                }
+                None => "".to_string(),
+            };
 
             Ok(group_key)
         } else {
@@ -1252,31 +1213,29 @@ impl FeatureFlagMatcher {
     /// Given the same identifier and key, it'll always return the same float. These floats are
     /// uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     /// we can do _hash(key, identifier) < 0.2
-    async fn get_hash(
-        &mut self,
+    fn get_hash(
+        &self,
         feature_flag: &FeatureFlag,
         salt: &str,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self
-            .hashed_identifier(feature_flag, hash_key_overrides)
-            .await?;
+        let hashed_identifier = self.hashed_identifier(feature_flag, hash_key_overrides)?;
         if hashed_identifier.is_empty() {
             // Return a hash value that will make the flag evaluate to false; since we
             // can't evaluate a flag without an identifier.
             return Ok(0.0); // NB: A flag with 0.0 hash will always evaluate to false
         }
 
-        calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt).await
+        calculate_hash(&format!("{}.", feature_flag.key), &hashed_identifier, salt)
     }
 
-    async fn get_holdout_hash(
-        &mut self,
+    fn get_holdout_hash(
+        &self,
         feature_flag: &FeatureFlag,
         salt: Option<&str>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag, None).await?;
-        let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or("")).await?;
+        let hashed_identifier = self.hashed_identifier(feature_flag, None)?;
+        let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or(""))?;
         Ok(hash)
     }
 
@@ -1286,13 +1245,13 @@ impl FeatureFlagMatcher {
     /// It first calculates a hash of the feature flag's identifier and compares it to the rollout percentage.
     /// If the hash value is less than or equal to the rollout percentage, the flag is shown; otherwise, it is not.
     /// The function returns a tuple indicating whether the flag matched and the reason for the match.
-    async fn check_rollout(
-        &mut self,
+    fn check_rollout(
+        &self,
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        let hash = self.get_hash(feature_flag, "", hash_key_overrides).await?;
+        let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
         if rollout_percentage == 100.0 || hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
@@ -1301,14 +1260,12 @@ impl FeatureFlagMatcher {
     }
 
     /// This function takes a feature flag and returns the key of the variant that should be shown to the user.
-    async fn get_matching_variant(
-        &mut self,
+    pub(crate) fn get_matching_variant(
+        &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<String>, FlagError> {
-        let hash = self
-            .get_hash(feature_flag, "variant", hash_key_overrides)
-            .await?;
+        let hash = self.get_hash(feature_flag, "variant", hash_key_overrides)?;
         let mut cumulative_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {
@@ -1341,34 +1298,61 @@ impl FeatureFlagMatcher {
     ///
     /// The data is cached in FlagEvaluationState to avoid repeated DB lookups
     /// during subsequent flag evaluations.
-    async fn prepare_flag_evaluation_state(
+    pub async fn prepare_flag_evaluation_state(
         &mut self,
         flags: &[FeatureFlag],
     ) -> Result<(), FlagError> {
-        // First, prepare cohort data since other evaluations may depend on it
-        let cohort_timer = common_metrics::timing_guard(FLAG_STATIC_COHORT_DB_EVALUATION_TIME, &[]);
-        self.prepare_cohort_data().await?;
-        cohort_timer.fin();
+        // Get cohorts first since we need the IDs
+        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
+        self.flag_evaluation_state.set_cohorts(cohorts.clone());
+
+        // Get static cohort IDs
+        let static_cohort_ids: Vec<CohortId> = cohorts
+            .iter()
+            .filter(|c| c.is_static)
+            .map(|c| c.id)
+            .collect();
 
         // Then prepare group mappings and properties
-        let group_timer = common_metrics::timing_guard(FLAG_GROUP_FETCH_TIME, &[]);
-        let group_data = self.prepare_group_data(flags).await?;
+        // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
+        let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
+        let group_data = self.prepare_group_data(flags)?;
         group_timer.fin();
 
-        // Finally fetch and cache all properties (the timer is included in prepare_properties_data, so we don't need to add it here)
-        self.prepare_properties_data(&group_data).await?;
-        Ok(())
+        // Single DB operation for properties and cohorts
+        let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
+        match fetch_and_locally_cache_all_relevant_properties(
+            &mut self.flag_evaluation_state,
+            self.reader.clone(),
+            self.distinct_id.clone(),
+            self.team_id,
+            &group_data.type_indexes,
+            &group_data.keys,
+            static_cohort_ids,
+        )
+        .await
+        {
+            Ok(_) => {
+                inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
+                db_fetch_timer.label("outcome", "success").fin();
+                Ok(())
+            }
+            Err(e) => {
+                error!(
+                    "Error fetching properties for team {} project {} distinct_id {}: {:?}",
+                    self.team_id, self.project_id, self.distinct_id, e
+                );
+                db_fetch_timer.label("outcome", "error").fin();
+                Err(e)
+            }
+        }
     }
 
-    /// Fetches and caches static cohort memberships
-    async fn prepare_cohort_data(&mut self) -> Result<(), FlagError> {
-        let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
-        self.evaluate_and_cache_static_cohorts(&cohorts).await?;
-        Ok(())
-    }
-
-    /// Analyzes flags and prepares required group type data
-    async fn prepare_group_data(
+    /// Analyzes flags and prepares required group type data for flag evaluation.
+    /// This includes:
+    /// - Extracting required group type indexes from flags
+    /// - Mapping group names to group_type_index and group_keys
+    fn prepare_group_data(
         &mut self,
         flags: &[FeatureFlag],
     ) -> Result<GroupEvaluationData, FlagError> {
@@ -1383,9 +1367,14 @@ impl FeatureFlagMatcher {
             .groups
             .iter()
             .filter_map(|(group_type, group_key_value)| {
-                let group_key = group_key_value.as_str()?.to_string();
+                let group_key = match group_key_value {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => return None, // Skip non-string, non-number group keys
+                };
                 self.group_type_mapping_cache
                     .get_group_types_to_indexes()
+                    .ok()?
                     .get(group_type)
                     .cloned()
                     .map(|group_type_index| (group_type_index, group_key))
@@ -1407,3607 +1396,148 @@ impl FeatureFlagMatcher {
         Ok(GroupEvaluationData { type_indexes, keys })
     }
 
-    /// Fetches and caches all required properties and times the operation
-    async fn prepare_properties_data(
-        &mut self,
-        group_data: &GroupEvaluationData,
-    ) -> Result<(), FlagError> {
-        let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-
-        match fetch_and_locally_cache_all_relevant_properties(
-            &mut self.flag_evaluation_state,
-            self.reader.clone(),
-            self.distinct_id.clone(),
-            self.team_id,
-            &group_data.type_indexes,
-            &group_data.keys,
-        )
-        .await
-        {
-            Ok(_) => {
-                inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
-                db_fetch_timer.label("outcome", "success").fin();
-                Ok(())
-            }
-            Err(e) => {
-                error!("Error fetching properties: {:?}", e);
-                db_fetch_timer.label("outcome", "error").fin();
-                Err(e)
-            }
+    /// Get person properties from the `FlagEvaluationState` only, returning empty HashMap if not found.
+    fn get_person_properties_from_evaluation_state(
+        &self,
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        if let Some(properties) = self.flag_evaluation_state.get_person_properties() {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "person_properties".to_string())],
+                1,
+            );
+            let mut result = HashMap::new();
+            result.clone_from(properties);
+            Ok(result)
+        } else {
+            inc(
+                PROPERTY_CACHE_MISSES_COUNTER,
+                &[("type".to_string(), "person_properties".to_string())],
+                1,
+            );
+            // Return empty HashMap instead of error - no properties is a valid state
+            // TODO probably worth error modeling empty cache vs error.
+            // Maybe an error is fine?  Idk.  I feel like the idea is that there's no matching properties,
+            // so it's not an error, it's just an empty result.
+            // i just want to be able to differentiate between no properties because we fetched no properties,
+            // and no properties because we failed to fetch
+            // maybe I need a fetch indicator in the cache?
+            Err(FlagError::PersonNotFound)
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::collections::HashMap;
+    /// Get group properties from the `FlagEvaluationState` only. Returns empty HashMap if not found.
+    fn get_group_properties_from_evaluation_state(
+        &self,
+        group_type_index: GroupTypeIndex,
+    ) -> Result<HashMap<String, Value>, FlagError> {
+        let group_properties = self.flag_evaluation_state.get_group_properties();
+        if let Some(properties) = group_properties.get(&group_type_index) {
+            inc(
+                PROPERTY_CACHE_HITS_COUNTER,
+                &[("type".to_string(), "group_properties".to_string())],
+                1,
+            );
+            let mut result = HashMap::new();
+            result.clone_from(properties);
+            Ok(result)
+        } else {
+            inc(
+                PROPERTY_CACHE_MISSES_COUNTER,
+                &[("type".to_string(), "group_properties".to_string())],
+                1,
+            );
+            // Return empty HashMap instead of error - no properties is a valid state
+            Ok(HashMap::new())
+        }
+    }
 
-    use crate::{
-        flags::{
-            flag_group_type_mapping::GroupTypeMappingCache,
-            flag_models::{FlagFilters, MultivariateFlagOptions, MultivariateFlagVariant},
-        },
-        properties::property_models::OperatorType,
-        utils::test_utils::{
-            add_person_to_cohort, create_test_flag, get_person_id_by_distinct_id,
-            insert_cohort_for_team_in_pg, insert_new_team_in_pg, insert_person_for_team_in_pg,
-            setup_pg_reader_client, setup_pg_writer_client,
-        },
-    };
-
-    #[tokio::test]
-    async fn test_fetch_properties_from_pg_to_match() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-
-        let team = insert_new_team_in_pg(reader.clone(), None)
-            .await
-            .expect("Failed to insert team in pg");
-
-        let distinct_id = "user_distinct_id".to_string();
-        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
-            .await
-            .expect("Failed to insert person");
-
-        let not_matching_distinct_id = "not_matching_distinct_id".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            not_matching_distinct_id.clone(),
-            Some(json!({ "email": "a@x.com"})),
-        )
-        .await
-        .expect("Failed to insert person");
-
-        let flag: FeatureFlag = serde_json::from_value(json!(
-            {
-                "id": 1,
-                "team_id": team.id,
-                "name": "flag1",
-                "key": "flag1",
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "value": "a@b.com",
-                                    "type": "person"
-                                }
-                            ],
-                            "rollout_percentage": 100
-                        }
-                    ]
+    // If experience continuity is enabled, we need to process the hash key override if it's provided.
+    async fn process_hash_key_override_if_needed(
+        &self,
+        flags_have_experience_continuity_enabled: bool,
+        hash_key_override: Option<String>,
+    ) -> (Option<HashMap<String, String>>, bool) {
+        let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
+        // If experience continuity is enabled, we need to process the hash key override if it's provided.
+        let (hash_key_overrides, flag_hash_key_override_error) =
+            if flags_have_experience_continuity_enabled {
+                match hash_key_override {
+                    Some(hash_key) => {
+                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                        self.process_hash_key_override(hash_key, target_distinct_ids)
+                            .await
+                    }
+                    // if a flag has experience continuity enabled but no hash key override is provided,
+                    // we don't need to write an override, we can just use the distinct_id
+                    None => (None, false),
                 }
-            }
-        ))
-        .unwrap();
+            } else {
+                // if experience continuity is not enabled, we don't need to worry about hash key overrides
+                (None, false)
+            };
 
-        // Matcher for a matching distinct_id
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert!(match_result.matches);
-        assert_eq!(match_result.variant, None);
-
-        // Matcher for a non-matching distinct_id
-        let mut matcher = FeatureFlagMatcher::new(
-            not_matching_distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert!(!match_result.matches);
-        assert_eq!(match_result.variant, None);
-
-        // Matcher for a distinct_id that does not exist
-        let mut matcher = FeatureFlagMatcher::new(
-            "other_distinct_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        // Expecting false for non-existent distinct_id
-        assert!(!match_result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_person_property_overrides() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("override@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-        };
-        let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None)
-            .await;
-        assert!(!result.errors_while_computing_flags);
-        assert_eq!(
-            result.flags.get("test_flag").unwrap().to_value(),
-            FlagValue::Boolean(true)
-        );
-    }
-
-    #[tokio::test]
-    async fn test_group_property_overrides() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "industry".to_string(),
-                        value: json!("tech"),
-                        operator: None,
-                        prop_type: "group".to_string(),
-                        group_type_index: Some(1),
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: Some(1),
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut group_type_mapping_cache =
-            GroupTypeMappingCache::new(team.project_id, reader.clone());
-        let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
-
-        let groups = HashMap::from([("organization".to_string(), json!("org_123"))]);
-
-        let group_overrides = HashMap::from([(
-            "organization".to_string(),
-            HashMap::from([
-                ("industry".to_string(), json!("tech")),
-                ("$group_key".to_string(), json!("org_123")),
-            ]),
-        )]);
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            Some(group_type_mapping_cache),
-            Some(groups),
-        );
-
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-        };
-        let result = matcher
-            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
-            .await;
-
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(!legacy_response.errors_while_computing_flags);
-        assert_eq!(
-            legacy_response.feature_flags.get("test_flag"),
-            Some(&FlagValue::Boolean(true))
-        );
-    }
-
-    #[tokio::test]
-    async fn test_get_matching_variant_with_cache() {
-        let flag = create_test_flag_with_variants(1);
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let mut group_type_mapping_cache = GroupTypeMappingCache::new(1, reader.clone());
-
-        let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
-        let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
-        group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
-
-        let groups = HashMap::from([("group_type_1".to_string(), json!("group_key_1"))]);
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            1,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            Some(group_type_mapping_cache),
-            Some(groups),
-        );
-        let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
-        assert!(variant.is_some(), "No variant was selected");
-        assert!(
-            ["control", "test", "test2"].contains(&variant.unwrap().as_str()),
-            "Selected variant is not one of the expected options"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_get_matching_variant_with_db() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag_with_variants(team.id);
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
-        assert!(variant.is_some());
-        assert!(["control", "test", "test2"].contains(&variant.unwrap().as_str()));
-    }
-
-    #[tokio::test]
-    async fn test_is_condition_match_empty_properties() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let flag = create_test_flag(
-            Some(1),
-            None,
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let condition = FlagGroupType {
-            variant: None,
-            properties: Some(vec![]),
-            rollout_percentage: Some(100.0),
-        };
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-        let (is_match, reason) = matcher
-            .is_condition_match(&flag, &condition, None, None)
-            .await
-            .unwrap();
-        assert!(is_match);
-        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
-    }
-
-    fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
-        FeatureFlag {
-            id: 1,
-            team_id,
-            name: Some("Test Flag".to_string()),
-            key: "test_flag".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: None,
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: Some(MultivariateFlagOptions {
-                    variants: vec![
-                        MultivariateFlagVariant {
-                            name: Some("Control".to_string()),
-                            key: "control".to_string(),
-                            rollout_percentage: 33.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Test".to_string()),
-                            key: "test".to_string(),
-                            rollout_percentage: 33.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Test2".to_string()),
-                            key: "test2".to_string(),
-                            rollout_percentage: 34.0,
-                        },
-                    ],
-                }),
-                aggregation_group_type_index: Some(1),
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
+        // If there was an error in processing hash key overrides, increment the error counter
+        if flag_hash_key_override_error {
+            let reason = "hash_key_override_error";
+            common_metrics::inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), reason.to_string())],
+                1,
+            );
         }
-    }
 
-    #[tokio::test]
-    async fn test_overrides_avoid_db_lookups() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("test@example.com"),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let person_property_overrides =
-            HashMap::from([("email".to_string(), json!("test@example.com"))]);
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher
-            .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
+        hash_key_timer
+            .label(
+                "outcome",
+                if flag_hash_key_override_error {
+                    "error"
+                } else {
+                    "success"
                 },
-                Some(person_property_overrides),
-                None,
-                None,
             )
-            .await;
+            .fin();
 
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(!legacy_response.errors_while_computing_flags);
-        assert_eq!(
-            legacy_response.feature_flags.get("test_flag"),
-            Some(&FlagValue::Boolean(true))
-        );
-
-        let cache = &matcher.flag_evaluation_state;
-        assert!(cache.person_properties.is_none());
+        (hash_key_overrides, flag_hash_key_override_error)
     }
 
-    #[tokio::test]
-    async fn test_fallback_to_db_when_overrides_insufficient() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    async fn initialize_group_type_mappings_if_needed(
+        &mut self,
+        feature_flags: &FeatureFlagList,
+    ) -> bool {
+        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
+        let has_type_indexes = feature_flags
+            .flags
+            .iter()
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![
-                        PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("test@example.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                        PropertyFilter {
-                            key: "age".to_string(),
-                            value: json!(25),
-                            operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                    ]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let person_property_overrides = Some(HashMap::from([(
-            "email".to_string(),
-            json!("test@example.com"),
-        )]));
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "test@example.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher
-            .get_match(&flag, person_property_overrides.clone(), None)
-            .await
-            .unwrap();
-
-        assert!(result.matches);
-
-        let cache = &matcher.flag_evaluation_state;
-        assert!(cache.person_properties.is_some());
-        assert_eq!(
-            cache.person_properties.as_ref().unwrap().get("age"),
-            Some(&json!(30))
-        );
-    }
-
-    #[tokio::test]
-    async fn test_property_fetching_and_caching() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let distinct_id = "test_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "test@example.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id,
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let properties = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-
-        assert_eq!(properties.get("email").unwrap(), &json!("test@example.com"));
-        assert_eq!(properties.get("age").unwrap(), &json!(30));
-
-        let cached_properties = matcher.flag_evaluation_state.person_properties.clone();
-        assert!(cached_properties.is_some());
-        assert_eq!(
-            cached_properties.unwrap().get("email").unwrap(),
-            &json!("test@example.com")
-        );
-    }
-
-    #[tokio::test]
-    async fn test_property_caching() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let distinct_id = "test_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "test@example.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        // First access should fetch from the database
-        let start = std::time::Instant::now();
-        let properties = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-        let first_duration = start.elapsed();
-
-        // Second access should use the cache and be faster
-        let start = std::time::Instant::now();
-        let cached_properties = matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-        let second_duration = start.elapsed();
-
-        assert_eq!(properties, cached_properties);
-        assert!(
-            second_duration < first_duration,
-            "Second access should be faster due to caching"
-        );
-
-        // Create a new matcher to simulate a fresh state
-        let mut new_matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        // First access with new matcher should fetch from the database again
-        let start = std::time::Instant::now();
-        let new_properties = new_matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-        let new_first_duration = start.elapsed();
-
-        assert_eq!(properties, new_properties);
-        assert!(
-            new_first_duration > second_duration,
-            "First access with new matcher should be slower than cached access"
-        );
-
-        // Second access with new matcher should use the cache and be faster
-        let start = std::time::Instant::now();
-        let new_cached_properties = new_matcher
-            .get_person_properties_from_cache_or_db()
-            .await
-            .unwrap();
-        let new_second_duration = start.elapsed();
-
-        assert_eq!(properties, new_cached_properties);
-        assert!(
-            new_second_duration < new_first_duration,
-            "Second access with new matcher should be faster due to caching"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_flag_evaluation() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let flag = Arc::new(create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        ));
-
-        let mut handles = vec![];
-        for i in 0..100 {
-            let flag_clone = flag.clone();
-            let reader_clone = reader.clone();
-            let writer_clone = writer.clone();
-            let cohort_cache_clone = cohort_cache.clone();
-            handles.push(tokio::spawn(async move {
-                let mut matcher = FeatureFlagMatcher::new(
-                    format!("test_user_{}", i),
-                    team.id,
-                    team.project_id,
-                    reader_clone,
-                    writer_clone,
-                    cohort_cache_clone,
-                    None,
-                    None,
-                );
-                matcher.get_match(&flag_clone, None, None).await.unwrap()
-            }));
+        if !has_type_indexes {
+            return false;
         }
 
-        let results: Vec<FeatureFlagMatch> = futures::future::join_all(handles)
+        let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
+        let mut errors_while_computing_flags = false;
+
+        if self
+            .group_type_mapping_cache
+            .init(self.reader.clone())
             .await
-            .into_iter()
-            .map(|r| r.unwrap())
-            .collect();
-
-        // Check that all evaluations completed without errors
-        assert_eq!(results.len(), 100);
-    }
-
-    #[tokio::test]
-    async fn test_property_operators() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![
-                        PropertyFilter {
-                            key: "age".to_string(),
-                            value: json!(25),
-                            operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                        PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("example@domain.com"),
-                            operator: Some(OperatorType::Icontains),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                    ]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "user@example@domain.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_empty_hashed_identifier() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let flag = create_test_flag(
-            Some(1),
-            None,
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "".to_string(),
-            1,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(!result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_rollout_percentage() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let mut flag = create_test_flag(
-            Some(1),
-            None,
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(0.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(!result.matches);
-
-        // Now set the rollout percentage to 100%
-        flag.filters.groups[0].rollout_percentage = Some(100.0);
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_uneven_variant_distribution() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let mut flag = create_test_flag_with_variants(1);
-
-        // Adjust variant rollout percentages to be uneven
-        flag.filters.multivariate.as_mut().unwrap().variants = vec![
-            MultivariateFlagVariant {
-                name: Some("Control".to_string()),
-                key: "control".to_string(),
-                rollout_percentage: 10.0,
-            },
-            MultivariateFlagVariant {
-                name: Some("Test".to_string()),
-                key: "test".to_string(),
-                rollout_percentage: 30.0,
-            },
-            MultivariateFlagVariant {
-                name: Some("Test2".to_string()),
-                key: "test2".to_string(),
-                rollout_percentage: 60.0,
-            },
-        ];
-
-        // Ensure the flag is person-based by setting aggregation_group_type_index to None
-        flag.filters.aggregation_group_type_index = None;
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            1,
-            reader,
-            writer,
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let mut control_count = 0;
-        let mut test_count = 0;
-        let mut test2_count = 0;
-
-        // Run the test multiple times to simulate distribution
-        for i in 0..1000 {
-            matcher.distinct_id = format!("user_{}", i);
-            let variant = matcher.get_matching_variant(&flag, None).await.unwrap();
-            match variant.as_deref() {
-                Some("control") => control_count += 1,
-                Some("test") => test_count += 1,
-                Some("test2") => test2_count += 1,
-                _ => (),
-            }
+            .is_err()
+        {
+            errors_while_computing_flags = true;
         }
 
-        // Check that the distribution roughly matches the rollout percentages
-        let total = control_count + test_count + test2_count;
-        assert!((control_count as f64 / total as f64 - 0.10).abs() < 0.05);
-        assert!((test_count as f64 / total as f64 - 0.30).abs() < 0.05);
-        assert!((test2_count as f64 / total as f64 - 0.60).abs() < 0.05);
-    }
-
-    #[tokio::test]
-    async fn test_missing_properties_in_db() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a person without properties
-        insert_person_for_team_in_pg(reader.clone(), team.id, "test_user".to_string(), None)
-            .await
-            .unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("test@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(!result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_malformed_property_data() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a person with malformed properties
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"age": "not_a_number"})),
-        )
-        .await
-        .unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "age".to_string(),
-                        value: json!(25),
-                        operator: Some(OperatorType::Gte),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        // The match should fail due to invalid data type
-        assert!(!result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_get_match_with_insufficient_overrides() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![
-                        PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("test@example.com"),
-                            operator: None,
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                        PropertyFilter {
-                            key: "age".to_string(),
-                            value: json!(25),
-                            operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        },
-                    ]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let person_overrides = Some(HashMap::from([(
-            "email".to_string(),
-            json!("test@example.com"),
-        )]));
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "test@example.com", "age": 30})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher
-            .get_match(&flag, person_overrides, None)
-            .await
-            .unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_evaluation_reasons() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let flag = create_test_flag(
-            Some(1),
-            None,
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            1,
-            1,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let (is_match, reason) = matcher
-            .is_condition_match(&flag, &flag.filters.groups[0], None, None)
-            .await
-            .unwrap();
-
-        assert!(is_match);
-        assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
-    }
-
-    #[tokio::test]
-    async fn test_complex_conditions() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Complex Flag".to_string()),
-            Some("complex_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("user1@example.com"),
-                            operator: None,
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "age".to_string(),
-                            value: json!(30),
-                            operator: Some(OperatorType::Gte),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    },
-                ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            Some(false),
-            Some(true),
-            Some(false),
-        );
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"email": "user2@example.com", "age": 35})),
-        )
-        .await
-        .unwrap();
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache,
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_complex_cohort_conditions() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a cohort with complex conditions
-        let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@posthog\\.com$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["fuziontech@gmail.com"],
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "AND",
-                            "values": [{
-                                "key": "distinct_id",
-                                "type": "person",
-                                "value": ["D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"],
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["neil@posthog.com"],
-                                "negation": false,
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": ["corywatilo@gmail.com"],
-                                "negation": false,
-                                "operator": "exact"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@leads\\.io$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        },
-                        {
-                            "type": "OR",
-                            "values": [{
-                                "key": "email",
-                                "type": "person",
-                                "value": "@desertcart\\.io$",
-                                "negation": false,
-                                "operator": "regex"
-                            }]
-                        }
-                    ]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Test case 1: Should match - posthog.com email (AND condition)
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user_1".to_string(),
-            Some(json!({
-                "email": "test@posthog.com",
-                "distinct_id": "test_user_1"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Test case 2: Should match - fuziontech@gmail.com (AND condition)
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user_2".to_string(),
-            Some(json!({
-                "email": "fuziontech@gmail.com",
-                "distinct_id": "test_user_2"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Test case 3: Should match - specific distinct_id (AND condition)
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc".to_string(),
-            Some(json!({
-                "email": "other@example.com",
-                "distinct_id": "D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Test case 4: Should match - neil@posthog.com (OR condition)
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user_4".to_string(),
-            Some(json!({
-                "email": "neil@posthog.com",
-                "distinct_id": "test_user_4"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Test case 5: Should match - @leads.io email (OR condition with regex)
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user_5".to_string(),
-            Some(json!({
-                "email": "test@leads.io",
-                "distinct_id": "test_user_5"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Test case 6: Should NOT match - random email
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user_6".to_string(),
-            Some(json!({
-                "email": "random@example.com",
-                "distinct_id": "test_user_6"
-            })),
-        )
-        .await
-        .unwrap();
-
-        // Create a feature flag using this cohort and verify matches
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort_row.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        // Test each case
-        for (user_id, should_match) in [
-            ("test_user_1", true),                                 // @posthog.com
-            ("test_user_2", true),                                 // fuziontech@gmail.com
-            ("D_9eluZIT3gqjO9dJqo1aDeqTbAG4yLwXFhN0bz_Vfc", true), // specific distinct_id
-            ("test_user_4", true),                                 // neil@posthog.com
-            ("test_user_5", true),                                 // @leads.io
-            ("test_user_6", false),                                // random@example.com
-        ] {
-            let mut matcher = FeatureFlagMatcher::new(
-                user_id.to_string(),
-                team.id,
-                team.project_id,
-                reader.clone(),
-                writer.clone(),
-                cohort_cache.clone(),
-                None,
-                None,
-            );
-            let result = matcher.get_match(&flag, None, None).await.unwrap();
-            assert_eq!(
-                result.matches,
-                should_match,
-                "User {} should{} match",
-                user_id,
-                if should_match { "" } else { " not" }
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_super_condition_matches_boolean() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Super Condition Flag".to_string()),
-            Some("super_condition_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(0.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("test@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: None,
-                        rollout_percentage: Some(50.0),
-                        variant: None,
-                    },
-                ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "is_enabled".to_string(),
-                        value: json!(["true"]),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }]),
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
-        )
-        .await
-        .unwrap();
-
-        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
-            .await
-            .unwrap();
-
-        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
-            .await
-            .unwrap();
-
-        let mut matcher_test_id = FeatureFlagMatcher::new(
-            "test_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let mut matcher_example_id = FeatureFlagMatcher::new(
-            "lil_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let mut matcher_another_id = FeatureFlagMatcher::new(
-            "another_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result_test_id = matcher_test_id.get_match(&flag, None, None).await.unwrap();
-        let result_example_id = matcher_example_id
-            .get_match(&flag, None, None)
-            .await
-            .unwrap();
-        let result_another_id = matcher_another_id
-            .get_match(&flag, None, None)
-            .await
-            .unwrap();
-
-        assert!(result_test_id.matches);
-        assert!(result_test_id.reason == FeatureFlagMatchReason::SuperConditionValue);
-        assert!(result_example_id.matches);
-        assert!(result_example_id.reason == FeatureFlagMatchReason::ConditionMatch);
-        assert!(!result_another_id.matches);
-        assert!(result_another_id.reason == FeatureFlagMatchReason::OutOfRolloutBound);
-    }
-
-    #[tokio::test]
-    async fn test_super_condition_matches_string() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": "true"})),
-        )
-        .await
-        .unwrap();
-
-        let flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Super Condition Flag".to_string()),
-            Some("super_condition_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(0.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("test@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: None,
-                        rollout_percentage: Some(50.0),
-                        variant: None,
-                    },
-                ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "is_enabled".to_string(),
-                        value: json!("true"),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }]),
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-        assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
-        assert_eq!(result.condition_index, Some(0));
-    }
-
-    #[tokio::test]
-    async fn test_super_condition_matches_and_false() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_id".to_string(),
-            Some(json!({"email": "test@posthog.com", "is_enabled": true})),
-        )
-        .await
-        .unwrap();
-
-        insert_person_for_team_in_pg(reader.clone(), team.id, "another_id".to_string(), None)
-            .await
-            .unwrap();
-
-        insert_person_for_team_in_pg(reader.clone(), team.id, "lil_id".to_string(), None)
-            .await
-            .unwrap();
-
-        let flag = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Super Condition Flag".to_string()),
-            Some("super_condition_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(0.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: Some(vec![PropertyFilter {
-                            key: "email".to_string(),
-                            value: json!("test@posthog.com"),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: "person".to_string(),
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(100.0),
-                        variant: None,
-                    },
-                    FlagGroupType {
-                        properties: None,
-                        rollout_percentage: Some(50.0),
-                        variant: None,
-                    },
-                ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "is_enabled".to_string(),
-                        value: json!(false),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }]),
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher_test_id = FeatureFlagMatcher::new(
-            "test_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let mut matcher_example_id = FeatureFlagMatcher::new(
-            "lil_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let mut matcher_another_id = FeatureFlagMatcher::new(
-            "another_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result_test_id = matcher_test_id.get_match(&flag, None, None).await.unwrap();
-        let result_example_id = matcher_example_id
-            .get_match(&flag, None, None)
-            .await
-            .unwrap();
-        let result_another_id = matcher_another_id
-            .get_match(&flag, None, None)
-            .await
-            .unwrap();
-
-        assert!(!result_test_id.matches);
-        assert_eq!(
-            result_test_id.reason,
-            FeatureFlagMatchReason::SuperConditionValue
-        );
-        assert_eq!(result_test_id.condition_index, Some(0));
-
-        assert!(result_example_id.matches);
-        assert_eq!(
-            result_example_id.reason,
-            FeatureFlagMatchReason::ConditionMatch
-        );
-        assert_eq!(result_example_id.condition_index, Some(2));
-
-        assert!(!result_another_id.matches);
-        assert_eq!(
-            result_another_id.reason,
-            FeatureFlagMatchReason::OutOfRolloutBound
-        );
-        assert_eq!(result_another_id.condition_index, Some(2));
-    }
-
-    #[tokio::test]
-    async fn test_basic_cohort_matching() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a cohort with the condition that matches the test user's properties
-        let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person with properties that match the cohort condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
-
-        // Define a flag with a cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort_row.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_not_in_cohort_matching() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a cohort with a condition that does not match the test user's properties
-        let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "130",
-                            "negation": false,
-                            "operator": "gt"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person with properties that do not match the cohort condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
-
-        // Define a flag with a NotIn cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort_row.id),
-                        operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_not_in_cohort_matching_user_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a cohort with a condition that matches the test user's properties
-        let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person with properties that match the cohort condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
-
-        // Define a flag with a NotIn cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort_row.id),
-                        operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        // The user matches the cohort, but the flag is set to NotIn, so it should evaluate to false
-        assert!(!result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_cohort_dependent_on_another_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a base cohort
-        let base_cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "125",
-                            "negation": false,
-                            "operator": "gt"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a dependent cohort that includes the base cohort
-        let dependent_cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "id",
-                            "type": "cohort",
-                            "value": base_cohort_row.id,
-                            "negation": false,
-                            "operator": "in"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person with properties that match the base cohort condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 126})),
-        )
-        .await
-        .unwrap();
-
-        // Define a flag with a cohort filter that depends on another cohort
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(dependent_cohort_row.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_in_cohort_matching_user_not_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a cohort with a condition that does not match the test user's properties
-        let cohort_row = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            None,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "OR",
-                        "values": [{
-                            "key": "$browser_version",
-                            "type": "person",
-                            "value": "130",
-                            "negation": false,
-                            "operator": "gt"
-                        }]
-                    }]
-                }
-            }),
-            false,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person with properties that do not match the cohort condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "test_user".to_string(),
-            Some(json!({"$browser_version": 125})),
-        )
-        .await
-        .unwrap();
-
-        // Define a flag with an In cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort_row.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            "test_user".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        // The user does not match the cohort, and the flag is set to In, so it should evaluate to false
-        assert!(!result.matches);
-    }
-
-    #[tokio::test]
-    async fn test_static_cohort_matching_user_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a static cohort
-        let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            Some("Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
-
-        // Insert a person
-        let distinct_id = "static_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "static@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Retrieve the person's ID
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
-            .await
-            .unwrap();
-
-        // Associate the person with the static cohort
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
-            .await
-            .unwrap();
-
-        // Define a flag with an 'In' cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(
-            result.matches,
-            "User should match the static cohort and flag"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_static_cohort_matching_user_not_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a static cohort
-        let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            Some("Another Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,
-        )
-        .await
-        .unwrap();
-
-        // Insert a person
-        let distinct_id = "non_static_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "nonstatic@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Note: Do NOT associate the person with the static cohort
-
-        // Define a flag with an 'In' cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(
-            !result.matches,
-            "User should not match the static cohort and flag"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a static cohort
-        let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            Some("Static Cohort NotIn".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
-
-        // Insert a person
-        let distinct_id = "not_in_static_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "notinstatic@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // No association with the static cohort
-
-        // Define a flag with a 'NotIn' cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort.id),
-                        operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(
-            result.matches,
-            "User not in the static cohort should match the 'NotIn' flag"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_static_cohort_not_in_matching_user_in_cohort() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a static cohort
-        let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            Some("Static Cohort NotIn User In".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
-
-        // Insert a person
-        let distinct_id = "in_not_in_static_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "innotinstatic@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Retrieve the person's ID
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
-            .await
-            .unwrap();
-
-        // Associate the person with the static cohort
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
-            .await
-            .unwrap();
-
-        // Define a flag with a 'NotIn' cohort filter
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort.id),
-                        operator: Some(OperatorType::NotIn),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        assert!(
-            !result.matches,
-            "User in the static cohort should not match the 'NotIn' flag"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_feature_flags_with_experience_continuity() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user3".to_string();
-
-        // Insert person
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user3@example.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Create flag with experience continuity
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("flag_continuity".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("user3@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            Some(true),
-        );
-
-        // Set hash key override
-        set_feature_flag_hash_key_overrides(
-            writer.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-            team.project_id,
-            "hash_key_continuity".to_string(),
-        )
-        .await
-        .unwrap();
-
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-        };
-
-        let result = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        )
-        .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
-        .await;
-
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(
-            !legacy_response.errors_while_computing_flags,
-            "No error should occur"
-        );
-        assert_eq!(
-            legacy_response.feature_flags.get("flag_continuity"),
-            Some(&FlagValue::Boolean(true)),
-            "Flag should be evaluated as true with continuity"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_feature_flags_with_continuity_missing_override() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user4".to_string();
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user4@example.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Create flag with experience continuity
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("flag_continuity_missing".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("user4@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            Some(true),
-        );
-
-        let flags = FeatureFlagList {
-            flags: vec![flag.clone()],
-        };
-
-        let result = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        )
-        .evaluate_all_feature_flags(flags, None, None, None)
-        .await;
-
-        assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
-
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(
-            !legacy_response.errors_while_computing_flags,
-            "No error should occur"
-        );
-        assert_eq!(
-            legacy_response.feature_flags.get("flag_continuity_missing"),
-            Some(&FlagValue::Boolean(true)),
-            "Flag should be evaluated as true even without continuity override"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_all_feature_flags_mixed_continuity() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "user5".to_string();
-
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "user5@example.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Create flag with continuity
-        let flag_continuity = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("flag_continuity_mix".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("user5@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            Some(true),
-        );
-
-        // Create flag without continuity
-        let flag_no_continuity = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("flag_no_continuity_mix".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "age".to_string(),
-                        value: json!(30),
-                        operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            Some(false),
-        );
-
-        // Set hash key override for the continuity flag
-        set_feature_flag_hash_key_overrides(
-            writer.clone(),
-            team.id,
-            vec![distinct_id.clone()],
-            team.project_id,
-            "hash_key_mixed".to_string(),
-        )
-        .await
-        .unwrap();
-
-        let flags = FeatureFlagList {
-            flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
-        };
-
-        let result = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        )
-        .evaluate_all_feature_flags(
-            flags,
-            Some(HashMap::from([("age".to_string(), json!(35))])),
-            None,
-            Some("hash_key_mixed".to_string()),
-        )
-        .await;
-
-        let legacy_response = LegacyFlagsResponse::from_response(result);
-        assert!(
-            !legacy_response.errors_while_computing_flags,
-            "No error should occur"
-        );
-        assert_eq!(
-            legacy_response.feature_flags.get("flag_continuity_mix"),
-            Some(&FlagValue::Boolean(true)),
-            "Continuity flag should be evaluated as true"
-        );
-        assert_eq!(
-            legacy_response.feature_flags.get("flag_no_continuity_mix"),
-            Some(&FlagValue::Boolean(true)),
-            "Non-continuity flag should be evaluated based on properties"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_variant_override_in_condition() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-        let distinct_id = "test_user".to_string();
-
-        // Insert a person with properties that will match our condition
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "test@example.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Create a flag with multiple variants and a condition with a variant override
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("test_flag".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("test@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: Some("control".to_string()), // Override to always show "control" variant
-                }],
-                multivariate: Some(MultivariateFlagOptions {
-                    variants: vec![
-                        MultivariateFlagVariant {
-                            name: Some("Control".to_string()),
-                            key: "control".to_string(),
-                            rollout_percentage: 25.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Test".to_string()),
-                            key: "test".to_string(),
-                            rollout_percentage: 25.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Test2".to_string()),
-                            key: "test2".to_string(),
-                            rollout_percentage: 50.0,
-                        },
-                    ],
-                }),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-
-        // The condition matches and has a variant override, so it should return "control"
-        // regardless of what the hash-based variant computation would return
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("control".to_string()));
-
-        // Now test with an invalid variant override
-        let flag_invalid_override = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            Some("test_flag_invalid".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("test@example.com"),
-                        operator: None,
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
-                }],
-                multivariate: Some(MultivariateFlagOptions {
-                    variants: vec![
-                        MultivariateFlagVariant {
-                            name: Some("Control".to_string()),
-                            key: "control".to_string(),
-                            rollout_percentage: 25.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Test".to_string()),
-                            key: "test".to_string(),
-                            rollout_percentage: 75.0,
-                        },
-                    ],
-                }),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let result_invalid = matcher
-            .get_match(&flag_invalid_override, None, None)
-            .await
-            .unwrap();
-
-        // The condition matches but has an invalid variant override,
-        // so it should fall back to hash-based variant computation
-        assert!(result_invalid.matches);
-        assert!(result_invalid.variant.is_some()); // Will be either "control" or "test" based on hash
-    }
-
-    #[tokio::test]
-    async fn test_feature_flag_with_holdout_filter() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // example_id is outside 70% holdout
-        let _person1 = insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "example_id".to_string(),
-            Some(json!({"$some_prop": 5})),
-        )
-        .await
-        .unwrap();
-
-        // example_id2 is within 70% holdout
-        let _person2 = insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            "example_id2".to_string(),
-            Some(json!({"$some_prop": 5})),
-        )
-        .await
-        .unwrap();
-
-        let multivariate_json = MultivariateFlagOptions {
-            variants: vec![
-                MultivariateFlagVariant {
-                    key: "first-variant".to_string(),
-                    name: Some("First Variant".to_string()),
-                    rollout_percentage: 50.0,
+        group_type_mapping_timer
+            .label(
+                "outcome",
+                if errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
                 },
-                MultivariateFlagVariant {
-                    key: "second-variant".to_string(),
-                    name: Some("Second Variant".to_string()),
-                    rollout_percentage: 25.0,
-                },
-                MultivariateFlagVariant {
-                    key: "third-variant".to_string(),
-                    name: Some("Third Variant".to_string()),
-                    rollout_percentage: 25.0,
-                },
-            ],
-        };
+            )
+            .fin();
 
-        let flag_with_holdout = create_test_flag(
-            Some(1),
-            Some(team.id),
-            Some("Flag with holdout".to_string()),
-            Some("flag-with-gt-filter".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "$some_prop".to_string(),
-                        value: json!(4),
-                        operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                holdout_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(70.0),
-                    variant: Some("holdout".to_string()),
-                }]),
-                multivariate: Some(multivariate_json.clone()),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-            }),
-            None,
-            Some(true),
-            None,
-        );
-
-        let other_flag_with_holdout = create_test_flag(
-            Some(2),
-            Some(team.id),
-            Some("Other flag with holdout".to_string()),
-            Some("other-flag-with-gt-filter".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "$some_prop".to_string(),
-                        value: json!(4),
-                        operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                holdout_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(70.0),
-                    variant: Some("holdout".to_string()),
-                }]),
-                multivariate: Some(multivariate_json.clone()),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-            }),
-            None,
-            Some(true),
-            None,
-        );
-
-        let flag_without_holdout = create_test_flag(
-            Some(3),
-            Some(team.id),
-            Some("Flag".to_string()),
-            Some("other-flag-without-holdout-with-gt-filter".to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "$some_prop".to_string(),
-                        value: json!(4),
-                        operator: Some(OperatorType::Gt),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                holdout_groups: Some(vec![FlagGroupType {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(0.0),
-                    variant: Some("holdout".to_string()),
-                }]),
-                multivariate: Some(multivariate_json),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-            }),
-            None,
-            Some(true),
-            None,
-        );
-
-        // regular flag evaluation when outside holdout
-        let mut matcher = FeatureFlagMatcher::new(
-            "example_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher
-            .get_match(&flag_with_holdout, None, None)
-            .await
-            .unwrap();
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("second-variant".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
-
-        // Test inside holdout behavior - should get holdout variant override
-        let mut matcher2 = FeatureFlagMatcher::new(
-            "example_id2".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        let result = matcher2
-            .get_match(&flag_with_holdout, None, None)
-            .await
-            .unwrap();
-
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("holdout".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
-
-        // same should hold true for a different feature flag when within holdout
-        let result = matcher2
-            .get_match(&other_flag_with_holdout, None, None)
-            .await
-            .unwrap();
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("holdout".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
-
-        // Test with matcher1 (outside holdout) to verify different variants
-        let result = matcher
-            .get_match(&other_flag_with_holdout, None, None)
-            .await
-            .unwrap();
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("third-variant".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
-
-        // when holdout exists but is zero, should default to regular flag evaluation
-        let result = matcher
-            .get_match(&flag_without_holdout, None, None)
-            .await
-            .unwrap();
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("second-variant".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
-
-        let result = matcher2
-            .get_match(&flag_without_holdout, None, None)
-            .await
-            .unwrap();
-        assert!(result.matches);
-        assert_eq!(result.variant, Some("second-variant".to_string()));
-        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
-    }
-
-    #[tokio::test]
-    async fn test_variants() {
-        // Ported from posthog/test/test_feature_flag.py test_variants
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        let flag = FeatureFlag {
-            id: 1,
-            team_id: team.id,
-            name: Some("Beta feature".to_string()),
-            key: "beta-feature".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: None,
-                    rollout_percentage: None,
-                    variant: None,
-                }],
-                multivariate: Some(MultivariateFlagOptions {
-                    variants: vec![
-                        MultivariateFlagVariant {
-                            name: Some("First Variant".to_string()),
-                            key: "first-variant".to_string(),
-                            rollout_percentage: 50.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Second Variant".to_string()),
-                            key: "second-variant".to_string(),
-                            rollout_percentage: 25.0,
-                        },
-                        MultivariateFlagVariant {
-                            name: Some("Third Variant".to_string()),
-                            key: "third-variant".to_string(),
-                            rollout_percentage: 25.0,
-                        },
-                    ],
-                }),
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: false,
-            version: Some(1),
-        };
-
-        // Test user "11" - should get first-variant
-        let mut matcher = FeatureFlagMatcher::new(
-            "11".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert_eq!(
-            result,
-            FeatureFlagMatch {
-                matches: true,
-                variant: Some("first-variant".to_string()),
-                reason: FeatureFlagMatchReason::ConditionMatch,
-                condition_index: Some(0),
-                payload: None,
-            }
-        );
-
-        // Test user "example_id" - should get second-variant
-        let mut matcher = FeatureFlagMatcher::new(
-            "example_id".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert_eq!(
-            result,
-            FeatureFlagMatch {
-                matches: true,
-                variant: Some("second-variant".to_string()),
-                reason: FeatureFlagMatchReason::ConditionMatch,
-                condition_index: Some(0),
-                payload: None,
-            }
-        );
-
-        // Test user "3" - should get third-variant
-        let mut matcher = FeatureFlagMatcher::new(
-            "3".to_string(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-        let result = matcher.get_match(&flag, None, None).await.unwrap();
-        assert_eq!(
-            result,
-            FeatureFlagMatch {
-                matches: true,
-                variant: Some("third-variant".to_string()),
-                reason: FeatureFlagMatchReason::ConditionMatch,
-                condition_index: Some(0),
-                payload: None,
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_static_cohort_evaluation_skips_dependency_graph() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
-
-        // Insert a static cohort
-        let cohort = insert_cohort_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            Some("Static Cohort".to_string()),
-            json!({}), // Static cohorts don't have property filters
-            true,      // is_static = true
-        )
-        .await
-        .unwrap();
-
-        // Insert a person
-        let distinct_id = "static_user".to_string();
-        insert_person_for_team_in_pg(
-            reader.clone(),
-            team.id,
-            distinct_id.clone(),
-            Some(json!({"email": "static@user.com"})),
-        )
-        .await
-        .unwrap();
-
-        // Get person ID and add to cohort
-        let person_id = get_person_id_by_distinct_id(reader.clone(), team.id, &distinct_id)
-            .await
-            .unwrap();
-        add_person_to_cohort(reader.clone(), person_id, cohort.id)
-            .await
-            .unwrap();
-
-        // Define a flag that references the static cohort
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "id".to_string(),
-                        value: json!(cohort.id),
-                        operator: Some(OperatorType::In),
-                        prop_type: "cohort".to_string(),
-                        group_type_index: None,
-                        negation: Some(false),
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
-
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id.clone(),
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
-
-        // This should not throw CohortNotFound because we skip dependency graph evaluation for static cohorts
-        let result = matcher.get_match(&flag, None, None).await;
-        assert!(result.is_ok(), "Should not throw CohortNotFound error");
-
-        let match_result = result.unwrap();
-        assert!(match_result.matches, "User should match the static cohort");
+        errors_while_computing_flags
     }
 }

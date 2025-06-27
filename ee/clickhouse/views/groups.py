@@ -1,4 +1,5 @@
 from collections import defaultdict
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from typing import cast
 
@@ -21,7 +22,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from loginas.utils import is_impersonated_session
 
 from posthog.models.user import User
@@ -30,14 +31,7 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = [
-            "group_type",
-            "group_type_index",
-            "name_singular",
-            "name_plural",
-            "detail_dashboard",
-            "default_columns",
-        ]
+        fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -116,6 +110,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             group_type_index=self.request.GET["group_type_index"],
             group_key__icontains=self.request.GET.get("group_key", ""),
         )
+
+    def safely_get_object(self, queryset):
+        queryset = queryset.filter(
+            group_type_index=self.request.GET["group_type_index"],
+            group_key=self.request.GET.get("group_key", ""),
+        )
+
+        return get_object_or_404(queryset)
 
     @extend_schema(
         parameters=[
@@ -203,7 +205,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def update_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
             for key in ["value", "key"]:
                 if request.data.get(key) is None:
                     return response.Response(
@@ -294,7 +296,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def delete_property(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
             for key in ["$unset"]:
                 if request.data.get(key) is None:
                     return response.Response(
@@ -378,7 +380,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
     @action(methods=["GET"], detail=False, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, pk=None, **kwargs):
         try:
-            group = self.get_queryset().get()
+            group = self.get_object()
         except Group.DoesNotExist:
             raise NotFound()
 

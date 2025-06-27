@@ -11,6 +11,7 @@ from .mapping import (
 from .cohort import cohort
 from .sparkline import sparkline
 from .recording_button import recording_button
+from .explain_csp_report import explain_csp_report
 
 __all__ = [
     "find_hogql_function",
@@ -24,4 +25,5 @@ __all__ = [
     "sparkline",
     "recording_button",
     "SURVEY_FUNCTIONS",
+    "explain_csp_report",
 ]
