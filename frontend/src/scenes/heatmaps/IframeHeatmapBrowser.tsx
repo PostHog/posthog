@@ -100,7 +100,7 @@ export function IframeHeatmapBrowser({
                 )}
                 <div className="flex justify-center h-full w-full">
                     <div
-                        className="relative h-full "
+                        className="relative h-full"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride ?? '100%' }}
                     >
