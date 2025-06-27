@@ -49,7 +49,9 @@ def get_marketing_config_value(config, key, default=None):
             return default
 
 
-def convert_team_conversion_goals_to_objects(team_conversion_goals, team_pk):
+def convert_team_conversion_goals_to_objects(
+    team_conversion_goals, team_pk: int
+) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
     """Convert team conversion goals from dict format to ConversionGoalFilter objects"""
 
     logger = structlog.get_logger(__name__)

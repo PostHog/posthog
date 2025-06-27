@@ -35,6 +35,7 @@ class SelfManagedAdapter(MarketingSourceAdapter):
         try:
             if not self.config:
                 errors.append("Missing config in self-managed adapter")
+                return ValidationResult(is_valid=False, errors=errors, warnings=warnings)
 
             if not self.config.get("source_map"):
                 errors.append("Missing source_map in config")
@@ -42,10 +43,7 @@ class SelfManagedAdapter(MarketingSourceAdapter):
             if not self.config.get("source_type"):
                 errors.append("Missing source_type in config")
 
-            if not self.config.get("table"):
-                errors.append("Missing table in config")
-
-            if not self.config.get("table").name:
+            if not self.config.get("table") or not self.config.get("table").name:
                 errors.append("Missing table name in config")
 
             if not self.config.get("schema_name"):

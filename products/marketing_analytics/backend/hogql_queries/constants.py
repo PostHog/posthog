@@ -56,16 +56,16 @@ SOURCE_MAP_CURRENCY = "currency"
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
-    SOURCE_MAP_CAMPAIGN_NAME: {"type": ["string"], "required": True},
-    SOURCE_MAP_CLICKS: {"type": ["integer", "number", "float"], "required": False},
-    SOURCE_MAP_COST: {"type": ["string"], "required": False},
-    SOURCE_MAP_DATE: {"type": ["datetime", "date", "string"], "required": True},
-    SOURCE_MAP_IMPRESSIONS: {"type": ["integer", "number", "float"], "required": False},
-    SOURCE_MAP_SOURCE_NAME: {"type": ["string"], "required": False},
-    SOURCE_MAP_TOTAL_COST: {"type": ["float", "integer"], "required": True},
-    SOURCE_MAP_UTM_CAMPAIGN_NAME: {"type": ["string"], "required": False},
-    SOURCE_MAP_UTM_SOURCE_NAME: {"type": ["string"], "required": False},
-    SOURCE_MAP_CURRENCY: {"type": ["string"], "required": False},
+    SOURCE_MAP_CAMPAIGN_NAME: {"required": True},
+    SOURCE_MAP_CLICKS: {"required": False},
+    SOURCE_MAP_COST: {"required": False},
+    SOURCE_MAP_DATE: {"required": True},
+    SOURCE_MAP_IMPRESSIONS: {"required": False},
+    SOURCE_MAP_SOURCE_NAME: {"required": False},
+    SOURCE_MAP_TOTAL_COST: {"required": True},
+    SOURCE_MAP_UTM_CAMPAIGN_NAME: {"required": False},
+    SOURCE_MAP_UTM_SOURCE_NAME: {"required": False},
+    SOURCE_MAP_CURRENCY: {"required": False},
 }
 
 # Valid native marketing sources
@@ -82,7 +82,7 @@ NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     "GoogleAds": ["campaign", "campaign_stats"],
 }
 
-# Table pattern matching for native sources
+# Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
 TABLE_PATTERNS = {
     "GoogleAds": {
         "campaign_table_keywords": ["campaign"],

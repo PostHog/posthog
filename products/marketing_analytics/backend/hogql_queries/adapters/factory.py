@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 import structlog
-from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 from posthog.hogql.database.database import create_hogql_database
 
 from .base import MarketingSourceAdapter, QueryContext
@@ -63,7 +63,7 @@ class MarketingSourceFactory:
             database = create_hogql_database(team=self.context.team)
             self._warehouse_tables = DataWarehouseTable.objects.filter(
                 team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
-            )
+            ).prefetch_related("externaldataschema_set")
             self._sources_map = self.context.team.marketing_analytics_config.sources_map
 
             adapters = []
@@ -105,7 +105,9 @@ class MarketingSourceFactory:
 
         return adapters
 
-    def _create_googleads_config(self, source, tables) -> Optional[dict[str, Any]]:
+    def _create_googleads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[dict[str, Any]]:
         """Create Google Ads adapter config with campaign and stats tables"""
         patterns = TABLE_PATTERNS["GoogleAds"]
         campaign_table = None
@@ -244,7 +246,8 @@ class MarketingSourceFactory:
     def _get_schema_id_for_table(self, table):
         """Get schema ID for a warehouse table"""
         try:
-            schema = ExternalDataSchema.objects.filter(table_id=table.id).first()
+            # Use prefetched data to avoid N+1 queries
+            schema = next((s for s in table.externaldataschema_set.all() if s.table_id == table.id), None)
             return str(schema.id) if schema else None
         except Exception:
             return None
@@ -255,7 +258,8 @@ class MarketingSourceFactory:
             schema_id = self._get_schema_id_for_table(table)
             if schema_id:
                 try:
-                    schema = ExternalDataSchema.objects.filter(id=schema_id).first()
+                    # Use prefetched data to avoid additional queries
+                    schema = next((s for s in table.externaldataschema_set.all() if str(s.id) == schema_id), None)
                     if schema and hasattr(schema, "name"):
                         return schema.name
                 except Exception:

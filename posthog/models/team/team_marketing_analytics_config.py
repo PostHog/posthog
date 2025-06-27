@@ -48,6 +48,8 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
         if not isinstance(goal.get("schema"), dict):
             raise ValidationError(f"Conversion goal schema must be a dictionary, got {type(goal.get('schema'))}")
+        if goal.get("kind") is None:
+            raise ValidationError("Conversion goal must have a 'kind' field")
         if goal.get("kind") == NodeKind.EVENTS_NODE:
             if goal.get("id") and not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")

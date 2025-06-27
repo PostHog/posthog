@@ -6,7 +6,8 @@ from typing import Optional, Any
 import structlog
 
 from posthog.hogql import ast
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
+from posthog.schema import DateRange
 from products.marketing_analytics.backend.hogql_queries.constants import (
     CAMPAIGN_NAME_FIELD,
     CLICKS_FIELD,
@@ -35,8 +36,8 @@ class ValidationResult:
 class QueryContext:
     """Context needed for query building"""
 
-    date_range: Any  # QueryDateRange
-    team: Any
+    date_range: DateRange | None
+    team: Team
     global_filters: list[Any] = None
     base_currency: str = DEFAULT_CURRENCY
 
@@ -183,6 +184,7 @@ class MarketingSourceAdapter(ABC):
 
         except Exception as e:
             error_msg = f"Query generation error: {str(e)}"
+            self.logger.error("Query generation failed", error=error_msg, exc_info=True)
             self._log_query_generation(False, error_msg)
             return None
 

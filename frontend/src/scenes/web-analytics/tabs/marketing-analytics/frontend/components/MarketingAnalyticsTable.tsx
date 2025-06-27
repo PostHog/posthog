@@ -8,6 +8,12 @@ import { DataTableNode, MarketingAnalyticsTableQuery, NodeKind } from '~/queries
 import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+interface ColumnConfig {
+    renderTitle?: QueryContextColumnTitleComponent
+    render?: ({ value }: { value: any }) => React.ReactNode
+    align?: 'left' | 'center' | 'right'
+}
+
 import { webAnalyticsDataTableQueryContext } from '../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
 import {
@@ -90,7 +96,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
     // Generate dynamic column mappings for conversion goals
     const conversionGoalColumns = useMemo(() => {
-        const columns: Record<string, any> = {}
+        const columns: Record<string, ColumnConfig> = {}
 
         conversion_goals?.forEach((goal, index) => {
             const goalName = goal.conversion_goal_name || `Goal ${index + 1}`
@@ -102,7 +108,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                     goalName,
                     `${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}`
                 ),
-                render: ({ value }: { value: any }) => value || 0,
+                render: ({ value }: { value: any }) => value || '-',
                 align: 'right',
             }
 

@@ -4,8 +4,8 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr, action_to_expr
-from posthog.models import Action
-from posthog.schema import BaseMathType, NodeKind, PropertyMathType
+from posthog.models import Action, Team
+from posthog.schema import BaseMathType, DateRange, NodeKind, PropertyMathType
 from .adapters.base import MarketingSourceAdapter
 from .utils import sanitize_conversion_goal_name
 from .constants import (
@@ -25,8 +25,8 @@ class ConversionGoalProcessor:
 
     goal: Any
     index: int
-    team: Any
-    query_date_range: Any
+    team: Team
+    query_date_range: DateRange | None
 
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""

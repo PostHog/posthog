@@ -13,6 +13,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
 )
 from .conversion_goal_processor import ConversionGoalProcessor
+from posthog.hogql.errors import BaseHogQLError
 
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
@@ -230,7 +231,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
                         try:
                             calc_expr = parse_expr(calc_part)
-                        except:
+                        except (SyntaxError, BaseHogQLError):
                             calc_expr = ast.Field(chain=[calc_part])
 
                         coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=FALLBACK_COST_VALUE)])
@@ -242,7 +243,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
                         try:
                             calc_expr = parse_expr(calc_part)
-                        except:
+                        except (SyntaxError, BaseHogQLError):
                             calc_expr = ast.Field(chain=[calc_part])
 
                         coalesce = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=-FALLBACK_COST_VALUE)])
@@ -253,7 +254,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
                         try:
                             expr = parse_expr(order_expr)
-                        except:
+                        except (SyntaxError, BaseHogQLError):
                             expr = ast.Field(chain=[order_expr])
 
                         coalesce = ast.Call(name="COALESCE", args=[expr, ast.Constant(value=FALLBACK_COST_VALUE)])
