@@ -56,9 +56,9 @@ class PostHogConfig(AppConfig):
                 phcloud_client = Client(posthoganalytics.api_key)
 
                 phcloud_client.capture(
-                    get_machine_id(),
-                    "development server launched",
-                    {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
+                    distinct_id=get_machine_id(),
+                    event="development server launched",
+                    properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:

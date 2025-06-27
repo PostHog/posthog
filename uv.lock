@@ -4004,7 +4004,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=5.1.0" },
+    { name = "posthoganalytics", directory = "../posthog-python-local" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4125,19 +4125,62 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "5.1.0"
-source = { registry = "https://pypi.org/simple" }
+source = { directory = "../posthog-python-local" }
 dependencies = [
     { name = "backoff" },
     { name = "distro" },
     { name = "python-dateutil" },
     { name = "requests" },
     { name = "six" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/2b/88f865bbb1671fac1f101a823002b75dca35913b8525950d8f896915ba50/posthoganalytics-5.1.0.tar.gz", hash = "sha256:071a082d2e8b5df91764d7a7ed0f3e678a61e49195b311a5fab0ec40e5b4f6f1", size = 86318, upload-time = "2025-06-18T16:28:00.678Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/04/657214a32547cb04bd614d2fc000e04eb6f7042420bac36987c499718d13/posthoganalytics-5.1.0-py3-none-any.whl", hash = "sha256:37ae772b13914410dd82760322de6aa11a3bbd194cf1b4a41e0cc0e299f2dfbd", size = 104611, upload-time = "2025-06-18T16:27:59.515Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", marker = "extra == 'test'" },
+    { name = "backoff", specifier = ">=1.10.0" },
+    { name = "coverage", marker = "extra == 'test'" },
+    { name = "distro", specifier = ">=1.5.0" },
+    { name = "django", marker = "extra == 'test'" },
+    { name = "django-stubs", marker = "extra == 'dev'" },
+    { name = "freezegun", marker = "extra == 'test'", specifier = "==1.5.1" },
+    { name = "google-genai", marker = "extra == 'test'" },
+    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=0.2.0" },
+    { name = "langchain-anthropic", marker = "extra == 'test'", specifier = ">=0.3.15" },
+    { name = "langchain-community", marker = "extra == 'test'", specifier = ">=0.3.25" },
+    { name = "langchain-core", marker = "extra == 'test'", specifier = ">=0.3.65" },
+    { name = "langchain-openai", marker = "extra == 'test'", specifier = ">=0.3.22" },
+    { name = "langgraph", marker = "extra == 'test'", specifier = ">=0.4.8" },
+    { name = "lxml", marker = "extra == 'dev'" },
+    { name = "mock", marker = "extra == 'test'", specifier = ">=2.0.0" },
+    { name = "mypy", marker = "extra == 'dev'" },
+    { name = "mypy-baseline", marker = "extra == 'dev'" },
+    { name = "openai", marker = "extra == 'test'" },
+    { name = "packaging", marker = "extra == 'dev'" },
+    { name = "parameterized", marker = "extra == 'test'", specifier = ">=0.8.1" },
+    { name = "pre-commit", marker = "extra == 'dev'" },
+    { name = "pydantic", marker = "extra == 'dev'" },
+    { name = "pydantic", marker = "extra == 'test'" },
+    { name = "pytest", marker = "extra == 'test'" },
+    { name = "pytest-asyncio", marker = "extra == 'test'" },
+    { name = "pytest-timeout", marker = "extra == 'test'" },
+    { name = "python-dateutil", specifier = ">=2.2" },
+    { name = "requests", specifier = ">=2.7,<3.0" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "setuptools", marker = "extra == 'dev'" },
+    { name = "six", specifier = ">=1.5" },
+    { name = "tomli", marker = "extra == 'dev'" },
+    { name = "tomli-w", marker = "extra == 'dev'" },
+    { name = "twine", marker = "extra == 'dev'" },
+    { name = "types-mock", marker = "extra == 'dev'" },
+    { name = "types-python-dateutil", marker = "extra == 'dev'" },
+    { name = "types-requests", marker = "extra == 'dev'" },
+    { name = "types-setuptools", marker = "extra == 'dev'" },
+    { name = "types-six", marker = "extra == 'dev'" },
+    { name = "typing-extensions", specifier = ">=4.2.0" },
+    { name = "wheel", marker = "extra == 'dev'" },
 ]
+provides-extras = ["langchain", "dev", "test"]
 
 [[package]]
 name = "pprintpp"

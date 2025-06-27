@@ -201,8 +201,8 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        user.distinct_id,
-        "verification email sent",
+        distinct_id=user.distinct_id,
+        event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
