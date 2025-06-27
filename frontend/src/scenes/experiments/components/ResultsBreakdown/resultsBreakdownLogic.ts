@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { match, P } from 'ts-pattern'
 
@@ -203,13 +203,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         ],
     })),
 
-    afterMount(({ actions, props, values }) => {
-        const isEnabled = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN]
-
-        if (!isEnabled) {
-            return
-        }
-
+    afterMount(({ actions, props }) => {
         const { metric, experiment } = props
 
         // bail if no valid props
