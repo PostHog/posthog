@@ -267,9 +267,11 @@ class FeatureFlagSerializer(
             )
 
         if aggregation_group_type_index is None:
-            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
+            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort", "flag"])
             if not is_valid:
-                raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+                raise serializers.ValidationError(
+                    "Filters are not valid (can only use person, cohort, and flag properties)"
+                )
         elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
@@ -735,6 +737,16 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(~Q(experiment__isnull=True))
                 elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
+            elif key == "excluded_properties":
+                import json
+
+                try:
+                    excluded_keys = json.loads(request.GET["excluded_properties"])
+                    if excluded_keys:
+                        queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
 
         return queryset
 
@@ -809,6 +821,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["boolean", "multivariant", "experiment"],
+            ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of feature flag keys to exclude from the results.",
             ),
         ]
     )
