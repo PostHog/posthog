@@ -255,10 +255,6 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Install Playwright browsers
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
-
             - name: Wait for Clickhouse & Kafka
               if: needs.changes.outputs.shouldRun == 'true'
               shell: bash
@@ -276,13 +272,12 @@ jobs:
                   echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
                   echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
 
-            - name: Apply postgres migrations
+            - name: Apply postgres and clickhouse migrations
               if: needs.changes.outputs.shouldRun == 'true'
-              run: python manage.py migrate --noinput
-
-            - name: Apply clickhouse migrations
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: python manage.py migrate_clickhouse
+              run: |
+                  python manage.py migrate --noinput &
+                  python manage.py migrate_clickhouse &
+                  wait
 
             - name: Seed dev data
               if: needs.changes.outputs.shouldRun == 'true'
@@ -300,6 +295,11 @@ jobs:
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py runserver 8080 &> /tmp/server.log &
+
+            # Install Playwright browsers while we wait for PostHog to be ready
+            - name: Install Playwright browsers
+              if: needs.changes.outputs.shouldRun == 'true'
+              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
 
             - name: Wait for PostHog to be ready
               if: needs.changes.outputs.shouldRun == 'true'

@@ -34,7 +34,7 @@ export default defineConfig({
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: process.env.CI ? 3 : 6,
+    workers: process.env.CI ? 1 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -55,10 +55,10 @@ export default defineConfig({
 
     /* Configure projects for major browsers */
     projects: [
-        // {
-        //     name: 'chromium',
-        //     use: { ...devices['Desktop Chrome'] },
-        // },
+        {
+            name: 'chromium',
+            use: { ...devices['Desktop Chrome'] },
+        },
         // {
         //     name: 'chromium',
         //     use: {
@@ -89,12 +89,12 @@ export default defineConfig({
         //   },
         // },
 
-        {
-            name: 'webkit',
-            use: {
-                ...devices['Desktop Safari'],
-            },
-        },
+        // {
+        //     name: 'webkit',
+        //     use: {
+        //         ...devices['Desktop Safari'],
+        //     },
+        // },
 
         /* Test against mobile viewports. */
         // {
