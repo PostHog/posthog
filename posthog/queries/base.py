@@ -314,7 +314,7 @@ def property_to_Q(
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
-    if property.type not in ["person", "group", "cohort", "event"]:
+    if property.type not in ["person", "group", "cohort", "event", "flag"]:
         # We need to support event type for backwards compatibility, even though it's treated as a person property type
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
 
