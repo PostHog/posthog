@@ -253,11 +253,13 @@ export class HogExecutorService {
 
         await Promise.all(
             hogFunctions.map(async (hogFunction) => {
+                // We always check the top level filters
+                if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
+                    return
+                }
+
                 // Check for non-mapping functions first
                 if (!hogFunction.mappings) {
-                    if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
-                        return
-                    }
                     const invocation = await _buildInvocation(hogFunction, {
                         ...hogFunction.inputs,
                         ...hogFunction.encrypted_inputs,
@@ -273,10 +275,7 @@ export class HogExecutorService {
                 await Promise.all(
                     hogFunction.mappings.map(async (mapping) => {
                         // For mappings we want to match against both the mapping filters and the global filters
-                        if (
-                            !(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) ||
-                            !(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))
-                        ) {
+                        if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
                             return
                         }
 
