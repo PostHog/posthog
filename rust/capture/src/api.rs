@@ -76,6 +76,9 @@ pub enum CaptureError {
 
     #[error("rate limited")]
     RateLimited,
+
+    #[error("payload empty after filtering invalid event types")]
+    EmptyPayloadFiltered,
 }
 
 impl From<serde_json::Error> for CaptureError {
@@ -107,6 +110,7 @@ impl CaptureError {
             CaptureError::NonRetryableSinkError => "non_retry_sink",
             CaptureError::BillingLimit => "billing_limit",
             CaptureError::RateLimited => "rate_limited",
+            CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
         }
     }
 }
@@ -126,6 +130,7 @@ impl IntoResponse for CaptureError {
             | CaptureError::MissingSessionId
             | CaptureError::MissingWindowId
             | CaptureError::InvalidSessionId
+            | CaptureError::EmptyPayloadFiltered
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
 
             CaptureError::EventTooBig(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),

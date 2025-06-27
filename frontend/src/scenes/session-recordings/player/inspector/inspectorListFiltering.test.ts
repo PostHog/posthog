@@ -59,7 +59,7 @@ describe('filtering inspector list items', () => {
                 trackedWindow: null,
                 hasEventsToDisplay: true,
             }).map((item) => item.type)
-        ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
+        ).toEqual(['browser-visibility', 'offline-status', 'events'])
     })
 
     it.each([
@@ -73,6 +73,33 @@ describe('filtering inspector list items', () => {
                 } as InspectorListItemDoctor,
             ],
             miniFiltersByKey: { doctor: { enabled } as unknown as SharedListMiniFilter },
+            showOnlyMatching: false,
+            allowMatchingEventsFilter: false,
+            trackedWindow: null,
+            hasEventsToDisplay: true,
+        })
+        expect(filteredItems).toHaveLength(expectedLength)
+    })
+
+    it.each([
+        [true, 2],
+        [false, 0],
+    ])('hides/shows comment items when %s', (enabled, expectedLength) => {
+        const filteredItems = filterInspectorListItems({
+            allItems: [
+                {
+                    type: 'doctor',
+                } as InspectorListItemDoctor,
+                {
+                    type: 'comment',
+                    source: 'notebook',
+                } as InspectorListItemComment,
+                {
+                    type: 'comment',
+                    source: 'annotation',
+                } as InspectorListItemComment,
+            ],
+            miniFiltersByKey: { comment: { enabled } as unknown as SharedListMiniFilter },
             showOnlyMatching: false,
             allowMatchingEventsFilter: false,
             trackedWindow: null,

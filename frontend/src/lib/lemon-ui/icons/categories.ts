@@ -201,6 +201,7 @@ export const ELEMENTS = {
         'IconCheck',
         'IconCircleDashed',
         'IconX',
+        'IconAtSign',
         'IconEllipsis',
         'IconHide',
         'IconStopFilled',

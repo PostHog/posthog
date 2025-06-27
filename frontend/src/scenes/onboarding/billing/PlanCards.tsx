@@ -6,12 +6,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
-import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { type BillingProductV2Type } from '~/types'
@@ -51,13 +48,11 @@ type PlanCardProps = {
 }
 
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
-    const { redirectPath, billingLoading, billing } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const { billing } = useValues(billingLogic)
+    const { billingProductLoading } = useValues(billingProductLogic({ product }))
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
-    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
+    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
     const productPlan = product.plans.find((plan) => plan.plan_key?.startsWith(planData.billingPlanKeyPrefix))
     const platformPlan = billing?.products
@@ -143,41 +138,23 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                     </ul>
                 </section>
                 <footer className="mt-auto">
-                    {planData.ctaAction === 'billing' &&
-                        (featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
-                            <BillingUpgradeCTA
-                                type="primary"
-                                status={highlight ? 'alt' : undefined}
-                                center
-                                disabledReason={billingLoading && 'Please wait...'}
-                                disableClientSideRouting
-                                loading={!!billingLoading}
-                                onClick={() => showPaymentEntryModal()}
-                                data-attr="onboarding-subscribe-button"
-                                fullWidth
-                            >
-                                {planData.ctaText}
-                            </BillingUpgradeCTA>
-                        ) : (
-                            <BillingUpgradeCTA
-                                to={getUpgradeProductLink({
-                                    product,
-                                    redirectPath,
-                                })}
-                                type="primary"
-                                status={highlight ? 'alt' : undefined}
-                                center
-                                disabledReason={billingLoading && 'Please wait...'}
-                                disableClientSideRouting
-                                onClick={() => {
-                                    reportBillingUpgradeClicked(product.type)
-                                }}
-                                data-attr="onboarding-subscribe-button"
-                                fullWidth
-                            >
-                                {planData.ctaText}
-                            </BillingUpgradeCTA>
-                        ))}
+                    {planData.ctaAction === 'billing' && (
+                        <BillingUpgradeCTA
+                            type="primary"
+                            status={highlight ? 'alt' : undefined}
+                            center
+                            disabledReason={billingProductLoading && 'Please wait...'}
+                            disableClientSideRouting
+                            loading={!!billingProductLoading}
+                            onClick={() =>
+                                startPaymentEntryFlow(product, window.location.pathname + window.location.search)
+                            }
+                            data-attr="onboarding-subscribe-button"
+                            fullWidth
+                        >
+                            {planData.ctaText}
+                        </BillingUpgradeCTA>
+                    )}
                     {planData.ctaAction === 'next' && (
                         <LemonButton
                             type="primary"

@@ -17,6 +17,7 @@ from posthog.storage.object_storage import (
     read,
     write,
     get_presigned_url,
+    get_presigned_post,
     list_objects,
     copy_objects,
     ObjectStorage,
@@ -88,6 +89,18 @@ class TestStorage(APIBaseTest):
             assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
                 presigned_url,
+            )
+
+    def test_can_generate_presigned_post_url(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_upload_url/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_post(file_name, conditions=[])
+            assert presigned_url is not None
+            assert "fields" in presigned_url
+            assert re.match(
+                r"^http://localhost:\d+/posthog",
+                presigned_url["url"],
             )
 
     def test_can_list_objects_with_prefix(self) -> None:

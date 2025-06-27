@@ -67,7 +67,7 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Links",
+            base_folder=self._get_assigned_folder("Unfiled/Links"),
             type="link",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.short_code or "Untitled",

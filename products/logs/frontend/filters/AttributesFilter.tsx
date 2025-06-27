@@ -16,7 +16,7 @@ export const AttributesFilter = (): JSX.Element => {
         <UniversalFilters
             rootKey={rootKey}
             group={filterGroup}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.Logs]}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.LogAttributes]}
             onChange={(filterGroup) => setFilterGroup(filterGroup)}
         >
             <NestedFilterGroup />

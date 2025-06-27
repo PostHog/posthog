@@ -1,70 +1,24 @@
-from ee.hogai.graph import InsightsAssistantGraph
 from ee.hogai.graph.retention.toolkit import RETENTION_SCHEMA
-from ee.models.assistant import Conversation
 from .conftest import MaxEval
 import pytest
 from braintrust import EvalCase
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.schema import (
     AssistantRetentionQuery,
     AssistantRetentionFilter,
     AssistantRetentionEventsNode,
-    HumanMessage,
     NodeKind,
-    VisualizationMessage,
 )
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
-
-
-@pytest.fixture
-def call_node(demo_org_team_user):
-    # This graph structure will first get a plan, then generate the retention query.
-    graph = (
-        InsightsAssistantGraph(demo_org_team_user[1])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.RETENTION_PLANNER)
-        .add_retention_planner(next_node=AssistantNodeName.RETENTION_GENERATOR)  # Planner output goes to generator
-        .add_retention_generator(AssistantNodeName.END)  # Generator output is the final output
-        .compile()
-    )
-
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        # Initial state for the graph
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=f"Answer this question: {query}")],
-            root_tool_insight_plan=query,  # User query is the initial plan for the planner
-            root_tool_call_id="eval_test_retention",
-            root_tool_insight_type="retention",
-        )
-
-        # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
-        final_state = AssistantState.model_validate(final_state_raw)
-
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-
-        # Ensure the answer is of the expected type for Retention eval
-        answer = final_state.messages[-1].answer
-        if not isinstance(answer, AssistantRetentionQuery):
-            # This case should ideally not happen if the graph is configured correctly for Retention
-            return {"plan": final_state.messages[-1].plan, "query": None}
-
-        return {"plan": final_state.messages[-1].plan, "query": answer}
-
-    return callable
+from .scorers import PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy, PlanAndQueryOutput
 
 
 @pytest.mark.django_db
-def eval_retention(call_node):
+def eval_retention(call_root_for_insight_generation):
     MaxEval(
         experiment_name="retention",
-        task=call_node,
+        task=call_root_for_insight_generation,
         scores=[
+            QueryKindSelection(expected=NodeKind.RETENTION_QUERY),
             PlanCorrectness(
                 query_kind=NodeKind.RETENTION_QUERY,
                 evaluation_criteria="""

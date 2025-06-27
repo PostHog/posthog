@@ -1,69 +1,29 @@
-from ee.hogai.graph import InsightsAssistantGraph
-from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
-from ee.models.assistant import Conversation
-from .conftest import MaxEval
+from datetime import datetime
+from textwrap import dedent
+
 import pytest
 from braintrust import EvalCase
-from datetime import datetime
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.graph.funnels.toolkit import FUNNEL_SCHEMA
 from posthog.schema import (
     AssistantFunnelsEventsNode,
-    AssistantFunnelsQuery,
-    HumanMessage,
-    NodeKind,
-    VisualizationMessage,
-    AssistantFunnelsFilter,
     AssistantFunnelsExclusionEventsNode,
+    AssistantFunnelsFilter,
+    AssistantFunnelsQuery,
+    NodeKind,
 )
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
-
-@pytest.fixture
-def call_node(demo_org_team_user):
-    # This graph structure will first get a plan, then generate the funnel.
-    graph = (
-        InsightsAssistantGraph(demo_org_team_user[1])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.FUNNEL_PLANNER)
-        .add_funnel_planner(next_node=AssistantNodeName.FUNNEL_GENERATOR)  # Planner output goes to generator
-        .add_funnel_generator(AssistantNodeName.END)  # Generator output is the final output
-        .compile()
-    )
-
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        # Initial state for the graph
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=f"Answer this question: {query}")],
-            root_tool_insight_plan=query,  # User query is the initial plan for the planner
-            root_tool_call_id="eval_test",
-            root_tool_insight_type="funnel",
-        )
-
-        # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
-        final_state = AssistantState.model_validate(final_state_raw)
-
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-
-        return {
-            "plan": final_state.messages[-1].plan,
-            "query": final_state.messages[-1].answer,
-        }
-
-    return callable
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
-def eval_funnel(call_node):
+def eval_funnel(call_root_for_insight_generation):
     MaxEval(
         experiment_name="funnel",
-        task=call_node,
+        task=call_root_for_insight_generation,
         scores=[
+            QueryKindSelection(expected=NodeKind.FUNNELS_QUERY),
             PlanCorrectness(
                 query_kind=NodeKind.FUNNELS_QUERY,
                 evaluation_criteria="""
@@ -640,6 +600,112 @@ Time period: this January
 """,
                     query=AssistantFunnelsQuery(
                         aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should include the aggregation by session
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by session?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                            funnelAggregateByHogQL="properties.$session_id",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should include the aggregation by user
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by user?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=None,
+                        breakdownFilter=None,
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        funnelsFilter=AssistantFunnelsFilter(
+                            binCount=None,
+                            exclusions=[],
+                            funnelOrderType="ordered",
+                            funnelStepReference="total",
+                            funnelVizType="steps",
+                            funnelWindowInterval=14,
+                            funnelWindowIntervalUnit="day",
+                        ),
+                        series=[
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                            AssistantFunnelsEventsNode(event="$pageview", math=None, properties=None),
+                        ],
+                    ),
+                ),
+            ),
+            # Should aggregate by unique accounts (group analytics)
+            EvalCase(
+                input="what is the conversion rate from a page view to a next page view in this January aggregated by unique accounts?",
+                expected=PlanAndQueryOutput(
+                    plan=dedent("""
+                        Sequence:
+                        1. $pageview
+                        2. $pageview
+
+                        Time period: this January
+                    """),
+                    query=AssistantFunnelsQuery(
+                        aggregation_group_type_index=0,
                         breakdownFilter=None,
                         dateRange={
                             "date_from": f"{datetime.now().year}-01-01",

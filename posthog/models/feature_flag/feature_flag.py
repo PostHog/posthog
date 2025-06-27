@@ -87,7 +87,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder=self._create_in_folder or "Unfiled/Feature Flags",
+            base_folder=self._get_assigned_folder("Unfiled/Feature Flags"),
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
@@ -391,7 +391,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def uses_cohorts(self) -> bool:
         for condition in self.conditions:
-            props = condition.get("properties", [])
+            props = condition.get("properties") or []
             for prop in props:
                 if prop.get("type") == "cohort":
                     return True

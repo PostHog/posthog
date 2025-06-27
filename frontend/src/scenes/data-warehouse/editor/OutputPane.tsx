@@ -23,7 +23,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid from 'react-data-grid'
+import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
 import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -46,6 +46,8 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { QueryInfo } from './sidebar/QueryInfo'
+import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -273,8 +275,8 @@ export function OutputPane(): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-
-    const response = dataNodeResponse ?? localStorageResponse
+    const { featureFlags } = useValues(featureFlagLogic)
+    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -313,7 +315,7 @@ export function OutputPane(): JSX.Element {
 
                 const maxContentLength = Math.max(
                     column.length,
-                    ...(response.results || response.result).map((row: any[]) => {
+                    ...(response.results || (response as any).result).map((row: any[]) => {
                         const content = row[index]
                         return typeof content === 'string'
                             ? content.length
@@ -336,7 +338,30 @@ export function OutputPane(): JSX.Element {
                         </>
                     ),
                     resizable: true,
+                    sortable: true,
                     width: finalWidth,
+                    headerCellClass: 'cursor-pointer',
+                    renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
+                        <div className="flex items-center justify-between px-3 py-2">
+                            <span>{col.name}</span>
+                            <div className="flex flex-col">
+                                <span
+                                    className={`text-[7px] leading-none ${
+                                        sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
+                                    }`}
+                                >
+                                    ▲
+                                </span>
+                                <span
+                                    className={`text-[7px] leading-none ${
+                                        sortDirection === 'DESC' ? 'text-black-600' : 'text-gray-400'
+                                    }`}
+                                >
+                                    ▼
+                                </span>
+                            </div>
+                        </div>
+                    ),
                 }
 
                 // Hack to get bools to render in the data grid
@@ -366,9 +391,10 @@ export function OutputPane(): JSX.Element {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[], index: number) => {
+
+        let processedRows = response.results.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
-            response.columns.forEach((column: string, i: number) => {
+            response.columns?.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
                     rowObject[column] = JSON.stringify(row[i])
@@ -378,6 +404,8 @@ export function OutputPane(): JSX.Element {
             })
             return rowObject
         })
+
+        return processedRows
     }, [response])
 
     const hasColumns = columns.length > 1
@@ -395,6 +423,18 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
+                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
+                            ? [
+                                  {
+                                      key: OutputTab.Variables,
+                                      label: 'Variables',
+                                  },
+                                  {
+                                      key: OutputTab.Materialization,
+                                      label: 'Materialization',
+                                  },
+                              ]
+                            : []),
                     ].map((tab) => (
                         <div
                             key={tab.key}
@@ -655,6 +695,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
+    editorKey,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -663,6 +704,54 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
+    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+
+    const sortedRows = useMemo(() => {
+        if (!sortColumns.length) {
+            return rows
+        }
+
+        return [...rows].sort((a, b) => {
+            for (const { columnKey, direction } of sortColumns) {
+                const aVal = a[columnKey]
+                const bVal = b[columnKey]
+
+                if (aVal === bVal) {
+                    continue
+                }
+                if (aVal == null) {
+                    return 1
+                }
+                if (bVal == null) {
+                    return -1
+                }
+
+                const result = aVal < bVal ? -1 : 1
+                return direction === 'DESC' ? -result : result
+            }
+            return 0
+        })
+    }, [rows, sortColumns])
+    if (activeTab === OutputTab.Materialization) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t">
+                    <QueryInfo codeEditorKey={editorKey} />
+                </div>
+            </TabScroller>
+        )
+    }
+
+    if (activeTab === OutputTab.Variables) {
+        return (
+            <TabScroller>
+                <div className="px-6 py-4 border-t max-w-1/2">
+                    <QueryVariables />
+                </div>
+            </TabScroller>
+        )
+    }
+
     if (responseLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
@@ -710,7 +799,9 @@ const Content = ({
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
-                    rows={rows}
+                    rows={sortedRows}
+                    sortColumns={sortColumns}
+                    onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
         )

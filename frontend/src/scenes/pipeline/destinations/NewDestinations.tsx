@@ -137,7 +137,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                     Create
                                 </LemonButton>
                             ) : (
-                                <span className="flex items-center gap-2 whitespace-nowrap">
+                                <span className="flex gap-2 items-center whitespace-nowrap">
                                     <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
                                     {/* Allow staff users to create destinations */}
                                     {user?.is_impersonated && (

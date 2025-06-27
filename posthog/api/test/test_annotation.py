@@ -25,7 +25,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content="hello world!",
         )
 
-        # Annotation creation is not reported to PostHog because it has no created_by
+        # Annotation creation is not reported to PostHog because it has no created_by!
         mock_capture.assert_not_called()
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
@@ -34,9 +34,6 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture) -> None:
-        """
-        see https://sentry.io/organizations/posthog/issues/3706110236/events/db0167ece56649f59b013cbe9de7ba7a/?project=1899813
-        """
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0

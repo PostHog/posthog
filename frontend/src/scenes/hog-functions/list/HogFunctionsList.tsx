@@ -13,7 +13,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -22,9 +22,19 @@ import { HogFunctionType } from '~/types'
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
-import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
+import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
+
+const urlForHogFunction = (hogFunction: HogFunctionType): string => {
+    if (hogFunction.id.startsWith('plugin-')) {
+        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
+    }
+    if (hogFunction.id.startsWith('batch-export-')) {
+        return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
+    }
+    return urls.hogFunction(hogFunction.id)
+}
 
 export function HogFunctionList({
     extraControls,
@@ -32,16 +42,22 @@ export function HogFunctionList({
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction, hiddenHogFunctions } =
-        useValues(hogFunctionListLogic(props))
+        useValues(hogFunctionsListLogic(props))
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
-        useActions(hogFunctionListLogic(props))
+        useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
     const humanizedType = humanizeHogFunctionType(props.type)
-    const canChangeShowPaused = typeof props.forceFilters?.showPaused !== 'boolean'
 
     useEffect(() => loadHogFunctions(), [])
+
+    const isManualFunction = useCallback(
+        (hogFunction: HogFunctionType): boolean => {
+            return props.manualFunctions?.find((f) => f.id === hogFunction.id) !== undefined
+        },
+        [props.manualFunctions]
+    )
 
     const columns = useMemo(() => {
         const columns: LemonTableColumn<HogFunctionType, any>[] = [
@@ -61,7 +77,7 @@ export function HogFunctionList({
                 render: (_, hogFunction) => {
                     return (
                         <LemonTableLink
-                            to={urls.hogFunction(hogFunction.id)}
+                            to={urlForHogFunction(hogFunction)}
                             title={
                                 <>
                                     <Tooltip title="Click to update configuration, view metrics, and more">
@@ -80,8 +96,11 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
+                        return <>N/A</>
+                    }
                     return (
-                        <Link to={urls.hogFunction(hogFunction.id) + '?tab=metrics'}>
+                        <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <HogFunctionMetricSparkLine id={hogFunction.id} />
                         </Link>
                     )
@@ -103,21 +122,31 @@ export function HogFunctionList({
                         <More
                             overlay={
                                 <LemonMenuOverlay
-                                    items={[
-                                        {
-                                            label: hogFunction.enabled ? 'Pause' : 'Unpause',
-                                            onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
-                                            disabledReason:
-                                                !canEnableHogFunction(hogFunction) && !hogFunction.enabled
-                                                    ? `Data pipelines add-on is required for enabling new ${humanizedType}`
-                                                    : undefined,
-                                        },
-                                        {
-                                            label: 'Delete',
-                                            status: 'danger' as const, // for typechecker happiness
-                                            onClick: () => deleteHogFunction(hogFunction),
-                                        },
-                                    ]}
+                                    items={
+                                        isManualFunction(hogFunction)
+                                            ? [
+                                                  // TRICKY: Hack for now to just link out to the full view
+                                                  {
+                                                      label: 'View & configure',
+                                                      to: urlForHogFunction(hogFunction),
+                                                  },
+                                              ]
+                                            : [
+                                                  {
+                                                      label: hogFunction.enabled ? 'Pause' : 'Unpause',
+                                                      onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
+                                                      disabledReason:
+                                                          !canEnableHogFunction(hogFunction) && !hogFunction.enabled
+                                                              ? `Data pipelines add-on is required for enabling new ${humanizedType}`
+                                                              : undefined,
+                                                  },
+                                                  {
+                                                      label: 'Delete',
+                                                      status: 'danger' as const, // for typechecker happiness
+                                                      onClick: () => deleteHogFunction(hogFunction),
+                                                  },
+                                              ]
+                                    }
                                 />
                             }
                         />
@@ -148,38 +177,34 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction])
+    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction])
 
     return (
         <>
             <div className="flex gap-2 items-center mb-2">
-                {!props.forceFilters?.search && (
-                    <LemonInput
-                        type="search"
-                        placeholder="Search..."
-                        value={filters.search ?? ''}
-                        onChange={(e) => setFilters({ search: e })}
-                    />
-                )}
+                <LemonInput
+                    type="search"
+                    placeholder="Search..."
+                    value={filters.search ?? ''}
+                    onChange={(e) => setFilters({ search: e })}
+                />
                 {!hideFeedback ? (
                     <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog(props.type)}>
                         Can't find what you're looking for?
                     </Link>
                 ) : null}
                 <div className="flex-1" />
-                {canChangeShowPaused && (
-                    <LemonCheckbox
-                        label="Show paused"
-                        bordered
-                        size="small"
-                        checked={filters.showPaused}
-                        onChange={(e) => setFilters({ showPaused: e ?? undefined })}
-                    />
-                )}
+                <LemonCheckbox
+                    label="Show paused"
+                    bordered
+                    size="small"
+                    checked={filters.showPaused}
+                    onChange={(e) => setFilters({ showPaused: e ?? undefined })}
+                />
                 {extraControls}
             </div>
 
-            <BindLogic logic={hogFunctionListLogic} props={props}>
+            <BindLogic logic={hogFunctionsListLogic} props={props}>
                 <LemonTable
                     dataSource={filteredHogFunctions}
                     size="small"
@@ -202,9 +227,7 @@ export function HogFunctionList({
                                 <Link
                                     onClick={() => {
                                         resetFilters()
-                                        if (canChangeShowPaused) {
-                                            setFilters({ showPaused: true })
-                                        }
+                                        setFilters({ showPaused: true })
                                     }}
                                 >
                                     Show all

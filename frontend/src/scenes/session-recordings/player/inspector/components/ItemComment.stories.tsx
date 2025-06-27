@@ -61,6 +61,15 @@ function makeAnnotationItem(
             updated_at: now().toISOString(),
             scope: AnnotationScope.Project,
             content: '🪓😍🪓😍🪓😍🪓😍',
+            created_by: {
+                id: 1,
+                uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
+                distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',
+                first_name: 'fasdadafsfasdadafsfasdadafsfasdadafsfasdadafsfasdadafs',
+                last_name: '',
+                email: 'paul@posthog.com',
+                is_email_verified: false,
+            },
             ...dataOverrides,
         },
         timeInRecording: 0,
@@ -85,9 +94,38 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
             <h3>Expanded</h3>
             <ItemCommentDetail {...propsToUse} />
             <LemonDivider />
+            <h3>Expanded with overflowing comment</h3>
+            <div className="w-52">
+                <ItemCommentDetail
+                    {...propsToUse}
+                    item={
+                        {
+                            ...propsToUse.item,
+                            data: {
+                                ...propsToUse.item.data,
+                                comment:
+                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                            },
+                        } as InspectorListItemNotebookComment
+                    }
+                />
+            </div>
+            <LemonDivider />
             <h3>Collapsed with overflowing comment</h3>
             <div className="w-52">
-                <ItemComment {...propsToUse} />
+                <ItemComment
+                    {...propsToUse}
+                    item={
+                        {
+                            ...propsToUse.item,
+                            data: {
+                                ...propsToUse.item.data,
+                                comment:
+                                    'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz',
+                            },
+                        } as InspectorListItemNotebookComment
+                    }
+                />
             </div>
         </div>
     )

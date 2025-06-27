@@ -48,6 +48,8 @@ PARTITION BY toDate(timestamp)
 ORDER BY (team_id, service_name, toUnixTimestamp(timestamp))
 SETTINGS index_granularity = 8192, allow_nullable_key = 0;
 
+drop table if exists log_attributes;
+drop table if exists log_to_log_attributes;
 CREATE TABLE default.log_attributes
 (
     `team_id` Int32,
@@ -55,15 +57,16 @@ CREATE TABLE default.log_attributes
     `service_name` LowCardinality(String),
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
-
+    `attribute_count` SimpleAggregateFunction(sum, UInt64),
     INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-    INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0)) GRANULARITY 1,
+    INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
 )
 ENGINE = SharedAggregatingMergeTree('/clickhouse/tables/{uuid}/{shard}', '{replica}')
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, service_name, time_bucket, attribute_key, attribute_value);
+ORDER BY (team_id, service_name, time_bucket, attribute_key, attribute_value)
+SETTINGS index_granularity = 8192;
 
 set enable_dynamic_type=1;
 CREATE MATERIALIZED VIEW default.log_to_log_attributes TO default.log_attributes
@@ -73,13 +76,19 @@ CREATE MATERIALIZED VIEW default.log_to_log_attributes TO default.log_attributes
     `service_name` LowCardinality(String),
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)
 )
 AS SELECT
-    uuid,
     team_id AS team_id,
     toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
     service_name AS service_name,
-    arrayJoin(arrayFilter((k,v) -> (length(k) < 256 and length(v) < 256), attributes::Array(Tuple(String, String)))) as attribute,
-    attribute.1 as attribute_key,
-    JSONExtract(attribute.2, 'Dynamic')::String as attribute_value
+    arrayJoin(arrayMap((k, v) -> (k, if(length(v) > 256, '', v)), arrayFilter((k, v) -> (length(k) < 256), CAST(attributes, 'Array(Tuple(String, String))')))) AS attribute,
+    attribute.1 AS attribute_key,
+    CAST(JSONExtract(attribute.2, 'Dynamic'), 'String') AS attribute_value,
+    sumSimpleState(1) AS attribute_count
 FROM default.logs
+GROUP BY
+    team_id,
+    time_bucket,
+    service_name,
+    attribute

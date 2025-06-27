@@ -18,7 +18,7 @@ test.describe('Password Reset', () => {
         await page.locator('[data-attr=login-email]').blur()
         await expect(page.locator('[data-attr=forgot-password]')).toBeVisible({ timeout: 5000 })
         await page.click('[data-attr="forgot-password"]')
-        await expect(page).toHaveURL('/reset')
+        await expect(page).toHaveURL('/reset?email=fake%40posthog.com')
         await page.fill('[data-attr="reset-email"]', 'test@posthog.com')
         await page.click('button[type=submit]')
         await expect(page.getByText('Request received successfully!')).toBeVisible()

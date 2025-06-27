@@ -146,7 +146,6 @@ class LogsQueryRunner(QueryRunner):
         query.where = self.where()
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
         query.order_by = [
-            parse_order_expr(f"service_name {order_dir}"),
             parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
         ]
 
@@ -165,6 +164,16 @@ class LogsQueryRunner(QueryRunner):
                         "severityLevels": ast.Tuple(
                             exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
                         )
+                    },
+                )
+            )
+
+        if self.query.serviceNames:
+            exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
                     },
                 )
             )

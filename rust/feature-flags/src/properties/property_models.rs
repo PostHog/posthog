@@ -31,6 +31,9 @@ pub enum PropertyType {
     Cohort,
     #[serde(rename = "group")]
     Group,
+    // A flag property is compared to another flag evaluation result
+    #[serde(rename = "flag")]
+    Flag,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

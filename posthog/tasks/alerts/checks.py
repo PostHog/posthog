@@ -8,14 +8,12 @@ from dateutil.relativedelta import relativedelta
 from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
 from posthog.clickhouse.query_tagging import tag_queries
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
@@ -369,7 +367,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     insight = alert.insight
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 

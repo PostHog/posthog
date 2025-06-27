@@ -2,8 +2,17 @@ import { DateTime } from 'luxon'
 
 import { Group, ProjectId, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
+import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
+
+// Mock the utils module
+jest.mock('../utils', () => ({
+    captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
+}))
+
+// Import the mocked function
+import { captureIngestionWarning } from '../utils'
 
 // Mock the DB class
 
@@ -281,6 +290,22 @@ describe('BatchWritingGroupStore', () => {
             expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
             expect(db.updateGroup).toHaveBeenCalledTimes(0)
             expect(db.insertGroup).toHaveBeenCalledTimes(0)
+        })
+
+        it('should capture warning and stop retrying if message size too large', async () => {
+            // we need to mock the kafka producer queueMessages method
+            db.upsertGroupClickhouse = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+
+            const groupStoreForBatch = groupStore.forBatch()
+
+            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+
+            await groupStoreForBatch.flush()
+
+            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            expect(db.updateGroup).toHaveBeenCalledTimes(0)
+            expect(db.insertGroup).toHaveBeenCalledTimes(0)
+            expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
         })
     })
 })

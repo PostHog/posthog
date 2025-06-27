@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -39,14 +39,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
 
                 return [
                     {
-                        key: Scene.MessagingLibrary,
+                        key: Scene.Messaging,
                         name: 'Messaging',
-                        path: urls.messagingLibrary(),
+                        path: urls.messaging(),
                     },
                     {
-                        key: 'library',
+                        key: [Scene.Messaging, 'library'],
                         name: 'Library',
-                        path: urls.messagingLibrary(),
+                        path: urls.messaging('library'),
                     },
                     ...(id === 'new'
                         ? [
@@ -76,7 +76,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 name: !template.name ? 'Name is required' : undefined,
                 content: {
                     email: {
-                        from: !template.content.email.from ? 'From is required' : undefined,
                         subject: !template.content.email.subject ? 'Subject is required' : undefined,
                     },
                 },
@@ -150,10 +149,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             })
         },
     })),
-    propsChanged(({ actions, props }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
             actions.loadTemplate()
         }
+
         if (props.messageId) {
             actions.loadMessage()
         } else {

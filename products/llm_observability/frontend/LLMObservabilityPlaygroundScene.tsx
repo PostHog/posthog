@@ -45,7 +45,7 @@ export function LLMObservabilityPlaygroundScene(): JSX.Element {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-col min-h-[calc(100vh-120px)]">
+        <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
             {/* Main conversation area - full width */}
             <div className="flex flex-col border rounded overflow-hidden flex-1">
                 <ConversationPanel />
@@ -520,7 +520,7 @@ function StickyActionBar(): JSX.Element {
 
     return (
         <>
-            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--bg-surface-primary)] border-t border-border z-10 -mx-4 -mb-4">
+            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--bg-surface-primary)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
                     <div className="flex gap-2 items-center">
                         <LemonButton

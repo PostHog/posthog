@@ -4,7 +4,6 @@
 # It relies on the container image built by 'container-images-ci.yml'.
 #
 name: E2E CI Playwright
-
 on:
     pull_request:
 
@@ -16,7 +15,7 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
@@ -203,7 +202,7 @@ jobs:
             - name: Playwright run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright test
+              run: pnpm --filter=@posthog/playwright test
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
@@ -216,6 +215,14 @@ jobs:
                   path: playwright/playwright-report/
                   retention-days: 30
               if: ${{ failure() }}
+
+            - name: Archive screenshots
+              if: always()
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              with:
+                  name: playwright-screenshots
+                  path: playwright/test-results
+                  retention-days: 30
 
     capture-run-time:
         name: Capture run time
@@ -252,3 +259,15 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.shouldRun == 'true'
+        needs: [capture-run-time] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

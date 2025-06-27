@@ -21,9 +21,9 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                     {
                         title: (
                             <>
-                                <Tooltip title="Click a row to see the latest results">
+                                <Tooltip title="Click a row to see recordings.">
                                     <div className="flex flex-row gap-2 items-center cursor-pointer">
-                                        <IconInfo className="text-xl" /> Your most active users
+                                        <IconInfo className="text-xl" /> Last 7 days most active users
                                     </div>
                                 </Tooltip>
                             </>

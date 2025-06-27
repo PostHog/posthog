@@ -1,24 +1,36 @@
 import json
+from datetime import datetime
 from typing import cast
+
 from django.test import override_settings
+from freezegun import freeze_time
+from parameterized import parameterized
 from pytest import mark
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    ExperimentQueryRunner,
+)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
+    ExperimentQueryRunnerBaseTest,
+)
 from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
 )
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from rest_framework.exceptions import ValidationError
 from posthog.models.action.action import Action
 from posthog.schema import (
     ActionsNode,
+    EventPropertyFilter,
     EventsNode,
+    ExperimentFunnelMetric,
     ExperimentQuery,
     ExperimentVariantFunnelsBaseStats,
     FunnelConversionWindowTimeUnit,
     LegacyExperimentQueryResponse,
     PersonsOnEventsMode,
-    ExperimentFunnelMetric,
+    PropertyOperator,
+    StepOrderValue,
 )
 from posthog.test.base import (
     _create_event,
@@ -27,10 +39,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
-from datetime import datetime
 from posthog.test.test_journeys import journeys_for
-from parameterized import parameterized
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -40,7 +49,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_query_runner_funnel_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -287,7 +295,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2020, 1, 1),
             end_date=datetime(2020, 1, 31),
         )
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -425,7 +432,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -493,7 +499,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -652,7 +657,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_custom_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -812,7 +816,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_action(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -995,7 +998,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_duplicate_events(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1216,7 +1218,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_events_out_of_order(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1403,7 +1404,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_many_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1526,3 +1526,537 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.failure_count, 0)
         self.assertEqual(test_variant.success_count, 0)
         self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_step_property_filter(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User with complete funnel, should be included.
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                            "wizard_step": "step_1",
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                            "wizard_step": "step_2",
+                        },
+                    },
+                ],
+                # User with incomplete funnel. Should be excluded.
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                            "wizard_step": "step_1",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="wizard_step", operator=PropertyOperator.EXACT, value="step_1", type="event"
+                        ),
+                    ],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="wizard_step",
+                            operator=PropertyOperator.EXACT,
+                            value="step_2",
+                            type="event",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 0)
+        self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_multiple_similar_steps(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User with complete funnel, should be included.
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03T12:05:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:06:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User with only a single purchase. Should be excluded.
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.success_count, 1)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 0)
+        self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_unordered_steps(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                # User completes steps in reverse order - should succeed with unordered funnel
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User completes steps in mixed order - should succeed with unordered funnel
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "add_to_cart",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:03:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # User completes only first step - should fail
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                # User completes steps out of order - should succeed with unordered funnel
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "add_to_cart",
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02T12:03:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Create funnel metric with unordered steps (simplified to 2 steps for debugging)
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            funnel_order_type=StepOrderValue.UNORDERED,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # With unordered 2-step funnel ($pageview + purchase), both control users should succeed
+        # (completed both steps in any order) and test user 2 should succeed (completed both steps),
+        # test user 1 should fail (only has $pageview, missing purchase)
+        self.assertEqual(control_variant.success_count, 2)
+        self.assertEqual(control_variant.failure_count, 0)
+        self.assertEqual(test_variant.success_count, 1)
+        self.assertEqual(test_variant.failure_count, 1)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_ordered_vs_unordered_comparison(self):
+        """Test that ordered and unordered funnels behave differently when events are out of order"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        # Create test data where events occur in reverse order
+        journeys_for(
+            {
+                # Control user completes steps in reverse order
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",  # step 2 happens first
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                    {
+                        "event": "$pageview",  # step 1 happens second
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                # Test user completes steps in reverse order
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "purchase",  # step 2 happens first
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                    {
+                        "event": "$pageview",  # step 1 happens second
+                        "timestamp": "2024-01-02T12:02:00",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Test with ordered funnel (should fail)
+        ordered_metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            funnel_order_type=StepOrderValue.ORDERED,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ordered_metric,
+        )
+
+        experiment.metrics = [ordered_metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        ordered_result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        # Test with unordered funnel (should succeed)
+        unordered_metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+            funnel_order_type=StepOrderValue.UNORDERED,
+        )
+
+        experiment_query.metric = unordered_metric
+        experiment.metrics = [unordered_metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        unordered_result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        # With ordered funnel, the out-of-order events should not be counted as success
+        ordered_control = cast(
+            ExperimentVariantFunnelsBaseStats,
+            next(variant for variant in ordered_result.variants if variant.key == "control"),
+        )
+        ordered_test = cast(
+            ExperimentVariantFunnelsBaseStats,
+            next(variant for variant in ordered_result.variants if variant.key == "test"),
+        )
+
+        # With unordered funnel, the out-of-order events should be counted as success
+        unordered_control = cast(
+            ExperimentVariantFunnelsBaseStats,
+            next(variant for variant in unordered_result.variants if variant.key == "control"),
+        )
+        unordered_test = cast(
+            ExperimentVariantFunnelsBaseStats,
+            next(variant for variant in unordered_result.variants if variant.key == "test"),
+        )
+
+        # Ordered should fail (0 success) because events are out of order
+        self.assertEqual(ordered_control.success_count, 0)
+        self.assertEqual(ordered_control.failure_count, 1)
+        self.assertEqual(ordered_test.success_count, 0)
+        self.assertEqual(ordered_test.failure_count, 1)
+
+        # Unordered should succeed (1 success) because order doesn't matter
+        self.assertEqual(unordered_control.success_count, 1)
+        self.assertEqual(unordered_control.failure_count, 0)
+        self.assertEqual(unordered_test.success_count, 1)
+        self.assertEqual(unordered_test.failure_count, 0)

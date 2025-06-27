@@ -3,6 +3,8 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
 from pydantic import BaseModel
 import structlog
@@ -27,7 +29,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog import schema
 from posthog.schema import QueryStatus
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -60,9 +62,6 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters, get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     execution_mode_from_refresh,
@@ -209,6 +208,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
+@extend_schema_serializer(exclude_fields=["filters", "saved"])
 class InsightBasicSerializer(
     TaggedItemSerializerMixin,
     UserPermissionsSerializerMixin,
@@ -264,6 +264,9 @@ class InsightBasicSerializer(
             filters = instance.dashboard_filters()
             representation["filters"] = filters
 
+        # upgrade the query to the latest version
+        representation["query"] = upgrade(representation["query"])
+
         return representation
 
     @lru_cache(maxsize=1)
@@ -271,6 +274,22 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "example": {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview", "version": 1}
+                ],
+                "version": 1,
+            },
+            "version": 1,
+        },
+    }
+)
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
         return self.parent._query_variables_mapping(value)  # type: ignore
@@ -697,7 +716,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        with conversion_to_query_based(insight):
+        with upgrade_query(insight):
             try:
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
@@ -777,7 +796,12 @@ Whether to refresh the retrieved insights, how aggresively, and if sync or async
 - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
 - `'force_async'` - kick off background calculation, even if fresh results are already cached
 Background calculation can be tracked using the `query_status` response field.""",
-            )
+            ),
+            OpenApiParameter(
+                name="basic",
+                type=OpenApiTypes.BOOL,
+                description="Return basic insight metadata only (no results, faster).",
+            ),
         ]
     ),
 )
@@ -1015,6 +1039,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(serialized_data)
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
         capture_legacy_api_call(request, self.team)
@@ -1093,7 +1118,8 @@ When set, the specified dashboard's filters and date range override will be appl
     def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
@@ -1107,6 +1133,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return {"result": result.results, "timezone": team.timezone}
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         capture_legacy_api_call(request, self.team)
@@ -1157,7 +1184,8 @@ When set, the specified dashboard's filters and date range override will be appl
         team = self.team
         filter = Filter(request=request, team=team)
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
@@ -1214,6 +1242,7 @@ When set, the specified dashboard's filters and date range override will be appl
         cancel_query_on_cluster(team_id=self.team.pk, client_query_id=request.data["client_query_id"])
         return Response(status=status.HTTP_201_CREATED)
 
+    @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
         from posthog.kafka_client.client import KafkaProducer

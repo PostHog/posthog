@@ -2,15 +2,18 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import time
-from datetime import timedelta
+import jwt
+from datetime import timedelta, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
 from prometheus_client import Counter
 import requests
+from requests import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -63,6 +66,7 @@ class Integration(models.Model):
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
+        GITHUB = "github"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -97,6 +101,8 @@ class Integration(models.Model):
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
+        if self.kind == "github":
+            return dot_get(self.config, "account.name", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -179,6 +185,19 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://login.salesforce.com/services/oauth2/authorize",
                 token_url="https://login.salesforce.com/services/oauth2/token",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="full refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+            )
+        elif kind == "salesforce-sandbox":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            return OauthConfig(
+                authorize_url="https://test.salesforce.com/services/oauth2/authorize",
+                token_url="https://test.salesforce.com/services/oauth2/token",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
@@ -311,7 +330,6 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-
         res = requests.post(
             oauth_config.token_url,
             data={
@@ -326,7 +344,28 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
-            raise Exception("Oauth error")
+            # Hack to try getting sandbox auth token instead of their salesforce production account
+            if kind == "salesforce":
+                oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                )
+
+                config = res.json()
+
+                if res.status_code != 200 or not config.get("access_token"):
+                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+            else:
+                logger.error(f"Oauth error for {kind}", response=res.text)
+                raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -891,3 +930,103 @@ class LinearIntegration:
 
         teams = dot_get(response.json(), "data.teams.nodes")
         return teams
+
+
+class GitHubIntegration:
+    integration: Integration
+
+    @classmethod
+    def client_request(cls, endpoint: str, method: str = "GET") -> Response:
+        jwt_token = jwt.encode(
+            {
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 600,  # 10 minutes
+                "iss": settings.GITHUB_APP_CLIENT_ID,
+            },
+            settings.GITHUB_APP_PRIVATE_KEY,
+            algorithm="RS256",
+        )
+
+        return requests.request(
+            method,
+            f"https://api.github.com/app/{endpoint}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {jwt_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+    @classmethod
+    def integration_from_installation_id(
+        cls, installation_id: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        installation_info = cls.client_request(f"installations/{installation_id}").json()
+        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
+
+        config = {
+            "installation_id": installation_id,
+            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
+            "refreshed_at": int(time.time()),
+            "repository_selection": access_token["repository_selection"],
+            "account": {
+                "type": dot_get(installation_info, "account.type", None),
+                "name": dot_get(installation_info, "account.login", installation_id),
+            },
+        }
+
+        sensitive_config = {"access_token": access_token["token"]}
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="github",
+            integration_id=installation_id,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "github":
+            raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def access_token_expired(self, time_threshold: Optional[timedelta] = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self):
+        """
+        Refresh the access token for the integration if necessary
+        """
+        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
+        config = response.json()
+
+        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
+            logger.warning(f"Failed to refresh token for {self}", response=response.text)
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        else:
+            logger.info(f"Refreshed access token for {self}")
+            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
+            self.integration.config["expires_in"] = expires_in
+            self.integration.config["refreshed_at"] = int(time.time())
+            self.integration.sensitive_config["access_token"] = config["token"]
+            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        self.integration.save()

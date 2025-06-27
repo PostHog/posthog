@@ -20,7 +20,7 @@ import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond } from 'lib/utils'
-import { useEffect, useRef } from 'react'
+import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
@@ -37,6 +37,7 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
+
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
@@ -72,6 +73,10 @@ const typeToIconAndDescription = {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
+    annotation: {
+        Icon: IconChat,
+        tooltip: 'An annotation was added to this timestamp',
+    },
     'inspector-summary': {
         Icon: undefined,
         tooltip: undefined,
@@ -100,7 +105,7 @@ export function eventToIcon(event: string | undefined | null) {
         return IconLogomark
     }
 
-    // technically we should have the select all icon for "All events" completeness,
+    // technically, we should have the select all icon for "All events" completeness,
     // but we never actually display it, and it messes up the type signatures for the icons
     if (event === null) {
         return BaseIcon
@@ -111,6 +116,26 @@ export function eventToIcon(event: string | undefined | null) {
     }
 
     return BaseIcon
+}
+
+function IconWithOptionalBadge({
+    TypeIcon,
+    showBadge = false,
+}: {
+    TypeIcon: FunctionComponent | undefined
+    showBadge?: boolean
+}): JSX.Element {
+    if (!TypeIcon) {
+        return <BaseIcon className="min-w-4" />
+    }
+
+    // If TypeIcon is already a JSX element (like the LemonBadge case), return as-is
+    const iconElement = isValidElement(TypeIcon) ? TypeIcon : <TypeIcon />
+    return showBadge ? (
+        <div className="text-white bg-brand-blue rounded-full flex items-center p-0.5">{iconElement}</div>
+    ) : (
+        <div className="flex items-center p-0.5">{iconElement}</div>
+    )
 }
 
 function RowItemTitle({
@@ -291,7 +316,7 @@ export function PlayerInspectorListItem({
                         <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
                     )}
 
-                    {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
+                    <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
 
                     <div
                         className={clsx(

@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import * as prometheus from 'prom-client'
 
-import { PluginServerService } from '~/src/types'
+import { PluginServerService } from '~/types'
 
 import { logger } from './utils/logger'
 import { delay } from './utils/utils'

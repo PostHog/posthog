@@ -115,11 +115,17 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "50")]
     pub max_pg_connections: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
+
+    #[envconfig(default = "")]
+    pub redis_reader_url: String,
+
+    #[envconfig(default = "")]
+    pub redis_writer_url: String,
 
     #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
@@ -152,7 +158,7 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_SALT_TTL_SECONDS", default = "86400")]
     pub cookieless_salt_ttl_seconds: u64,
 
-    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "")]
+    #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", default = "none")]
@@ -169,6 +175,9 @@ pub struct Config {
 
     #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "none")]
     pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
+
+    #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
+    pub flags_session_replay_quota_check: bool,
 }
 
 impl Config {
@@ -176,6 +185,8 @@ impl Config {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
+            redis_reader_url: "".to_string(),
+            redis_writer_url: "".to_string(),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -191,12 +202,13 @@ impl Config {
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
             cookieless_salt_ttl_seconds: 86400,
-            new_analytics_capture_endpoint: "".to_string(),
+            new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
+            flags_session_replay_quota_check: false,
         }
     }
 
@@ -211,6 +223,22 @@ impl Config {
                 .join("GeoLite2-City.mmdb")
         } else {
             PathBuf::from(&self.maxmind_db_path)
+        }
+    }
+
+    pub fn get_redis_reader_url(&self) -> &str {
+        if self.redis_reader_url.is_empty() {
+            &self.redis_url
+        } else {
+            &self.redis_reader_url
+        }
+    }
+
+    pub fn get_redis_writer_url(&self) -> &str {
+        if self.redis_writer_url.is_empty() {
+            &self.redis_url
+        } else {
+            &self.redis_writer_url
         }
     }
 
@@ -255,7 +283,7 @@ mod tests {
             "postgres://posthog:posthog@localhost:5432/posthog"
         );
         assert_eq!(config.max_concurrency, 1000);
-        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.max_pg_connections, 50);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
@@ -266,6 +294,9 @@ mod tests {
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
         );
+        assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
+        assert_eq!(config.debug, FlexBool(false));
+        assert!(!config.flags_session_replay_quota_check);
     }
 
     #[test]

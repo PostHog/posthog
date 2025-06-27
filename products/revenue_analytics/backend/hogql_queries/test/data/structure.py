@@ -47,6 +47,7 @@ STRIPE_CUSTOMER_COLUMNS = {
     "name": "String",
     "email": "String",
     "phone": "String",
+    "address": "String",
 }
 
 STRIPE_INVOICE_COLUMNS = {
@@ -63,6 +64,7 @@ STRIPE_INVOICE_COLUMNS = {
     "created": "DateTime",
     "currency": "String",
     "customer": "String",
+    "subscription": "String",
     "discount": "String",
     "due_date": "DateTime",
     "livemode": "UInt8",
@@ -80,7 +82,6 @@ STRIPE_INVOICE_COLUMNS = {
     "account_name": "String",
     "auto_advance": "UInt8",
     "effective_at": "DateTime",
-    "subscription_id": "String",
     "attempt_count": "UInt8",
     "automatic_tax": "String",
     "customer_name": "String",

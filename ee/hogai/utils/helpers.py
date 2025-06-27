@@ -12,6 +12,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     HumanMessage,
+    MaxContextShape,
     VisualizationMessage,
 )
 
@@ -98,3 +99,11 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
         return False
 
     return True
+
+
+def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxContextShape | None:
+    """Returns the last recorded UI context from all messages."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and message.ui_context is not None:
+            return message.ui_context
+    return None

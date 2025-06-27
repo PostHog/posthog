@@ -67,6 +67,37 @@ const SIZE_PX_MAP = {
     medium: 60,
 }
 
+export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
+    Stripe: IconStripe,
+    Hubspot: IconHubspot,
+    Zendesk: IconZendesk,
+    Postgres: IconPostgres,
+    MySQL: IconMySQL,
+    Snowflake: IconSnowflake,
+    aws: IconAwsS3,
+    'google-cloud': IconGoogleCloudStorage,
+    'cloudflare-r2': IconCloudflare,
+    azure: Iconazure,
+    Salesforce: IconSalesforce,
+    MSSQL: IconMSSQL,
+    Vitally: IconVitally,
+    BigQuery: IconBigQuery,
+    Chargebee: IconChargebee,
+    BlushingHog: BlushingHog, // fallback, we don't know what this is
+    PostHog: IconPostHog,
+    GoogleAds: IconGoogleAds,
+    MetaAds: IconMetaAds,
+    Klaviyo: IconKlaviyo,
+    Mailchimp: IconMailchimp,
+    Braze: IconBraze,
+    Mailjet: IconMailjet,
+    Redshift: IconRedshift,
+    GoogleSheets: IconGoogleSheets,
+    Mongodb: IconMongodb,
+    TemporalIO: IconTemporalIO,
+    DoIt: IconDoIt,
+}
+
 export function DataWarehouseSourceIcon({
     type,
     size = 'small',
@@ -80,53 +111,24 @@ export function DataWarehouseSourceIcon({
 }): JSX.Element {
     const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
 
-    const icon = {
-        Stripe: IconStripe,
-        Hubspot: IconHubspot,
-        Zendesk: IconZendesk,
-        Postgres: IconPostgres,
-        MySQL: IconMySQL,
-        Snowflake: IconSnowflake,
-        aws: IconAwsS3,
-        'google-cloud': IconGoogleCloudStorage,
-        'cloudflare-r2': IconCloudflare,
-        azure: Iconazure,
-        Salesforce: IconSalesforce,
-        MSSQL: IconMSSQL,
-        Vitally: IconVitally,
-        BigQuery: IconBigQuery,
-        Chargebee: IconChargebee,
-        BlushingHog: BlushingHog, // fallback, we don't know what this is
-        PostHog: IconPostHog,
-        GoogleAds: IconGoogleAds,
-        MetaAds: IconMetaAds,
-        Klaviyo: IconKlaviyo,
-        Mailchimp: IconMailchimp,
-        Braze: IconBraze,
-        Mailjet: IconMailjet,
-        Redshift: IconRedshift,
-        GoogleSheets: IconGoogleSheets,
-        Mongodb: IconMongodb,
-        TemporalIO: IconTemporalIO,
-        DoIt: IconDoIt,
-    }[type]
+    const icon = DATA_WAREHOUSE_SOURCE_ICON_MAP[type]
 
     if (disableTooltip) {
         return (
-            <div className="flex items-center gap-4">
+            <div className="flex gap-4 items-center">
                 <img
                     src={icon}
                     alt={type}
                     height={sizePx}
                     width={sizePx}
-                    className="rounded object-contain max-w-none"
+                    className="object-contain max-w-none rounded"
                 />
             </div>
         )
     }
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
             <Tooltip
                 title={
                     <>
@@ -142,7 +144,7 @@ export function DataWarehouseSourceIcon({
                         alt={type}
                         height={sizePx}
                         width={sizePx}
-                        className="rounded object-contain max-w-none"
+                        className="object-contain max-w-none rounded"
                     />
                 </Link>
             </Tooltip>

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
+from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -56,7 +57,11 @@ from posthog.temporal.batch_exports.sql import (
     EXPORT_TO_S3_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClientTimeoutError,
+    ClickHouseQueryStatus,
+    get_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -109,7 +114,8 @@ async def execute_batch_export_insert_activity_using_s3_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     if interval == "hour":
-        start_to_close_timeout = dt.timedelta(hours=1)
+        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
+        start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
     elif interval.startswith("every"):
@@ -303,6 +309,8 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
                 fields=fields,
                 filters=filters,
                 destination_default_fields=inputs.destination_default_fields,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
             )
             query_or_model = query
@@ -394,7 +402,7 @@ async def _get_query(
             logger.info("Using unbounded events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_backfill:
-            logger.info("Using events_batch_export_backfill view for batch export")
+            logger.info("Using events_batch_export_backfill query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
         else:
             logger.info("Using events table for batch export")
@@ -524,7 +532,20 @@ async def _write_batch_export_record_batches_to_s3(
             query_id = uuid.uuid4()
             await logger.ainfo(f"Executing query with ID = {query_id}")
             try:
-                await client.execute_query(query, query_parameters=query_parameters, query_id=str(query_id))
+                await client.execute_query(
+                    query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
+                )
+            except ClickHouseClientTimeoutError:
+                await logger.awarning(
+                    f"Timed-out waiting for insert into S3 with ID: {str(query_id)}. Will attempt to check query status before continuing"
+                )
+
+                status = await client.acheck_query(str(query_id), raise_on_error=True)
+
+                while status == ClickHouseQueryStatus.RUNNING:
+                    await asyncio.sleep(10)
+                    status = await client.acheck_query(str(query_id), raise_on_error=True)
+
             except Exception as e:
                 await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
                 raise
@@ -590,15 +611,13 @@ class ProducerFromInternalS3Stage:
                 await self.logger.ainfo("No files found in S3 -> assuming no data to export")
                 return
             keys = [obj["Key"] for obj in contents if "Key" in obj]
-            await self.logger.ainfo(f"Found {len(keys)} files in S3")
+            await self.logger.ainfo(f"Producer found {len(keys)} files in S3 stage")
 
             # Read in batches
             try:
-                async for batch in self._stream_record_batches_from_s3(s3_client, keys):
-                    for record_batch_slice in slice_record_batch(
-                        batch, max_record_batch_size_bytes, min_records_per_batch
-                    ):
-                        await queue.put(record_batch_slice)
+                await self._stream_record_batches_from_s3(
+                    s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
+                )
             except Exception as e:
                 await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
@@ -607,11 +626,20 @@ class ProducerFromInternalS3Stage:
         self,
         s3_client: "S3Client",
         keys: list[str],
+        queue: RecordBatchQueue,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
     ):
-        for key in keys:
+        async def stream_from_s3_file(key):
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
             assert "Body" in s3_ob, "Body not found in S3 object"
-            stream = s3_ob["Body"]
-            reader = asyncpa.AsyncRecordBatchReader(stream)
+            stream: StreamingBody = s3_ob["Body"]
+            # read in 128KB chunks of data from S3
+            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
             async for batch in reader:
-                yield batch
+                for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
+                    await queue.put(record_batch_slice)
+
+        async with asyncio.TaskGroup() as tg:
+            for key in keys:
+                tg.create_task(stream_from_s3_file(key))

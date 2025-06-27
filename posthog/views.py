@@ -2,6 +2,7 @@ from datetime import timedelta
 import os
 from functools import partial, wraps
 from typing import Union
+import uuid
 
 from posthog.exceptions_capture import capture_exception
 from django.conf import settings
@@ -14,6 +15,9 @@ from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_http_methods
+
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -34,6 +38,13 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
+from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference, PreferenceStatus
+
+
+import structlog
+
+
+logger = structlog.get_logger(__name__)
 
 
 def noop(*args, **kwargs) -> None:
@@ -241,3 +252,64 @@ def redis_values_view(request: HttpRequest):
     }
 
     return render(request, template_name="redis/values.html", context=context, status=200)
+
+
+@require_http_methods(["GET"])
+def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
+    """Render the preferences page for a given recipient token"""
+    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
+
+    if error:
+        return render(request, "message_preferences/error.html", {"error": error}, status=400)
+
+    if not recipient:
+        return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
+
+    # Only fetch active categories and their preferences
+    categories = MessageCategory.objects.filter(deleted=False, team=recipient.team).order_by("name")
+    preferences = recipient.get_all_preferences() if recipient else {}
+
+    context = {
+        "recipient": recipient,
+        "categories": [
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "description": cat.description,
+                "opted_in": preferences.get(cat.id) == PreferenceStatus.OPTED_IN,
+            }
+            for cat in categories
+        ],
+        "token": token,  # Need to pass this back for the update endpoint
+    }
+
+    return render(request, "message_preferences/preferences.html", context)
+
+
+@csrf_protect
+@require_http_methods(["POST"])
+def update_preferences(request: HttpRequest) -> JsonResponse:
+    """Update preferences for a recipient"""
+    token = request.POST.get("token")
+    if not token:
+        return JsonResponse({"error": "Missing token"}, status=400)
+
+    recipient, error = MessageRecipientPreference.validate_preferences_token(token)
+    if error:
+        return JsonResponse({"error": error}, status=400)
+
+    if not recipient:
+        return JsonResponse({"error": "Invalid recipient"}, status=400)
+
+    try:
+        preferences = request.POST.getlist("preferences[]")
+        # Convert to dict of category_id: opted_in
+        for pref in preferences:
+            category_id, opted_in = pref.split(":")
+            status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
+            recipient.set_preference(uuid.UUID(category_id), status)
+
+        return JsonResponse({"success": True})
+
+    except Exception:
+        return JsonResponse({"error": "Failed to update preferences"}, status=400)

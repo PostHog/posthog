@@ -28,6 +28,7 @@ describe('miniFiltersLogic', () => {
                     'console-info',
                     'console-warn',
                     'console-error',
+                    'comment',
                 ],
             })
         })
@@ -67,6 +68,7 @@ describe('miniFiltersLogic', () => {
                     'console-info',
                     'console-warn',
                     'console-error',
+                    'comment',
                 ],
             })
         })

@@ -11,7 +11,7 @@ export const ReplayActiveHoursHeatMap = (): JSX.Element => {
     return (
         <div className="w-full flex flex-col">
             <h2>When are your users most active?</h2>
-            <p>This heatmap shows you the busiest times of day for your recordings.</p>
+            <p>This heatmap shows you the busiest times of day for your recordings over the last 7 days.</p>
             <CalendarHeatMap
                 isLoading={recordingsPerHourLoading}
                 {...calendarHeatmapProps}

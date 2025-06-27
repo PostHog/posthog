@@ -5,7 +5,6 @@ import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
@@ -16,7 +15,7 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex gap-2 justify-between items-center mb-4">
                 <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
             </div>
             <LemonTable
@@ -36,11 +35,7 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                         key: 'name',
                         render: (_, item: DatabaseSchemaDataWarehouseTable) => (
                             <LemonTableLink
-                                to={urls.pipelineNode(
-                                    PipelineStage.Source,
-                                    `self-managed-${item.id}`,
-                                    PipelineNodeTab.SourceConfiguration
-                                )}
+                                to={urls.dataWarehouseSource(`self-managed-${item.id}`)}
                                 title={item.name}
                             />
                         ),

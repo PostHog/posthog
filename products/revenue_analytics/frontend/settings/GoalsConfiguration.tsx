@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
 
@@ -149,8 +150,9 @@ const EMPTY_GOAL = {
 }
 
 export function GoalsConfiguration(): JSX.Element {
-    const { revenueAnalyticsConfig, baseCurrency, goals } = useValues(revenueAnalyticsSettingsLogic)
-    const actions = useActions(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
+    const { revenueAnalyticsConfig, goals } = useValues(revenueAnalyticsSettingsLogic)
+    const { addGoal, updateGoal, deleteGoal } = useActions(revenueAnalyticsSettingsLogic)
 
     // It's not adding by default, but we want to show the form in storybook and test runner
     // so that they show up in the snapshots
@@ -160,7 +162,7 @@ export function GoalsConfiguration(): JSX.Element {
 
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
-            actions.addGoal(temporaryGoal)
+            addGoal(temporaryGoal)
             setTemporaryGoal(EMPTY_GOAL)
             setIsAdding(false)
         }
@@ -174,7 +176,7 @@ export function GoalsConfiguration(): JSX.Element {
 
     const handleSaveEdit = (): void => {
         if (editingIndex !== null && temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
-            actions.updateGoal(editingIndex, temporaryGoal)
+            updateGoal(editingIndex, temporaryGoal)
             setEditingIndex(null)
             setTemporaryGoal(EMPTY_GOAL)
         }
@@ -186,9 +188,7 @@ export function GoalsConfiguration(): JSX.Element {
     }
 
     const handleDeleteGoal = (index: number): void => {
-        if (actions.deleteGoal) {
-            actions.deleteGoal(index)
-        }
+        deleteGoal(index)
     }
 
     const handleCancelAdd = (): void => {

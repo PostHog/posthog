@@ -47,6 +47,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -537,6 +538,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -897,6 +899,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1357,6 +1360,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1519,6 +1523,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2027,7 +2032,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2064,7 +2070,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2238,7 +2245,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''
@@ -2268,6 +2276,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2305,6 +2314,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -2485,6 +2495,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",

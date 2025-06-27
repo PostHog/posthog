@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,9 +14,15 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingType, DateMappingOption, OrganizationType } from '~/types'
 
-import { canAccessBilling, syncBillingSearchParams, updateBillingSearchParams } from './billing-utils'
+import {
+    buildTrackingProperties,
+    canAccessBilling,
+    syncBillingSearchParams,
+    updateBillingSearchParams,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
+import type { BillingFilters } from './types'
 
 export interface BillingSpendResponse {
     status: 'ok'
@@ -33,14 +40,7 @@ export interface BillingSpendResponse {
     next?: string
 }
 
-export interface BillingSpendFilters {
-    usage_types?: string[]
-    team_ids?: number[]
-    breakdowns?: ('type' | 'team')[]
-    interval?: 'day' | 'week' | 'month'
-}
-
-export const DEFAULT_BILLING_SPEND_FILTERS: BillingSpendFilters = {
+export const DEFAULT_BILLING_SPEND_FILTERS: BillingFilters = {
     usage_types: [],
     team_ids: [],
     breakdowns: ['type'],
@@ -57,9 +57,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
     }),
     actions({
-        setFilters: (filters: Partial<BillingSpendFilters>, shouldDebounce: boolean = true) => ({
+        setFilters: (filters: Partial<BillingFilters>, shouldDebounce: boolean = true) => ({
             filters,
             shouldDebounce,
         }),
@@ -105,10 +106,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     })),
     reducers({
         filters: [
-            { ...DEFAULT_BILLING_SPEND_FILTERS } as BillingSpendFilters,
+            { ...DEFAULT_BILLING_SPEND_FILTERS } as BillingFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-                toggleBreakdown: (state: BillingSpendFilters, { dimension }: { dimension: 'type' | 'team' }) => {
+                toggleBreakdown: (state: BillingFilters, { dimension }: { dimension: 'type' | 'team' }) => {
                     const current = state.breakdowns || []
                     const next = current.includes(dimension)
                         ? current.filter((d) => d !== dimension)
@@ -211,7 +212,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
         heading: [
             (s) => [s.filters],
-            (filters: BillingSpendFilters): string => {
+            (filters: BillingFilters): string => {
                 const { interval, breakdowns } = filters
                 let headingText = ''
                 if (interval === 'day') {
@@ -324,7 +325,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            const filtersFromUrl: Partial<BillingSpendFilters> = {}
+            const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
                 filtersFromUrl.usage_types = params.usage_types
@@ -364,16 +365,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingSpendInteraction(buildTrackingProperties('filters_changed', values))
             }
             actions.loadBillingSpend()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
+                actions.reportBillingSpendInteraction(buildTrackingProperties('date_changed', values))
             }
             actions.loadBillingSpend()
         },
         resetFilters: async () => {
+            actions.reportBillingSpendInteraction(buildTrackingProperties('filters_cleared', values))
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {
@@ -383,6 +387,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
+            actions.reportBillingSpendInteraction(buildTrackingProperties('series_toggled', values))
+
             if (isAllVisible) {
                 // Hide all series
                 ids.forEach((id) => actions.toggleSeries(id))
@@ -393,6 +399,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         toggleBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
+            actions.reportBillingSpendInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingSpend()
         },
     })),

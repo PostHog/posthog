@@ -62,6 +62,10 @@ pub enum SourcemapCommand {
         /// disk if not provided.
         #[arg(long)]
         version: Option<String>,
+
+        /// Whether to delete the source map files after uploading them
+        #[arg(long, default_value = "false")]
+        delete_after: bool,
     },
 }
 
@@ -81,12 +85,14 @@ impl Cli {
                     directory,
                     project,
                     version,
+                    delete_after,
                 } => {
                     sourcemap::upload::upload(
                         command.host,
                         directory,
                         project.clone(),
                         version.clone(),
+                        *delete_after,
                     )?;
                 }
             },

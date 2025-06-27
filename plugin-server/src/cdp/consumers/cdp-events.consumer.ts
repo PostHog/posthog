@@ -25,6 +25,12 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
+export const counterMissingAddon = new Counter({
+    name: 'cdp_function_missing_addon',
+    help: 'A function invocation was missing an addon',
+    labelNames: ['team_id'],
+})
+
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
@@ -45,8 +51,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
 
         const invocationsToBeQueued = [
-            ...(await this.runWithHeartbeat(() => this.createHogFunctionInvocations(invocationGlobals))),
-            ...(await this.runWithHeartbeat(() => this.createHogFlowInvocations(invocationGlobals))),
+            ...(await this.createHogFunctionInvocations(invocationGlobals)),
+            ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
         return {
@@ -74,22 +80,28 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             await this.groupsManager.enrichGroups(invocationGlobals)
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
-            const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
+            const [hogFunctionsByTeam, teamsById] = await Promise.all([
+                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes),
+                this.hub.teamManager.getTeams(teamsToLoad),
+            ])
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                await Promise.all(
+                    invocationGlobals.map(async (globals) => {
+                        const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
-                        teamHogFunctions,
-                        globals
-                    )
+                        const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
+                            teamHogFunctions,
+                            globals
+                        )
 
-                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
-                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
+                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.heartbeat()
 
-                    return invocations
-                })
+                        return invocations
+                    })
+                )
             ).flat()
 
             const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
@@ -97,6 +109,28 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
+                // Disable invocations for teams that don't have the addon (for now just metric them out..)
+
+                if (
+                    !teamsById[`${item.teamId}`]?.available_features.includes('data_pipelines') &&
+                    item.hogFunction.is_addon_required
+                ) {
+                    // NOTE: This counter is temporary until we are confident in enabling this
+                    counterMissingAddon.labels({ team_id: item.teamId }).inc()
+                    // TODO: Later add the below code
+                    // this.hogFunctionMonitoringService.queueAppMetric(
+                    //     {
+                    //         team_id: item.teamId,
+                    //         app_source_id: item.functionId,
+                    //         metric_kind: 'failure',
+                    //         metric_name: 'missing_addon',
+                    //         count: 1,
+                    //     },
+                    //     'hog_function'
+                    // )
+                    // return
+                }
+
                 const state = states[item.hogFunction.id].state
                 if (state >= HogWatcherState.disabledForPeriod) {
                     this.hogFunctionMonitoringService.queueAppMetric(
@@ -155,19 +189,22 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const teamHogFlows = hogFlowsByTeam[globals.project.id]
+                await Promise.all(
+                    invocationGlobals.map(async (globals) => {
+                        const teamHogFlows = hogFlowsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogFlowExecutor.buildHogFlowInvocations(
-                        teamHogFlows,
-                        globals
-                    )
+                        const { invocations, metrics, logs } = await this.hogFlowExecutor.buildHogFlowInvocations(
+                            teamHogFlows,
+                            globals
+                        )
 
-                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.heartbeat()
 
-                    return invocations
-                })
+                        return invocations
+                    })
+                )
             ).flat()
 
             const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFlow.id))
@@ -274,6 +311,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Stopping cyclotron job queue...')
         await this.cyclotronJobQueue.stop()
         logger.info('💤', 'Stopping consumer...')
+        // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }

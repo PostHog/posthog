@@ -25,8 +25,9 @@ class QueryCompareToDateRange(QueryDateRange):
         interval: Optional[IntervalType],
         now: datetime,
         compare_to: str,
+        **kwargs,
     ) -> None:
-        super().__init__(date_range, team, interval, now)
+        super().__init__(date_range, team, interval, now, **kwargs)
         self.compare_to = compare_to
 
     def dates(self) -> tuple[datetime, datetime]:

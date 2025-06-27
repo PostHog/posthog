@@ -8,15 +8,15 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -226,20 +226,24 @@ const ReplayPageTabs: ReplayTab[] = [
         label: 'Recordings',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/tutorials',
         key: ReplayTabs.Home,
+        'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
+        'data-attr': 'session-recordings-collections-tab',
     },
     {
         label: 'Figure out what to watch',
         key: ReplayTabs.Templates,
+        'data-attr': 'session-recordings-templates-tab',
     },
     {
         label: 'Settings',
         key: ReplayTabs.Settings,
+        'data-attr': 'session-recordings-settings-tab',
     },
 ]
 
@@ -249,8 +253,9 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
+            className="flex"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={ReplayPageTabs.map((replayTab) => {
+            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: (
                         <>
@@ -263,6 +268,7 @@ function PageTabs(): JSX.Element {
                     key: replayTab.key,
                     tooltip: replayTab.tooltip,
                     tooltipDocLink: replayTab.tooltipDocLink,
+                    'data-attr': replayTab['data-attr'],
                 }
             })}
         />

@@ -13,6 +13,9 @@ import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.ser
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
     CyclotronJobInvocation,
@@ -29,20 +32,26 @@ import { createInvocationResult } from './utils/invocation-utils'
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
+    private hogFlowManager: HogFlowManagerService
+    private hogFlowExecutor: HogFlowExecutorService
     private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
+    private messagingMailjetManagerService: MessagingMailjetManagerService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
+        this.messagingMailjetManagerService = new MessagingMailjetManagerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -76,9 +85,11 @@ export class CdpApi {
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.post('/public/messaging/mailjet_webhook', asyncHandler(this.postMailjetWebhook()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.postWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.getWebhook()))
 
@@ -111,11 +122,17 @@ export class CdpApi {
             }
 
             const summary = await this.hogWatcher.getState(id)
+            const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
+
+            if (!hogFunction) {
+                res.status(404).json({ error: 'Hog function not found' })
+                return
+            }
 
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(id, state)
+                await this.hogWatcher.forceStateChange(hogFunction, state)
             }
 
             // Hacky - wait for a little to give a chance for the state to change
@@ -172,8 +189,8 @@ export class CdpApi {
 
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
-                ...(hogFunction ?? {}),
-                ...(configuration ?? {}),
+                ...hogFunction,
+                ...configuration,
                 team_id: team.id,
             }
 
@@ -194,12 +211,12 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -264,7 +281,7 @@ export class CdpApi {
                                 response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
-                            response = this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
+                            response = await this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
                         }
 
                         logs = logs.concat(response.logs)
@@ -332,6 +349,79 @@ export class CdpApi {
         }
     }
 
+    private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { clickhouse_event, configuration, invocation_id } = req.body
+
+            logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
+
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
+                return
+            }
+
+            const isNewHogFlow = req.params.id === 'new'
+            const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // NOTE: We allow the hog flow to be null if it is a "new" hog flow
+            // The real security happens at the django layer so this is more of a sanity check
+            if (!isNewHogFlow && (!hogFlow || hogFlow.team_id !== team.id)) {
+                return res.status(404).json({ error: 'Hog flow not found' })
+            }
+
+            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : req.body.globals
+
+            if (!globals || !globals.event) {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+
+            // We use the provided config if given, otherwise the flow's config
+            const compoundConfiguration = {
+                ...hogFlow,
+                ...configuration,
+                team_id: team.id,
+            }
+
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                ...globals,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+            }
+
+            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const response = await this.hogFlowExecutor.executeTest(invocation)
+
+            res.json({
+                result: null, // HogFlows don't have a result property like HogFunctions
+                status: response.error ? 'error' : 'success',
+                errors: response.error ? [response.error] : [],
+                logs: response.logs,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
     private postWebhook =
         () =>
         async (req: express.Request, res: express.Response): Promise<any> => {
@@ -387,5 +477,17 @@ export class CdpApi {
             return res.set('Allow', 'POST').status(405).json({
                 error: 'Method not allowed',
             })
+        }
+
+    private postMailjetWebhook =
+        () =>
+        async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
+            try {
+                const { status, message } = await this.messagingMailjetManagerService.handleWebhook(req)
+
+                return res.status(status).send(message)
+            } catch (error) {
+                return res.status(500).json({ error: 'Internal error' })
+            }
         }
 }

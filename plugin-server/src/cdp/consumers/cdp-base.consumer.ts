@@ -9,8 +9,8 @@ import { HogFunctionManagerService } from '../services/hog-function-manager.serv
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
-import { HogFlowExecutorService } from '../services/hogflow-executor.service'
-import { HogFlowManagerService } from '../services/hogflow-manager.service'
+import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -65,16 +65,6 @@ export abstract class CdpConsumerBase {
         await new Promise((resolve) => process.nextTick(resolve))
 
         return res
-    }
-
-    protected async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
-        const results = []
-
-        for (const item of items) {
-            results.push(await this.runWithHeartbeat(() => func(item)))
-        }
-        return results
     }
 
     public async start(): Promise<void> {

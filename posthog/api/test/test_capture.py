@@ -40,10 +40,10 @@ from posthog.api.capture import (
     is_randomly_partitioned,
     sample_replay_data_to_object_storage,
 )
-from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
@@ -51,7 +51,6 @@ from posthog.kafka_client.topics import (
 from posthog.redis import get_client
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
-    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
 )
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -371,7 +370,7 @@ class TestCapture(BaseTest):
                 )
 
             kafka_produce.assert_called_with(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION,
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
                 headers=[
@@ -697,7 +696,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_events_503_on_kafka_produce_errors(self, kafka_produce):
-        produce_future = FutureProduceResult(topic_partition=TopicPartition(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, 1))
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(KAFKA_EVENTS_PLUGIN_INGESTION, 1))
         future = FutureRecordMetadata(
             produce_future=produce_future,
             relative_offset=0,
@@ -804,11 +803,9 @@ class TestCapture(BaseTest):
             self._to_arguments(kafka_produce),
         )
 
-    @patch("posthog.api.capture.configure_scope")
+    @patch("posthoganalytics.tag")
     @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
-    def test_capture_event_adds_library_to_sentry(self, patched_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
-
+    def test_capture_event_adds_library_to_sentry(self, patched_tag):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -838,13 +835,11 @@ class TestCapture(BaseTest):
                 HTTP_ORIGIN="https://localhost",
             )
 
-        mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
+        patched_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
-    @patch("posthog.api.capture.configure_scope")
+    @patch("posthoganalytics.tag")
     @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
-    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
-
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_tag):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -872,7 +867,7 @@ class TestCapture(BaseTest):
                 HTTP_ORIGIN="https://localhost",
             )
 
-        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
+        patched_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):

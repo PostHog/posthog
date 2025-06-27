@@ -9,7 +9,7 @@ import {
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -38,6 +38,7 @@ export function TaxonomicFilter({
     hideBehavioralCohorts,
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    maxContextOptions,
     useVerticalLayout,
     allowNonCapturedEvents = false,
 }: TaxonomicFilterProps): JSX.Element {
@@ -71,6 +72,7 @@ export function TaxonomicFilter({
         useVerticalLayout,
         autoSelectItem: true,
         allowNonCapturedEvents,
+        maxContextOptions,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -131,8 +133,9 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'>
->(function UniversalSearchInput({ searchInputRef, onClose, onChange, ...props }, ref): JSX.Element {
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'> &
+        Pick<TooltipProps, 'docLink'>
+>(function UniversalSearchInput({ searchInputRef, onClose, onChange, docLink, ...props }, ref): JSX.Element {
     const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
@@ -160,16 +163,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
             suffix={
                 <Tooltip
                     title={
-                        <>
-                            You can easily navigate between tabs with your keyboard.{' '}
-                            <div>
-                                Use <b>tab</b> to move to the next tab.
-                            </div>
-                            <div>
-                                Use <b>shift + tab</b> to move to the previous tab.
-                            </div>
-                        </>
+                        'Fuzzy text search, or filter by specific properties and values.' +
+                        (docLink ? ' Check the documentation for more information.' : '')
                     }
+                    docLink={docLink}
                 >
                     <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
                 </Tooltip>

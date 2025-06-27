@@ -8,6 +8,7 @@ import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/so
 
 import { ExternalDataJob, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { dataWarehouseSourceSceneLogic } from '../DataWarehouseSourceScene'
 import type { dataWarehouseSourceSettingsLogicType } from './dataWarehouseSourceSettingsLogicType'
 
 export interface DataWarehouseSourceSettingsLogicProps {
@@ -150,7 +151,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                                     fileReader.readAsText(payload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch (e) {
+                            } catch {
                                 lemonToast.error('File is not valid')
                                 return
                             }
@@ -174,13 +175,19 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             },
         },
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         loadSourceSuccess: () => {
             clearTimeout(cache.sourceRefreshTimeout)
 
             cache.sourceRefreshTimeout = setTimeout(() => {
                 actions.loadSource()
             }, REFRESH_INTERVAL)
+
+            dataWarehouseSourceSceneLogic
+                .findMounted({
+                    id: `managed-${props.id}`,
+                })
+                ?.actions.setBreadcrumbName(values.source?.source_type ?? 'Source')
         },
         loadSourceFailure: () => {
             clearTimeout(cache.sourceRefreshTimeout)

@@ -1,16 +1,18 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
-from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
+from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
+from posthog.api.batch_imports import BatchImportViewSet
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
     data_modeling_job,
@@ -74,6 +76,7 @@ from . import (
     uploaded_media,
     user,
     user_group,
+    external_web_analytics,
     web_vitals,
 )
 from .file_system import file_system, file_system_shortcut, persisted_folder
@@ -100,7 +103,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-
+router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
 projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
@@ -318,6 +321,12 @@ projects_router.register(
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(
+    r"external_web_analytics",
+    external_web_analytics.ExternalWebAnalyticsViewSet,
+    "project_external_web_analytics",
+    ["project_id"],
+)
 register_grandfathered_environment_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
@@ -455,12 +464,14 @@ register_grandfathered_environment_nested_viewset(r"events", EventViewSet, "envi
 projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
+
 register_grandfathered_environment_nested_viewset(
     r"elements",
     ElementViewSet,
     "environment_elements",
     ["team_id"],  # TODO: Can be removed?
 )
+
 environment_sessions_recordings_router, legacy_project_session_recordings_router = (
     register_grandfathered_environment_nested_viewset(
         r"session_recordings",
@@ -664,6 +675,13 @@ projects_router.register(
 )
 
 projects_router.register(
+    r"managed_migrations",
+    BatchImportViewSet,
+    "project_managed_migrations",
+    ["project_id"],
+)
+
+projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
@@ -714,8 +732,6 @@ register_grandfathered_environment_nested_viewset(
 )
 
 environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
-
-environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 environments_router.register(
     r"messaging_templates",

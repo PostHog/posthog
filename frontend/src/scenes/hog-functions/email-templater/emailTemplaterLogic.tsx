@@ -1,5 +1,5 @@
 import { LemonDialog } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -7,9 +7,10 @@ import { objectsEqual } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
 
-import { PropertyDefinition, PropertyDefinitionType } from '~/types'
+import { PreflightStatus, PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
@@ -36,7 +37,10 @@ export interface EmailTemplaterLogicProps {
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
-    path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
+    path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
+    connect(() => ({
+        values: [preflightLogic, ['preflight']],
+    })),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,
@@ -115,6 +119,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return tags
             },
         ],
+        unlayerEditorProjectId: [
+            (s) => [s.preflight],
+            (preflight: PreflightStatus) => {
+                if (preflight.cloud) {
+                    return 275430
+                }
+            },
+        ],
     }),
 
     forms(({ actions, values, props }) => ({
@@ -132,12 +144,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!editor || !values.isEmailEditorReady) {
                     return
                 }
-                const data = await new Promise<any>((res) => editor.exportHtml(res))
+                const [htmlData, textData] = await Promise.all([
+                    new Promise<any>((res) => editor.exportHtml(res)),
+                    new Promise<any>((res) => editor.exportPlainText(res)),
+                ])
 
                 const finalValues = {
                     ...value,
-                    html: escapeHTMLStringCurlies(data.html),
-                    design: data.design,
+                    html: escapeHTMLStringCurlies(htmlData.html),
+                    text: textData.text,
+                    design: htmlData.design,
                 }
 
                 props.onChange(finalValues)

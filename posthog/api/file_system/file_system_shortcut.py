@@ -44,15 +44,17 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system_shortcut"
     serializer_class = FileSystemShortcutSerializer
 
-    # The request has the team/environment in the URL, but want to filter by project not team.
-    param_derived_from_user_current_team = "project_id"
-    # This kludge is needed to avoid the default behavior of returning the project_id as the team_id
-    _skip_team_id_override_kludge = True
+    def _scope_by_project(self, queryset):
+        return queryset.filter(team__project_id=self.team.project_id)
 
-    def _scope_by_team_and_environment(self, queryset: QuerySet) -> QuerySet:
-        queryset = queryset.filter(team__project_id=self.team.project_id)
+    def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
+        queryset = self._scope_by_project(queryset)
+        # type !~ 'hog_function/.*' or team = $current
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
 
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        return self._scope_by_project(queryset)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return self._scope_by_team_and_environment(queryset).filter(user=self.request.user).order_by(Lower("path"))
+        return self._scope_by_project_and_environment(queryset).filter(user=self.request.user).order_by(Lower("path"))

@@ -1,9 +1,9 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { FilterableInspectorListItemTypes } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { miniFiltersLogicType } from './miniFiltersLogicType'
+import { FilterableInspectorListItemTypes } from './playerInspectorLogic'
 
 export type SharedListMiniFilter = {
     type: FilterableInspectorListItemTypes
@@ -13,7 +13,7 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
-const MiniFilters: SharedListMiniFilter[] = [
+export const MiniFilters: SharedListMiniFilter[] = [
     {
         type: 'events',
         key: 'events-posthog',
@@ -102,10 +102,17 @@ const MiniFilters: SharedListMiniFilter[] = [
         tooltip:
             'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
     },
+    {
+        type: 'comment',
+        key: 'comment',
+        name: 'Comments',
+        tooltip:
+            'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
+    },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
-const defaulMinifilters = [
+const defaultMinifilters = [
     'events-posthog',
     'events-custom',
     'events-pageview',
@@ -114,6 +121,7 @@ const defaulMinifilters = [
     'console-info',
     'console-warn',
     'console-error',
+    'comment',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
@@ -139,7 +147,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         selectedMiniFilters: [
-            defaulMinifilters,
+            defaultMinifilters,
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
@@ -159,7 +167,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     }
                     return stateWithoutKeys
                 },
-                resetMiniFilters: () => defaulMinifilters,
+                resetMiniFilters: () => defaultMinifilters,
             },
         ],
 

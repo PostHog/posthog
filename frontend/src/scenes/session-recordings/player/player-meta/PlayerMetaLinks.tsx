@@ -1,7 +1,8 @@
 import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -68,7 +69,6 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             <MenuActions size={size} />
                         </div>
                     )}
-                    {size === 'normal' && <AddToNotebookButton />}
 
                     <PlayerShareMenu />
 
@@ -109,7 +109,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
         <NotebookSelectButton
             fullWidth={fullWidth}
             size="xsmall"
-            icon={<IconComment />}
+            icon={<IconNotebook />}
             resource={{
                 type: NotebookNodeType.Recording,
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
@@ -132,7 +132,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
         >
-            Comment
+            Add to notebook
         </NotebookSelectButton>
     )
 }
@@ -140,6 +140,8 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
@@ -165,6 +167,9 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
+            {
+                label: () => <AddToNotebookButton fullWidth={true} />,
+            },
             isStandardMode && {
                 title: 'Export',
                 key: 'export',
@@ -188,11 +193,15 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 ],
             },
         ]
-        if (size === 'small') {
-            itemsArray.unshift({
-                label: () => <AddToNotebookButton fullWidth={true} />,
+
+        if (featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_RAW_RECORDING]) {
+            itemsArray.push({
+                label: 'Raw recording (PostHog only)',
+                onClick: () => exportRecordingToFile('raw'),
+                tooltip: 'Export raw recording to a JSON file.',
             })
         }
+
         if (logicProps.playerKey !== 'modal') {
             isStandardMode &&
                 itemsArray.push({

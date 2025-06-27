@@ -1,5 +1,5 @@
-import { PostgresRouter } from '~/src/utils/db/postgres'
-import { TeamManager } from '~/src/utils/team-manager'
+import { PostgresRouter } from '~/utils/db/postgres'
+import { TeamManager } from '~/utils/team-manager'
 
 import {
     eachBatchWebhooksHandlers,

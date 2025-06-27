@@ -25,7 +25,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
 
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
 
-    if (!response || (!response.result && !response.results)) {
+    if (!response || (!(response as any).result && !(response as any).results)) {
         return null
     }
 

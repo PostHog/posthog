@@ -1,5 +1,6 @@
 from typing import Optional
 from posthog.models.team.team import Team
+from posthog.hogql import ast
 from posthog.hogql.database.models import SavedQuery
 from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -67,3 +68,22 @@ class RevenueAnalyticsBaseView(SavedQuery):
     @classmethod
     def get_generic_view_alias(cls) -> str:
         return cls.get_database_schema_table_kind().value
+
+
+def events_expr_for_team(team: Team) -> ast.Expr:
+    from posthog.hogql.property import property_to_expr
+
+    exprs = []
+    if (
+        team.revenue_analytics_config.filter_test_accounts
+        and isinstance(team.test_account_filters, list)
+        and len(team.test_account_filters) > 0
+    ):
+        exprs = [property_to_expr(filter, team) for filter in team.test_account_filters]
+
+    if len(exprs) == 0:
+        return ast.Constant(value=True)
+    elif len(exprs) == 1:
+        return exprs[0]
+    else:
+        return ast.And(exprs=exprs)
