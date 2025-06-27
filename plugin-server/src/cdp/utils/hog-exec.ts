@@ -18,9 +18,10 @@ export async function execHog(
 }> {
     // Ensure we don't have more than one running in parallel
     return await semaphore.run(async () => {
+        // NOTE: The below is commented out whilst we expirment with it as it mostly tanks performance when enabled
         // Note - the setTimeout here forces the event loop to run fully before the next call. This is important as we never want hog execution to block the event loop
         // await new Promise((r) => setTimeout(r, 0))
-        return execHogImmediate(bytecode, options)
+        return Promise.resolve(execHogImmediate(bytecode, options))
     })
 }
 
