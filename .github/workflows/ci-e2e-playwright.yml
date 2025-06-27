@@ -79,7 +79,7 @@ jobs:
                         - Dockerfile
                         - playwright/**
     container:
-        name: Container - Build and cache image (Optional)
+        name: (Optional) Container - Build and cache image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
@@ -105,7 +105,7 @@ jobs:
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     playwright-on-container:
-        name: Container - E2E Playwright tests (Optional)
+        name: (Optional) Container - E2E Playwright tests
         runs-on: depot-ubuntu-latest-arm-4
         timeout-minutes: 60
         needs: [changes, container]
