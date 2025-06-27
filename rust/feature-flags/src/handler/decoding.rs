@@ -54,8 +54,21 @@ fn decode_body(
         };
     }
 
-    // Auto-detect gzip by checking magic bytes (0x1f, 0x8b) if no compression specified
-    // This handles cases where Android sends gzipped data without the compression query param
+    // Check Content-Encoding header
+    if let Some(encoding) = headers.get("content-encoding") {
+        if let Ok(encoding_str) = encoding.to_str() {
+            if encoding_str.contains("gzip") {
+                tracing::debug!(
+                    "Detected gzip from Content-Encoding header: {}",
+                    encoding_str
+                );
+                return decompress_gzip(body);
+            }
+        }
+    }
+
+    // Fallback: Auto-detect gzip by checking magic bytes (0x1f, 0x8b)
+    // This handles cases where clients send gzipped data without proper headers
     if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
         tracing::debug!("Auto-detected gzip compression from magic bytes");
         inc(
@@ -64,24 +77,6 @@ fn decode_body(
             1,
         );
         return decompress_gzip(body);
-    }
-
-    // Check Content-Encoding header as fallback
-    if let Some(encoding) = headers.get("content-encoding") {
-        if let Ok(encoding_str) = encoding.to_str() {
-            if encoding_str.contains("gzip") {
-                tracing::debug!(
-                    "Detected gzip from Content-Encoding header: {}",
-                    encoding_str
-                );
-                inc(
-                    FLAG_REQUEST_KLUDGE_COUNTER,
-                    &[("type".to_string(), "content_encoding_gzip".to_string())],
-                    1,
-                );
-                return decompress_gzip(body);
-            }
-        }
     }
 
     // No compression detected
