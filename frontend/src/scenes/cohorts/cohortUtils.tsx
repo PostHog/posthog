@@ -449,6 +449,9 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
             populatedCriteria[fieldKey] = undefined
         }
     })
+    if (criteria.sort_key != null) {
+        populatedCriteria.sort_key = criteria.sort_key
+    }
     return {
         ...populatedCriteria,
         ...determineFilterType(populatedCriteria['type'], populatedCriteria['value'], populatedCriteria['negation']),
