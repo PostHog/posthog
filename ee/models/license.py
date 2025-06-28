@@ -3,14 +3,10 @@ from typing import Optional
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.db.models import Q
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-from posthog.constants import AvailableFeature
 from posthog.models.utils import sane_repr
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class LicenseError(exceptions.APIException):
@@ -50,43 +46,6 @@ class License(models.Model):
     # DEPRECATED: This is no longer used
     max_users = models.IntegerField(default=None, null=True)  # None = no restriction
 
-    # NOTE: Remember to update the Billing Service as well. Long-term it will be the source of truth.
-    SCALE_PLAN = "scale"
-    SCALE_FEATURES = [
-        AvailableFeature.ZAPIER,
-        AvailableFeature.ORGANIZATIONS_PROJECTS,
-        AvailableFeature.ENVIRONMENTS,
-        AvailableFeature.SOCIAL_SSO,
-        AvailableFeature.INGESTION_TAXONOMY,
-        AvailableFeature.PATHS_ADVANCED,
-        AvailableFeature.CORRELATION_ANALYSIS,
-        AvailableFeature.GROUP_ANALYTICS,
-        AvailableFeature.TAGGING,
-        AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
-        AvailableFeature.WHITE_LABELLING,
-        AvailableFeature.SUBSCRIPTIONS,
-        AvailableFeature.APP_METRICS,
-        AvailableFeature.RECORDINGS_PLAYLISTS,
-        AvailableFeature.RECORDINGS_FILE_EXPORT,
-        AvailableFeature.RECORDINGS_PERFORMANCE,
-    ]
-
-    ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = [
-        *SCALE_FEATURES,
-        AvailableFeature.ADVANCED_PERMISSIONS,
-        AvailableFeature.SAML,
-        AvailableFeature.SSO_ENFORCEMENT,
-        AvailableFeature.ROLE_BASED_ACCESS,
-    ]
-    PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
-    # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
-    PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}
-
-    @property
-    def available_features(self) -> list[AvailableFeature]:
-        return self.PLANS.get(self.plan, [])
-
     @property
     def is_v2_license(self) -> bool:
         return self.key and len(self.key.split("::")) == 2
@@ -112,8 +71,3 @@ def get_licensed_users_available() -> Optional[int]:
         return max(users_left, 0)
 
     return None
-
-
-@receiver(post_save, sender=License)
-def license_saved(sender, instance, created, raw, using, **kwargs):
-    sync_all_organization_available_product_features()
