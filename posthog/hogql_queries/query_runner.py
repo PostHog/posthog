@@ -422,12 +422,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsGrossRevenueQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-            RevenueAnalyticsGrossRevenueQueryRunner,
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
         )
 
-        return RevenueAnalyticsGrossRevenueQueryRunner(
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -435,12 +435,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsRevenue":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
+            RevenueAnalyticsRevenueRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsRevenueRunner(
             query=query,
             team=team,
             timings=timings,

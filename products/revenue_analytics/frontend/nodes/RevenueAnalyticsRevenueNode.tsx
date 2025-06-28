@@ -11,8 +11,8 @@ import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsRevenueQuery,
+    RevenueAnalyticsRevenueQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
@@ -29,8 +29,8 @@ const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
 }
 
 let uniqueNode = 0
-export function RevenueAnalyticsGrossRevenueNode(props: {
-    query: RevenueAnalyticsGrossRevenueQuery
+export function RevenueAnalyticsRevenueNode(props: {
+    query: RevenueAnalyticsRevenueQuery
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
@@ -38,7 +38,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)
+    const [key] = useState(() => `RevenueAnalyticsRevenue.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -49,7 +49,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
     })
 
     const { response, responseLoading, queryId } = useValues(logic)
-    const queryResponse = response as RevenueAnalyticsGrossRevenueQueryResponse | undefined
+    const queryResponse = response as RevenueAnalyticsRevenueQueryResponse | undefined
 
     if (responseLoading) {
         return (
@@ -59,7 +59,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
         )
     }
 
-    const results = (queryResponse?.results as GraphDataset[]) ?? []
+    const results = (queryResponse?.results?.gross as GraphDataset[]) ?? []
 
     const labels = results[0]?.labels ?? []
     const datasets: GraphDataset[] = results.map((result, index) => ({

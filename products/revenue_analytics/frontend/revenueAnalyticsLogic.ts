@@ -21,8 +21,8 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
-    GROSS_REVENUE,
-    REVENUE_GROWTH_RATE,
+    REVENUE,
+    GROWTH_RATE,
     TOP_CUSTOMERS,
 }
 
@@ -229,14 +229,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         properties: revenueAnalyticsFilter,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsGrossRevenueQuery,
+                    [RevenueAnalyticsQuery.REVENUE]: {
+                        kind: NodeKind.RevenueAnalyticsRevenueQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
+                    [RevenueAnalyticsQuery.GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
                             properties: revenueAnalyticsFilter,

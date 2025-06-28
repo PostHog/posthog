@@ -41,8 +41,8 @@ import {
     ResultCustomizationBy,
     RetentionQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -151,22 +151,22 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsGrowthRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrowthRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
 export function isRevenueAnalyticsOverviewQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsOverviewQuery {
     return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export function isRevenueAnalyticsGrossRevenueQuery(
+export function isRevenueAnalyticsRevenueQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsGrossRevenueQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrossRevenueQuery
-}
-
-export function isRevenueAnalyticsGrowthRateQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsGrowthRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(

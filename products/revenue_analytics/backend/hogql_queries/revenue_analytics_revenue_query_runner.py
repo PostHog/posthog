@@ -5,11 +5,11 @@ from datetime import datetime, timedelta
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
-    CachedRevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsGrossRevenueQuery,
+    CachedRevenueAnalyticsRevenueQueryResponse,
+    RevenueAnalyticsRevenueQueryResponse,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsGroupBy,
-    RevenueAnalyticsGrossRevenueQueryResult,
+    RevenueAnalyticsRevenueQueryResult,
 )
 from posthog.utils import format_label_date
 
@@ -29,10 +29,10 @@ LOOKBACK_PERIOD_DAYS = 30
 LOOKBACK_PERIOD = timedelta(days=LOOKBACK_PERIOD_DAYS)
 
 
-class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
-    query: RevenueAnalyticsGrossRevenueQuery
-    response: RevenueAnalyticsGrossRevenueQueryResponse
-    cached_response: CachedRevenueAnalyticsGrossRevenueQueryResponse
+class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
+    query: RevenueAnalyticsRevenueQuery
+    response: RevenueAnalyticsRevenueQueryResponse
+    cached_response: CachedRevenueAnalyticsRevenueQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
@@ -214,7 +214,7 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
 
         with self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
-                query_type="revenue_analytics_gross_revenue_query",
+                query_type="revenue_analytics_revenue_query",
                 query=query,
                 team=self.team,
                 timings=self.timings,
@@ -301,12 +301,12 @@ class RevenueAnalyticsGrossRevenueQueryRunner(RevenueAnalyticsQueryRunner):
                 )
 
             # Structure results as dictionary
-            results = RevenueAnalyticsGrossRevenueQueryResult(
+            results = RevenueAnalyticsRevenueQueryResult(
                 gross=gross_results,
                 mrr=mrr_results,
             )
 
-        return RevenueAnalyticsGrossRevenueQueryResponse(
+        return RevenueAnalyticsRevenueQueryResponse(
             results=results,
             hogql=response.hogql,
             modifiers=self.modifiers,

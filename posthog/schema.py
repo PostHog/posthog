@@ -1581,8 +1581,8 @@ class NodeKind(StrEnum):
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
-    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
+    REVENUE_ANALYTICS_REVENUE_QUERY = "RevenueAnalyticsRevenueQuery"
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
@@ -1914,14 +1914,6 @@ class RevenueAnalyticsGoal(BaseModel):
     name: str
 
 
-class RevenueAnalyticsGrossRevenueQueryResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    gross: list
-    mrr: list
-
-
 class RevenueAnalyticsGroupBy(StrEnum):
     COHORT = "cohort"
     COUNTRY = "country"
@@ -1947,6 +1939,14 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class RevenueAnalyticsRevenueQueryResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gross: list
+    mrr: list
 
 
 class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
@@ -3502,28 +3502,6 @@ class RevenueAnalyticsEventItem(BaseModel):
     revenueProperty: str
 
 
-class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: RevenueAnalyticsGrossRevenueQueryResult
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3570,6 +3548,28 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5178,37 +5178,6 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: RevenueAnalyticsGrossRevenueQueryResult
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5264,6 +5233,37 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[RevenueAnalyticsOverviewItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsRevenueQueryResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6368,7 +6368,7 @@ class Response11(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: RevenueAnalyticsGrossRevenueQueryResult
+    results: RevenueAnalyticsRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7913,7 +7913,7 @@ class QueryResponseAlternative26(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: RevenueAnalyticsGrossRevenueQueryResult
+    results: RevenueAnalyticsRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8264,7 +8264,7 @@ class QueryResponseAlternative41(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: RevenueAnalyticsGrossRevenueQueryResult
+    results: RevenueAnalyticsRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8777,21 +8777,6 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8822,6 +8807,21 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class RevenueAnalyticsBaseQueryRevenueAnalyticsRevenueQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: NodeKind
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8844,23 +8844,6 @@ class RevenueAnalyticsConfig(BaseModel):
     events: Optional[list[RevenueAnalyticsEventItem]] = []
     filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
-
-
-class RevenueAnalyticsGrossRevenueQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    groupBy: list[RevenueAnalyticsGroupBy]
-    interval: IntervalType
-    kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -8889,6 +8872,23 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
     )
     properties: list[RevenueAnalyticsPropertyFilter]
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class RevenueAnalyticsRevenueQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    groupBy: list[RevenueAnalyticsGroupBy]
+    interval: IntervalType
+    kind: Literal["RevenueAnalyticsRevenueQuery"] = "RevenueAnalyticsRevenueQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: list[RevenueAnalyticsPropertyFilter]
+    response: Optional[RevenueAnalyticsRevenueQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -11779,7 +11779,7 @@ class DataTableNode(BaseModel):
         WebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         RevenueExampleEventsQuery,
@@ -11823,7 +11823,7 @@ class HogQLAutocomplete(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             MarketingAnalyticsTableQuery,
@@ -11885,7 +11885,7 @@ class HogQLMetadata(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             MarketingAnalyticsTableQuery,
@@ -11993,7 +11993,7 @@ class MaxInsightContext(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         MarketingAnalyticsTableQuery,
@@ -12062,7 +12062,7 @@ class QueryRequest(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         MarketingAnalyticsTableQuery,
@@ -12148,7 +12148,7 @@ class QuerySchemaRoot(
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
+            RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsTopCustomersQuery,
             MarketingAnalyticsTableQuery,
@@ -12208,7 +12208,7 @@ class QuerySchemaRoot(
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
         MarketingAnalyticsTableQuery,
