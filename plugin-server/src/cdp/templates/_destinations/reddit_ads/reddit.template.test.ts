@@ -60,6 +60,7 @@ describe('reddit template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)
@@ -96,6 +97,7 @@ describe('reddit template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)
@@ -132,6 +134,7 @@ describe('reddit template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://ads-api.reddit.com/api/v2.0/conversions/events/pixel-id",
             }
         `)

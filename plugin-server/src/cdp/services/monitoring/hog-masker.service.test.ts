@@ -1,19 +1,15 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-import { deleteKeysWithPrefix } from '../../../src/cdp/_tests/redis'
-import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
-import { BASE_REDIS_KEY, HogMaskerService } from '../../../src/cdp/services/hog-masker.service'
-import { HogFunctionType } from '../../../src/cdp/types'
-import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { delay } from '../../../src/utils/utils'
-import { HOG_MASK_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import { Hub } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { delay } from '~/utils/utils'
 
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
+import { HOG_MASK_EXAMPLES } from '../../_tests/examples'
+import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
+import { deleteKeysWithPrefix } from '../../_tests/redis'
+import { CdpRedis, createCdpRedisPool } from '../../redis'
+import { HogFunctionType } from '../../types'
+import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
+
+const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
 describe('HogMasker', () => {
     jest.retryTimes(3)

@@ -61,6 +61,7 @@ describe('FetchExecutorService', () => {
         state: {
             globals: {} as any,
             timings: [],
+            attempts: 0,
         },
         teamId: 1,
         functionId: 'test-function-id',
@@ -72,6 +73,7 @@ describe('FetchExecutorService', () => {
 
     it('completes successful fetch', async () => {
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'GET',
             body: 'test body',
@@ -107,6 +109,7 @@ describe('FetchExecutorService', () => {
         })
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'GET',
             return_queue: 'hog',
@@ -145,6 +148,7 @@ describe('FetchExecutorService', () => {
 
     it('handles request errors', async () => {
         const invocation = createInvocation({
+            type: 'fetch',
             url: 'http://non-existent-host-name',
             method: 'GET',
             return_queue: 'hog',
@@ -166,6 +170,7 @@ describe('FetchExecutorService', () => {
         process.env.NODE_ENV = 'production' // Make sure the security features are enabled
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: 'http://localhost',
             method: 'GET',
             return_queue: 'hog',
@@ -182,7 +187,7 @@ describe('FetchExecutorService', () => {
             trace: [
                 {
                     kind: 'requesterror',
-                    message: 'SecureRequestError: Internal hostname',
+                    message: 'SecureRequestError: Hostname is not allowed',
                 },
             ],
         })
@@ -198,6 +203,7 @@ describe('FetchExecutorService', () => {
         })
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'GET',
             return_queue: 'hog',
@@ -227,6 +233,7 @@ describe('FetchExecutorService', () => {
         })
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'GET',
             headers: {
@@ -256,6 +263,7 @@ describe('FetchExecutorService', () => {
         })
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'POST',
             body: 'test body',
@@ -277,6 +285,7 @@ describe('FetchExecutorService', () => {
         })
 
         const invocation = createInvocation({
+            type: 'fetch',
             url: `${baseUrl}/test`,
             method: 'GET',
             return_queue: 'hog',

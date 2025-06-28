@@ -67,6 +67,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
@@ -150,6 +151,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
@@ -186,6 +188,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
@@ -222,6 +225,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
@@ -261,6 +265,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events/validate?access_token=access-token",
             }
         `)
@@ -319,6 +324,7 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)

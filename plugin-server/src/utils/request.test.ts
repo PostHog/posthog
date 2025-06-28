@@ -33,11 +33,11 @@ describe('fetch', () => {
             ['@@@', 'Invalid URL'],
             ['posthog.com', 'Invalid URL'],
             ['ftp://posthog.com', 'Scheme must be either HTTP or HTTPS'],
-            ['http://localhost', 'Internal hostname'],
-            ['http://192.168.0.5', 'Internal hostname'],
-            ['http://0.0.0.0', 'Internal hostname'],
-            ['http://10.0.0.24', 'Internal hostname'],
-            ['http://172.20.0.21', 'Internal hostname'],
+            ['http://localhost', 'Hostname is not allowed'],
+            ['http://192.168.0.5', 'Hostname is not allowed'],
+            ['http://0.0.0.0', 'Hostname is not allowed'],
+            ['http://10.0.0.24', 'Hostname is not allowed'],
+            ['http://172.20.0.21', 'Hostname is not allowed'],
             ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new SecureRequestError(error))
@@ -49,7 +49,7 @@ describe('fetch', () => {
 
         it('should raise if the URL is unsafe', async () => {
             await expect(fetch('http://localhost')).rejects.toMatchInlineSnapshot(
-                `[SecureRequestError: Internal hostname]`
+                `[SecureRequestError: Hostname is not allowed]`
             )
         })
 
@@ -86,7 +86,7 @@ describe('fetch', () => {
         ])('should block requests to %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
 
-            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Internal hostname`))
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
     })
 
@@ -172,7 +172,7 @@ describe('legacyFetch', () => {
 
             expect(err.name).toBe('TypeError')
             expect(err.toString()).toContain('fetch failed')
-            expect(err.cause.toString()).toContain('Internal hostname')
+            expect(err.cause.toString()).toContain('Hostname is not allowed')
         })
     })
 
