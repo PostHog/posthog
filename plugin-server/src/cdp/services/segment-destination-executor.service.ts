@@ -158,6 +158,11 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
+                    // temporary code
+                    // just for testing why fetch fails are being retried twice in prod but three times locally
+                    // this will break all segment destinations
+                    // https://posthog.slack.com/archives/C06GG249PR6/p1751026775685259
+                    endpoint = 'https://httpstatuses.maor.io/429'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -257,13 +262,20 @@ export class SegmentDestinationExecutorService {
                                 metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                             )
                         ) {
+                            addLog(
+                                'warn',
+                                'disabling retries because of something',
+                                retriesPossible,
+                                isFetchResponseRetriable(fetchResponse, fetchError),
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
                             retriesPossible = false
                         }
                         addLog(
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${metadata.tries}/${
                                 this.serverConfig.CDP_FETCH_RETRIES
                             }`
                         )
