@@ -1,12 +1,13 @@
 import './SceneHeader.scss'
 
-import { IconChevronDown, IconX } from '@posthog/icons'
+import { IconChevronDown, IconListCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
@@ -18,6 +19,7 @@ import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
+import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 /** Sync with --breadcrumbs-height-compact. */
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
@@ -29,6 +31,8 @@ export function SceneHeader(): JSX.Element | null {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
+    const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
+    const { panelInfoOpen } = useValues(sceneLayoutLogic)
     // const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     // const { openMoveToModal } = useActions(moveToLogic)
     // const [compactionRate, setCompactionRate] = useState(0)
@@ -80,7 +84,7 @@ export function SceneHeader(): JSX.Element | null {
     return breadcrumbs.length || projectTreeRefEntry ? (
         <div
             className={cn(
-                'py-2 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary',
+                'py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]'
             )}
         >
             <div className="flex items-center gap-2">
@@ -92,28 +96,38 @@ export function SceneHeader(): JSX.Element | null {
                         className="TopBar3000__hamburger"
                     />
                 )}
-                <div className="TopBar3000__breadcrumbs">
+                <div className="grid grid-cols-[1fr_auto] gap-2 justify-between w-full">
                     {breadcrumbs.length > 0 && (
-                        <div className="TopBar3000__trail">
+                        <div className="flex gap-0 flex-1 items-center">
                             {breadcrumbs.map((breadcrumb, index) => (
                                 <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
                                     <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
                                     {index < breadcrumbs.length - 1 && (
-                                        <div className="TopBar3000__separator">
+                                        <span className="flex items-center shrink-0 opacity-50">
                                             <IconSlash fontSize="1rem" />
-                                        </div>
+                                        </span>
                                     )}
                                 </React.Fragment>
                             ))}
+                            <FlaggedFeature flag="metalytics">
+                                <div className="shrink-1">
+                                    <MetalyticsSummary />
+                                </div>
+                            </FlaggedFeature>
                         </div>
                     )}
-                </div>
-                <FlaggedFeature flag="metalytics">
-                    <div className="shrink-1">
-                        <MetalyticsSummary />
+                    <div className="flex gap-2 items-center">
+                        <div className="TopBar3000__actions" ref={setActionsContainer} />
+                        <ButtonPrimitive
+                            onClick={() => setPanelInfoOpen(!panelInfoOpen)}
+                            iconOnly
+                            tooltip={panelInfoOpen ? 'Close info panel' : 'Open info panel'}
+                            active={panelInfoOpen}
+                        >
+                            <IconListCheck className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
+                        </ButtonPrimitive>
                     </div>
-                </FlaggedFeature>
-                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
+                </div>
             </div>
         </div>
     ) : null
@@ -139,7 +153,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         nameElement = breadcrumb.symbol
     } else {
         nameElement = (
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 truncate inline-block">
                 {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
@@ -150,7 +164,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         breadcrumb.name && breadcrumb.path && 'type' in breadcrumb && breadcrumb.type === 'folder'
     )
 
-    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'div'
+    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'span'
     const breadcrumbContent = (
         <Component
             onClick={() => {
@@ -163,12 +177,9 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
-            className={cn(
-                'text-secondary text-base',
-                {
-                    'font-bold': here,
-                }
-            )}
+            className={cn('text-secondary text-base inline-grid', {
+                'font-bold': here,
+            })}
         >
             {nameElement}
             {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}

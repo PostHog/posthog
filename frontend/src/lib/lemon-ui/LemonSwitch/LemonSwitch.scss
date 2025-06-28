@@ -98,7 +98,7 @@
     background-color: var(--bg-fill-switch);
     border: none;
     border-radius: var(--lemon-switch-height);
-    outline: 1px solid var(--border-primary);
+    outline: revert;
     transition: background-color 100ms ease;
 
     .LemonSwitch--checked & {

@@ -1,11 +1,12 @@
-import './SceneLayout.scss'
 import { useActions, useValues } from 'kea'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { SceneHeader } from './SceneHeader'
-import { sceneLayoutLogic } from './sceneLayoutLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
+import { SceneHeader } from './SceneHeader'
+import './SceneLayout.css'
+import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -13,11 +14,11 @@ type SceneLayoutProps = {
     layoutConfig?: SceneConfig | null
 }
 
-export function SceneLayoutPanelInfo({children}: {children: React.ReactNode}): JSX.Element {
+export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }): JSX.Element {
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
     const { setPanelInfoActive } = useActions(sceneLayoutLogic)
 
-    // HACKY: Show the panel info if 
+    // HACKY: Show the panel info if
     useEffect(() => {
         setPanelInfoActive(true)
         return () => setPanelInfoActive(false)
@@ -27,34 +28,32 @@ export function SceneLayoutPanelInfo({children}: {children: React.ReactNode}): J
         <>
             {children &&
                 fileActionsContainer &&
-                createPortal(
-                    <div className="flex flex-col gap-px">
-                        {children}
-                    </div>,
-                    fileActionsContainer
-                )}
+                createPortal(<div className="flex flex-col gap-px">{children}</div>, fileActionsContainer)}
         </>
     )
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { setFileActionsContainer } = useActions(sceneLayoutLogic)
-    const { panelInfoActive } = useValues(sceneLayoutLogic)
+    const { panelInfoActive, panelInfoOpen } = useValues(sceneLayoutLogic)
 
     return (
-        <div className={cn('scene-layout @container/scene-layout flex-1 flex flex-col', className)}>
+        <div className={cn('scene-layout flex-1 flex flex-col h-full', className)}>
             {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
-            <div className={cn("scene-layout__content", {
-                'scene-layout__content--has-panel': panelInfoActive,
-            })}>
-                <div className={cn('flex-1 flex flex-col p-4 w-full', {
-                    'p-0': layoutConfig?.layout === 'app-raw-no-header'
-                })}>
-                    {children}
-                </div>
-                {panelInfoActive && (
-                    <div className="scene-layout__content-panel">
-                        <div ref={setFileActionsContainer}/>
+            <div
+                className={cn('scene-layout__content', {
+                    'scene-layout__content--has-panel': panelInfoActive && panelInfoOpen,
+                })}
+            >
+                {panelInfoActive && panelInfoOpen && (
+                    <div className={cn('scene-layout__content-panel order-2 right-0')}>
+                        <ScrollableShadows
+                            direction="vertical"
+                            className="h-full"
+                            innerClassName="p-2 bg-surface-primary rounded-sm border border-primary"
+                        >
+                            <div ref={setFileActionsContainer} />
+                        </ScrollableShadows>
                         {/* <TabsPrimitive defaultValue="info">
                             <div className="flex justify-between items-center border-b border-primary">
                                 <TabsPrimitiveList className="px-2">
@@ -76,11 +75,18 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 <div ref={setFileActionsContainer}/>
                             </TabsPrimitiveContent>
                             <TabsPrimitiveContent value="settings" className="p-1">
-                                settings
+ettings
                             </TabsPrimitiveContent>
                         </TabsPrimitive> */}
                     </div>
                 )}
+                <div
+                    className={cn('flex-1 flex flex-col p-4 w-full order-1', {
+                        'p-0': layoutConfig?.layout === 'app-raw-no-header',
+                    })}
+                >
+                    {children}
+                </div>
             </div>
         </div>
     )

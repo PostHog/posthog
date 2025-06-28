@@ -19,17 +19,8 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
     actions({
         setFileActionsContainer: (element: HTMLElement | null) => ({ element }),
-        setAddFileActions: (actions: SceneHeaderItemProps[]) => ({ actions }),
-        setAddEditActions: (actions: SceneHeaderItemProps[]) => ({ actions }),
-        setAddViewActions: (actions: SceneHeaderItemProps[]) => ({ actions }),
-        setAddHelpActions: (actions: SceneHeaderItemProps[]) => ({ actions }),
-        setTitleRenameCallback: (callback?: (value: string) => void) => ({
-            callback,
-        }),
-        setDescriptionRenameCallback: (callback?: (value: string) => void) => ({
-            callback,
-        }),
         setPanelInfoActive: (active: boolean) => ({ active }),
+        setPanelInfoOpen: (open: boolean) => ({ open }),
     }),
     reducers({
         fileActionsContainer: [
@@ -56,6 +47,12 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             false,
             {
                 setPanelInfoActive: (_, { active }) => active,
+            },
+        ],
+        panelInfoOpen: [
+            false,
+            {
+                setPanelInfoOpen: (_, { open }) => open,
             },
         ],
     }),
