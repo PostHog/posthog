@@ -27,8 +27,9 @@ Transform user requests into well-structured survey configurations that follow P
 
 4. **rating**: Numeric or emoji scale
    - Use for: NPS, CSAT, ease ratings
-   - Scales: 1-5, 1-7, 1-10 (number) or 1-5 (emoji)
+   - Scales: 5, 7, 10 (number) or 5 (emoji)
    - Example: "How likely are you to recommend us?" (1-10 scale for NPS)
+   - NPS Surveys should always use a scale value of 10.
 
 5. **link**: Display a link with call-to-action
    - Use for: Directing users to external resources
@@ -70,4 +71,9 @@ Always respond with valid JSON containing:
 - **PMF**: "How would you feel if you could no longer use [product]?" (Very disappointed/Somewhat disappointed/Not disappointed)
 - **Feedback**: "What could we improve about [feature]?" (open text, optional)
 
-Current team survey settings: {{{team_survey_config}}}"""
+Current team survey settings: {{{team_survey_config}}}
+
+When creating surveys, consider the existing surveys to avoid duplication and suggest complementary survey strategies.
+
+DO NOT LAUNCH SURVEYS unless the user explicitly asks to launch them.
+"""

@@ -3,13 +3,15 @@ MaxTool for AI-powered survey creation.
 """
 
 from typing import Any
+from datetime import datetime
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team, Survey
+from posthog.api.survey import SurveySerializerCreateUpdateOnly
 
 from ee.hogai.tool import MaxTool
-from posthog.models import Team
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
 from .survey_schema import SurveyCreationOutput, DEFAULT_SURVEY_APPEARANCE
 
@@ -23,16 +25,6 @@ class SurveyCreatorTool(MaxTool):
     description: str = "Create and optionally launch a survey based on natural language instructions"
     thinking_message: str = "Creating your survey"
 
-    root_system_prompt_template: str = """
-    You are helping create surveys for this PostHog team.
-
-    Current context:
-    - Total surveys: {{{total_surveys_count}}}
-    - Recent surveys: {{{existing_surveys}}}
-
-    When creating surveys, consider the existing surveys to avoid duplication and suggest complementary survey strategies.
-    """
-
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
     def _run_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
@@ -40,22 +32,14 @@ class SurveyCreatorTool(MaxTool):
         Generate survey configuration from natural language instructions.
         """
         try:
-            user = None
-            user_id = self.context.get("user_id")
-            if not user_id:
-                return "❌ Failed to create survey: User id not present on the context", {
-                    "error": "user_id_not_present"
-                }
-
-            try:
-                from posthog.models import User
-
-                user = User.objects.get(uuid=user_id)
-            except User.DoesNotExist:
-                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
+            user = self._user
+            if not user:
+                return "❌ Failed to create survey: User not present on the context", {"error": "user_not_present"}
 
             # Get team for context
-            team = Team.objects.get(id=self._team_id)
+            team = self._team
+            if not team:
+                return "❌ Failed to create survey: Team not present on the context", {"error": "team_not_present"}
 
             # Create the prompt
             prompt = ChatPromptTemplate.from_messages(
@@ -87,8 +71,6 @@ class SurveyCreatorTool(MaxTool):
             survey_data = self._convert_to_posthog_format(result, team)
 
             # Use the proper serializer for validation and creation
-            from posthog.api.survey import SurveySerializerCreateUpdateOnly
-            from datetime import datetime
 
             # Set launch date if requested
             if result.should_launch:
@@ -129,6 +111,7 @@ class SurveyCreatorTool(MaxTool):
                         error_details.extend([f"{field}: {error}" for error in errors])
                     else:
                         error_details.append(f"{field}: {errors}")
+                        error_details.append(f"{field}: {errors}")
 
                 return f"❌ Survey validation failed: {'; '.join(error_details)}", {
                     "error": "validation_failed",
@@ -136,7 +119,7 @@ class SurveyCreatorTool(MaxTool):
                 }
 
         except Exception as e:
-            capture_exception(e, {"team_id": self._team_id, "user_id": user_id})
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
 
     def _get_team_survey_config(self, team: Team) -> dict[str, Any]:
@@ -150,10 +133,8 @@ class SurveyCreatorTool(MaxTool):
     def _get_existing_surveys_summary(self) -> str:
         """Get summary of existing surveys for context."""
         try:
-            from posthog.models import Survey
-
             surveys = Survey.objects.filter(
-                team_id=self._team_id,
+                team_id=self._team.id,
                 archived=False,
             )[:5]
 
@@ -167,7 +148,7 @@ class SurveyCreatorTool(MaxTool):
 
             return "\n".join(summaries)
         except Exception as e:
-            capture_exception(e, {"team_id": self._team_id})
+            capture_exception(e, {"team_id": self._team.id})
             return "Unable to load existing surveys"
 
     def _convert_to_posthog_format(self, llm_output: SurveyCreationOutput, team: Team) -> dict[str, Any]:

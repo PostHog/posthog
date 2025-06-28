@@ -39,29 +39,47 @@ import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
-    component: SurveysWithMaxTool,
+    component: Surveys,
     logic: surveysLogic,
     settingSectionId: 'environment-surveys',
 }
 
-function SurveysWithMaxTool(): JSX.Element {
-    const {
-        data: { surveys },
-    } = useValues(surveysLogic)
-
+function NewSurveyButton(): JSX.Element {
     const { loadSurveys } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
-    // If the user is not loaded, wait for it to load to show the surveys' Max tool
+    const button = (
+        <LemonButton
+            to={urls.surveyTemplates()}
+            type="primary"
+            data-attr="new-survey"
+            sideAction={{
+                dropdown: {
+                    placement: 'bottom-start',
+                    actionable: true,
+                    overlay: (
+                        <LemonButton size="small" to={urls.survey('new')}>
+                            Create blank survey
+                        </LemonButton>
+                    ),
+                },
+                'data-attr': 'saved-insights-new-insight-dropdown',
+            }}
+        >
+            New survey
+        </LemonButton>
+    )
+
+    // If the user is not loaded, just show the button without Max tool
     if (!user?.uuid) {
-        return <Surveys />
+        return button
     }
 
     return (
         <MaxTool
             name="create_survey"
             displayName="AI Survey Creator"
-            initialMaxPrompt="Create a survey to understand "
+            initialMaxPrompt="Create a survey to collect "
             suggestions={[
                 'Create an NPS survey for customers who completed checkout',
                 'Create a feedback survey asking about our new dashboard',
@@ -69,16 +87,6 @@ function SurveysWithMaxTool(): JSX.Element {
                 'Create a quick satisfaction survey for support interactions',
             ]}
             context={{
-                existing_surveys: surveys
-                    .filter((survey) => getSurveyStatus(survey) === ProgressStatus.Running)
-                    .map((survey) => ({
-                        id: survey.id,
-                        name: survey.name,
-                        type: survey.type,
-                        questions_count: survey.questions?.length || 0,
-                        status: getSurveyStatus(survey),
-                    })),
-                total_surveys_count: surveys.length,
                 user_id: user.uuid,
             }}
             callback={(toolOutput: {
@@ -99,7 +107,7 @@ function SurveysWithMaxTool(): JSX.Element {
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
         >
-            <Surveys />
+            {button}
         </MaxTool>
     )
 }
@@ -132,25 +140,7 @@ function Surveys(): JSX.Element {
                         <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
                             Have any questions or feedback?
                         </LemonButton>
-                        <LemonButton
-                            to={urls.surveyTemplates()}
-                            type="primary"
-                            data-attr="new-survey"
-                            sideAction={{
-                                dropdown: {
-                                    placement: 'bottom-start',
-                                    actionable: true,
-                                    overlay: (
-                                        <LemonButton size="small" to={urls.survey('new')}>
-                                            Create blank survey
-                                        </LemonButton>
-                                    ),
-                                },
-                                'data-attr': 'saved-insights-new-insight-dropdown',
-                            }}
-                        >
-                            New survey
-                        </LemonButton>
+                        <NewSurveyButton />
                     </>
                 }
                 className="flex gap-2 justify-between items-center min-w-full"
