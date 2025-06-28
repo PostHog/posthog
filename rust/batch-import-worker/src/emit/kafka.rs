@@ -24,6 +24,7 @@ pub struct KafkaEmitter {
     producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
+    headers: Option<Vec<(String, String)>>,
 }
 
 pub struct KafkaEmitterTransaction<'a> {
@@ -32,12 +33,13 @@ pub struct KafkaEmitterTransaction<'a> {
     send_rate: u64,
     start: Instant,
     count: AtomicUsize,
+    headers: &'a Option<Vec<(String, String)>>,
 }
 
 impl KafkaEmitter {
     pub async fn new(
         emitter_config: KafkaEmitterConfig,
-        transactional_id: &str, // Kafka transactional ID
+        transactional_id: &str,
         context: Arc<AppContext>,
     ) -> Result<Self, Error> {
         let producer = TransactionalProducer::from_config(
@@ -45,11 +47,11 @@ impl KafkaEmitter {
             transactional_id,
             Duration::from_secs(emitter_config.transaction_timeout_seconds),
         )?;
-
         Ok(Self {
             producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
+            headers: emitter_config.headers,
         })
     }
 }
@@ -64,6 +66,7 @@ impl Emitter for KafkaEmitter {
             topic: &self.topic,
             send_rate: self.send_rate,
             count: AtomicUsize::new(0),
+            headers: &self.headers,
         }))
     }
 }
@@ -73,7 +76,12 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         for (idx, result) in self
             .inner
-            .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
+            .send_keyed_iter_to_kafka_with_headers(
+                self.topic,
+                |e| Some(e.inner.key()),
+                self.headers.clone(),
+                data.iter(),
+            )
             .await
             .into_iter()
             .enumerate()
