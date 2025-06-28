@@ -412,17 +412,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
-        loadHeatmap: () => {
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
-        },
-        loadHeatmapSuccess: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
-        },
-        loadHeatmapFailure: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
-        },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
@@ -479,21 +468,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setCommonFilters(e.data.payload.commonFilters)
                     actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
-                    actions.enableHeatmap()
-                    return
-                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
-                    actions.patchHeatmapFilters(e.data.payload.filters)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
-                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
-                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
-                    actions.setCommonFilters(e.data.payload.commonFilters)
                     return
                 case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                     if (e.data.payload.enabled) {
