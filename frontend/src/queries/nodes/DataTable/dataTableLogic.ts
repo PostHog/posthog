@@ -17,11 +17,14 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isActorsQuery, isDataTableNode, isEventsQuery, isGroupsQuery } from '~/queries/utils'
 import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
+import { defaultTaxonomicGroupTypes } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { groupsModel } from '~/models/groupsModel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface DataTableLogicProps {
     vizKey: string
@@ -72,6 +75,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 loadPriority: props.context?.insightProps?.loadPriority,
             }),
             ['response', 'responseLoading', 'responseError'],
+            groupsModel,
+            ['groupsTaxonomicTypes'],
         ],
     })),
     selectors({
@@ -234,6 +239,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s) => [s.queryWithDefaults, s.sourceFeatures],
             (query: DataTableNode, sourceFeatures): boolean =>
                 sourceFeatures.has(QueryFeature.selectAndOrderByColumns) && !!query.allowSorting,
+        ],
+        taxonomicFilterGroups: [
+            (s) => [s.queryWithDefaults, s.groupsTaxonomicTypes],
+            (query: DataTableNode, groupsTaxonomicTypes) => {
+                if (isActorsQuery(query.source)) {
+                    return [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+                }
+                if (isGroupsQuery(query.source)) {
+                    return [
+                        `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ]
+                }
+                return [...defaultTaxonomicGroupTypes, ...groupsTaxonomicTypes]
+            },
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
