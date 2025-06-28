@@ -34,7 +34,7 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { setFileActionsContainer } = useActions(sceneLayoutLogic)
+    const { setFileActionsContainer, setPanelInfoOpen } = useActions(sceneLayoutLogic)
     const { panelInfoActive, panelInfoOpen } = useValues(sceneLayoutLogic)
 
     return (
@@ -46,15 +46,16 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 })}
             >
                 {panelInfoActive && panelInfoOpen && (
-                    <div className={cn('scene-layout__content-panel order-2 right-0')}>
-                        <ScrollableShadows
-                            direction="vertical"
-                            className="h-full"
-                            innerClassName="p-2 bg-surface-primary rounded-sm border border-primary"
-                        >
-                            <div ref={setFileActionsContainer} />
-                        </ScrollableShadows>
-                        {/* <TabsPrimitive defaultValue="info">
+                    <>
+                        <div className={cn('scene-layout__content-panel order-2 right-0')}>
+                            <ScrollableShadows
+                                direction="vertical"
+                                className="h-full"
+                                innerClassName="p-2 bg-surface-primary rounded-sm border border-primary"
+                            >
+                                <div ref={setFileActionsContainer} />
+                            </ScrollableShadows>
+                            {/* <TabsPrimitive defaultValue="info">
                             <div className="flex justify-between items-center border-b border-primary">
                                 <TabsPrimitiveList className="px-2">
                                     <TabsPrimitiveTrigger value="info" asChild>
@@ -78,7 +79,14 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
 ettings
                             </TabsPrimitiveContent>
                         </TabsPrimitive> */}
-                    </div>
+                        </div>
+                        <div
+                            onClick={() => {
+                                setPanelInfoOpen(false)
+                            }}
+                            className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                        />
+                    </>
                 )}
                 <div
                     className={cn('flex-1 flex flex-col p-4 w-full order-1', {
