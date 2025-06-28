@@ -5,8 +5,8 @@ describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
 
     beforeEach(() => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2025-06-01T00:00:00Z'))
+        const fixedTime = new Date('2025-06-01T00:00:00Z')
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
 
         globals = {
             event: {
@@ -117,8 +117,6 @@ describe('LiquidRenderer', () => {
         })
 
         it("decodes unlayer's encoded complex example 1", () => {
-            jest.setSystemTime(new Date('2025-06-01T00:00:00Z'))
-
             const html = `
 <div style="font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;">
     <p style="line-height: 140%;">hey {{person.properties.email}}</p>
@@ -140,7 +138,6 @@ describe('LiquidRenderer', () => {
         })
 
         it("decodes unlayer's encoded complex example 2", () => {
-            jest.setSystemTime(new Date('2025-06-01T00:00:00Z'))
             const html = `
 {% assign events_raw = "Launch Party|2025-06-15 18:00:00,Team Retreat|2025-05-28 09:00:00,Product Demo|2025-06-02 14:00:00" %}
 
