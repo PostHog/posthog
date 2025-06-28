@@ -42,7 +42,7 @@ from posthog.utils import (
     label_for_team_id_to_track,
     load_data_from_request,
 )
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -225,7 +225,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     """
     # --- 1. Handle non-POST requests ---
     if request.method == "OPTIONS":
-        return cors_response(request, JsonResponse({"status": 1}))
+        return cors_response_allow_all(request, JsonResponse({"status": 1}))
 
     if request.method != "POST":
         # Return minimal default configuration for non-POST requests
@@ -240,7 +240,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
             "sessionRecording": False,
         }
         response.update(empty_response)
-        return cors_response(
+        return cors_response_allow_all(
             request,
             JsonResponse(response),
         )
@@ -269,13 +269,13 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         # it's just a fallback for when we can't parse the request due to a missing header
         # that we attempted to kludge by manually setting the compression type to gzip
         # If this kludge fails, though all we need to do is return a 400 and move on
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this to identify actual potential bugs
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
@@ -291,7 +291,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     if team is None and token:
         project_id = get_project_id(data, request)
         if not project_id:
-            return cors_response(
+            return cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "decide",
@@ -305,7 +305,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
-            return cors_response(
+            return cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "decide",
@@ -322,7 +322,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     if team:
         # Check if team is allowed to use decide
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
-            return cors_response(
+            return cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "decide",
@@ -370,7 +370,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
 
     else:
         # No valid authentication provided
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "decide",
@@ -384,7 +384,7 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     maybe_log_decide_data(response_body=response)
 
-    return cors_response(request, JsonResponse(response))
+    return cors_response_allow_all(request, JsonResponse(response))
 
 
 @tracer.start_as_current_span("get_feature_flags_response_or_body")
@@ -420,7 +420,7 @@ def get_feature_flags_response_or_body(
     # Validate distinct_id
     distinct_id = data.get("distinct_id")
     if distinct_id is None:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "decide",

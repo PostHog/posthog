@@ -35,7 +35,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 from posthoganalytics import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -207,7 +207,7 @@ def get_data(request):
         logger.exception(f"Invalid payload", error=error)
         return (
             None,
-            cors_response(
+            cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "capture",
@@ -220,7 +220,7 @@ def get_data(request):
     except RequestDataTooBig:
         return (
             None,
-            cors_response(
+            cors_response_allow_all(
                 request,
                 generate_exception_response(
                     endpoint="capture",
@@ -235,7 +235,7 @@ def get_data(request):
     if not data:
         return (
             None,
-            cors_response(
+            cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "capture",
