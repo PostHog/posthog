@@ -58,8 +58,15 @@ jobs:
         needs: changes
         runs-on: depot-ubuntu-24.04
         steps:
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -108,8 +115,14 @@ jobs:
         needs: [changes]
         runs-on: depot-ubuntu-24.04
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
 
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -164,7 +177,14 @@ jobs:
         needs: [changes]
         runs-on: depot-ubuntu-24.04-8
         steps:
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -240,7 +260,14 @@ jobs:
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Remove ee
               if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'

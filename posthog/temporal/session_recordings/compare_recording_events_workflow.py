@@ -9,6 +9,7 @@ import temporalio.common
 import temporalio.workflow
 from asgiref.sync import sync_to_async
 
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
@@ -46,6 +47,7 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         "Starting snapshot comparison activity for session %s",
         inputs.session_id,
     )
+    tag_queries(team_id=inputs.team_id, product=Product.REPLAY)
 
     async with Heartbeater():
         team = await sync_to_async(Team.objects.get)(id=inputs.team_id)

@@ -21,6 +21,7 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -168,6 +169,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     ancestor_failed = set()
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
+
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -504,6 +507,13 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
+        elif "TableNotFoundError" in error_message:
+            error_message = f"Query did not return results for model {model_label}"
+            saved_query.latest_error = error_message
+            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
+            await revert_materialization(saved_query, logger)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
             error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
@@ -741,6 +751,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -963,6 +974,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Activity that creates tables for a list of saved queries."""
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     for model in inputs.models:
         await create_table_from_saved_query(model, inputs.team_id)
 
