@@ -124,10 +124,25 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
+            - name: Cache SAML dependencies
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               run: |
+                  if [ -d ~/saml-deps ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+                  fi
+
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+                  mkdir -p ~/saml-deps
+                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
+                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -503,11 +518,29 @@ jobs:
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
+            - name: Cache SAML dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  if [ -d ~/saml-deps ] && [ "$(ls -A ~/saml-deps 2>/dev/null)" ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo dpkg -i ~/saml-deps/*.deb || true
+                      sudo apt-get install -f -y --no-install-recommends
+                  else
+                      echo "Installing SAML dependencies"
+                      sudo apt-get update
+                      sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                      
+                      mkdir -p ~/saml-deps
+                      cp /var/cache/apt/archives/*.deb ~/saml-deps/ 2>/dev/null || true
+                  fi
 
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -538,6 +571,18 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Restore pytest cache
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              id: pytest-cache
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .pytest_cache
+                  key: pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                  restore-keys: |
+                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
+                      pytest-cache-${{ matrix.segment }}-${{ matrix.person-on-events }}-
+                      pytest-cache-${{ matrix.segment }}-
 
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
@@ -751,10 +796,25 @@ jobs:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
+            - name: Cache SAML dependencies
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: ~/saml-deps
+                  key: saml-deps-${{ runner.os }}
+
             - name: Install SAML (python3-saml) dependencies
               run: |
+                  if [ -d ~/saml-deps ]; then
+                      echo "Restoring SAML dependencies from cache"
+                      sudo cp ~/saml-deps/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+                  fi
+
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install -y --no-install-recommends libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+                  mkdir -p ~/saml-deps
+                  cp /var/cache/apt/archives/libxml*.deb ~/saml-deps/ 2>/dev/null || true
+                  cp /var/cache/apt/archives/libxmlsec*.deb ~/saml-deps/ 2>/dev/null || true
 
             - name: Install python dependencies
               shell: bash
