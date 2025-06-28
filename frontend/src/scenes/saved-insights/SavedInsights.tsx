@@ -294,12 +294,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsRevenueQuery]: {
-        name: 'Revenue Analytics Revenue',
-        description: 'View revenue analytics MRR/ARR.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
