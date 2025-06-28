@@ -112,6 +112,12 @@ export class SegmentDestinationExecutorService {
             queue: 'segment',
         })
 
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: sanitizeLogMessage([JSON.stringify(invocation.queueMetadata)]),
+        })
+
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
         metadata.tries = metadata.tries + 1
