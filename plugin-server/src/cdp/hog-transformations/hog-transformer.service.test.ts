@@ -541,6 +541,81 @@ describe('HogTransformer', () => {
             })
         })
 
+        it('should pull from inputs and encrypted_inputs', async () => {
+            // Create a successful transformation
+            const inputSetter: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-input-setter',
+                name: 'Input Setter',
+                description: 'A template that sets the inputs',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.inputs := {
+                        'not_encrypted': inputs.not_encrypted,
+                        'encrypted': inputs.encrypted,
+                    }
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const inputSetterByteCode = await compileHog(inputSetter.hog)
+
+            const inputSetterFunction = createHogFunction({
+                type: 'transformation',
+                name: inputSetter.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: inputSetterByteCode,
+                inputs_schema: [
+                    {
+                        key: 'not_encrypted',
+                        type: 'string',
+                    },
+                    {
+                        key: 'encrypted',
+                        type: 'string',
+                        secret: true,
+                    },
+                ],
+                inputs: {
+                    not_encrypted: {
+                        value: 'from not encrypted: {event.event}',
+                        bytecode: await compileHog("return f'from not encrypted: {event.event}'"),
+                    },
+                },
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({
+                        encrypted: {
+                            value: 'from encrypted: {event.event}',
+                            bytecode: await compileHog("return f'from encrypted: {event.event}'"),
+                        },
+                    })
+                ) as any,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, inputSetterFunction)
+
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: {},
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the event has both success and failure tracking
+            expect(result.event?.properties?.inputs).toMatchObject({
+                not_encrypted: 'from not encrypted: test',
+                encrypted: 'from encrypted: test',
+            })
+        })
+
         it('should not add transformation tracking properties if no transformations run', async () => {
             const event = createPluginEvent(
                 {
