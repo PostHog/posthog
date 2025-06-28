@@ -117,8 +117,8 @@ export enum NodeKind {
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Marketing analytics queries
@@ -160,8 +160,8 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | WebOverviewQuery
@@ -225,8 +225,8 @@ export type QuerySchema =
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
 
     // Marketing analytics
@@ -751,8 +751,8 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
@@ -782,8 +782,8 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -1925,23 +1925,21 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsGrossRevenueQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
+export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsGrossRevenueQueryResult {
+export interface RevenueAnalyticsRevenueQueryResult {
     gross: unknown[]
     mrr: unknown[]
 }
-export interface RevenueAnalyticsGrossRevenueQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsGrossRevenueQueryResult> {
+export interface RevenueAnalyticsRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
 }
-export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
+export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {

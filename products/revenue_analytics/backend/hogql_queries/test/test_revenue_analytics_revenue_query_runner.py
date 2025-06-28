@@ -4,16 +4,16 @@ from decimal import Decimal
 from unittest.mock import ANY
 
 from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-    RevenueAnalyticsGrossRevenueQueryRunner,
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
+    RevenueAnalyticsRevenueQueryRunner,
 )
 from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsGrossRevenueQueryResult,
+    RevenueAnalyticsRevenueQuery,
+    RevenueAnalyticsRevenueQueryResponse,
+    RevenueAnalyticsRevenueQueryResult,
     RevenueAnalyticsGroupBy,
     IntervalType,
     HogQLQueryModifiers,
@@ -87,7 +87,7 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
 
     def _create_purchase_events(self, data):
@@ -200,7 +200,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.customers_cleanup_filesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_gross_revenue_query(
+    def _run_revenue_analytics_revenue_query(
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
@@ -217,7 +217,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsGrossRevenueQuery(
+            query = RevenueAnalyticsRevenueQuery(
                 dateRange=date_range,
                 interval=interval,
                 groupBy=group_by,
@@ -225,25 +225,25 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
-            runner = RevenueAnalyticsGrossRevenueQueryRunner(
+            runner = RevenueAnalyticsRevenueQueryRunner(
                 team=self.team,
                 query=query,
             )
             response = runner.calculate()
 
-            RevenueAnalyticsGrossRevenueQueryResponse.model_validate(response)
+            RevenueAnalyticsRevenueQueryResponse.model_validate(response)
             return response
 
     def test_no_crash_when_no_data(self):
         self.invoices_table.delete()
         self.products_table.delete()
         self.customers_table.delete()
-        results = self._run_revenue_analytics_gross_revenue_query().results
+        results = self._run_revenue_analytics_revenue_query().results
 
-        self.assertEqual(results, RevenueAnalyticsGrossRevenueQueryResult(gross=[], mrr=[]))
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
     def test_no_crash_when_no_source_is_selected(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -253,17 +253,17 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(results, RevenueAnalyticsGrossRevenueQueryResult(gross=[], mrr=[]))
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
     def test_with_data(self):
         # Use huge date range to collect all data
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
         ).results
 
         self.assertEqual(
             results,
-            RevenueAnalyticsGrossRevenueQueryResult(
+            RevenueAnalyticsRevenueQueryResult(
                 gross=[
                     {
                         "label": "stripe.posthog_test",
@@ -326,14 +326,14 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_with_data_and_date_range(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2025-02-01", date_to="2025-05-01")
         ).results
 
         # Restricted to the date range
         self.assertEqual(
             results,
-            RevenueAnalyticsGrossRevenueQueryResult(
+            RevenueAnalyticsRevenueQueryResult(
                 gross=[
                     {
                         "label": "stripe.posthog_test",
@@ -367,14 +367,14 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_with_empty_date_range(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")
         ).results
 
-        self.assertEqual(results, RevenueAnalyticsGrossRevenueQueryResult(gross=[], mrr=[]))
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
     def test_with_data_and_product_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+        results = self._run_revenue_analytics_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
         self.assertEqual(len(results.gross), 6)
         self.assertEqual(len(results.mrr), 6)
@@ -512,7 +512,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
     def test_with_data_and_double_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
         ).results
 
@@ -610,7 +610,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             [0, 0, Decimal("11.51665"), Decimal("37.18802"), Decimal("2.73371"), Decimal("0.09564"), Decimal("9.74731")]
         ]
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -628,7 +628,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual([result["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
         # When grouping results should be exactly the same, just the label changes
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             group_by=[RevenueAnalyticsGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
@@ -647,7 +647,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual([result["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
     def test_with_country_filter(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="country",
@@ -700,7 +700,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         )
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -758,7 +758,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         )
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
