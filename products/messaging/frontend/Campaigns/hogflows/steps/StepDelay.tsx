@@ -10,7 +10,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepDelay: HogFlowStep<'delay'> = {
     type: 'delay',
-    name: 'Wait',
+    name: 'Delay',
     description: 'Wait for a specified duration.',
     icon: <IconClock />,
     renderNode: (props) => <StepDelayNode {...props} />,
@@ -18,7 +18,7 @@ export const StepDelay: HogFlowStep<'delay'> = {
     create: () => {
         return {
             action: {
-                name: 'Wait',
+                name: 'Delay',
                 description: '',
                 type: 'delay',
                 on_error: 'continue',
