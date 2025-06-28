@@ -1,9 +1,8 @@
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.graph.trends.nodes import TrendsGeneratorNode, TrendsPlannerNode, TrendsSchemaGeneratorOutput
+from ee.hogai.graph.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantTrendsQuery,
@@ -11,19 +10,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.test.base import BaseTest
-
-
-class TestTrendsPlannerNode(BaseTest):
-    def test_trends_planner_prompt_has_tools(self):
-        node = TrendsPlannerNode(self.team, self.user)
-        with patch.object(TrendsPlannerNode, "_model") as model_mock:
-
-            def assert_prompt(prompt):
-                self.assertIn("retrieve_event_properties", str(prompt))
-                return AIMessage(content="Thought.\nAction: abc")
-
-            model_mock.return_value = RunnableLambda(assert_prompt)
-            node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
 
 
 class TestTrendsGeneratorNode(BaseTest):
