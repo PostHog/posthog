@@ -652,6 +652,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,
+                kind: 'salesforce',
             },
         ],
         caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
@@ -724,6 +725,23 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                         type: 'text',
                         name: 'temporary_dataset_id',
                         label: 'Dataset ID for temporary tables',
+                        required: true,
+                        placeholder: '',
+                    },
+                ],
+            },
+            {
+                type: 'switch-group',
+                name: 'dataset_project',
+                label: 'Use a different project for the dataset than your service account project?',
+                caption:
+                    "If the dataset you're wanting to sync exists in a different project than that of your service account, use this to provide the project ID of the BigQuery dataset.",
+                default: false,
+                fields: [
+                    {
+                        type: 'text',
+                        name: 'dataset_project_id',
+                        label: 'Project ID for dataset',
                         required: true,
                         placeholder: '',
                     },
@@ -814,9 +832,9 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         betaSource: true,
         caption: (
             <>
-                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                Ensure you have granted PostHog access to your Google Ads account, learn how to do this in{' '}
                 <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
-                    documentation
+                    the docs
                 </Link>
                 .
             </>
@@ -828,6 +846,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: '',
+            },
+            {
+                name: 'google_ads_integration_id',
+                label: 'Google Ads account',
+                type: 'oauth',
+                required: true,
+                kind: 'google-ads',
             },
         ],
     },
@@ -845,16 +870,32 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
-    MetaAds: {
-        name: 'MetaAds',
-        label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
     GoogleSheets: {
         name: 'GoogleSheets',
         label: 'Google Sheets',
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Sheet as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-sheets" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'spreadsheet_url',
+                label: 'Spreadsheet URL',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        betaSource: true,
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
         caption: '',
         fields: [],
         unreleasedSource: true,
@@ -1078,8 +1119,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...(state.payload ?? {}),
-                            ...(source.payload ?? {}),
+                            ...state.payload,
+                            ...source.payload,
                         },
                     }
                 },
@@ -1540,7 +1581,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch (e) {
+                                } catch {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {

@@ -17,6 +17,7 @@ from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
@@ -252,6 +253,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
     Returns:
         Outputs for the activity: whether there are more actions to sync.
     """
+    tag_queries(product=Product.MAX_AI)
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
 
     query = (
