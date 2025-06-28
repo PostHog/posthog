@@ -61,6 +61,7 @@ export function HedgehogAvatar({
             ref={avatarRef}
             className={isDragging || isAnimating ? '' : 'relative flex items-center justify-end'}
             style={containerStyle}
+            id="floating-max"
         >
             <Tooltip
                 title={

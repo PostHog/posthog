@@ -2109,3 +2109,37 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 }
+
+/**
+ * Gets the computed CSS variable value from an element
+ * @param variable - CSS variable name (e.g., '--scene-padding')
+ * @param className - Optional class name to get the variable from specific element
+ * @returns The parsed numeric value of the CSS variable
+ */
+export function getCSSVariableValue(variable: string, className?: string): number {
+    let element: Element | null = null
+
+    if (className) {
+        const elements = document.getElementsByClassName(className)
+        if (elements.length === 0) {
+            return 0
+        }
+        element = elements[0]
+    } else {
+        element = document.documentElement
+    }
+
+    if (!element) {
+        return 0
+    }
+
+    const value = getComputedStyle(element).getPropertyValue(variable).trim()
+
+    if (value.endsWith('rem')) {
+        const remValue = parseFloat(value)
+        const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+        return remValue * rootFontSize
+    }
+
+    return parseFloat(value) || 0
+}

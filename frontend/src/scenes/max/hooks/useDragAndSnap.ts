@@ -1,8 +1,57 @@
+import { getCSSVariableValue } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+
+// Constants
+const DRAG_THRESHOLD = 5 // pixels
+const ANIMATION_DURATION = 300 // milliseconds
+const PANEL_FIXED_DISTANCE = 4 // pixels from panel edge
+const CACHED_BOTTOM_OFFSET_DEFAULT = 6 // pixels
+const MIN_SCREEN_WIDTH_FOR_DRAG = 640 // sm breakpoint in pixels
 
 interface UseDragAndSnapProps {
     onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
     disabled?: boolean
+}
+
+interface DragPosition {
+    x: number
+    y: number
+}
+
+type MousePosition = DragPosition
+
+/**
+ * Calculate the final snap position based on mouse position
+ */
+function calculateSnapPosition(
+    mouseX: number,
+    bottomOffset: number
+): {
+    finalPosition: DragPosition
+    side: 'left' | 'right'
+} {
+    const windowWidth = window.innerWidth
+    const windowHeight = window.innerHeight
+    const isRightSide = mouseX > windowWidth / 2
+
+    const sidePanel = document.getElementById('side-panel')
+    const sidePanelWidth = sidePanel?.getBoundingClientRect().width || 0
+    const projectPanel = document.getElementById('project-panel-layout')
+    const projectPanelWidth = projectPanel?.getBoundingClientRect().width || 0
+    const xPadding = getCSSVariableValue('--scene-padding', 'Navigation3000')
+    const floatingMax = document.getElementById('floating-max')
+    const avatarWidth = floatingMax?.getBoundingClientRect().width || 0
+
+    const finalX = isRightSide
+        ? windowWidth - (sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE + avatarWidth)
+        : projectPanelWidth + xPadding + PANEL_FIXED_DISTANCE
+
+    const finalY = windowHeight - avatarWidth - bottomOffset
+
+    return {
+        finalPosition: { x: finalX, y: finalY },
+        side: isRightSide ? 'right' : 'left',
+    }
 }
 
 interface UseDragAndSnapReturn {
@@ -16,12 +65,28 @@ interface UseDragAndSnapReturn {
 
 export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAndSnapProps): UseDragAndSnapReturn {
     const [isDragging, setIsDragging] = useState(false)
-    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+    const [dragOffset, setDragOffset] = useState<DragPosition>({ x: 0, y: 0 })
     const [hasDragged, setHasDragged] = useState(false)
-    const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null)
+    const [dragPosition, setDragPosition] = useState<DragPosition | null>(null)
     const [isAnimating, setIsAnimating] = useState(false)
-    const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null)
+    const [mouseDownPosition, setMouseDownPosition] = useState<MousePosition | null>(null)
+    const [cachedBottomOffset, setCachedBottomOffset] = useState<number>(CACHED_BOTTOM_OFFSET_DEFAULT)
     const avatarButtonRef = useRef<HTMLDivElement>(null)
+
+    // Cache the bottom offset when not dragging
+    useEffect(() => {
+        if (!isDragging && !isAnimating) {
+            const floatingMaxContainer = document.querySelector('[data-attr="floating-max-container"]') as HTMLElement
+            if (floatingMaxContainer) {
+                const computedStyle = getComputedStyle(floatingMaxContainer)
+                const marginBottom = parseFloat(computedStyle.marginBottom) || 0
+                const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0
+                const borderBottomWidth = parseFloat(computedStyle.borderBottomWidth) || 0
+                const bottomOffset = marginBottom + paddingBottom + borderBottomWidth
+                setCachedBottomOffset(bottomOffset)
+            }
+        }
+    }, [isDragging, isAnimating])
 
     // Handle drag functionality
     useEffect(() => {
@@ -30,20 +95,21 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
                 return
             }
 
-            const dragThreshold = 5 // pixels
             const deltaX = Math.abs(e.clientX - mouseDownPosition.x)
             const deltaY = Math.abs(e.clientY - mouseDownPosition.y)
 
             // Only start dragging if mouse moved beyond threshold
-            if (!isDragging && (deltaX > dragThreshold || deltaY > dragThreshold)) {
+            if (!isDragging && (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD)) {
                 setIsDragging(true)
                 setHasDragged(true)
             }
 
             if (isDragging) {
-                const newX = e.clientX - dragOffset.x
-                const newY = e.clientY - dragOffset.y
-                setDragPosition({ x: newX, y: newY })
+                const newPosition: DragPosition = {
+                    x: e.clientX - dragOffset.x,
+                    y: e.clientY - dragOffset.y,
+                }
+                setDragPosition(newPosition)
             }
         }
 
@@ -63,35 +129,11 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
             // Only snap if the user actually dragged
             if (hasDragged) {
                 setIsAnimating(true)
-                // Determine which side to snap to based on mouse position
-                const windowWidth = window.innerWidth
-                const windowHeight = window.innerHeight
-                const isRightSide = e.clientX > windowWidth / 2
 
-                // Calculate the final position to match CSS positioning
-                // The container has w-80 (320px) and positioning classes
-                // For right side: right-[calc(1rem-1px)] md:right-[calc(3rem-1px)]
-                // For left side: left-[calc(1rem-1px)] md:left-[calc(3rem-1px)]
-                const isDesktop = windowWidth >= 768 // md breakpoint
-                const containerWidth = 320 // w-80
-                const cssRightOffset = isDesktop ? 48 - 1 : 16 - 1 // 3rem-1px : 1rem-1px
-                const cssLeftOffset = isDesktop ? 48 - 1 : 16 - 1 // 3rem-1px : 1rem-1px
-
-                // The avatar is positioned within the container with mr-4 (16px) from right edge
-                // and the avatar itself is 44px wide
-                let finalX: number
-                if (isRightSide) {
-                    // For right side: windowWidth - cssRightOffset - containerWidth + (containerWidth - 16 - 46)
-                    finalX = windowWidth - cssRightOffset - 16 - 44 // Direct positioning from right edge
-                } else {
-                    // For left side: cssLeftOffset + (containerWidth - 16 - 46)
-                    finalX = cssLeftOffset + containerWidth - 16 - 32 - 44 // Position accounting for container layout
-                }
-
-                const finalY = windowHeight - 16 - 44 + 8 // bottom offset - avatar height - mb-2
+                const { finalPosition, side } = calculateSnapPosition(e.clientX, cachedBottomOffset)
 
                 // Animate to final position
-                setDragPosition({ x: finalX, y: finalY })
+                setDragPosition(finalPosition)
 
                 // After animation completes, reset everything and notify parent
                 setTimeout(() => {
@@ -102,12 +144,12 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
                     // Notify parent of position change
                     if (onPositionChange) {
                         onPositionChange({
-                            x: finalX,
-                            y: finalY,
-                            side: isRightSide ? 'right' : 'left',
+                            x: finalPosition.x,
+                            y: finalPosition.y,
+                            side,
                         })
                     }
-                }, 300) // Match transition duration
+                }, ANIMATION_DURATION)
             } else {
                 setDragPosition(null)
                 setHasDragged(false)
@@ -132,7 +174,7 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
 
         // Disable drag on touch devices or very small screens
         const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-        const isVerySmallScreen = window.innerWidth < 640 // sm breakpoint
+        const isVerySmallScreen = window.innerWidth < MIN_SCREEN_WIDTH_FOR_DRAG
 
         if ((isTouchDevice && isVerySmallScreen) || !avatarButtonRef.current) {
             return

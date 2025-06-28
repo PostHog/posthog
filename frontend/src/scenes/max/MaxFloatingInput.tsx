@@ -1,10 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import React from 'react'
+import clsx from 'clsx'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { QuestionInput } from './components/QuestionInput'
 import { FloatingInputActions } from './components/FloatingInputActions'
@@ -16,7 +18,11 @@ import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
-import clsx from 'clsx'
+import { getCSSVariableValue } from 'lib/utils'
+
+// Constants
+const ANIMATION_DURATION = 200 // milliseconds
+const PANEL_FIXED_DISTANCE = 4 // pixels from panel edge
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -148,6 +154,44 @@ export function MaxFloatingInput(): JSX.Element | null {
     const { sidePanelOpen } = useValues(sidePanelLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
+    const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const [positionStyle, setPositionStyle] = useState({})
+
+    const threadProps: MaxThreadLogicProps = {
+        conversationId: threadLogicKey,
+        conversation,
+    }
+
+    useEffect(() => {
+        const getPositionStyle = (): React.CSSProperties => {
+            const side = floatingMaxPosition?.side || 'right'
+            const sidePanel = document.getElementById('side-panel')
+            const sidePanelWidth = sidePanel?.getBoundingClientRect().width || 0
+            const projectPanel = document.getElementById('project-panel-layout')
+            const projectPanelWidth = projectPanel?.getBoundingClientRect().width || 0
+            const xPadding = getCSSVariableValue('--scene-padding', 'Navigation3000')
+
+            const leftPosition = `${projectPanelWidth + xPadding + PANEL_FIXED_DISTANCE}px`
+            const rightPosition = `${sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE}px`
+
+            return side === 'left' ? { left: leftPosition } : { right: rightPosition }
+        }
+        setPositionStyle(getPositionStyle())
+    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState])
+
+    const getAnimationStyle = (): React.CSSProperties => {
+        if (!isFloatingMaxExpanded) {
+            return {}
+        }
+
+        const side = floatingMaxPosition?.side || 'right'
+        const transformOrigin = side === 'left' ? 'bottom left' : 'bottom right'
+
+        return {
+            transformOrigin,
+            animation: `MaxFloatingInput__ExpandFromAvatar ${ANIMATION_DURATION}ms cubic-bezier(0.4, 0, 0.2, 1)`,
+        }
+    }
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
@@ -157,67 +201,24 @@ export function MaxFloatingInput(): JSX.Element | null {
         return null
     }
 
-    const threadProps: MaxThreadLogicProps = {
-        conversationId: threadLogicKey,
-        conversation,
-    }
-
-    const getPositionClasses = (): string => {
-        const side = floatingMaxPosition?.side || 'right'
-        const baseClasses = 'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm'
-
-        if (!isFloatingMaxExpanded) {
-            // When collapsed, avatar position matches the side
-            if (side === 'left') {
-                return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(17rem-1px)]`
-            }
-            return `${baseClasses} right-[calc(1rem-1px)] md:right-[calc(3rem-1px)]`
-        }
-
-        // When expanded, panel stays on same side but moves away from avatar
-        // If avatar is on right, panel moves further left on right side
-        // If avatar is on left, panel moves further right on left side
-        if (side === 'left') {
-            return `${baseClasses} left-[calc(1rem-1px)] md:left-[calc(17rem-1px)]`
-        }
-        return `${baseClasses} right-[calc(1rem-1px)] md:right-[calc(4rem-1px)]`
-    }
-
-    const getAnimationStyle = (): React.CSSProperties => {
-        const side = floatingMaxPosition?.side || 'right'
-
-        if (!isFloatingMaxExpanded) {
-            return {}
-        }
-
-        // Transform origin should be where the avatar is relative to the panel
-        if (side === 'left') {
-            // Avatar is to the left of panel, so origin is bottom-left
-            return {
-                transformOrigin: 'bottom left',
-                animation: 'MaxFloatingInput__ExpandFromAvatar 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            }
-        }
-        // Avatar is to the right of panel, so origin is bottom-right
-        return {
-            transformOrigin: 'bottom right',
-            animation: 'MaxFloatingInput__ExpandFromAvatar 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-        }
-    }
-
     return (
         <div
+            data-attr="floating-max-container"
             className={
                 floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
                     ? ''
                     : clsx(
-                          getPositionClasses(),
+                          'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm',
                           'border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
-                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full mr-4',
+                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full',
                           !threadVisible && isFloatingMaxExpanded ? 'p-1' : 'p-0.5'
                       )
             }
-            style={floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating ? {} : getAnimationStyle()}
+            style={
+                floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
+                    ? {}
+                    : { ...positionStyle, ...getAnimationStyle() }
+            }
         >
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <MaxFloatingInputContent />
