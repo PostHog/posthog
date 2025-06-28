@@ -34,8 +34,8 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
     ]
 
