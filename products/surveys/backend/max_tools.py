@@ -9,7 +9,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, Survey
-from posthog.api.survey import SurveySerializerCreateUpdateOnly
 
 from ee.hogai.tool import MaxTool
 from .prompts import SURVEY_CREATION_SYSTEM_PROMPT
@@ -67,55 +66,39 @@ class SurveyCreatorTool(MaxTool):
                 }
             )
 
-            # Convert to PostHog survey format and create directly
-            survey_data = self._convert_to_posthog_format(result, team)
+            # Validate the LLM output directly using Pydantic
+            try:
+                # The result is already validated, but let's validate once more to be safe
+                validated_output = SurveyCreationOutput.model_validate(result.model_dump())
 
-            # Use the proper serializer for validation and creation
+                if not validated_output.questions:
+                    return "❌ Survey must have at least one question", {
+                        "error": "validation_failed",
+                        "details": "No questions provided",
+                    }
 
-            # Set launch date if requested
-            if result.should_launch:
-                survey_data["start_date"] = datetime.now()
+                # Convert to PostHog survey format
+                survey_data = self._convert_to_posthog_format(validated_output, team)
 
-            # Create a minimal request-like object for the serializer context
-            class MinimalRequest:
-                def __init__(self, user):
-                    self.user = user
-                    self.method = "POST"
+                # Set launch date if requested
+                if validated_output.should_launch:
+                    survey_data["start_date"] = datetime.now()
 
-            minimal_request = MinimalRequest(user)
+                # Create the survey directly using Django ORM
+                survey = Survey.objects.create(team=team, created_by=user, **survey_data)
 
-            serializer = SurveySerializerCreateUpdateOnly(
-                data=survey_data,
-                context={
-                    "request": minimal_request,
-                    "team_id": team.id,
-                    "project_id": team.project_id,
-                },
-            )
-
-            if serializer.is_valid() and len(survey_data["questions"]) > 0:
-                survey = serializer.save()
-                launch_msg = " and launched" if result.should_launch else ""
-
+                launch_msg = " and launched" if validated_output.should_launch else ""
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
                     "survey_id": str(survey.id),
                     "survey_name": survey.name,
-                    "launched": result.should_launch,
+                    "launched": validated_output.should_launch,
                     "questions_count": len(survey.questions),
                 }
-            else:
-                # Return validation errors
-                error_details = []
-                for field, errors in serializer.errors.items():
-                    if isinstance(errors, list):
-                        error_details.extend([f"{field}: {error}" for error in errors])
-                    else:
-                        error_details.append(f"{field}: {errors}")
-                        error_details.append(f"{field}: {errors}")
 
-                return f"❌ Survey validation failed: {'; '.join(error_details)}", {
+            except Exception as validation_error:
+                return f"❌ Survey validation failed: {str(validation_error)}", {
                     "error": "validation_failed",
-                    "details": serializer.errors,
+                    "details": str(validation_error),
                 }
 
         except Exception as e:

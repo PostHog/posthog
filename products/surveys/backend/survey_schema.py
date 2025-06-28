@@ -3,9 +3,11 @@ Pydantic schemas for survey creation LLM output.
 """
 
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
+import uuid
+from urllib.parse import urlparse
 
 
 class SurveyTypeEnum(str, Enum):
@@ -29,16 +31,22 @@ class RatingDisplayEnum(str, Enum):
 
 class SurveyQuestionSchema(BaseModel):
     type: QuestionTypeEnum
-    question: str = Field(description="The question text")
+    question: str = Field(min_length=1, description="The question text")
     description: Optional[str] = Field(
         default="",
         description="Optional question description. Usually not needed, but can be used to provide more context for the question if it's a loaded question.",
     )
+    descriptionContentType: Optional[Literal["text", "html"]] = Field(
+        default="text", description="Content type for description"
+    )
     optional: bool = Field(default=False, description="Whether the question is optional")
     buttonText: str = Field(default="Submit", description="Text for submit button")
+    id: Optional[str] = Field(default=None, description="Question ID - auto-generated if not provided")
 
     # For single_choice and multiple_choice
     choices: Optional[list[str]] = Field(default=None, description="Answer choices for choice questions")
+    shuffleOptions: Optional[bool] = Field(default=False, description="Whether to shuffle choice options")
+    hasOpenChoice: Optional[bool] = Field(default=False, description="Whether to allow open-ended response")
 
     # For rating questions
     display: Optional[RatingDisplayEnum] = Field(default=RatingDisplayEnum.NUMBER, description="Rating display type")
@@ -55,11 +63,61 @@ class SurveyQuestionSchema(BaseModel):
     # For link questions
     link: Optional[str] = Field(default=None, description="URL for link questions")
 
+    @field_validator("scale")
+    @classmethod
+    def validate_scale(cls, v):
+        if v is not None and v not in [5, 7, 10]:
+            raise ValueError("Scale must be 5, 7, or 10")
+        return v
+
+    @field_validator("link")
+    @classmethod
+    def validate_link(cls, v):
+        if v is not None:
+            parsed = urlparse(v)
+            if parsed.scheme not in ["https", "mailto"]:
+                raise ValueError("Links must use HTTPS or mailto scheme")
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_question_requirements(cls, values):
+        if isinstance(values, dict):
+            question_type = values.get("type")
+
+            # Validate choices for choice questions
+            choices = values.get("choices")
+            if question_type in [QuestionTypeEnum.SINGLE_CHOICE, QuestionTypeEnum.MULTIPLE_CHOICE]:
+                if not choices or len(choices) == 0:
+                    raise ValueError("Choice questions must have at least one choice")
+                if any(not choice.strip() for choice in choices):
+                    raise ValueError("All choices must be non-empty strings")
+
+            # Ensure required fields are present for each question type
+            if question_type == QuestionTypeEnum.RATING:
+                if not values.get("scale"):
+                    raise ValueError("Rating questions must have a scale")
+
+            if question_type == QuestionTypeEnum.LINK:
+                if not values.get("link"):
+                    raise ValueError("Link questions must have a link")
+
+            # Auto-generate question ID if not provided
+            if not values.get("id"):
+                values["id"] = str(uuid.uuid4())
+
+        return values
+
 
 class SurveyDisplayConditionsSchema(BaseModel):
     url: Optional[str] = Field(default=None, description="URL pattern to match")
     urlMatchType: Optional[Literal["contains", "exact", "regex"]] = Field(default="contains")
     selector: Optional[str] = Field(default=None, description="CSS selector")
+    # Additional condition fields from the serializer
+    wait_period: Optional[int] = Field(default=None, description="Wait period in seconds before showing survey")
+    device_type: Optional[Literal["Desktop", "Mobile", "Tablet"]] = Field(
+        default=None, description="Device type targeting"
+    )
 
 
 class SurveyAppearanceSchema(BaseModel):
@@ -95,10 +153,10 @@ class SurveyAppearanceSchema(BaseModel):
 
 
 class SurveyCreationOutput(BaseModel):
-    name: str = Field(description="Survey name")
+    name: str = Field(max_length=400, description="Survey name")
     description: str = Field(description="Survey description.")
     type: SurveyTypeEnum = Field(default=SurveyTypeEnum.POPOVER, description="Survey type")
-    questions: list[SurveyQuestionSchema] = Field(description="List of survey questions")
+    questions: list[SurveyQuestionSchema] = Field(min_items=1, description="List of survey questions")
     should_launch: bool = Field(default=False, description="Whether to launch immediately")
     conditions: Optional[SurveyDisplayConditionsSchema] = Field(default=None, description="Display conditions")
     appearance: Optional[SurveyAppearanceSchema] = Field(
@@ -109,36 +167,33 @@ class SurveyCreationOutput(BaseModel):
         description="Should always be True by default, unless the user explicitly asks for it to be False.",
     )
 
-    def get_appearance_with_defaults(self) -> dict:
-        """Get appearance settings with all defaults applied."""
-        if self.appearance is None:
-            return DEFAULT_SURVEY_APPEARANCE.copy()
+    # Additional fields from Django model
+    start_date: Optional[str] = Field(default=None, description="ISO datetime string for survey start")
+    end_date: Optional[str] = Field(default=None, description="ISO datetime string for survey end")
+    responses_limit: Optional[int] = Field(default=None, description="Maximum number of responses to collect")
+    iteration_count: Optional[int] = Field(default=None, description="Number of iterations for recurring surveys")
+    iteration_frequency_days: Optional[int] = Field(default=None, description="Days between iterations")
 
-        # Convert Pydantic model to dict and fill in any missing values with defaults
-        appearance_dict = self.appearance.model_dump(exclude_unset=False)
-        result = DEFAULT_SURVEY_APPEARANCE.copy()
-        result.update({k: v for k, v in appearance_dict.items() if v is not None})
-        return result
+    # Targeting - simplified for LLM use
+    targeting_flag_filters: Optional[dict] = Field(default=None, description="Feature flag filters for targeting")
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Survey name cannot be empty")
+        return v.strip()
 
-def get_survey_appearance_with_defaults(
-    llm_appearance: Optional[SurveyAppearanceSchema] = None, team_appearance: Optional[dict] = None
-) -> dict:
-    """
-    Get survey appearance with proper defaults applied in order:
-    1. Frontend defaults
-    2. Team-specific overrides
-    3. LLM-specified overrides
-    """
-    appearance = DEFAULT_SURVEY_APPEARANCE.copy()
+    @field_validator("iteration_count")
+    @classmethod
+    def validate_iteration_count(cls, v):
+        if v is not None and (v < 1 or v > 500):
+            raise ValueError("Iteration count must be between 1 and 500")
+        return v
 
-    # Apply team defaults if provided
-    if team_appearance:
-        appearance.update(team_appearance)
-
-    # Apply LLM appearance if provided
-    if llm_appearance:
-        llm_dict = llm_appearance.model_dump(exclude_unset=False)
-        appearance.update({k: v for k, v in llm_dict.items() if v is not None})
-
-    return appearance
+    @field_validator("responses_limit")
+    @classmethod
+    def validate_responses_limit(cls, v):
+        if v is not None and v < 1:
+            raise ValueError("Response limit must be positive")
+        return v
