@@ -158,6 +158,7 @@
                 "OBJECT_STORAGE_ENABLED": "True",
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook"
             },
+            "envFile": "${workspaceFolder}/.env",
             "presentation": {
                 "group": "main"
             }
