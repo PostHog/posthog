@@ -7,6 +7,7 @@ class DeletionType(models.IntegerChoices):
     Group = 2
     Cohort_stale = 3
     Cohort_full = 4
+    Custom = 5
 
 
 # This model represents deletions that should delete (other, unrelated) data async
