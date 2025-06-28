@@ -4375,7 +4375,9 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {},
+                "results": {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResult"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -7484,7 +7486,9 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
-                                "results": {},
+                                "results": {
+                                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResult"
+                                },
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
                                     "items": {
@@ -16318,7 +16322,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
+                        "results": {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResult"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -17072,7 +17078,9 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {},
+                        "results": {
+                            "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResult"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -19198,7 +19206,9 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {},
+                "results": {
+                    "$ref": "#/definitions/RevenueAnalyticsGrossRevenueQueryResult"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -19208,6 +19218,21 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "RevenueAnalyticsGrossRevenueQueryResult": {
+            "additionalProperties": false,
+            "properties": {
+                "gross": {
+                    "items": {},
+                    "type": "array"
+                },
+                "mrr": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["gross", "mrr"],
             "type": "object"
         },
         "RevenueAnalyticsGroupBy": {

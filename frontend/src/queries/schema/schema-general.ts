@@ -1932,7 +1932,12 @@ export interface RevenueAnalyticsGrossRevenueQuery
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsGrossRevenueQueryResult {
+    gross: unknown[]
+    mrr: unknown[]
+}
+export interface RevenueAnalyticsGrossRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsGrossRevenueQueryResult> {
     columns?: string[]
 }
 export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
