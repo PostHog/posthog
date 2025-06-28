@@ -144,10 +144,28 @@ describe('PersonsManagementScene', () => {
 
         userEvent.click(personDisplayLink)
 
+        // Wait for the Popover to appear AND contain links
+        const popoverLink = await waitFor(() => {
+            const popover = document.querySelector('.Popover')
+            if (!popover) {
+                throw new Error('Popover not found')
+            }
+
+            // Make sure the links have loaded
+            const popoverLinks = popover.querySelectorAll('a.Link')
+            if (popoverLinks.length === 0) {
+                throw new Error('No links found in Popover')
+            }
+
+            // Return the last link ("View events" link)
+            return popoverLinks[popoverLinks.length - 1] as HTMLElement
+        })
+
+        userEvent.click(popoverLink)
+
+        // The user is anonymous, the "view events" link takes them to the explore page
         await waitFor(() => {
-            expect(router.values.location.pathname).toBe(
-                `/project/${MOCK_TEAM_ID}/persons/0257ab53-0816-55da-8919-73abbf36d5a9`
-            )
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/activity/explore`)
         })
     })
 })
