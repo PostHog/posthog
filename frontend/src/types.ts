@@ -5607,3 +5607,19 @@ export interface LineageGraph {
     nodes: LineageNode[]
     edges: LineageEdge[]
 }
+
+export enum OnboardingStepKey {
+    INSTALL = 'install',
+    LINK_DATA = 'link_data',
+    PLANS = 'plans',
+    VERIFY = 'verify',
+    PRODUCT_CONFIGURATION = 'configure',
+    REVERSE_PROXY = 'proxy',
+    INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
+    SESSION_REPLAY = 'session_replay',
+    AUTHORIZED_DOMAINS = 'authorized_domains',
+    SOURCE_MAPS = 'source_maps',
+    ALERTS = 'alerts',
+}
