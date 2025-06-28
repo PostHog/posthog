@@ -15,7 +15,6 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
     trigger_compaction_job,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
@@ -28,9 +27,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_column_hints,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    append_partition_key_to_table,
     normalize_column_name,
     normalize_table_column_names,
+    setup_partitioning,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -227,37 +226,7 @@ class PipelineNonDLT:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
-        if should_partition_table(delta_table, self._schema, self._resource):
-            partition_count = self._schema.partition_count or self._resource.partition_count
-            partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = (
-                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
-            )
-            partition_format = self._schema.partition_format or self._resource.partition_format
-            partition_mode = self._schema.partition_mode or self._resource.partition_mode
-            if partition_count and partition_keys and partition_size:
-                # This needs to happen before _evolve_pyarrow_schema
-                pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
-                    table=pa_table,
-                    partition_count=partition_count,
-                    partition_size=partition_size,
-                    partition_keys=partition_keys,
-                    partition_mode=partition_mode,
-                    partition_format=partition_format,
-                    logger=self._logger,
-                )
-
-                if not self._schema.partitioning_enabled:
-                    self._logger.debug(
-                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
-                    )
-                    self._schema.set_partitioning_enabled(
-                        updated_partition_keys, partition_count, partition_size, partition_mode
-                    )
-            else:
-                self._logger.debug(
-                    "Skipping partitioning due to missing partition_count or partition_keys or partition_size"
-                )
+        pa_table = setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
@@ -431,28 +400,6 @@ def _get_incremental_field_value(
         raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
 
     return last_value.as_py()
-
-
-def should_partition_table(
-    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
-) -> bool:
-    if not schema.should_use_incremental_field:
-        return False
-
-    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
-        return True
-
-    if source.partition_count is None:
-        return False
-
-    if delta_table is None:
-        return True
-
-    delta_schema = delta_table.schema().to_pyarrow()
-    if PARTITION_KEY in delta_schema.names:
-        return True
-
-    return False
 
 
 def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:

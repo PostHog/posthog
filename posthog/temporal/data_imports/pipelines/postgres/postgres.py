@@ -270,7 +270,9 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
         return 0
 
 
-def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
+def _get_partition_settings(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -289,11 +291,13 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
         raise
     except Exception as e:
         capture_exception(e)
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
 
     result = cursor.fetchone()
 
     if result is None or len(result) == 0 or result[0] is None:
+        logger.debug(f"_get_partition_settings: query result is None, returning None")
         return None
 
     partition_size = int(result[0])
@@ -301,8 +305,10 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
     partition_count = math.floor(total_rows / partition_size)
 
     if partition_count == 0:
+        logger.debug(f"_get_partition_settings: partition_count=1, partition_size={partition_size}")
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
+    logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -488,7 +494,9 @@ def postgres_source(
                 chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                 partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
                 )
                 has_duplicate_primary_keys = False
 
