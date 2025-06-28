@@ -156,6 +156,10 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         .all()
     )
 
+    def safely_get_queryset(self, queryset):
+        queryset = queryset.exclude(deleted=True)
+        return queryset
+
 
 @csrf_exempt
 @action(methods=["GET"], detail=True)
