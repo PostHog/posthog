@@ -233,7 +233,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             # This will allow us to easily query the results by breakdown_by and period_start
             # and then we can just add the data to the results
             # [0, 1, 2] -> [value, period_start, breakdown_by]
-            grouped_results = defaultdict(Decimal)
+            grouped_results: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
             breakdowns = []
             for value, _day_start, period_start, _is_recurring, breakdown_by in response.results:
                 # Use array to guarantee insertion order
