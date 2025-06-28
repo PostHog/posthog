@@ -276,27 +276,21 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
-        name: 'Revenue Analytics Gross Revenue',
-        description: 'View revenue analytics gross revenue.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsOverviewQuery]: {
         name: 'Revenue Analytics Overview',
         description: 'View revenue analytics overview.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
-        name: 'Revenue Analytics Top Customers',
-        description: 'View revenue analytics top customers.',
+    [NodeKind.RevenueAnalyticsRevenueQuery]: {
+        name: 'Revenue Analytics Revenue',
+        description: 'View revenue analytics gross and MRR revenue.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsRevenueQuery]: {
-        name: 'Revenue Analytics Revenue',
-        description: 'View revenue analytics MRR/ARR.',
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
         icon: IconPiggyBank,
         inMenu: true,
     },

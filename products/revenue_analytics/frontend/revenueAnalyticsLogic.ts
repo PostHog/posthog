@@ -22,8 +22,7 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
     REVENUE,
-    GROSS_REVENUE,
-    REVENUE_GROWTH_RATE,
+    GROWTH_RATE,
     TOP_CUSTOMERS,
 }
 
@@ -76,6 +75,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
+export type MRRMode = 'mrr' | 'arr'
 export type DisplayMode = 'line' | 'area' | 'bar' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
@@ -94,6 +94,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
+        setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
@@ -121,6 +122,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             persistConfig,
             {
                 setGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
+        mrrMode: [
+            'mrr' as MRRMode,
+            persistConfig,
+            {
+                setMRRMode: (_, { mrrMode }) => mrrMode,
             },
         ],
         insightsDisplayMode: [
@@ -237,14 +245,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsGrossRevenueQuery,
-                        properties: revenueAnalyticsFilter,
-                        groupBy,
-                        interval,
-                        dateRange,
-                    },
-                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
+                    [RevenueAnalyticsQuery.GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
                             properties: revenueAnalyticsFilter,

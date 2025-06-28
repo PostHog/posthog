@@ -14,7 +14,7 @@ import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } 
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
-import RevenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
+import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -57,8 +57,8 @@ const meta: Meta = {
                         return [200, revenueAnalyticsTopCustomersMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
-                        return [200, RevenueAnalyticsGrossRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsRevenueQuery') {
+                        return [200, revenueAnalyticsRevenueQueryMock]
                     }
                 },
             },
