@@ -13,7 +13,7 @@ from temporalio.common import RetryPolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.common.schedule import a_trigger_schedule_buffer_one
+from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
@@ -44,7 +44,7 @@ from posthog.warehouse.data_load.source_templates import (
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.client import sync_connect
 
 Any_Source_Errors: list[str] = [
     "Could not establish session to SSH gateway",
@@ -219,10 +219,9 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 
 
 @activity.defn
-async def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
-    """Activity: call Temporal Schedule trigger with BUFFER_ONE overlap."""
-    temporal = await async_connect()
-    await a_trigger_schedule_buffer_one(temporal, schedule_id)
+def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    temporal = sync_connect()
+    trigger_schedule_buffer_one(temporal, schedule_id)
 
 
 # TODO: update retry policies
@@ -343,7 +342,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                return
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED

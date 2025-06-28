@@ -5,10 +5,7 @@ from temporalio.client import Client, Schedule, ScheduleUpdate, ScheduleUpdateIn
 @async_to_sync
 async def trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
     """Trigger a Temporal Schedule using BUFFER_ONE overlap policy."""
-    handle = temporal.get_schedule_handle(schedule_id)
-    await handle.trigger(
-        overlap=ScheduleOverlapPolicy.BUFFER_ONE,
-    )
+    return await a_trigger_schedule_buffer_one(temporal, schedule_id)
 
 
 async def a_trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
