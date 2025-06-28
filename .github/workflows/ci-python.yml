@@ -6,6 +6,10 @@ on:
             - master
     pull_request:
 
+env:
+    # Disable Python bytecode generation for faster imports and test collection
+    PYTHONDONTWRITEBYTECODE: 1
+
 jobs:
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
