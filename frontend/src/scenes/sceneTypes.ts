@@ -54,6 +54,7 @@ export enum Scene {
     Surveys = 'Surveys',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
+    PublicSurvey = 'PublicSurvey',
     SQLEditor = 'SQLEditor',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
