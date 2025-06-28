@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional, cast
 from collections.abc import Callable
 
+from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -35,7 +36,7 @@ class HogQLQueryRunner(QueryRunner):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings = settings
+        self.settings = settings or HogQLGlobalSettings()
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -73,6 +74,17 @@ class HogQLQueryRunner(QueryRunner):
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
+
+        if (
+            self.is_query_service
+            and app_settings.API_QUERIES_LEGACY_TEAM_LIST
+            and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+        ):
+            assert self.settings is not None
+            # p95 threads is 102
+            self.settings.max_threads = 80
+            # p95 duration of HogQL query is 2.78sec
+            self.settings.max_execution_time = 10
 
         response = func(
             query_type="HogQLQuery",

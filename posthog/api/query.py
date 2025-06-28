@@ -101,8 +101,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        if self.team_id in settings.API_QUERIES_PER_TEAM or (
-            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        if (
+            self.team_id in settings.API_QUERIES_PER_TEAM
+            or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
+            or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
