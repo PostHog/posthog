@@ -75,6 +75,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
+export type MRRMode = 'mrr' | 'arr'
 export type DisplayMode = 'line' | 'area' | 'bar' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
@@ -93,6 +94,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
+        setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
@@ -120,6 +122,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             persistConfig,
             {
                 setGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
+        mrrMode: [
+            'mrr' as MRRMode,
+            persistConfig,
+            {
+                setMRRMode: (_, { mrrMode }) => mrrMode,
             },
         ],
         insightsDisplayMode: [
