@@ -535,6 +535,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
+        setIsDuplicateToProjectModalOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -638,6 +639,25 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 return survey
+            },
+        },
+        duplicatedToProjectSurvey: {
+            duplicateToProject: async ({ sourceSurvey, targetTeamId }) => {
+                const payload = duplicateExistingSurvey(sourceSurvey)
+                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload), targetTeamId)
+
+                lemonToast.success('Survey duplicated to another project.', {
+                    toastId: `survey-duplicated-to-project-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            window.open(`${window.location.origin}/project/${targetTeamId}/surveys/${createdSurvey.id}`)
+                        },
+                    },
+                })
+
+                actions.reportSurveyCreated(createdSurvey, true)
+                return sourceSurvey
             },
         },
         surveyBaseStats: {
@@ -905,6 +925,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        isDuplicateToProjectModalOpen: [
+            false,
+            {
+                setIsDuplicateToProjectModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
         surveyMissing: [
