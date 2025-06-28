@@ -12,6 +12,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
 from posthog.constants import AvailableFeature
+from posthog.models import User
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -1099,3 +1100,66 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
         self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mixed_case_email = "Test.User@Example.COM"
+        expected_normalized_email = "test.user@example.com"
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        invite = OrganizationInvite.objects.get()
+        self.assertEqual(invite.target_email, expected_normalized_email)
+
+        response_data = response.json()
+        self.assertEqual(response_data["target_email"], expected_normalized_email)
+
+    def test_add_organization_invite_case_insensitive_duplicate_prevention(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        base_email = "user@example.com"
+
+        # Create first invite with lowercase email
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response1 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": base_email},
+            )
+
+        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+        mixed_case_email = "User@Example.COM"
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response2 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+    def test_add_organization_invite_case_insensitive_existing_member_check(self):
+        """Test that invites are rejected if a user with case variation already exists as member"""
+        existing_user = User.objects.create_user(
+            email="Existing.User@Example.COM", password="password123", first_name="Existing"
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        invite_email = "existing.user@example.com"
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": invite_email},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)
