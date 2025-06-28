@@ -437,10 +437,10 @@ def get_query_runner(
 
     if kind == "RevenueAnalyticsRevenue":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
-            RevenueAnalyticsRevenueRunner,
+            RevenueAnalyticsRevenueQueryRunner,
         )
 
-        return RevenueAnalyticsRevenueRunner(
+        return RevenueAnalyticsRevenueQueryRunner(
             query=query,
             team=team,
             timings=timings,
