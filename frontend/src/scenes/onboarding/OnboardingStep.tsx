@@ -6,7 +6,8 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 
-import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
+import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { OnboardingStepKey } from '~/types'
 
 export const OnboardingStep = ({
     stepKey,

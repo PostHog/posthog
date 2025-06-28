@@ -11,9 +11,9 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { OnboardingProduct, ProductKey } from '~/types'
+import { OnboardingProduct, ProductKey, OnboardingStepKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
 
 const meta: Meta = {

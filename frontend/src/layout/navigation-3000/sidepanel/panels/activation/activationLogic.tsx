@@ -33,13 +33,13 @@ import {
     ProductKey,
     ReplayTabs,
     TeamBasicType,
+    OnboardingStepKey,
     type TeamPublicType,
     type TeamType,
 } from '~/types'
 
 import { sidePanelSettingsLogic } from '../sidePanelSettingsLogic'
 import type { activationLogicType } from './activationLogicType'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 
 export type ActivationTaskDefinition = {
     id: ActivationTask
