@@ -177,7 +177,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
-            className={cn('text-secondary text-base inline-grid', {
+            className={cn('text-primary text-base inline-grid', {
                 'font-bold': here,
             })}
         >
@@ -188,57 +188,6 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
 
     return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
-
-// interface HereProps {
-//     breadcrumb: IBreadcrumb
-//     isOnboarding?: boolean
-// }
-
-// function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
-//     // const { renameState } = useValues(breadcrumbsLogic)
-//     // const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
-
-//     // const joinedKey = joinBreadcrumbKey(breadcrumb.key)
-//     const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
-
-//     return (
-//         <h1 className="TopBar3000__here" data-attr="top-bar-name">
-//             {breadcrumb.name == null ? (
-//                 <LemonSkeleton className="w-40 h-4" />
-//             // ) : breadcrumb.onRename ? (
-//             //     <EditableField
-//             //         name="item-name-large"
-//             //         value={renameState && renameState[0] === joinedKey ? renameState[1] : hereName}
-//             //         onChange={(newName) => {
-//             //             tentativelyRename(joinedKey, newName)
-//             //             if (breadcrumb.forceEditMode) {
-//             //                 // In this case there's no "Save" button, we update on input
-//             //                 void breadcrumb.onRename?.(newName)
-//             //             }
-//             //         }}
-//             //         onSave={(newName) => {
-//             //             void breadcrumb.onRename?.(newName)
-//             //         }}
-//             //         mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
-//             //         onModeToggle={(newMode) => {
-//             //             if (newMode === 'edit') {
-//             //                 tentativelyRename(joinedKey, hereName)
-//             //             } else {
-//             //                 finishRenaming()
-//             //             }
-//             //         }}
-//             //         saveOnBlur={breadcrumb.forceEditMode}
-//             //         placeholder="Unnamed"
-//             //         compactButtons="xsmall"
-//             //         editingIndication="underlined"
-//             //         autoFocus
-//             //     />
-//             ) : (
-//                 <span>{hereName}</span>
-//             )}
-//         </h1>
-//     )
-// }
 
 function joinBreadcrumbKey(key: IBreadcrumb['key']): string {
     return Array.isArray(key) ? key.map(String).join(':') : String(key)
