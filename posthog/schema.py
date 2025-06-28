@@ -1914,6 +1914,14 @@ class RevenueAnalyticsGoal(BaseModel):
     name: str
 
 
+class RevenueAnalyticsGrossRevenueQueryResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gross: list
+    mrr: list
+
+
 class RevenueAnalyticsGroupBy(StrEnum):
     COHORT = "cohort"
     COUNTRY = "country"
@@ -3510,7 +3518,7 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Any
+    results: RevenueAnalyticsGrossRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5194,7 +5202,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Any
+    results: RevenueAnalyticsGrossRevenueQueryResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6339,6 +6347,28 @@ class Response10(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsGrossRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7867,6 +7897,28 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
+class QueryResponseAlternative26(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsGrossRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8191,6 +8243,28 @@ class QueryResponseAlternative40(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative41(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsGrossRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -11170,6 +11244,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative23,
             QueryResponseAlternative24,
             QueryResponseAlternative25,
+            QueryResponseAlternative26,
             QueryResponseAlternative27,
             QueryResponseAlternative28,
             QueryResponseAlternative29,
@@ -11184,6 +11259,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative38,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
+            QueryResponseAlternative41,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
             QueryResponseAlternative44,
@@ -11234,6 +11310,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative23,
         QueryResponseAlternative24,
         QueryResponseAlternative25,
+        QueryResponseAlternative26,
         QueryResponseAlternative27,
         QueryResponseAlternative28,
         QueryResponseAlternative29,
@@ -11248,6 +11325,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative38,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
+        QueryResponseAlternative41,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
         QueryResponseAlternative44,
@@ -11649,6 +11727,7 @@ class DataTableNode(BaseModel):
             Response8,
             Response9,
             Response10,
+            Response11,
             Response12,
             Response13,
             Response14,

@@ -199,21 +199,33 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
-    def timestamp_where_clause(self, chain: Optional[list[str | int]] = None) -> ast.Expr:
+    def timestamp_where_clause(
+        self,
+        chain: Optional[list[str | int]] = None,
+        extra_days_before: int = 0,
+    ) -> ast.Expr:
         if chain is None:
             chain = ["timestamp"]
+
+        date_from = self.query_date_range.date_from_as_hogql()
+        if extra_days_before > 0:
+            date_from = ast.Call(
+                name="addDays",
+                args=[date_from, ast.Constant(value=-extra_days_before)],
+            )
+        date_to = self.query_date_range.date_to_as_hogql()
 
         return ast.Call(
             name="and",
             args=[
                 ast.CompareOperation(
                     left=ast.Field(chain=chain),
-                    right=self.query_date_range.date_from_as_hogql(),
+                    right=date_from,
                     op=ast.CompareOperationOp.GtEq,
                 ),
                 ast.CompareOperation(
                     left=ast.Field(chain=chain),
-                    right=self.query_date_range.date_to_as_hogql(),
+                    right=date_to,
                     op=ast.CompareOperationOp.LtEq,
                 ),
             ],
