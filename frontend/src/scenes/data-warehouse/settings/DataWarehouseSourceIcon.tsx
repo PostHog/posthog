@@ -93,7 +93,7 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     Mailjet: IconMailjet,
     Redshift: IconRedshift,
     GoogleSheets: IconGoogleSheets,
-    Mongodb: IconMongodb,
+    MongoDB: IconMongodb,
     TemporalIO: IconTemporalIO,
     DoIt: IconDoIt,
 }
