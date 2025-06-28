@@ -28,8 +28,8 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
     )
 
     posthoganalytics.capture(
-        request.user.distinct_id,
-        f"organization domain {event_type}",
+        event=f"organization domain {event_type}",
+        distinct_id=str(request.user.distinct_id),
         properties=properties,
         groups=groups(domain.organization),
     )

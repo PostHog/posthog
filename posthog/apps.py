@@ -6,7 +6,6 @@ from asgiref.sync import async_to_sync
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
-from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
@@ -26,7 +25,6 @@ class PostHogConfig(AppConfig):
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
-        posthoganalytics.exception_autocapture_integrations = [Integrations.Django]
         posthoganalytics.super_properties = {"region": get_instance_region()}
 
         if settings.E2E_TESTING:
@@ -56,9 +54,9 @@ class PostHogConfig(AppConfig):
                 phcloud_client = Client(posthoganalytics.api_key)
 
                 phcloud_client.capture(
-                    get_machine_id(),
-                    "development server launched",
-                    {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
+                    distinct_id=get_machine_id(),
+                    event="development server launched",
+                    properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:

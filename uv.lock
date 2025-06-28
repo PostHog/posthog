@@ -4004,7 +4004,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=5.1.0" },
+    { name = "posthoganalytics", specifier = ">=6.0.0" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4125,7 +4125,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "5.1.0"
+version = "6.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4133,10 +4133,11 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "requests" },
     { name = "six" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/2b/88f865bbb1671fac1f101a823002b75dca35913b8525950d8f896915ba50/posthoganalytics-5.1.0.tar.gz", hash = "sha256:071a082d2e8b5df91764d7a7ed0f3e678a61e49195b311a5fab0ec40e5b4f6f1", size = 86318, upload-time = "2025-06-18T16:28:00.678Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/bf/8828b6b5dfbc44096345ba7b40ff6f9584da24d64619bd64c8b26233ab9a/posthoganalytics-6.0.0.tar.gz", hash = "sha256:49cb433ad7d148bfc191dceae151eea572f3f6221d9925d350d9a8f24bd3017a", size = 88529, upload-time = "2025-06-27T11:57:28.299Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/04/657214a32547cb04bd614d2fc000e04eb6f7042420bac36987c499718d13/posthoganalytics-5.1.0-py3-none-any.whl", hash = "sha256:37ae772b13914410dd82760322de6aa11a3bbd194cf1b4a41e0cc0e299f2dfbd", size = 104611, upload-time = "2025-06-18T16:27:59.515Z" },
+    { url = "https://files.pythonhosted.org/packages/34/39/67a015d76643a8e79233d8f80c7898ce4fbab38e33ef88ce55670bd53f0e/posthoganalytics-6.0.0-py3-none-any.whl", hash = "sha256:824df3167a04cbca2edec59c78abbbd426ccce1cc19535d9ffb26f17259a8e38", size = 106101, upload-time = "2025-06-27T11:57:27.144Z" },
 ]
 
 [[package]]
