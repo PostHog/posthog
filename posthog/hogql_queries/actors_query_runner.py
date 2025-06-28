@@ -74,29 +74,34 @@ class ActorsQueryRunner(QueryRunner):
         recordings_lookup: Optional[dict[str, list[dict]]],
         events_distinct_id_lookup: Optional[dict[str, list[str]]],
     ) -> list:
-        enriched = []
+        # Convert to list if it's an iterator, then modify in-place
+        if hasattr(results, "__iter__") and not isinstance(results, list):
+            results = list(results)
 
-        for result in results:
-            new_row = list(result)
+        for i, result in enumerate(results):
+            # Convert to mutable list if it's a tuple/immutable
+            if not isinstance(result, list):
+                result = list(result)
+                results[i] = result
+
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             if actor:
-                new_row[actor_column_index] = actor
+                result[actor_column_index] = actor
             else:
                 actor_data: dict[str, Any] = {"id": actor_id}
                 if self.group_type_index is not None:
                     actor_data["group_type_index"] = self.group_type_index
                 if events_distinct_id_lookup is not None:
                     actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
-                new_row[actor_column_index] = actor_data
+                result[actor_column_index] = actor_data
+
             if recordings_column_index is not None and recordings_lookup is not None:
-                new_row[recordings_column_index] = (
+                result[recordings_column_index] = (
                     self._get_recordings(result[recordings_column_index], recordings_lookup) or []
                 )
 
-            enriched.append(new_row)
-
-        return enriched
+        return results
 
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
