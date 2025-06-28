@@ -75,7 +75,6 @@ from . import (
     team,
     uploaded_media,
     user,
-    user_group,
     external_web_analytics,
     web_vitals,
 )
@@ -634,13 +633,6 @@ environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"user_groups",
-    user_group.UserGroupViewSet,
-    "project_user_groups",
     ["team_id"],
 )
 
