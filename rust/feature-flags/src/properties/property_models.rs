@@ -44,6 +44,9 @@ pub struct PropertyFilter {
     pub operator: Option<OperatorType>,
     #[serde(rename = "type")]
     pub prop_type: PropertyType,
+    // NB: a client-only property used to transform operators to their negation counterparts. For example, IsNot becomes Exact and vice versa.
+    // This is NOT used during flag property matching.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub negation: Option<bool>,
     pub group_type_index: Option<i32>,
 }
