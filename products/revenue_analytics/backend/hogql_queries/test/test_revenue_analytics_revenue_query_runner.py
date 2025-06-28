@@ -615,7 +615,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsPropertyFilter(
                     key="product",
                     operator=PropertyOperator.EXACT,
-                    value=["Product C"],  # Equivalent to `prod_c` but we"re querying by name
+                    value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
                 )
             ]
         ).results
