@@ -435,7 +435,7 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsRevenue":
+    if kind == "RevenueAnalyticsRevenueQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
             RevenueAnalyticsRevenueQueryRunner,
         )
