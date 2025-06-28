@@ -213,6 +213,27 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
             }
         },
+        loadPlaylistsSuccess: ({ playlists }) => {
+            try {
+                // the feature flag might be off, so we don't show the count column
+                // but we want to know if we _would_ have shown counts
+                // so we'll emit a posthog event
+                const playlistTotal = playlists.results.length
+                const savedFiltersWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.saved_filters?.count !== null
+                ).length
+                const collectionWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.collection.count !== null
+                ).length
+                posthog.capture('session_recordings_playlist_counts', {
+                    playlistTotal,
+                    savedFiltersWithCounts,
+                    collectionWithCounts,
+                })
+            } catch (e) {
+                posthog.captureException(e, { posthog_feature: 'playlist_counting' })
+            }
+        },
     })),
 
     selectors(({ actions }) => ({
@@ -287,29 +308,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
             },
         ],
-    })),
-    listeners(() => ({
-        loadPlaylistsSuccess: ({ playlists }) => {
-            try {
-                // the feature flag might be off, so we don't show the count column
-                // but we want to know if we _would_ have shown counts
-                // so we'll emit a posthog event
-                const playlistTotal = playlists.results.length
-                const savedFiltersWithCounts = playlists.results.filter(
-                    (playlist) => playlist.recordings_counts?.saved_filters?.count !== null
-                ).length
-                const collectionWithCounts = playlists.results.filter(
-                    (playlist) => playlist.recordings_counts?.collection.count !== null
-                ).length
-                posthog.capture('session_recordings_playlist_counts', {
-                    playlistTotal,
-                    savedFiltersWithCounts,
-                    collectionWithCounts,
-                })
-            } catch (e) {
-                posthog.captureException(e, { posthog_feature: 'playlist_counting' })
-            }
-        },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
