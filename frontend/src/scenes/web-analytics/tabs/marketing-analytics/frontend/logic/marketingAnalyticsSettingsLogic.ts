@@ -19,7 +19,11 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
-        updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsColumnsSchemaNames, columnName: string | null) => ({
+        updateSourceMapping: (
+            tableId: string,
+            fieldName: MarketingAnalyticsColumnsSchemaNames,
+            columnName: string | null
+        ) => ({
             tableId,
             fieldName,
             columnName,

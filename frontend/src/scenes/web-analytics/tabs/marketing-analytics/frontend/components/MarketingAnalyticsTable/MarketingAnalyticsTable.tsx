@@ -64,11 +64,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const MarketingSortableCell = useCallback(
         (name: string, index: number) => {
             return function MarketingSortableCellComponent() {
-                if (!marketingAnalyticsOrderBy) {
-                    setMarketingAnalyticsOrderBy(index, 'DESC')
-                    return null
-                }
-                const [orderIndex, orderDirection] = marketingAnalyticsOrderBy
+                const [orderIndex, orderDirection] = marketingAnalyticsOrderBy || [null, null]
                 const isSortedByMyField = orderIndex === index
                 const isAscending = orderDirection === 'ASC'
                 const isDescending = orderDirection === 'DESC'

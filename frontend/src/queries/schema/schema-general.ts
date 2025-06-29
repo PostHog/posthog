@@ -3303,13 +3303,19 @@ export interface EventsHeatMapStructuredResult {
     allAggregations: integer
 }
 
-export type MarketingAnalyticsSchemaFieldTypes = 'string' | 'integer' | 'number' | 'float' | 'datetime' | 'date' | 'boolean'
+export type MarketingAnalyticsSchemaFieldTypes =
+    | 'string'
+    | 'integer'
+    | 'number'
+    | 'float'
+    | 'datetime'
+    | 'date'
+    | 'boolean'
 
 export type MarketingAnalyticsSchemaField = {
     type: MarketingAnalyticsSchemaFieldTypes[]
     required: boolean
 }
-
 
 export enum MarketingAnalyticsColumnsSchemaNames {
     Campaign = 'campaign',

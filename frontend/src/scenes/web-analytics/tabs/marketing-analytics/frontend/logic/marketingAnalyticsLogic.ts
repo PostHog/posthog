@@ -106,7 +106,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (Object.keys(validSourcesMap).length === 0) {
                     return null
                 }
-                console.log('JFBW validSourcesMap', validSourcesMap)
                 return validSourcesMap
             },
         ],
