@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 import logging
 
-from posthog.schema import NodeKind
+from posthog.schema import NodeKind, SourceMap
 
 # Based on team_revenue_analytics_config.py
 
@@ -84,6 +84,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
     @property
     def sources_map(self) -> dict:
         return self._sources_map or {}
+
+    @property
+    def sources_map_casted(self) -> dict[str, SourceMap]:
+        """Return sources_map as dict of source_id -> SourceMap objects"""
+        raw_sources = self._sources_map or {}
+        # Convert dict values to SourceMap objects
+        response = {}
+        for source_id, field_mapping in raw_sources.items():
+            if field_mapping is None:
+                response[source_id] = SourceMap()
+            else:
+                response[source_id] = SourceMap(**field_mapping)
+        return response
 
     @sources_map.setter
     def sources_map(self, value: dict) -> None:
