@@ -1493,6 +1493,11 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarketingAnalyticsOrderByEnum(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9781,7 +9786,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[list[str]] = Field(
+    orderBy: Optional[list[list[Union[float, MarketingAnalyticsOrderByEnum]]]] = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]

@@ -21,16 +21,6 @@ interface ColumnConfig {
 
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import {
-    CAMPAIGN_COST_CTE_NAME,
-    CAMPAIGN_NAME_FIELD,
-    CONVERSION_GOAL_PREFIX,
-    CONVERSION_GOAL_PREFIX_ABBREVIATION,
-    SOURCE_NAME_FIELD,
-    TOTAL_CLICKS_FIELD,
-    TOTAL_COST_FIELD,
-    TOTAL_IMPRESSIONS_FIELD,
-} from '../../logic/utils'
 import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
@@ -52,9 +42,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
         const source: MarketingAnalyticsTableQuery = {
             ...query.source,
-            orderBy: marketingAnalyticsOrderBy
-                ? [`${marketingAnalyticsOrderBy[0]} ${marketingAnalyticsOrderBy[1]}`]
-                : undefined,
+            orderBy: marketingAnalyticsOrderBy ? [marketingAnalyticsOrderBy] : null,
         }
 
         return {
@@ -76,20 +64,25 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     }, [conversion_goals, dynamicConversionGoal])
 
     const MarketingSortableCell = useCallback(
-        (name: string, orderByField: string): QueryContextColumnTitleComponent =>
+        (name: string, index: number): QueryContextColumnTitleComponent =>
             function MarketingSortableCell() {
-                const isSortedByMyField = marketingAnalyticsOrderBy?.[0] === orderByField
-                const isAscending = marketingAnalyticsOrderBy?.[1] === 'ASC'
-                const isDescending = marketingAnalyticsOrderBy?.[1] === 'DESC'
+                if (!marketingAnalyticsOrderBy) {
+                    setMarketingAnalyticsOrderBy(index, 'DESC')
+                    return null
+                }
+                const [orderIndex, orderDirection] = marketingAnalyticsOrderBy
+                const isSortedByMyField = orderIndex === index
+                const isAscending = orderDirection === 'ASC'
+                const isDescending = orderDirection === 'DESC'
 
                 const onClick = useCallback(() => {
                     // 3-state cycle: None -> DESC -> ASC -> None (clear/reset to default)
                     if (!isSortedByMyField) {
                         // Not currently sorted by this field, start with DESC
-                        setMarketingAnalyticsOrderBy(orderByField, 'DESC')
+                        setMarketingAnalyticsOrderBy(index, 'DESC')
                     } else if (isDescending) {
                         // Currently DESC, change to ASC
-                        setMarketingAnalyticsOrderBy(orderByField, 'ASC')
+                        setMarketingAnalyticsOrderBy(index, 'ASC')
                     } else if (isAscending) {
                         // Currently ASC, clear the sort (reset to default order)
                         clearMarketingAnalyticsOrderBy()
@@ -123,7 +116,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             columns[goalName] = {
                 renderTitle: MarketingSortableCell(
                     goalName,
-                    `${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}`
+                    index + 7
                 ),
                 render: ({ value }: { value: any }) => value || '-',
                 align: 'right',
@@ -133,7 +126,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             columns[costPerGoalName] = {
                 renderTitle: MarketingSortableCell(
                     costPerGoalName,
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}, 0)`
+                    index + 7
                 ),
                 render: ({ value }: { value: any }) =>
                     value && typeof value === 'number' ? `$${value.toFixed(2)}` : '-',
@@ -144,6 +137,8 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         return columns
     }, [allConversionGoals, MarketingSortableCell])
 
+    console.log('JFBW webAnalyticsDataTableQueryContext', webAnalyticsDataTableQueryContext)
+
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
@@ -153,25 +148,25 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             // Add sortable column headers for marketing analytics fields
             // These match the backend output column names
             Campaign: {
-                renderTitle: MarketingSortableCell('Campaign', `${CAMPAIGN_COST_CTE_NAME}.${CAMPAIGN_NAME_FIELD}`),
+                renderTitle: MarketingSortableCell('Campaign', 0),
             },
             Source: {
-                renderTitle: MarketingSortableCell('Source', `${CAMPAIGN_COST_CTE_NAME}.${SOURCE_NAME_FIELD}`),
+                renderTitle: MarketingSortableCell('Source', 1),
             },
             'Total Cost': {
-                renderTitle: MarketingSortableCell('Total Cost', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD}`),
+                renderTitle: MarketingSortableCell('Total Cost', 2),
                 render: webAnalyticsDataTableQueryContext.columns?.cost?.render,
                 align: 'right',
             },
             'Total Clicks': {
-                renderTitle: MarketingSortableCell('Total Clicks', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}`),
+                renderTitle: MarketingSortableCell('Total Clicks', 3),
                 render: webAnalyticsDataTableQueryContext.columns?.clicks?.render,
                 align: 'right',
             },
             'Total Impressions': {
                 renderTitle: MarketingSortableCell(
                     'Total Impressions',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}`
+                    4
                 ),
                 render: webAnalyticsDataTableQueryContext.columns?.impressions?.render,
                 align: 'right',
@@ -179,7 +174,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             'Cost per Click': {
                 renderTitle: MarketingSortableCell(
                     'Cost per Click',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}, 0)`
+                    5
                 ),
                 render: webAnalyticsDataTableQueryContext.columns?.cpc?.render,
                 align: 'right',
@@ -187,7 +182,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             CTR: {
                 renderTitle: MarketingSortableCell(
                     'CTR',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}, 0) * 100`
+                    6
                 ),
                 render: webAnalyticsDataTableQueryContext.columns?.ctr?.render,
                 align: 'right',

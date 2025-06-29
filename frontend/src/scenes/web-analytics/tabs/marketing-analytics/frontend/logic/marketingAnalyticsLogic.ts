@@ -10,6 +10,7 @@ import {
     DataWarehouseNode,
     SourceMap,
     ConversionGoalFilter,
+    MarketingAnalyticsOrderBy,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
@@ -44,19 +45,17 @@ export type NativeSource = {
     tables: DatabaseSchemaDataWarehouseTable[]
 }
 
-export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC'] | null
-
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
     actions({
-        setMarketingAnalyticsOrderBy: (orderBy: string, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
         setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         clearDynamicConversionGoal: () => true,
     }),
     reducers({
         marketingAnalyticsOrderBy: [
-            null as MarketingAnalyticsOrderBy,
+            null as MarketingAnalyticsOrderBy | null,
             {
                 setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
                 clearMarketingAnalyticsOrderBy: () => null,

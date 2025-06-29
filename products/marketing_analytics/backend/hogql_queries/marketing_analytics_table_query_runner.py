@@ -256,7 +256,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             from_clause = self._append_joins(from_clause, conversion_joins)
 
         # Build ORDER BY
-        order_by_exprs = self._build_order_by_exprs()
+        order_by_exprs = self._build_order_by_exprs(all_columns)
 
         # Build LIMIT and OFFSET
         limit = self.query.limit or DEFAULT_LIMIT
@@ -367,7 +367,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             base_join.next_join = current_join
         return initial_join
 
-    def _build_order_by_exprs(self) -> list[ast.OrderExpr]:
+    def _build_order_by_exprs(self, all_columns: list[ast.Expr]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
         from posthog.hogql.parser import parse_expr
 
@@ -375,49 +375,10 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         if hasattr(self.query, "orderBy") and self.query.orderBy:
             for order_expr_str in self.query.orderBy:
-                order_direction: Literal["ASC", "DESC"]
-                # Fix ordering expressions for null handling
-                if "nullif(" in order_expr_str and CONVERSION_GOAL_PREFIX in order_expr_str:
-                    if order_expr_str.strip().endswith(" ASC"):
-                        calc_part = order_expr_str.replace(" ASC", "").strip()
-                        order_direction = "ASC"
-                        fallback_value = FALLBACK_COST_VALUE
-                    elif order_expr_str.strip().endswith(" DESC"):
-                        calc_part = order_expr_str.replace(" DESC", "").strip()
-                        order_direction = "DESC"
-                        fallback_value = -FALLBACK_COST_VALUE
-                    else:
-                        calc_part = order_expr_str.strip()
-                        order_direction = "ASC"
-                        fallback_value = FALLBACK_COST_VALUE
-
-                    # Build: COALESCE(calc_part, fallback_value)
-                    try:
-                        calc_expr = parse_expr(calc_part)
-                    except (SyntaxError, BaseHogQLError):
-                        calc_expr = ast.Field(chain=[calc_part])
-
-                    coalesce_expr = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=fallback_value)])
-
-                    order_by_exprs.append(ast.OrderExpr(expr=coalesce_expr, order=order_direction))
-                else:
-                    # Parse regular order expressions
-                    if order_expr_str.strip().endswith(" ASC"):
-                        expr_part = order_expr_str.replace(" ASC", "").strip()
-                        order_direction = "ASC"
-                    elif order_expr_str.strip().endswith(" DESC"):
-                        expr_part = order_expr_str.replace(" DESC", "").strip()
-                        order_direction = "DESC"
-                    else:
-                        expr_part = order_expr_str.strip()
-                        order_direction = "ASC"
-
-                    try:
-                        field_expr = parse_expr(expr_part)
-                    except (SyntaxError, BaseHogQLError):
-                        field_expr = ast.Field(chain=[expr_part])
-
-                    order_by_exprs.append(ast.OrderExpr(expr=field_expr, order=order_direction))
+                order_index_float, order_by = order_expr_str
+                order_index = int(order_index_float)
+                column_name = ast.Constant(value=order_index + 1)
+                order_by_exprs.append(ast.OrderExpr(expr=column_name, order=order_by))
         else:
             # Build default order by: campaign_costs.total_cost DESC
             default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])

@@ -3215,13 +3215,15 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
+export type MarketingAnalyticsOrderBy = [number, 'ASC' | 'DESC']
+
 export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
     kind: NodeKind.MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
     /** Columns to order by - similar to EventsQuery format */
-    orderBy?: string[]
+    orderBy?: MarketingAnalyticsOrderBy[] | null
     /** Number of rows to return */
     limit?: integer
     /** Number of rows to skip before returning rows */

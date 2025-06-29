@@ -14000,6 +14000,20 @@
             },
             "type": "object"
         },
+        "MarketingAnalyticsOrderBy": {
+            "items": [
+                {
+                    "type": "number"
+                },
+                {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+        },
         "MarketingAnalyticsTableQuery": {
             "additionalProperties": false,
             "properties": {
@@ -14055,11 +14069,18 @@
                     "description": "Number of rows to skip before returning rows"
                 },
                 "orderBy": {
-                    "description": "Columns to order by - similar to EventsQuery format",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsOrderBy"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Columns to order by - similar to EventsQuery format"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
