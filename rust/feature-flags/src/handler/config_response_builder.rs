@@ -1,24 +1,28 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse},
+        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, SessionRecordingField},
     },
     config::Config,
     site_apps::get_decide_site_apps,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
+use limiters::redis::QuotaResource;
 use std::{collections::HashMap, sync::Arc};
+
+use crate::billing_limiters::SessionReplayLimiter;
 
 use super::{error_tracking, session_recording, types::RequestContext};
 
 /// Isolates the specific fields needed to build config responses from a RequestContext.
 /// This allows us to extract only the relevant dependencies (config, database client,
-/// redis client, and headers) rather than carrying around the entire RequestContext.
+/// redis client, billing limiter, and headers) rather than carrying around the entire RequestContext.
 pub struct ConfigContext {
     pub config: Config,
     pub reader: Arc<dyn common_database::Client + Send + Sync>,
     pub redis: Arc<dyn common_redis::Client + Send + Sync>,
+    pub session_replay_billing_limiter: SessionReplayLimiter,
     pub headers: HeaderMap,
 }
 
@@ -27,7 +31,8 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             reader: context.state.reader.clone(),
-            redis: context.state.redis.clone(),
+            redis: context.state.redis_reader.clone(),
+            session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }
     }
@@ -36,12 +41,14 @@ impl ConfigContext {
         config: Config,
         reader: Arc<dyn common_database::Client + Send + Sync>,
         redis: Arc<dyn common_redis::Client + Send + Sync>,
+        session_replay_billing_limiter: SessionReplayLimiter,
         headers: HeaderMap,
     ) -> Self {
         Self {
             config,
             reader,
             redis,
+            session_replay_billing_limiter,
             headers,
         }
     }
@@ -67,16 +74,41 @@ async fn apply_config_fields(
     context: &ConfigContext,
     team: &Team,
 ) -> Result<(), FlagError> {
+    // Check for recordings quota limits only if enabled
+    let is_recordings_limited = if context.config.flags_session_replay_quota_check {
+        context
+            .session_replay_billing_limiter
+            .is_limited(&team.api_token)
+            .await
+    } else {
+        false
+    };
+
+    if is_recordings_limited {
+        // Add recordings to quota_limited array, preserving any existing limitations
+        match &mut response.quota_limited {
+            Some(existing) => existing.push(QuotaResource::Recordings.as_str().to_string()),
+            None => {
+                response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()])
+            }
+        }
+    }
+
     // Apply all the core config fields that don't require async operations
     apply_core_config_fields(response, &context.config, team);
 
     // Handle fields that require request context (headers, config, etc)
     // I test this config field in isolation in session_recording.rs, and have integration tests for it in tests/test_flags.rs
-    response.config.session_recording = session_recording::session_recording_config_response(
-        team,
-        &context.headers,
-        &context.config,
-    );
+    response.config.session_recording = if is_recordings_limited {
+        // Disable session recording when quota limited
+        Some(SessionRecordingField::Disabled(false))
+    } else {
+        session_recording::session_recording_config_response(
+            team,
+            &context.headers,
+            &context.config,
+        )
+    };
 
     // Handle fields that require database access
     // I test this config field in isolation in site_apps/mod.rs and have integration tests for it in tests/test_flags.rs

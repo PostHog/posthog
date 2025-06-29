@@ -12,10 +12,10 @@ import {
     PipelineTab,
     ProductKey,
     SDKKey,
+    OnboardingStepKey,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
-import type { OnboardingStepKey } from './onboarding/onboardingLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -170,6 +170,7 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,

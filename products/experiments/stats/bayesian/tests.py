@@ -241,8 +241,8 @@ class BayesianProportionTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: ProportionStatistic,
-        control_stat: ProportionStatistic,
+        treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
+        control_stat: Union[SampleMeanStatistic, ProportionStatistic],
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
@@ -323,8 +323,8 @@ class BayesianMeanTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic,
-        control_stat: SampleMeanStatistic,
+        treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
+        control_stat: Union[SampleMeanStatistic, ProportionStatistic],
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,

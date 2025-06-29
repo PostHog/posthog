@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 set -e
 
@@ -9,7 +10,23 @@ mkdir -p "$DIR/../share"
 
 if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2-City.json" ]; then
     rm -f "$DIR/../share/GeoLite2-City.mmdb" "$DIR/../share/GeoLite2-City.json"
-    curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"
+
+    # Try up to 3 times since this download is flaky
+    for attempt in 1 2 3; do
+        echo "Downloading GeoLite2-City.mmdb (attempt $attempt/3)..."
+        if curl -L "https://mmdbcdn.posthog.net/" --http1.1 --fail | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
+            echo "Download successful"
+            break
+        fi
+
+        echo "Download failed"
+        if [ $attempt -eq 3 ]; then
+            echo "Failed after 3 attempts"
+            exit 1
+        fi
+        echo "Retrying in 5 seconds..."
+        sleep 5
+    done
 
     DATE=$(date +"%Y-%m-%d")
     echo "{ \"date\": \"$DATE\" }" >"$DIR/../share/GeoLite2-City.json"

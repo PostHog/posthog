@@ -13,7 +13,7 @@ from posthog.models.utils import generate_random_token_personal, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
 
-MAX_API_KEYS_PER_USER = 10  # Same as in personalAPIKeysLogic.tsx
+MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):

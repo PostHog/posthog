@@ -104,13 +104,8 @@ class HogFunctionTemplate(UUIDModel):
                 ).first()
             else:
                 # Get the latest sha by created_at timestamp
-                # Only include active templates (not deprecated)
-                return (
-                    cls.objects.filter(template_id=template_id)
-                    .exclude(status="deprecated")
-                    .order_by("-created_at")
-                    .first()
-                )
+                # We allow all templates to be loaded, even deprecated ones as they might still be used by customers - they just aren't listable in the UI
+                return cls.objects.filter(template_id=template_id).order_by("-created_at").first()
         except Exception as e:
             logger.error(
                 "Failed to get template from database",
