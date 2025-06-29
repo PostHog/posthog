@@ -11,10 +11,11 @@ import {
     SourceMap,
     ConversionGoalFilter,
     MarketingAnalyticsOrderBy,
+    MarketingAnalyticsColumnsSchemaNames,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
@@ -89,8 +90,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 const validSourcesMap = sources_map
 
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
+                Object.values(MarketingAnalyticsColumnsSchemaNames)
+                    .filter(
+                        (column_name: MarketingAnalyticsColumnsSchemaNames) =>
+                            MARKETING_ANALYTICS_SCHEMA[column_name].required
+                    )
                     .forEach((column_name: string) => {
                         Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
                             if (!fieldMapping[column_name]) {
@@ -102,7 +106,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (Object.keys(validSourcesMap).length === 0) {
                     return null
                 }
-
+                console.log('JFBW validSourcesMap', validSourcesMap)
                 return validSourcesMap
             },
         ],

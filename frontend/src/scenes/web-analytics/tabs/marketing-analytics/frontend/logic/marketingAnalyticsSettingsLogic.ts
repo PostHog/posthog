@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
-import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
@@ -19,7 +19,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
-        updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsSchema, columnName: string | null) => ({
+        updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsColumnsSchemaNames, columnName: string | null) => ({
             tableId,
             fieldName,
             columnName,

@@ -22,12 +22,11 @@ from .conversion_goal_processor import ConversionGoalProcessor
 from posthog.hogql.errors import BaseHogQLError
 
 from .constants import (
+    BASE_COLUMNS,
     CAMPAIGN_COST_CTE_NAME,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
     DEFAULT_MARKETING_ANALYTICS_COLUMNS,
-    CTR_PERCENTAGE_MULTIPLIER,
-    DECIMAL_PRECISION,
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
@@ -243,11 +242,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             conversion_joins = []
             conversion_columns = []
 
-        # Build base columns
-        base_columns = self._build_base_columns()
-
         # Combine base and conversion goal columns
-        all_columns = base_columns + conversion_columns
+        all_columns = BASE_COLUMNS + conversion_columns
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
@@ -271,93 +267,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             limit=ast.Constant(value=actual_limit),
             offset=ast.Constant(value=offset),
         )
-
-    def _build_base_columns(self) -> list[ast.Expr]:
-        """Build base columns"""
-        return [
-            # Campaign name
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
-                expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
-            ),
-            # Source name
-            ast.Alias(
-                alias="Source", expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field])
-            ),
-            # Total Cost: round(campaign_costs.total_cost, 2)
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-            # Total Clicks: round(campaign_costs.total_clicks, 0)
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
-                expr=ast.Call(
-                    name="round",
-                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
-                ),
-            ),
-            # Total Impressions: round(campaign_costs.total_impressions, 0)
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
-                expr=ast.Call(
-                    name="round",
-                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
-                ),
-            ),
-            # Cost per Click: round(total_cost / nullif(total_clicks, 0), 2)
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
-                            op=ast.ArithmeticOperationOp.Div,
-                            right=ast.Call(
-                                name="nullif",
-                                args=[
-                                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                        ),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-            # CTR: round(total_clicks / nullif(total_impressions, 0) * 100, 2)
-            ast.Alias(
-                alias=MarketingAnalyticsBaseColumns.CTR,
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.ArithmeticOperation(
-                                left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
-                                op=ast.ArithmeticOperationOp.Div,
-                                right=ast.Call(
-                                    name="nullif",
-                                    args=[
-                                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
-                                        ast.Constant(value=0),
-                                    ],
-                                ),
-                            ),
-                            op=ast.ArithmeticOperationOp.Mult,
-                            right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
-                        ),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-        ]
 
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         """Recursively append joins to the initial join by using the next_join field"""

@@ -2,6 +2,7 @@
 
 from typing import Optional
 import structlog
+from posthog.schema import SourceMap
 from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 from posthog.hogql.database.database import create_hogql_database
 
@@ -203,7 +204,7 @@ class MarketingSourceFactory:
 
         return adapters
 
-    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[dict]:
+    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[SourceMap]:
         """Get source map for a table"""
         if source_id and table.external_data_source and table.external_data_source.source_type:
             # Managed table
@@ -216,7 +217,7 @@ class MarketingSourceFactory:
                     return self._sources_map[key]
         else:
             # Self-managed table
-            return self._sources_map.get(str(table.id))
+            return self._sources_map[str(table.id)]
 
         return None
 

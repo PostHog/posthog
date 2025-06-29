@@ -1504,15 +1504,13 @@ class MarketingAnalyticsBaseColumns(StrEnum):
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
-    CAMPAIGN_NAME = "campaign_name"
-    SOURCE_NAME = "source_name"
-    IMPRESSIONS = "impressions"
+    CAMPAIGN = "campaign"
     CLICKS = "clicks"
     COST = "cost"
-    DATE = "date"
-    UTM_CAMPAIGN = "utm_campaign"
-    UTM_SOURCE = "utm_source"
     CURRENCY = "currency"
+    DATE = "date"
+    IMPRESSIONS = "impressions"
+    SOURCE = "source"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -1525,12 +1523,14 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
-class MarketingAnalyticsSchemaField(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    required: bool
-    type: list[str]
+class MarketingAnalyticsSchemaFieldTypes(StrEnum):
+    STRING = "string"
+    INTEGER = "integer"
+    NUMBER = "number"
+    FLOAT = "float"
+    DATETIME = "datetime"
+    DATE = "date"
+    BOOLEAN = "boolean"
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2070,15 +2070,13 @@ class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    campaign_name: Optional[str] = None
+    campaign: Optional[str] = None
     clicks: Optional[str] = None
     cost: Optional[str] = None
     currency: Optional[str] = None
     date: Optional[str] = None
     impressions: Optional[str] = None
-    source_name: Optional[str] = None
-    utm_campaign: Optional[str] = None
-    utm_source: Optional[str] = None
+    source: Optional[str] = None
 
 
 class StepOrderValue(StrEnum):
@@ -3392,6 +3390,14 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["log"] = "log"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class MarketingAnalyticsSchemaField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    required: bool
+    type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
 class MatchedRecording(BaseModel):

@@ -1,6 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema, MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -3303,7 +3303,35 @@ export interface EventsHeatMapStructuredResult {
     allAggregations: integer
 }
 
-export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+export type MarketingAnalyticsSchemaFieldTypes = 'string' | 'integer' | 'number' | 'float' | 'datetime' | 'date' | 'boolean'
+
+export type MarketingAnalyticsSchemaField = {
+    type: MarketingAnalyticsSchemaFieldTypes[]
+    required: boolean
+}
+
+
+export enum MarketingAnalyticsColumnsSchemaNames {
+    Campaign = 'campaign',
+    Clicks = 'clicks',
+    Cost = 'cost',
+    Currency = 'currency',
+    Date = 'date',
+    Impressions = 'impressions',
+    Source = 'source',
+}
+
+export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
+    [MarketingAnalyticsColumnsSchemaNames.Date]: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
+    [MarketingAnalyticsColumnsSchemaNames.Source]: { type: ['string'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Campaign]: { type: ['string'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Cost]: { type: ['float', 'integer'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+}
+
+export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
 
 export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 
@@ -3328,6 +3356,7 @@ export enum MarketingAnalyticsBaseColumns {
     CTR = 'CTR',
 }
 
-export enum MarketingAnalyticsColumnsEnum {
+export enum MarketingAnalyticsHelperForColumnNames {
+    Goal = 'Goal',
     CostPer = 'Cost per',
 }

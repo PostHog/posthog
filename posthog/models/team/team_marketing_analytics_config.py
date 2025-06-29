@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 import logging
 
-from posthog.schema import NodeKind
+from posthog.schema import NodeKind, SourceMap
 
 # Based on team_revenue_analytics_config.py
 
@@ -82,7 +82,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
 
     @property
-    def sources_map(self) -> dict:
+    def sources_map(self) -> SourceMap:
         return self._sources_map or {}
 
     @sources_map.setter
@@ -94,7 +94,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
-    def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
+    def update_source_mapping(self, source_id: str, field_mapping: SourceMap) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
         # Get current sources_map
@@ -106,7 +106,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         # Validate and set the updated sources_map
         self.sources_map = current_sources
 
-    def update_source_field_mapping(self, source_id: str, field_mappings: dict) -> None:
+    def update_source_field_mapping(self, source_id: str, field_mappings: SourceMap) -> None:
         """Update specific field mappings for a source while preserving other fields."""
 
         # Get current sources_map

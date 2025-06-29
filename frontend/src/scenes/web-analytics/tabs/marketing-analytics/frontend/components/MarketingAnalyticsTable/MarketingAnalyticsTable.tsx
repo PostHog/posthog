@@ -10,7 +10,7 @@ import {
     DataTableNode,
     MarketingAnalyticsTableQuery,
     NodeKind,
-    MarketingAnalyticsColumnsEnum,
+    MarketingAnalyticsHelperForColumnNames,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
@@ -108,8 +108,8 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         const columns: Record<string, QueryContextColumn> = {}
 
         allConversionGoals?.forEach((goal: ConversionGoalFilter, index: number) => {
-            const goalName = goal.conversion_goal_name || `${MarketingAnalyticsColumnsEnum.Goal} ${index + 1}`
-            const costPerGoalName = `${MarketingAnalyticsColumnsEnum.CostPer} ${goalName}`
+            const goalName = goal.conversion_goal_name || `${MarketingAnalyticsHelperForColumnNames.Goal} ${index + 1}`
+            const costPerGoalName = `${MarketingAnalyticsHelperForColumnNames.CostPer} ${goalName}`
 
             const goalColumnIndex =
                 Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX

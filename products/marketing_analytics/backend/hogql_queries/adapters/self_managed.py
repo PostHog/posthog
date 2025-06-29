@@ -1,19 +1,12 @@
 # Self-Managed Marketing Source Adapters
 
 from posthog.hogql import ast
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames
 from .base import MarketingSourceAdapter, ValidationResult, ExternalConfig
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
-    SOURCE_MAP_CAMPAIGN_NAME,
-    SOURCE_MAP_CLICKS,
-    SOURCE_MAP_CURRENCY,
-    SOURCE_MAP_DATE,
-    SOURCE_MAP_IMPRESSIONS,
-    SOURCE_MAP_SOURCE_NAME,
-    SOURCE_MAP_TOTAL_COST,
-    SOURCE_MAP_UTM_CAMPAIGN_NAME,
-    SOURCE_MAP_UTM_SOURCE_NAME,
     UNKNOWN_CAMPAIGN,
+    UNKNOWN_SOURCE,
 )
 from products.marketing_analytics.backend.hogql_queries.utils import get_source_map_field
 
@@ -48,15 +41,13 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             if missing_required_fields:
                 errors.extend([f"Missing required field: {field}" for field in missing_required_fields])
 
-            # Must have either campaign_name or utm_campaign_name
-            campaign_field = get_source_map_field(
-                self.config.source_map, SOURCE_MAP_UTM_CAMPAIGN_NAME
-            ) or get_source_map_field(self.config.source_map, SOURCE_MAP_CAMPAIGN_NAME)
+            # Must have campaign_name
+            campaign_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN)
             if not campaign_field:
-                errors.append("Missing campaign name field (utm_campaign_name or campaign_name)")
+                errors.append("Missing campaign name field (campaign_name)")
 
             # Check for date field
-            date_field = get_source_map_field(self.config.source_map, SOURCE_MAP_DATE)
+            date_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.DATE)
             if not date_field:
                 errors.append("Missing date field in source_map")
 
@@ -71,9 +62,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             return ValidationResult(is_valid=False, errors=[error_msg])
 
     def _get_campaign_name_field(self) -> ast.Expr:
-        campaign_name_field = get_source_map_field(
-            self.config.source_map, SOURCE_MAP_UTM_CAMPAIGN_NAME
-        ) or get_source_map_field(self.config.source_map, SOURCE_MAP_CAMPAIGN_NAME)
+        campaign_name_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN)
 
         if not campaign_name_field:
             # Fallback if no campaign field is found
@@ -82,19 +71,18 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_name_field])])
 
     def _get_source_name_field(self) -> ast.Expr:
-        source_name_field = (
-            get_source_map_field(self.config.source_map, SOURCE_MAP_UTM_SOURCE_NAME)
-            or get_source_map_field(self.config.source_map, SOURCE_MAP_SOURCE_NAME)
-            or self.config.schema_name
-        )
+        source_name_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.SOURCE)
 
-        # Always treat as a constant value since it's likely a hardcoded schema name
-        return ast.Call(name="toString", args=[ast.Constant(value=source_name_field)])
+        if not source_name_field:
+            # Fallback if no source field is found
+            return ast.Call(name="toString", args=[ast.Constant(value=UNKNOWN_SOURCE)])
+
+        return ast.Call(name="toString", args=[ast.Field(chain=[source_name_field])])
 
     def _get_cost_field(self) -> ast.Expr:
         # Handle currency conversion
-        total_cost_field = get_source_map_field(self.config.source_map, SOURCE_MAP_TOTAL_COST)
-        currency_field = get_source_map_field(self.config.source_map, SOURCE_MAP_CURRENCY)
+        total_cost_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.COST)
+        currency_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.CURRENCY)
         base_currency = self.context.base_currency
 
         if currency_field and total_cost_field:
@@ -115,7 +103,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             return ast.Constant(value=0)
 
     def _get_impressions_field(self) -> ast.Expr:
-        impressions_field = get_source_map_field(self.config.source_map, SOURCE_MAP_IMPRESSIONS)
+        impressions_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS)
 
         inner_expr: ast.Expr
         if impressions_field is None:
@@ -127,7 +115,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_clicks_field(self) -> ast.Expr:
-        clicks_field = get_source_map_field(self.config.source_map, SOURCE_MAP_CLICKS)
+        clicks_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.CLICKS)
 
         inner_expr: ast.Expr
         if clicks_field is None:
@@ -146,7 +134,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
 
     def _get_where_conditions(self) -> list[ast.Expr]:
         """Build WHERE conditions"""
-        date_field = get_source_map_field(self.config.source_map, SOURCE_MAP_DATE)
+        date_field = get_source_map_field(self.config.source_map, MarketingAnalyticsColumnsSchemaNames.DATE)
         conditions: list[ast.Expr] = []
         date_cast: ast.Expr
 

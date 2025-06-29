@@ -13986,8 +13986,8 @@
             "enum": ["Campaign", "Source", "Total Cost", "Total Clicks", "Total Impressions", "Cost per Click", "CTR"],
             "type": "string"
         },
-        "MarketingAnalyticsColumnsEnum": {
-            "enum": ["Goal", "Cost per"],
+        "MarketingAnalyticsColumnsSchemaNames": {
+            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source"],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -14008,6 +14008,10 @@
             },
             "type": "object"
         },
+        "MarketingAnalyticsHelperForColumnNames": {
+            "enum": ["Goal", "Cost per"],
+            "type": "string"
+        },
         "MarketingAnalyticsOrderBy": {
             "items": [
                 {
@@ -14021,6 +14025,26 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+        },
+        "MarketingAnalyticsSchemaField": {
+            "additionalProperties": false,
+            "properties": {
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSchemaFieldTypes"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "required"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSchemaFieldTypes": {
+            "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
+            "type": "string"
         },
         "MarketingAnalyticsTableQuery": {
             "additionalProperties": false,
@@ -20503,15 +20527,29 @@
             "type": "object"
         },
         "SourceMap": {
-            "additionalProperties": {
-                "anyOf": [
-                    {
-                        "type": "string"
-                    },
-                    {
-                        "not": {}
-                    }
-                ]
+            "additionalProperties": false,
+            "properties": {
+                "campaign": {
+                    "type": "string"
+                },
+                "clicks": {
+                    "type": "string"
+                },
+                "cost": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "date": {
+                    "type": "string"
+                },
+                "impressions": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
             },
             "type": "object"
         },
