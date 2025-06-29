@@ -10,7 +10,7 @@ import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { defaultConversionGoalFilter } from './constants'
-import { ConversionGoalDropdown } from './ConversionGoalDropdown'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter

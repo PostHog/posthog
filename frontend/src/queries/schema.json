@@ -14022,6 +14022,15 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
+                "dynamicConversionGoal": {
+                    "anyOf": [
+                        {},
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Dynamic conversion goal that can be set in the UI without saving"
+                },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
                     "type": "boolean"
