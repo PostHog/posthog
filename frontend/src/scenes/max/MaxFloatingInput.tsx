@@ -19,9 +19,6 @@ import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
 import { calculateCSSPosition } from './utils/floatingMaxPositioning'
 
-// Constants
-const ANIMATION_DURATION = 200 // milliseconds
-
 interface MaxQuestionInputProps {
     placeholder?: string
     suggestions?: React.ReactNode
@@ -167,20 +164,6 @@ export function MaxFloatingInput(): JSX.Element | null {
         // oxlint-disable-next-line exhaustive-deps
     }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState, floatingMaxPosition])
 
-    const getAnimationStyle = (): React.CSSProperties => {
-        if (!isFloatingMaxExpanded) {
-            return {}
-        }
-
-        const side = floatingMaxPosition?.side || 'right'
-        const transformOrigin = side === 'left' ? 'bottom left' : 'bottom right'
-
-        return {
-            transformOrigin,
-            animation: `MaxFloatingInput__ExpandFromAvatar ${ANIMATION_DURATION}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-        }
-    }
-
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
     }
@@ -196,16 +179,20 @@ export function MaxFloatingInput(): JSX.Element | null {
                 floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
                     ? ''
                     : clsx(
+                          'floating-max-container',
                           'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm',
                           'border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
-                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full',
+                          isFloatingMaxExpanded ? 'w-80' : '',
                           !threadVisible && isFloatingMaxExpanded ? 'p-1' : 'p-0.5'
                       )
             }
             style={
                 floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
                     ? {}
-                    : { ...floatingMaxPositionStyle, ...getAnimationStyle() }
+                    : {
+                          ...floatingMaxPositionStyle,
+                          borderRadius: isFloatingMaxExpanded ? '8px' : '50%',
+                      }
             }
         >
             <BindLogic logic={maxThreadLogic} props={threadProps}>
