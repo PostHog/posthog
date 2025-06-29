@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
@@ -36,9 +36,28 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { setFileActionsContainer, setPanelInfoOpen } = useActions(sceneLayoutLogic)
     const { panelInfoActive, panelInfoOpen } = useValues(sceneLayoutLogic)
+    const sceneLayoutContainer = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (sceneLayoutContainer.current) {
+            const resizeObserver = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    if (entry.contentRect.width > 1000) {
+                        setPanelInfoOpen(true)
+                    }
+                }
+            })
+
+            resizeObserver.observe(sceneLayoutContainer.current)
+
+            return () => {
+                resizeObserver.disconnect()
+            }
+        }
+    }, [setPanelInfoOpen])
 
     return (
-        <div className={cn('scene-layout flex-1 flex flex-col h-full', className)}>
+        <div className={cn('scene-layout flex-1 flex flex-col h-full', className)} ref={sceneLayoutContainer}>
             {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
             <div
                 className={cn('scene-layout__content', {

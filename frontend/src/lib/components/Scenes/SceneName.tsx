@@ -4,14 +4,14 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimtive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 
-type SceneDescriptionProps = {
+type SceneNameProps = {
     defaultValue: string
     isEditing: boolean
     onSave: (value: string) => void
     dataAttr?: string
 }
 
-export function SceneDescription({ defaultValue, isEditing, onSave, dataAttr }: SceneDescriptionProps): JSX.Element {
+export function SceneName({ defaultValue, isEditing, onSave, dataAttr }: SceneNameProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(isEditing)
     const [hasChanged, setHasChanged] = useState(false)
@@ -31,16 +31,16 @@ export function SceneDescription({ defaultValue, isEditing, onSave, dataAttr }: 
     }, [localValue, defaultValue])
 
     return localIsEditing ? (
-        <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-2 relative">
-            <LemonField.Pure label="Description" className="gap-0" htmlFor="page-description-input">
+        <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-2 relative">
+            <LemonField.Pure label="Name" className="gap-0" htmlFor="page-name-input">
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder="Description (optional)"
-                    id="page-description-input"
-                    data-attr={`${dataAttr}-description-input`}
+                    placeholder="Name (required)"
+                    id="page-name-input"
+                    data-attr={`${dataAttr}-name-input`}
                     className="pb-10" // Make room for the buttons hugging the bottom of the textarea
                 />
             </LemonField.Pure>
@@ -49,8 +49,8 @@ export function SceneDescription({ defaultValue, isEditing, onSave, dataAttr }: 
                     type="submit"
                     variant="outline"
                     disabled={!hasChanged}
-                    tooltip={hasChanged ? 'Update description' : 'No changes to update'}
-                    data-attr={`${dataAttr}-description-update-button`}
+                    tooltip={hasChanged ? 'Update name' : 'No changes to update'}
+                    data-attr={`${dataAttr}-name-update-button`}
                 >
                     <IconCheck />
                 </ButtonPrimitive>
@@ -60,7 +60,7 @@ export function SceneDescription({ defaultValue, isEditing, onSave, dataAttr }: 
                         variant="outline"
                         disabled={!hasChanged}
                         onClick={() => setLocalValue(defaultValue)}
-                        tooltip="Undo description changes"
+                        tooltip="Undo name changes"
                     >
                         <IconUndo />
                     </ButtonPrimitive>
@@ -68,9 +68,9 @@ export function SceneDescription({ defaultValue, isEditing, onSave, dataAttr }: 
             </div>
         </form>
     ) : (
-        <LemonField.Pure label="Description" className="gap-0">
+        <LemonField.Pure label="Name" className="gap-0">
             <p className="m-0 hyphens-auto" lang="en">
-                {defaultValue || <span className="text-tertiary font-normal">No description</span>}
+                {defaultValue || <span className="text-tertiary font-normal">No name</span>}
             </p>
         </LemonField.Pure>
     )

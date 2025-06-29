@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
-import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
-import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { AccessControlProps } from 'lib/components/AccessControlledLemonButton'
+import { ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 export type SceneHeaderItemType = 'checkbox' | 'radio' | 'toggle' | 'separator' | 'link' | 'submenu'
 export type SceneHeaderItemProps = {
     title: string

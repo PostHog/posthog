@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { ObjectTags } from '../ObjectTags/ObjectTags'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
-type SceneDescriptionFormProps = {
+type SceneDescriptionProps = {
     isEditing: boolean
     onSave: (value: string[]) => void
     tags?: string[]
@@ -13,13 +13,7 @@ type SceneDescriptionFormProps = {
     dataAttr?: string
 }
 
-export function SceneTags({
-    isEditing,
-    onSave,
-    tags,
-    tagsAvailable,
-    dataAttr,
-}: SceneDescriptionFormProps): JSX.Element {
+export function SceneTags({ isEditing, onSave, tags, tagsAvailable, dataAttr }: SceneDescriptionProps): JSX.Element {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(isEditing)
     const [hasChanged, setHasChanged] = useState(false)

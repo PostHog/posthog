@@ -62,7 +62,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { SceneLayoutPanelInfo } from '~/layout/scenes/SceneLayout'
 
-import { SceneDescriptionForm } from 'lib/components/Scenes/SceneDescription'
+import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -76,7 +78,6 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
@@ -302,9 +303,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 {hasDashboardItemId && (
                     <>
                         <div className="p-1 flex flex-col gap-2">
+                            {!!(canEditInsight || insight.name) && (
+                                <>
+                                    <SceneName
+                                        defaultValue={insight.name || ''}
+                                        isEditing={insightMode === ItemMode.Edit}
+                                        onSave={(value) => setInsightMetadata({ name: value })}
+                                        dataAttr="insight-name"
+                                    />
+                                </>
+                            )}
+
                             {!!(canEditInsight || insight.description) && (
                                 <>
-                                    <SceneDescriptionForm
+                                    <SceneDescription
                                         defaultValue={insight.description || ''}
                                         isEditing={insightMode === ItemMode.Edit}
                                         onSave={(value) => setInsightMetadata({ description: value })}
