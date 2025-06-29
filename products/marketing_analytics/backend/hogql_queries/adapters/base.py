@@ -8,7 +8,7 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
 from posthog.warehouse.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
@@ -28,7 +28,7 @@ class ExternalConfig(BaseMarketingConfig):
     """Configuration for external marketing sources"""
 
     table: DataWarehouseTable
-    source_map: dict[str, Any]
+    source_map: SourceMap
     schema_name: str
     source_id: str
 

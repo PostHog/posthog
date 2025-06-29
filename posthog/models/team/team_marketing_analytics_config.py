@@ -82,8 +82,21 @@ class TeamMarketingAnalyticsConfig(models.Model):
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
 
     @property
-    def sources_map(self) -> SourceMap:
+    def sources_map(self) -> dict:
         return self._sources_map or {}
+
+    @property
+    def sources_map_casted(self) -> dict[str, SourceMap]:
+        """Return sources_map as dict of source_id -> SourceMap objects"""
+        raw_sources = self._sources_map or {}
+        # Convert dict values to SourceMap objects
+        response = {}
+        for source_id, field_mapping in raw_sources.items():
+            if field_mapping is None:
+                response[source_id] = SourceMap()
+            else:
+                response[source_id] = SourceMap(**field_mapping)
+        return response
 
     @sources_map.setter
     def sources_map(self, value: dict) -> None:
@@ -94,7 +107,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
-    def update_source_mapping(self, source_id: str, field_mapping: SourceMap) -> None:
+    def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
         # Get current sources_map
@@ -106,7 +119,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         # Validate and set the updated sources_map
         self.sources_map = current_sources
 
-    def update_source_field_mapping(self, source_id: str, field_mappings: SourceMap) -> None:
+    def update_source_field_mapping(self, source_id: str, field_mappings: dict) -> None:
         """Update specific field mappings for a source while preserving other fields."""
 
         # Get current sources_map

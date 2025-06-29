@@ -8,16 +8,6 @@ from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, Convers
 logger = structlog.get_logger(__name__)
 
 
-def get_source_map_field(source_map, field_name, fallback=None) -> str | None:
-    """Helper to safely get field from source_map regardless of type"""
-    if hasattr(source_map, field_name):
-        return getattr(source_map, field_name, fallback)
-    elif hasattr(source_map, "get"):
-        return source_map.get(field_name, fallback)
-    else:
-        return fallback
-
-
 def convert_team_conversion_goals_to_objects(
     team_conversion_goals, team_pk: int
 ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:

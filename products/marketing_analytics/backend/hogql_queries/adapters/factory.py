@@ -52,7 +52,7 @@ class MarketingSourceFactory:
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
         ).prefetch_related("externaldataschema_set")
-        self._sources_map = self.context.team.marketing_analytics_config.sources_map
+        self._sources_map = self.context.team.marketing_analytics_config.sources_map_casted
 
     @classmethod
     def register_adapter(cls, source_type: str, adapter_class: type[MarketingSourceAdapter]):
@@ -216,8 +216,11 @@ class MarketingSourceFactory:
                 if key and key in self._sources_map:
                     return self._sources_map[key]
         else:
-            # Self-managed table
-            return self._sources_map[str(table.id)]
+            if str(table.id) in self._sources_map:
+                # Self-managed table
+                return self._sources_map[str(table.id)]
+            else:
+                return None
 
         return None
 
