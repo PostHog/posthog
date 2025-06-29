@@ -1,57 +1,14 @@
-import { getCSSVariableValue } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { calculateSnapPosition, getFloatingMaxDimensions, Position, PositionWithSide } from './floatingMaxPositioning'
 
-// Constants
 const DRAG_THRESHOLD = 5 // pixels
 const ANIMATION_DURATION = 300 // milliseconds
-const PANEL_FIXED_DISTANCE = 4 // pixels from panel edge
 const CACHED_BOTTOM_OFFSET_DEFAULT = 6 // pixels
 const MIN_SCREEN_WIDTH_FOR_DRAG = 640 // sm breakpoint in pixels
 
 interface UseDragAndSnapProps {
-    onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
+    onPositionChange?: (position: PositionWithSide) => void
     disabled?: boolean
-}
-
-interface DragPosition {
-    x: number
-    y: number
-}
-
-type MousePosition = DragPosition
-
-/**
- * Calculate the final snap position based on mouse position
- */
-function calculateSnapPosition(
-    mouseX: number,
-    bottomOffset: number
-): {
-    finalPosition: DragPosition
-    side: 'left' | 'right'
-} {
-    const windowWidth = window.innerWidth
-    const windowHeight = window.innerHeight
-    const isRightSide = mouseX > windowWidth / 2
-
-    const sidePanel = document.getElementById('side-panel')
-    const sidePanelWidth = sidePanel?.getBoundingClientRect().width || 0
-    const projectPanel = document.getElementById('project-panel-layout')
-    const projectPanelWidth = projectPanel?.getBoundingClientRect().width || 0
-    const xPadding = getCSSVariableValue('--scene-padding', 'Navigation3000')
-    const floatingMax = document.getElementById('floating-max')
-    const avatarWidth = floatingMax?.getBoundingClientRect().width || 0
-
-    const finalX = isRightSide
-        ? windowWidth - (sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE + avatarWidth)
-        : projectPanelWidth + xPadding + PANEL_FIXED_DISTANCE
-
-    const finalY = windowHeight - avatarWidth - bottomOffset
-
-    return {
-        finalPosition: { x: finalX, y: finalY },
-        side: isRightSide ? 'right' : 'left',
-    }
 }
 
 interface UseDragAndSnapReturn {
@@ -63,11 +20,17 @@ interface UseDragAndSnapReturn {
     avatarButtonRef: React.RefObject<HTMLDivElement>
 }
 
+type MousePosition = Position
+
+/**
+ * Custom hook for drag and snap behavior of floating Max AI avatar
+ * Handles mouse interactions, drag detection, and snapping to panel sides
+ */
 export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAndSnapProps): UseDragAndSnapReturn {
     const [isDragging, setIsDragging] = useState(false)
-    const [dragOffset, setDragOffset] = useState<DragPosition>({ x: 0, y: 0 })
+    const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 })
     const [hasDragged, setHasDragged] = useState(false)
-    const [dragPosition, setDragPosition] = useState<DragPosition | null>(null)
+    const [dragPosition, setDragPosition] = useState<Position | null>(null)
     const [isAnimating, setIsAnimating] = useState(false)
     const [mouseDownPosition, setMouseDownPosition] = useState<MousePosition | null>(null)
     const [cachedBottomOffset, setCachedBottomOffset] = useState<number>(CACHED_BOTTOM_OFFSET_DEFAULT)
@@ -105,7 +68,7 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
             }
 
             if (isDragging) {
-                const newPosition: DragPosition = {
+                const newPosition: Position = {
                     x: e.clientX - dragOffset.x,
                     y: e.clientY - dragOffset.y,
                 }
@@ -130,10 +93,11 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
             if (hasDragged) {
                 setIsAnimating(true)
 
-                const { finalPosition, side } = calculateSnapPosition(e.clientX, cachedBottomOffset)
+                const { width: avatarWidth } = getFloatingMaxDimensions()
+                const snapPosition = calculateSnapPosition(e.clientX, cachedBottomOffset, avatarWidth)
 
                 // Animate to final position
-                setDragPosition(finalPosition)
+                setDragPosition({ x: snapPosition.x, y: snapPosition.y })
 
                 // After animation completes, reset everything and notify parent
                 setTimeout(() => {
@@ -142,13 +106,7 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
                     setHasDragged(false)
 
                     // Notify parent of position change
-                    if (onPositionChange) {
-                        onPositionChange({
-                            x: finalPosition.x,
-                            y: finalPosition.y,
-                            side,
-                        })
-                    }
+                    onPositionChange?.(snapPosition)
                 }, ANIMATION_DURATION)
             } else {
                 setDragPosition(null)
@@ -165,7 +123,7 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
             document.removeEventListener('mousemove', handleMouseMove)
             document.removeEventListener('mouseup', handleMouseUp)
         }
-    }, [isDragging, dragOffset, onPositionChange, hasDragged, mouseDownPosition])
+    }, [isDragging, dragOffset, onPositionChange, hasDragged, mouseDownPosition, cachedBottomOffset])
 
     const handleMouseDown = (e: React.MouseEvent): void => {
         if (disabled || e.button !== 0) {

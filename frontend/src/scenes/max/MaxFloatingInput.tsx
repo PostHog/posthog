@@ -1,8 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef, useState } from 'react'
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
@@ -18,11 +17,10 @@ import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
-import { getCSSVariableValue } from 'lib/utils'
+import { calculateCSSPosition } from './utils/floatingMaxPositioning'
 
 // Constants
 const ANIMATION_DURATION = 200 // milliseconds
-const PANEL_FIXED_DISTANCE = 4 // pixels from panel edge
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -155,29 +153,19 @@ export function MaxFloatingInput(): JSX.Element | null {
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
-    const [positionStyle, setPositionStyle] = useState({})
+    const [floatingMaxPositionStyle, setFloatingMaxPositionStyle] = useState<React.CSSProperties | null>(null) // has to be useState as it's React.CSSProperties which doesn't work with kea
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
         conversation,
     }
 
+    // Update position style when layout changes
     useEffect(() => {
-        const getPositionStyle = (): React.CSSProperties => {
-            const side = floatingMaxPosition?.side || 'right'
-            const sidePanel = document.getElementById('side-panel')
-            const sidePanelWidth = sidePanel?.getBoundingClientRect().width || 0
-            const projectPanel = document.getElementById('project-panel-layout')
-            const projectPanelWidth = projectPanel?.getBoundingClientRect().width || 0
-            const xPadding = getCSSVariableValue('--scene-padding', 'Navigation3000')
-
-            const leftPosition = `${projectPanelWidth + xPadding + PANEL_FIXED_DISTANCE}px`
-            const rightPosition = `${sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE}px`
-
-            return side === 'left' ? { left: leftPosition } : { right: rightPosition }
-        }
-        setPositionStyle(getPositionStyle())
-    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState])
+        const side = floatingMaxPosition?.side || 'right'
+        setFloatingMaxPositionStyle(calculateCSSPosition(side))
+        // oxlint-disable-next-line exhaustive-deps
+    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState, floatingMaxPosition])
 
     const getAnimationStyle = (): React.CSSProperties => {
         if (!isFloatingMaxExpanded) {
@@ -217,7 +205,7 @@ export function MaxFloatingInput(): JSX.Element | null {
             style={
                 floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating
                     ? {}
-                    : { ...positionStyle, ...getAnimationStyle() }
+                    : { ...floatingMaxPositionStyle, ...getAnimationStyle() }
             }
         >
             <BindLogic logic={maxThreadLogic} props={threadProps}>

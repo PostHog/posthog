@@ -5,20 +5,24 @@ import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/Hedge
 import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { useDragAndSnap } from '../hooks/useDragAndSnap'
 import { maxGlobalLogic } from '../maxGlobalLogic'
+import { type PositionWithSide } from '../utils/floatingMaxPositioning'
+import { useDragAndSnap } from '../utils/useDragAndSnap'
+
+// Constants
+const DEFAULT_WAVE_INTERVAL = 5000 // milliseconds
 
 interface HedgehogAvatarProps {
     onExpand: () => void
     waveInterval?: number
     isExpanded: boolean
     fixedDirection?: 'left' | 'right'
-    onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
+    onPositionChange?: (position: PositionWithSide) => void
 }
 
 export function HedgehogAvatar({
     onExpand,
-    waveInterval = 5000,
+    waveInterval = DEFAULT_WAVE_INTERVAL,
     isExpanded,
     fixedDirection,
     onPositionChange,
