@@ -3317,3 +3317,17 @@ export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
 }
+
+export enum MarketingAnalyticsBaseColumns {
+    Campaign = 'Campaign',
+    Source = 'Source',
+    TotalCost = 'Total Cost',
+    TotalClicks = 'Total Clicks',
+    TotalImpressions = 'Total Impressions',
+    CostPerClick = 'Cost per Click',
+    CTR = 'CTR',
+}
+
+export enum MarketingAnalyticsColumnsEnum {
+    CostPer = 'Cost per',
+}

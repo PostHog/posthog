@@ -13,6 +13,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
@@ -22,10 +23,8 @@ from posthog.hogql.errors import BaseHogQLError
 
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
-    CONVERSION_GOAL_PREFIX,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
-    FALLBACK_COST_VALUE,
     DEFAULT_MARKETING_ANALYTICS_COLUMNS,
     CTR_PERCENTAGE_MULTIPLIER,
     DECIMAL_PRECISION,
@@ -34,7 +33,6 @@ from .constants import (
     TOTAL_IMPRESSIONS_FIELD,
 )
 from .utils import (
-    get_marketing_analytics_columns_with_conversion_goals,
     convert_team_conversion_goals_to_objects,
 )
 from .adapters.factory import MarketingSourceFactory
@@ -171,6 +169,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         results = response.results or []
         requested_limit = self.query.limit or DEFAULT_LIMIT
+        columns = [
+            column.alias for column in query.select
+        ]
 
         # Check if there are more results
         has_more = len(results) > requested_limit
@@ -189,7 +190,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
-            columns=get_marketing_analytics_columns_with_conversion_goals(conversion_goals),
+            columns=columns,
             types=response.types,
             hogql=response.hogql,
             timings=response.timings,
@@ -256,7 +257,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             from_clause = self._append_joins(from_clause, conversion_joins)
 
         # Build ORDER BY
-        order_by_exprs = self._build_order_by_exprs(all_columns)
+        order_by_exprs = self._build_order_by_exprs()
 
         # Build LIMIT and OFFSET
         limit = self.query.limit or DEFAULT_LIMIT
@@ -276,7 +277,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         return [
             # Campaign name
             ast.Alias(
-                alias="Campaign",
+                alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
                 expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
             ),
             # Source name
@@ -285,7 +286,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             ),
             # Total Cost: round(campaign_costs.total_cost, 2)
             ast.Alias(
-                alias="Total Cost",
+                alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
                 expr=ast.Call(
                     name="round",
                     args=[
@@ -296,7 +297,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             ),
             # Total Clicks: round(campaign_costs.total_clicks, 0)
             ast.Alias(
-                alias="Total Clicks",
+                alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
                 expr=ast.Call(
                     name="round",
                     args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
@@ -304,7 +305,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             ),
             # Total Impressions: round(campaign_costs.total_impressions, 0)
             ast.Alias(
-                alias="Total Impressions",
+                alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
                 expr=ast.Call(
                     name="round",
                     args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
@@ -312,7 +313,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             ),
             # Cost per Click: round(total_cost / nullif(total_clicks, 0), 2)
             ast.Alias(
-                alias="Cost per Click",
+                alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
                 expr=ast.Call(
                     name="round",
                     args=[
@@ -333,7 +334,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             ),
             # CTR: round(total_clicks / nullif(total_impressions, 0) * 100, 2)
             ast.Alias(
-                alias="CTR",
+                alias=MarketingAnalyticsBaseColumns.CTR,
                 expr=ast.Call(
                     name="round",
                     args=[
@@ -367,9 +368,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             base_join.next_join = current_join
         return initial_join
 
-    def _build_order_by_exprs(self, all_columns: list[ast.Expr]) -> list[ast.OrderExpr]:
+    def _build_order_by_exprs(self) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
-        from posthog.hogql.parser import parse_expr
 
         order_by_exprs = []
 
@@ -377,7 +377,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             for order_expr_str in self.query.orderBy:
                 order_index_float, order_by = order_expr_str
                 order_index = int(order_index_float)
-                column_name = ast.Constant(value=order_index + 1)
+                column_name = ast.Constant(value=order_index)
                 order_by_exprs.append(ast.OrderExpr(expr=column_name, order=order_by))
         else:
             # Build default order by: campaign_costs.total_cost DESC

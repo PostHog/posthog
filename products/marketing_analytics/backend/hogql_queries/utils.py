@@ -5,24 +5,7 @@ import structlog
 from posthog.schema import NodeKind
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
 
-from .constants import DEFAULT_MARKETING_ANALYTICS_COLUMNS
-
 logger = structlog.get_logger(__name__)
-
-
-def get_marketing_analytics_columns_with_conversion_goals(
-    conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3],
-) -> list[str]:
-    """Get column names including conversion goals"""
-
-    columns = DEFAULT_MARKETING_ANALYTICS_COLUMNS.copy()
-
-    for conversion_goal in conversion_goals:
-        goal_name = conversion_goal.conversion_goal_name
-        columns.append(goal_name)
-        columns.append(f"Cost per {goal_name}")
-
-    return columns
 
 
 def get_source_map_field(source_map, field_name, fallback=None) -> str | None:

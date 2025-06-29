@@ -11,6 +11,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    MarketingAnalyticsColumnsEnum,
     PropertyMathType,
 )
 from .adapters.base import MarketingSourceAdapter
@@ -267,7 +268,7 @@ class ConversionGoalProcessor:
         # Build: round(division_expr, DECIMAL_PRECISION)
         round_expr = ast.Call(name="round", args=[division_expr, ast.Constant(value=DECIMAL_PRECISION)])
 
-        cost_per_goal_alias = ast.Alias(alias=f"Cost per {goal_name}", expr=round_expr)
+        cost_per_goal_alias = ast.Alias(alias=f"{MarketingAnalyticsColumnsEnum.COST_PER} {goal_name}", expr=round_expr)
 
         return [conversion_goal_alias, cost_per_goal_alias]
 

@@ -1493,9 +1493,44 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarketingAnalyticsBaseColumns(StrEnum):
+    CAMPAIGN = "Campaign"
+    SOURCE = "Source"
+    TOTAL_COST = "Total Cost"
+    TOTAL_CLICKS = "Total Clicks"
+    TOTAL_IMPRESSIONS = "Total Impressions"
+    COST_PER_CLICK = "Cost per Click"
+    CTR = "CTR"
+
+
+class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    SOURCE_NAME = "source_name"
+    IMPRESSIONS = "impressions"
+    CLICKS = "clicks"
+    COST = "cost"
+    DATE = "date"
+    UTM_CAMPAIGN = "utm_campaign"
+    UTM_SOURCE = "utm_source"
+    CURRENCY = "currency"
+
+
+class MarketingAnalyticsHelperForColumnNames(StrEnum):
+    GOAL = "Goal"
+    COST_PER = "Cost per"
+
+
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class MarketingAnalyticsSchemaField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    required: bool
+    type: list[str]
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2029,6 +2064,21 @@ class SnapshotSource(StrEnum):
 class Storage(StrEnum):
     OBJECT_STORAGE_LTS = "object_storage_lts"
     OBJECT_STORAGE = "object_storage"
+
+
+class SourceMap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign_name: Optional[str] = None
+    clicks: Optional[str] = None
+    cost: Optional[str] = None
+    currency: Optional[str] = None
+    date: Optional[str] = None
+    impressions: Optional[str] = None
+    source_name: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    utm_source: Optional[str] = None
 
 
 class StepOrderValue(StrEnum):
@@ -7426,7 +7476,7 @@ class MarketingAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
-    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
+    sources_map: Optional[dict[str, SourceMap]] = None
 
 
 class MarketingAnalyticsTableQueryResponse(BaseModel):

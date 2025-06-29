@@ -13982,6 +13982,14 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarketingAnalyticsBaseColumns": {
+            "enum": ["Campaign", "Source", "Total Cost", "Total Clicks", "Total Impressions", "Cost per Click", "CTR"],
+            "type": "string"
+        },
+        "MarketingAnalyticsColumnsEnum": {
+            "enum": ["Goal", "Cost per"],
+            "type": "string"
+        },
         "MarketingAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {

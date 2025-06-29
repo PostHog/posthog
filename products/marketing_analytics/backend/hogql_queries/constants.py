@@ -1,5 +1,7 @@
 # Marketing Analytics Constants and Configuration
 
+from posthog.schema import MarketingAnalyticsBaseColumns
+
 # Magic values
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
@@ -31,15 +33,7 @@ FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {CAMPAIGN_NAME_FIELD}, 'No Sour
 
 
 # Final output columns
-DEFAULT_MARKETING_ANALYTICS_COLUMNS = [
-    "Campaign",
-    "Source",
-    "Total Cost",
-    "Total Clicks",
-    "Total Impressions",
-    "Cost per Click",
-    "CTR",
-]
+DEFAULT_MARKETING_ANALYTICS_COLUMNS = list(MarketingAnalyticsBaseColumns)
 
 # This matches the source map schema in the frontend
 SOURCE_MAP_CAMPAIGN_NAME = "campaign_name"
