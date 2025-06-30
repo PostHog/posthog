@@ -104,7 +104,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             timezone: z.string().nullable(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-            date: z.union([
+            day: z.union([
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
@@ -135,7 +135,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('function_sms'),
         config: z.object({
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
-            template_id: z.literal('template-twilio'),
+            template_id: z.literal('template-hogflow-send-sms-twilio'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),

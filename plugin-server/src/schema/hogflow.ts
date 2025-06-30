@@ -70,8 +70,8 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string(),
-            // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-            date: z.union([
+            // Day can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+            day: z.union([
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),

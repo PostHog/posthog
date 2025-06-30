@@ -28,7 +28,7 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
                 on_error: 'continue',
                 config: {
                     timezone: null,
-                    date: 'any',
+                    day: 'any',
                     time: 'any',
                 },
             },
@@ -47,7 +47,7 @@ function StepWaitUntilTimeWindowConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>
 }): JSX.Element {
     const action = node.data
-    const { timezone, date, time } = action.config
+    const { timezone, day, time } = action.config
 
     const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
     const { preflight } = useValues(preflightLogic)
@@ -65,7 +65,7 @@ function StepWaitUntilTimeWindowConfiguration({
         { value: 'weekend', label: 'Weekends' },
         { value: 'custom', label: 'Specific days' },
     ]
-    const isCustomDate = date !== 'any' && Array.isArray(date)
+    const isCustomDate = day !== 'any' && Array.isArray(day)
 
     // Time options
     const timeOptions = [
@@ -80,19 +80,19 @@ function StepWaitUntilTimeWindowConfiguration({
         label: `${i.toString().padStart(2, '0')}:00`,
     }))
 
-    // Helper function to convert date value to string for LemonSelect
-    const getDateValue = (dateValue: typeof date): string => {
-        if (dateValue === 'any' || dateValue === 'weekday' || dateValue === 'weekend') {
-            return dateValue
+    // Helper function to convert day value to string for LemonSelect
+    const getDayValue = (dayValue: typeof day): string => {
+        if (dayValue === 'any' || dayValue === 'weekday' || dayValue === 'weekend') {
+            return dayValue
         }
-        if (Array.isArray(dateValue)) {
+        if (Array.isArray(dayValue)) {
             return 'custom'
         }
         return 'any'
     }
 
     // Helper function to convert string back to date value
-    const getDateValueFromString = (value: string): typeof date => {
+    const getDayValueFromString = (value: string): typeof day => {
         switch (value) {
             case 'any':
             case 'weekday':
@@ -119,10 +119,10 @@ function StepWaitUntilTimeWindowConfiguration({
                 <div className="flex-1 flex flex-col gap-2">
                     <LemonLabel>Days of week</LemonLabel>
                     <LemonSelect
-                        value={getDateValue(date)}
+                        value={getDayValue(day)}
                         onChange={(value) => {
-                            const newDateValue = getDateValueFromString(value as string)
-                            setCampaignActionConfig(action.id, { date: newDateValue })
+                            const newDayValue = getDayValueFromString(value as string)
+                            setCampaignActionConfig(action.id, { day: newDayValue })
                         }}
                         options={dateOptions}
                         data-attr="date-select"
@@ -131,9 +131,9 @@ function StepWaitUntilTimeWindowConfiguration({
                         <>
                             <LemonLabel>Custom days</LemonLabel>
                             <LemonInputSelect
-                                value={date}
+                                value={day}
                                 onChange={(newDays) =>
-                                    setCampaignActionConfig(action.id, { date: [...newDays] as WeekdayType[] })
+                                    setCampaignActionConfig(action.id, { day: [...newDays] as WeekdayType[] })
                                 }
                                 options={[
                                     { key: 'monday', label: 'Monday' },
