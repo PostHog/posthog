@@ -2226,7 +2226,7 @@ async def test_billing_limits_too_many_rows(team, postgres_config, postgres_conn
     assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
 
     with pytest.raises(Exception):
-        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2304,4 +2304,4 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
     assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
 
     with pytest.raises(Exception):
-        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_duplicate_primary_key", team)
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
