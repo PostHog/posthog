@@ -195,7 +195,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         )}
                         {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
                             <FeatureFlagReleaseConditions
-                                id={`schedule-release-conditions-${featureFlag.id}`}
+                                id={`schedule-release-conditions-${featureFlag.id}-${schedulePayload.key}`}
                                 filters={scheduleFilters}
                                 onChange={(value, errors) => setSchedulePayload(value, null, errors)}
                                 hideMatchOptions
