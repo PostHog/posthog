@@ -62,16 +62,19 @@ export class HogFlowActionRunnerFunction {
             // TODO: Add person info
         }
 
+        // TODO: Load the state information out of the hog flow invocation
+        // to be passed in potentially
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
             state: {
-                globals: buildGlobalsWithInputs(globals, action.config.inputs),
+                globals: await buildGlobalsWithInputs(globals, action.config.inputs),
                 timings: [],
+                attempts: 0,
             },
         }
 
-        const result = this.hogFunctionExecutor.execute(hogFunctionInvocation)
+        const result = await this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
 
         // TODO: Swap to `executeWithAsync` or something
         // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID

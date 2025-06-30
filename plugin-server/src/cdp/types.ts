@@ -252,13 +252,15 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     execResult?: unknown
 }
 
+export type CyclotronJobInvocationHogFunctionContext = {
+    globals: HogFunctionInvocationGlobalsWithInputs
+    vmState?: VMState
+    timings: HogFunctionTiming[]
+    attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+}
+
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
-    state: {
-        globals: HogFunctionInvocationGlobalsWithInputs
-        vmState?: VMState
-        timings: HogFunctionTiming[]
-        attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
-    }
+    state: CyclotronJobInvocationHogFunctionContext
     hogFunction: HogFunctionType
 }
 
