@@ -169,6 +169,28 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
+                        app_source: 'cdp_destination',
+                        app_source_id: expect.any(String),
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'event_triggered_destination',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'cdp_destination',
+                        app_source_id: 'custom',
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'destination_invoked',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
                         app_source: 'hog_function',
                         app_source_id: fnFetchNoFilters.id.toString(),
                         count: 1,
