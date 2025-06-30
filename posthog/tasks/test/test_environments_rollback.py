@@ -379,7 +379,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
 
         # Verify second scenario: Analytics team keeps original name
         self.assertEqual(analytics_env.name, "Analytics")
-        self.assertEqual(analytics_env.project.name, "Analytics - Analytics")  # New project gets dash format
+        self.assertEqual(analytics_env.project.name, "Analytics")
         self.assertNotEqual(analytics_env.project.id, project2.id)  # Should be in new project
 
         # Verify staging team gets renamed
