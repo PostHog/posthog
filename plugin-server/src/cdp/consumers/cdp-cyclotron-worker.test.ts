@@ -92,9 +92,6 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result.logs.map((x) => x.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1239 bytes. Event: uuid",
-                'Resuming function',
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])
@@ -116,8 +113,14 @@ describe('CdpCyclotronWorker', () => {
             expect(result.error).toBe(undefined)
             expect(result.metrics).toEqual([])
             expect(result.invocation.id).toEqual(invocationId)
-            expect(result.invocation.queue).toEqual('fetch')
-            expect(result.invocation.queueScheduledAt).toBeDefined()
+            expect(result.invocation.queue).toEqual('hog')
+            // NOTE: Check the queue scheduled at is within the bounds of the backoff
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(
+                DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            )
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeLessThan(
+                DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_MAX_MS }).toMillis()
+            )
             expect(result.invocation.queueSource).toEqual('postgres')
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
                 {
@@ -127,30 +130,17 @@ describe('CdpCyclotronWorker', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://posthog.com",
                 }
             `)
-            expect(result.invocation.queueMetadata).toMatchInlineSnapshot(`
-                {
-                  "trace": [
-                    {
-                      "headers": {},
-                      "kind": "failurestatus",
-                      "message": "Received failure status: 500",
-                      "status": 500,
-                      "timestamp": "2025-01-01T00:00:00.000Z",
-                    },
-                  ],
-                  "tries": 1,
-                }
-            `)
+            expect(result.invocation.queueMetadata).toBeUndefined()
+            // No logs from initial invoke
             expect(result.logs.map((x) => x.message)).toEqual([
-                'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 1239 bytes. Event: uuid",
+                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying in'),
             ])
 
             // Now invoke the result again
-
             const results2 = await processor.processInvocations([result.invocation])
             const result2 = results2[0]
 
@@ -168,7 +158,6 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result2.logs.map((x) => x.message)).toEqual([
-                'Resuming function',
                 'Fetch response:, {"status":200,"body":{}}',
                 expect.stringContaining('Function completed in'),
             ])
