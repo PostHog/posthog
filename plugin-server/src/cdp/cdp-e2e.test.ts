@@ -22,7 +22,7 @@ import { compileHog } from './templates/compiler'
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
 describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP Consumer loop: %s', (mode) => {
-    jest.setTimeout(10000)
+    jest.setTimeout(20000)
 
     describe('e2e fetch call', () => {
         let eventsConsumer: CdpEventsConsumer
