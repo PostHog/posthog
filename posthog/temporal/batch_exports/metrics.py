@@ -41,7 +41,7 @@ class ExecutionTimeRecorder:
         description: str | None = None,
         histogram_attributes: Attributes | None = None,
         log: bool = True,
-        log_message: str = "Finished %(name)s with status '%(status)s' in %(delta).4fs",
+        log_message: str = "Finished %(name)s with status '%(status)s' in %(duration_seconds)ds",
         log_name: str | None = None,
         log_attributes: Attributes | None = None,
     ) -> None:
@@ -205,7 +205,7 @@ def log_execution_time(
     """Log execution time."""
     logger = get_internal_logger()
 
-    mb_processed = bytes_processed // 1024 // 1024 if bytes_processed else None
+    mb_processed = bytes_processed / 1024 / 1024 if bytes_processed else None
 
     arguments = {
         "name": name,
@@ -213,8 +213,8 @@ def log_execution_time(
         "duration_seconds": delta.total_seconds(),
         "bytes_processed": bytes_processed,
         "mb_processed": mb_processed,
-        "bytes_per_second": bytes_processed,
-        "mb_per_second": mb_processed // delta.total_seconds() if mb_processed else None,
+        "bytes_per_second": bytes_processed / delta.total_seconds() if bytes_processed else None,
+        "mb_per_second": mb_processed / delta.total_seconds() if mb_processed else None,
     }
     if extra_arguments:
         arguments = {**arguments, **extra_arguments}
