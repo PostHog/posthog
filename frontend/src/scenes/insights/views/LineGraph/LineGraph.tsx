@@ -744,8 +744,8 @@ export function LineGraph_({
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
-                                    interval={interval}
-                                    dateRange={dateRange}
+                                    interval={interval ?? query?.['interval']}
+                                    dateRange={dateRange ?? query?.['dateRange']}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
