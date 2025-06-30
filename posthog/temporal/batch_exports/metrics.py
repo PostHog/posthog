@@ -1,6 +1,7 @@
 import datetime as dt
+import functools
+import inspect
 import time
-import types
 import typing
 
 from temporalio import activity, workflow
@@ -31,17 +32,85 @@ def get_export_finished_metric(status: str) -> MetricCounter:
     )
 
 
+P = typing.ParamSpec("P")
+T = typing.TypeVar("T")
 Attributes = dict[str, str | int | float | bool]
+
+
+def record_execution_time(
+    histogram_name: str | None = None,
+    description: str | None = None,
+    histogram_attributes: Attributes | None = None,
+    log: bool = True,
+    log_message: str | None = None,
+    log_name: str | None = None,
+    log_attributes: Attributes | None = None,
+) -> typing.Callable[[typing.Callable[P, T]], typing.Callable[P, T]]:
+    """Decorate function to record execution time.
+
+    Arguments:
+        histogram_name: Name for the histogram (defaults to function name).
+        description: Description of the metric.
+        additional_attributes: Additional attributes to include with the metric.
+        log: Whether to log the execution time.
+        log_message: Custom log message.
+        log_name: Custom name for function we are logging. Use this to provide
+            a human-readable name in the logs that is not constrained by
+            requirements of histogram name.
+
+    Returns:
+        Decorated function that records execution time
+    """
+
+    def decorator(func: typing.Callable[[P], T]) -> typing.Callable[[P], T]:
+        hist_name = histogram_name or func.__name__
+
+        if inspect.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                with ExecutionTimeRecorder(
+                    hist_name,
+                    description=description,
+                    histogram_attributes=histogram_attributes,
+                    log=log,
+                    log_message=log_message,
+                    log_name=log_name,
+                    log_attributes=log_attributes,
+                ):
+                    return await func(*args, **kwargs)
+
+        else:
+
+            @functools.wraps(func)
+            def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                with ExecutionTimeRecorder(
+                    hist_name,
+                    description=description,
+                    histogram_attributes=histogram_attributes,
+                    log=log,
+                    log_message=log_message,
+                    log_name=log_name,
+                    log_attributes=log_attributes,
+                ):
+                    return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 class ExecutionTimeRecorder:
     def __init__(
         self,
-        human_readable_name: str,
+        histogram_name: str,
         /,
         description: str | None = None,
-        additional_attributes: Attributes | None = None,
+        histogram_attributes: Attributes | None = None,
         log: bool = True,
+        log_message: str | None = None,
+        log_name: str | None = None,
+        log_attributes: Attributes | None = None,
     ) -> None:
         """Context manager to record execution time to a histogram metric.
 
@@ -60,10 +129,14 @@ class ExecutionTimeRecorder:
             log: Whether to additionally log the execution time.
         """
 
-        self.human_readable_name = human_readable_name
+        self.histogram_name = histogram_name
         self.description = description
-        self.additional_attributes = additional_attributes
+        self.histogram_attributes = histogram_attributes
         self.log = log
+        self.log_message = log_message or "Finished %(name)s with status '%(status)s' in %(delta).4fs"
+        self.log_name = log_name
+        self.log_attributes = log_attributes
+        self.bytes_processed: None | int = None
 
         self._start_counter: float | None = None
 
@@ -72,9 +145,7 @@ class ExecutionTimeRecorder:
         self._start_counter = time.perf_counter()
         return self
 
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: types.TracebackType
-    ) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback) -> None:
         """Record execution time on exiting.
 
         No exceptions from within the context are handled in this method.
@@ -97,16 +168,34 @@ class ExecutionTimeRecorder:
             attributes["exception"] = ""
 
         meter = get_metric_meter(attributes)
-        hist = meter.create_histogram_timedelta(name=self.name, description=self.description, unit="ms")
+        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
         hist.record(value=delta)
 
         if self.log:
-            log_execution_time(self.human_readable_name, delta, "FAILED" if exc_value else "COMPLETED")
+            log_execution_time(
+                self.log_message,
+                name=self.log_name or self.histogram_name,
+                delta=delta,
+                status="FAILED" if exc_value else "COMPLETED",
+                bytes_processed=self.bytes_processed,
+                extra_arguments=self.log_attributes,
+            )
 
-    @property
-    def name(self) -> str:
-        """Return snake_case name for metric."""
-        return self.human_readable_name.replace(" ", "_").lower()
+        self.reset()
+
+    def add_bytes_processed(self, bytes_processed: int) -> int:
+        """Add to bytes processed, returning the total so far."""
+        if self.bytes_processed is None:
+            self.bytes_processed = bytes_processed
+        else:
+            self.bytes_processed += bytes_processed
+
+        return self.bytes_processed
+
+    def reset(self):
+        """Reset counter and bytes processed."""
+        self._start_counter = None
+        self.bytes_processed = None
 
 
 def get_metric_meter(additional_attributes: Attributes | None = None):
@@ -169,8 +258,29 @@ def get_workflow_attributes() -> Attributes:
     }
 
 
-def log_execution_time(human_readable_name: str, delta: dt.timedelta, status: str):
+def log_execution_time(
+    log_message: str,
+    name: str,
+    delta: dt.timedelta,
+    status: str,
+    bytes_processed: None | int = None,
+    extra_arguments: Attributes | None = None,
+):
     """Log execution time."""
     logger = get_internal_logger()
 
-    logger.info("Execution of %s %s in %.4fs", human_readable_name, status, delta.total_seconds())
+    mb_processed = bytes_processed // 1024 // 1024 if bytes_processed else None
+
+    arguments = {
+        "name": name,
+        "status": status,
+        "duration_seconds": delta.total_seconds(),
+        "bytes_processed": bytes_processed,
+        "mb_processed": mb_processed,
+        "bytes_per_second": bytes_processed,
+        "mb_per_second": mb_processed // delta.total_seconds() if mb_processed else None,
+    }
+    if extra_arguments:
+        arguments = {**arguments, **extra_arguments}
+
+    logger.info(log_message, arguments)

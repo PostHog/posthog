@@ -35,6 +35,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
+    record_execution_time,
 )
 from posthog.temporal.batch_exports.spmc import (
     RecordBatchModel,
@@ -268,6 +269,9 @@ class BatchExportInsertIntoS3StageInputs:
 
 
 @activity.defn
+@record_execution_time(
+    "insert_into_s3_stage_activity_duration", description="Total duration of the insert_into_s3_stage_activity activity"
+)
 async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInputs):
     """Write record batches to S3 staging area.
 
