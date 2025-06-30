@@ -31,7 +31,7 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -106,7 +106,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -191,7 +191,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -231,7 +231,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 #[tokio::test]
 async fn it_rejects_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -263,7 +263,7 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
 #[tokio::test]
 async fn it_rejects_missing_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
     let server = ServerHandle::for_config(config).await;
@@ -428,7 +428,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -520,7 +520,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -622,7 +622,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
@@ -733,7 +733,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
 async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
 
     // Insert a new team into Redis and retrieve the team details
@@ -822,7 +822,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
 async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
@@ -998,7 +998,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1074,7 +1074,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1226,7 +1226,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
 async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
     insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
@@ -1369,7 +1369,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 async fn test_super_condition_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(redis_client.clone()).await?;
     insert_new_team_in_pg(pg_client.clone(), Some(team.id)).await?;
@@ -1478,7 +1478,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
 #[tokio::test]
 async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1608,7 +1608,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1680,7 +1680,7 @@ async fn test_config_basic_fields() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1750,7 +1750,7 @@ async fn test_config_analytics_enabled() -> Result<()> {
     // default config has new_analytics_capture_excluded_team_ids as All (exclude nobody)
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1790,7 +1790,7 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1829,7 +1829,7 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1865,7 +1865,7 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
 
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -1903,7 +1903,7 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1940,7 +1940,7 @@ async fn test_config_optional_team_features() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1985,7 +1985,7 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -2022,7 +2022,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -2091,7 +2091,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2203,7 +2203,7 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2274,7 +2274,7 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2343,7 +2343,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
 
     let distinct_id = "enterprise_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2517,7 +2517,7 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
     config.session_replay_rrweb_script = "".to_string(); // No script
 
     let distinct_id = "minimal_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2621,7 +2621,7 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     config.session_replay_rrweb_script = "console.log('Mixed script')".to_string();
 
     let distinct_id = "mixed_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2730,7 +2730,7 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
     let distinct_id = "exclusion_test_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2817,7 +2817,7 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "consistency_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2908,7 +2908,7 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "error_tracking_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2987,7 +2987,7 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "error_tracking_disabled_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -3036,7 +3036,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3108,7 +3108,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3179,7 +3179,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3252,7 +3252,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3341,7 +3341,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3429,7 +3429,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3506,7 +3506,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
@@ -3679,7 +3679,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3873,7 +3873,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_real_bug".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4012,7 +4012,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_cohort_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4197,7 +4197,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4338,7 +4338,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))

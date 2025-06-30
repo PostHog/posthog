@@ -22,6 +22,7 @@ import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPla
 export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
+    type = 'filters',
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -34,6 +35,7 @@ export function SessionRecordingsPlaylist({
      * Eventually this will be removed and we'll only allow one or the other.
      */
     canMixFiltersAndPinned?: boolean
+    type?: 'filters' | 'collection'
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
@@ -58,7 +60,7 @@ export function SessionRecordingsPlaylist({
 
     const sections: PlaylistSection[] = []
 
-    if (pinnedRecordings.length) {
+    if (type === 'collection' || pinnedRecordings.length > 0) {
         sections.push({
             key: 'pinned',
             title: (
@@ -73,9 +75,7 @@ export function SessionRecordingsPlaylist({
             ),
             initiallyOpen: true,
         })
-    }
-
-    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
+    } else {
         sections.push({
             key: 'other',
             title: (
