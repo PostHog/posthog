@@ -157,13 +157,13 @@ export class KafkaConsumer {
             'queued.min.messages': 100000,
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
+            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
+            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
-            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
-            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
