@@ -1,7 +1,7 @@
 import uuid
 from dateutil import parser
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy
 import psycopg2
@@ -192,15 +192,17 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
-        partition_count: int,
-        partition_size: int,
-        partition_mode: PartitionMode,
+        partition_count: Optional[int],
+        partition_size: Optional[int],
+        partition_mode: Optional[PartitionMode],
+        partition_format: Optional[PartitionFormat],
     ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count
         self.sync_type_config["partition_size"] = partition_size
         self.sync_type_config["partitioning_keys"] = partitioning_keys
         self.sync_type_config["partition_mode"] = partition_mode
+        self.sync_type_config["partition_format"] = partition_format
         self.save()
 
     def update_sync_type_config_for_reset_pipeline(self) -> None:
@@ -212,6 +214,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.sync_type_config.pop("partition_count", None)
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
+        # We don't reset partition_format
 
         self.save()
 
