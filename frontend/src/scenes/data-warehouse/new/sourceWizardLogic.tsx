@@ -832,9 +832,9 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         betaSource: true,
         caption: (
             <>
-                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                Ensure you have granted PostHog access to your Google Ads account, learn how to do this in{' '}
                 <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
-                    documentation
+                    the docs
                 </Link>
                 .
             </>

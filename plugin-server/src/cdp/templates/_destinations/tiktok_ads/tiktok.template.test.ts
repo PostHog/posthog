@@ -58,6 +58,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)
@@ -139,6 +140,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)
@@ -174,6 +176,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)
@@ -209,6 +212,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)
@@ -247,6 +251,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)
@@ -290,6 +295,7 @@ describe('tiktok template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
             }
         `)

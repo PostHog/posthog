@@ -1,7 +1,7 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/hog-watcher.service'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'

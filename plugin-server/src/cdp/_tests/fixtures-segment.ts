@@ -35,6 +35,7 @@ export const createExampleSegmentInvocation = (
                 ...SAMPLE_GLOBALS,
             },
             timings: [],
+            attempts: 0,
         },
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,

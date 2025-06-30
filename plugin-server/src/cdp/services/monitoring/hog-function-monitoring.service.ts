@@ -1,12 +1,12 @@
 import { Counter } from 'prom-client'
 
-import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { castTimestampOrNow } from '../../utils/utils'
+import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../../config/kafka-topics'
+import { runInstrumentedFunction } from '../../../main/utils'
+import { Hub, TimestampFormat } from '../../../types'
+import { safeClickhouseString } from '../../../utils/db/utils'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
+import { castTimestampOrNow } from '../../../utils/utils'
 import {
     AppMetricType,
     CyclotronJobInvocationResult,
@@ -14,9 +14,9 @@ import {
     LogEntrySerialized,
     MetricLogSource,
     MinimalAppMetric,
-} from '../types'
-import { fixLogDeduplication } from '../utils'
-import { convertToCaptureEvent } from '../utils'
+} from '../../types'
+import { fixLogDeduplication } from '../../utils'
+import { convertToCaptureEvent } from '../../utils'
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
