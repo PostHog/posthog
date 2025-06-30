@@ -681,7 +681,7 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
                                     <td>Slowest span</td>
                                     <td>
                                         <div
-                                            className="w-60 overflow-scroll"
+                                            className="w-60 overflow-auto"
                                             ref={(element) => element?.scrollTo({ left: element?.scrollWidth })}
                                         >
                                             {timingsSummary.slowestSpan.name}

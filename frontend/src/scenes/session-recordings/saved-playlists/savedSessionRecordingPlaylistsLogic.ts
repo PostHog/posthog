@@ -103,7 +103,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         savedFilters: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadSavedFilters: async (_, breakpoint) => {
@@ -130,6 +130,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
+                // We do not need to call it on the Home tab anymore
+                if (props.tab && props.tab === ReplayTabs.Home) {
+                    return
+                }
+
                 if (values.playlists.filters !== null) {
                     await breakpoint(300)
                 }
@@ -215,6 +220,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         },
         loadPlaylistsSuccess: ({ playlists }) => {
             try {
+                if (!playlists) {
+                    return
+                }
                 // the feature flag might be off, so we don't show the count column
                 // but we want to know if we _would_ have shown counts
                 // so we'll emit a posthog event
@@ -334,7 +342,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
+        [urls.replay(ReplayTabs.Home)]: (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {
@@ -342,9 +350,14 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
+        //only call saved filters on the Home tab
+        // TODO: Separate to another logic on step 2 @veryayskiy
+        if (props.tab && props.tab === ReplayTabs.Home) {
+            actions.loadSavedFilters()
+            actions.checkForSavedFilterRedirect()
+        }
+
         actions.loadPlaylists()
-        actions.loadSavedFilters()
-        actions.checkForSavedFilterRedirect()
     }),
 ])
