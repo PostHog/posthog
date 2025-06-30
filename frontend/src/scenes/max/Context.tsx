@@ -14,6 +14,12 @@ function pluralize(count: number, word: string): string {
     return `${count} ${word}${count > 1 ? 's' : ''}`
 }
 
+interface ContextTagItem {
+    type: string
+    name: string
+    icon: React.ReactElement
+}
+
 interface ContextSummaryProps {
     insights?: MaxInsightContext[]
     dashboards?: MaxDashboardContext[]
@@ -75,11 +81,7 @@ export function ContextSummary({
     }, [contextCounts])
 
     const allItems = useMemo(() => {
-        const items = []
-
-        if (useCurrentPageContext) {
-            items.push({ type: 'current-page', name: 'Current page', icon: <IconPageChart /> })
-        }
+        const items: ContextTagItem[] = []
 
         if (dashboards) {
             dashboards.forEach((dashboard) => {
@@ -122,7 +124,7 @@ export function ContextSummary({
         }
 
         return items
-    }, [useCurrentPageContext, dashboards, insights, events, actions])
+    }, [dashboards, insights, events, actions])
 
     if (totalCount === 0) {
         return null
@@ -150,34 +152,12 @@ export function ContextSummary({
 }
 
 export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
-    const { contextInsights, contextDashboards, contextEvents, contextActions, useCurrentPageContext } =
-        useValues(maxContextLogic)
-    const {
-        removeContextInsight,
-        removeContextDashboard,
-        removeContextEvent,
-        removeContextAction,
-        disableCurrentPageContext,
-    } = useActions(maxContextLogic)
+    const { contextInsights, contextDashboards, contextEvents, contextActions } = useValues(maxContextLogic)
+    const { removeContextInsight, removeContextDashboard, removeContextEvent, removeContextAction } =
+        useActions(maxContextLogic)
 
     const allTags = useMemo(() => {
         const tags: JSX.Element[] = []
-
-        // Current page context
-        if (useCurrentPageContext) {
-            tags.push(
-                <LemonTag
-                    key="current-page"
-                    icon={<IconPageChart className="flex-shrink-0" />}
-                    onClose={disableCurrentPageContext}
-                    closable
-                    closeOnClick
-                    className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
-                >
-                    <span className="truncate min-w-0 flex-1">Current page</span>
-                </LemonTag>
-            )
-        }
 
         // Context items configuration
         const contextConfigs = [
@@ -237,7 +217,6 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         return tags
     }, [
         size,
-        useCurrentPageContext,
         contextDashboards,
         contextInsights,
         contextEvents,
@@ -246,7 +225,6 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         removeContextInsight,
         removeContextEvent,
         removeContextAction,
-        disableCurrentPageContext,
     ])
 
     if (allTags.length === 0) {

@@ -26,12 +26,15 @@ import {
     InsightType,
     ItemMode,
     ProjectTreeRef,
+    QueryBasedInsightModel,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
+
+import { RawInsightContextItem } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -230,6 +233,18 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           access_control_resource_id: `${insight.id}`,
                       }
                     : null
+            },
+        ],
+        maxContext: [
+            (s) => [s.insight, s.insightLogicRef],
+            (insight: Partial<QueryBasedInsightModel>, insightLogicRef: any): RawInsightContextItem[] => {
+                // do not add the insight to the context when editing
+                // since we have the `create_and_query_insight` MaxTool in the view
+                const isInViewMode = insightLogicRef?.logic.values.isInViewMode
+                if (!insight || !insight.query || !isInViewMode) {
+                    return []
+                }
+                return [{ type: 'insight', data: insight }]
             },
         ],
     })),
