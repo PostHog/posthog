@@ -1,4 +1,4 @@
-import { IconDecisionTree, IconPercentage, IconPlus, IconX } from '@posthog/icons'
+import { IconPercentage, IconPlus, IconX } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -20,7 +20,7 @@ export const StepRandomCohortBranch: HogFlowStep<'random_cohort_branch'> = {
     create: () => {
         return {
             action: {
-                name: 'Random Cohort',
+                name: 'Random cohort',
                 description: '',
                 type: 'random_cohort_branch',
                 on_error: 'continue',

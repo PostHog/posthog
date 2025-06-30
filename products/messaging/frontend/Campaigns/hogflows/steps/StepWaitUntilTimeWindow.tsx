@@ -8,6 +8,8 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { tzLabel } from 'scenes/settings/environment/TimezoneConfig'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     type: 'wait_until_time_window',
@@ -48,31 +50,19 @@ function StepWaitUntilTimeWindowConfiguration({
 
     const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
 
-    // Timezone options
-    const timezoneOptions = preflight?.available_timezones
-        ? Object.entries(preflight.available_timezones).map(([tz, offset]) => ({
-              key: tz,
-              label: `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
-                  offset === 0 ? '±' : offset > 0 ? '+' : '-'
-              }${Math.abs(Math.floor(offset))}:${(Math.abs(offset % 1) * 60).toString().padStart(2, '0')})`,
-          }))
-        : []
+    const options = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
+        key: tz,
+        label: tzLabel(tz, offset),
+    }))
 
     // Date options - using string values for LemonSelect compatibility
     const dateOptions = [
         { value: 'any', label: 'Any day' },
-        { value: 'weekday', label: 'Weekdays (Monday - Friday)' },
-        { value: 'weekend', label: 'Weekends (Saturday - Sunday)' },
-        { value: 'weekdays_custom', label: 'Weekdays (custom)' },
-        { value: 'weekends_custom', label: 'Weekends (custom)' },
-        { value: 'monday', label: 'Monday only' },
-        { value: 'tuesday', label: 'Tuesday only' },
-        { value: 'wednesday', label: 'Wednesday only' },
-        { value: 'thursday', label: 'Thursday only' },
-        { value: 'friday', label: 'Friday only' },
-        { value: 'saturday', label: 'Saturday only' },
-        { value: 'sunday', label: 'Sunday only' },
+        { value: 'weekday', label: 'Weekdays' },
+        { value: 'weekend', label: 'Weekends' },
+        { value: 'custom', label: 'Specific days' },
     ]
 
     // Time options
@@ -140,19 +130,21 @@ function StepWaitUntilTimeWindowConfiguration({
     }
 
     return (
-        <div className="space-y-4">
+        <div className="gap-4">
             <div>
                 <LemonLabel>Timezone</LemonLabel>
                 <LemonInputSelect
                     mode="single"
-                    placeholder="Select timezone"
-                    value={[timezone]}
-                    onChange={([newTimezone]) => {
-                        if (newTimezone) {
-                            setCampaignActionConfig(action.id, { timezone: newTimezone })
+                    placeholder="Select a time zone"
+                    value={[timezone || currentTeam?.timezone || 'UTC']}
+                    popoverClassName="z-[1000]"
+                    onChange={([newTimezone]): void => {
+                        if (!preflight?.available_timezones) {
+                            throw new Error('No timezones are available')
                         }
+                        setCampaignActionConfig(action.id, { timezone: newTimezone })
                     }}
-                    options={timezoneOptions}
+                    options={options}
                     data-attr="timezone-select"
                 />
             </div>

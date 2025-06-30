@@ -9,11 +9,9 @@ import type { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { getHogFlowStep } from './HogFlowSteps'
 import { HogFlowStepNodeProps, StepViewNodeHandle } from './types'
+import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 
 export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
-
-export const DROPZONE_NODE_WIDTH = 100
-export const DROPZONE_NODE_HEIGHT = 34
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
     dropzone: DropzoneNode,
@@ -49,8 +47,8 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: DROPZONE_NODE_WIDTH,
-                height: DROPZONE_NODE_HEIGHT,
+                width: NODE_WIDTH,
+                height: NODE_HEIGHT,
             }}
         >
             <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
@@ -98,9 +96,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
                     style={getHandleStyle(handle, node)}
                 />
             ))}
-            {Step?.renderNode(props) || (
-                <StepView action={props.data} name={`Error: ${props.data.type} not implemented`} />
-            )}
+            {Step?.renderNode(props) || <StepView action={props.data} />}
         </>
     )
 }

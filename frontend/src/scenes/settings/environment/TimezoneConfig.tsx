@@ -5,7 +5,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-const tzLabel = (tz: string, offset: number): string =>
+export const tzLabel = (tz: string, offset: number): string =>
     `${tz.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${offset === 0 ? '±' : offset > 0 ? '+' : '-'}${Math.abs(
         Math.floor(offset)
     )}:${(Math.abs(offset % 1) * 60).toString().padStart(2, '0')})`
