@@ -1,5 +1,5 @@
 import { IconDashboard, IconGraph, IconPageChart } from '@posthog/icons'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
@@ -19,6 +19,11 @@ import {
     MaxEventContext,
     MaxInsightContext,
 } from './maxTypes'
+import { maxGlobalLogic } from './maxGlobalLogic'
+import { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { urls } from 'scenes/urls'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { routes } from 'scenes/scenes'
 
 // Utility functions for transforming data to max context
 const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
@@ -93,8 +98,8 @@ const createEntityReducers = <TContext extends { id: string | number }, TInput>(
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
     connect(() => ({
-        values: [insightSceneLogic, ['filtersOverride', 'variablesOverride']],
-        actions: [router, ['locationChanged']],
+        values: [insightSceneLogic, ['filtersOverride', 'variablesOverride'], maxGlobalLogic, ['toolMap']],
+        actions: [router, ['locationChanged'], maxGlobalLogic, ['registerTool']],
     })),
     actions({
         enableCurrentPageContext: true,
@@ -201,8 +206,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ],
         }
     }),
-    listeners(({ actions, cache }) => ({
-        locationChanged: () => {
+    listeners(({ actions, values, cache }) => ({
+        locationChanged: ({ pathname }) => {
+            actions.registerTool({
+                ...values.toolMap.navigate,
+                context: { current_page: pathname },
+            })
             // Don't reset context if the only change is the side panel opening/closing
             const currentLocation = router.values.location
             const currentHashParams = router.values.hashParams || {}
@@ -585,11 +594,42 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
     }),
-    afterMount(({ cache }) => {
+    afterMount(({ cache, actions }) => {
         cache.previousLocation = {
             location: router.values.location,
             hashParams: router.values.hashParams,
             searchParams: router.values.searchParams,
         }
+        actions.registerTool({
+            name: 'navigate' as const,
+            displayName: 'Navigate',
+            context: { current_page: location.pathname },
+            callback: async (toolOutput) => {
+                const { page_key: pageKey } = toolOutput
+                if (!(pageKey in urls)) {
+                    throw new Error(`${pageKey} not in urls`)
+                }
+                const url = urls[pageKey as AssistantNavigateUrls]()
+                router.actions.push(url)
+                // First wait for navigation to complete
+                await new Promise<void>((resolve, reject) => {
+                    const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
+                    const startTime = performance.now()
+                    const checkPathname = (): void => {
+                        if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                            resolve()
+                        } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
+                            reject(new Error('Navigation timeout'))
+                        } else {
+                            setTimeout(checkPathname, 50)
+                        }
+                    }
+                    checkPathname()
+                })
+            },
+        })
+    }),
+    beforeUnmount(() => {
+        maxGlobalLogic.actions.deregisterTool('navigate')
     }),
 ])

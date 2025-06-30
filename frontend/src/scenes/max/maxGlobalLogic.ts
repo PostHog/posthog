@@ -1,14 +1,9 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { urls } from 'scenes/urls'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { routes } from 'scenes/scenes'
-import type { AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
@@ -50,36 +45,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         toolMap: [
-            {
-                navigate: {
-                    name: 'navigate' as const,
-                    displayName: 'Navigate',
-                    context: { current_page: location.pathname },
-                    callback: async (toolOutput) => {
-                        const { page_key: pageKey } = toolOutput
-                        if (!(pageKey in urls)) {
-                            throw new Error(`${pageKey} not in urls`)
-                        }
-                        const url = urls[pageKey as AssistantNavigateUrls]()
-                        router.actions.push(url)
-                        // First wait for navigation to complete
-                        await new Promise<void>((resolve, reject) => {
-                            const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
-                            const startTime = performance.now()
-                            const checkPathname = (): void => {
-                                if (sceneLogic.values.activeScene === routes[url]?.[0]) {
-                                    resolve()
-                                } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
-                                    reject(new Error('Navigation timeout'))
-                                } else {
-                                    setTimeout(checkPathname, 50)
-                                }
-                            }
-                            checkPathname()
-                        })
-                    },
-                },
-            } as Record<string, ToolDefinition>,
+            {} as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
@@ -123,16 +89,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(() => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
-            })
-        },
-        [router.actionTypes.locationChanged]: ({ pathname }) => {
-            actions.registerTool({
-                ...values.toolMap.navigate,
-                context: { current_page: pathname },
             })
         },
     })),
