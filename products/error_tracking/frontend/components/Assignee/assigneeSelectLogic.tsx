@@ -24,7 +24,7 @@ export type RoleAssignee = {
     role: RoleType
 }
 
-export type Assignee = UserAssignee | GroupAssignee | RoleAssignee | null
+export type Assignee = UserAssignee | RoleAssignee | null
 
 export interface RolesFuse extends Fuse<RoleType> {}
 

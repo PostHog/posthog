@@ -130,7 +130,7 @@ async fn test_assignment_processing(db: PgPool) {
     // the fingerprint, rather than the rule, because fingerprint assignments take priority over assignment rules
 
     let mut props_with_fingerprint_assignment = test_props.clone();
-    let fingerprint_assignment = NewAssignment::try_new(Some(3), None, None).unwrap();
+    let fingerprint_assignment = NewAssignment::try_new(Some(3), None).unwrap();
     props_with_fingerprint_assignment.fingerprint.assignment = Some(fingerprint_assignment);
 
     let mut new_issue = issue.clone();
