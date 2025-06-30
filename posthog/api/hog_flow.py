@@ -78,7 +78,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         read_only_fields = [
             "id",
             "version",
-            "status",
             "created_at",
             "created_by",
             "trigger_masking",
