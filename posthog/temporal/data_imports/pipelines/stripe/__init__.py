@@ -152,7 +152,6 @@ def validate_credentials(api_key: str) -> bool:
         {"name": PAYOUT_RESOURCE_NAME, "method": client.payouts.list, "params": {"limit": 1}},
         {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
         {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
-        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
         {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
