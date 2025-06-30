@@ -365,10 +365,12 @@ export class KafkaConsumer {
             let consumeTimer: NodeJS.Timeout | null = null
             let isReadingInMainLoop = false
 
-            const continuousConsume = async () => {
-                if (!this.isStopping && !isReadingInMainLoop) {
+            const continuousConsume = async (fromMainLoop = false) => {
+                if (!this.isStopping && (!fromMainLoop ? !isReadingInMainLoop : true)) {
                     try {
-                        const batchSizeToFetch = Math.min(1, this.fetchBatchSize - messageQueue.length)
+                        const batchSizeToFetch = fromMainLoop
+                            ? this.fetchBatchSize - messageQueue.length
+                            : Math.min(1, this.fetchBatchSize - messageQueue.length)
                         if (batchSizeToFetch > 0) {
                             const consumeStartTime = performance.now()
                             if (lastConsumeTime > 0) {
@@ -379,10 +381,12 @@ export class KafkaConsumer {
                             const newMessages = await retryIfRetriable(() =>
                                 promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSizeToFetch, cb))
                             )
-                            messageQueue.push(...newMessages)
+                            messageQueue.concat(newMessages)
                         }
                     } catch (error) {
-                        logger.error('🔁', 'continuous_consume_error', { error: String(error) })
+                        logger.error('🔁', fromMainLoop ? 'main_loop_consume_error' : 'continuous_consume_error', {
+                            error: String(error),
+                        })
                     }
                 } else if (this.isStopping) {
                     if (consumeTimer) {
@@ -416,19 +420,7 @@ export class KafkaConsumer {
                         } else {
                             messages = []
                         }
-                        const remainingToFetch = this.fetchBatchSize - messages.length
-                        if (remainingToFetch > 0) {
-                            try {
-                                const additionalMessages = await retryIfRetriable(() =>
-                                    promisifyCallback<Message[]>((cb) =>
-                                        this.rdKafkaConsumer.consume(remainingToFetch, cb)
-                                    )
-                                )
-                                messages.push(...additionalMessages)
-                            } catch (error) {
-                                logger.error('🔁', 'additional_consume_error', { error: String(error) })
-                            }
-                        }
+                        await continuousConsume(true)
                         isReadingInMainLoop = false
                     } else {
                         // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
