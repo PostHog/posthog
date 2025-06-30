@@ -123,9 +123,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
     INVOICE_ITEM_RESOURCE_NAME: [
         {
-            "label": "date",
+            "label": "created_at",
             "type": IncrementalFieldType.DateTime,
-            "field": "date",
+            "field": "created",
             "field_type": IncrementalFieldType.Integer,
         }
     ],
