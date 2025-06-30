@@ -3229,7 +3229,7 @@ export interface MarketingAnalyticsTableQuery
     /** Filter test accounts */
     filterTestAccounts?: boolean
     /** Dynamic conversion goal that can be set in the UI without saving */
-    dynamicConversionGoal?: any | null // If I don't use any it will through `Extra inputs are not permitted` error
+    dynamicConversionGoal?: any | null // If I don't use `any` it will throw `Extra inputs are not permitted` error
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
