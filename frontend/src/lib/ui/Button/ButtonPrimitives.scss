@@ -1,10 +1,13 @@
 :root {
+    --button-padding-x-xs: 2px;
     --button-padding-x-sm: 4px;
     --button-padding-x-base: 6px;
     --button-padding-x-lg: 8px;
+    --button-padding-y-xs: 2px;
     --button-padding-y-sm: 3px;
     --button-padding-y-base: 5px;
     --button-padding-y-lg: 7px;
+    --button-height-xs: 20px;
     --button-height-sm: 26px;
     --button-height-base: 30px;
     --button-height-base-tall: 45px;
@@ -114,6 +117,14 @@
 
     &:hover {
         background-color: transparent !important;
+    }
+}
+
+.button-primitive--height-xs {
+    height: var(--button-height-xs);
+
+    &.icon-only {
+        width: var(--button-height-xs);
     }
 }
 

@@ -9,6 +9,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -19,7 +20,6 @@ type SceneLayoutProps = {
 export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }): JSX.Element {
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
     const { setPanelInfoActive } = useActions(sceneLayoutLogic)
-
     // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
         setPanelInfoActive(true)
@@ -41,6 +41,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
     const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
+    const { mobileLayout } = useValues(navigation3000Logic)
 
     useEffect(() => {
         if (sceneLayoutContainer.current) {
@@ -87,13 +88,13 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         <div
                             className={cn('scene-layout__content-panel order-2 bg-surface-primary flex flex-col', {
                                 hidden: !panelInfoOpen && showPanelOverlay,
-                                'right-0': showPanelOverlay,
-                                'right-[3rem]': !showPanelOverlay,
+                                'right-0': mobileLayout,
+                                'right-[3rem]': !mobileLayout,
                             })}
                         >
                             <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-4 text-tertiary" />
+                                    <IconInfo className="size-6 text-tertiary" />
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 

@@ -14,7 +14,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 type ButtonVariant = 'default' | 'outline' | 'danger'
 
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
+export type ButtonSize = 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -73,6 +73,9 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
 
     let buttonHeight = 'button-primitive--height-base'
     switch (size) {
+        case 'xs':
+            buttonHeight = 'button-primitive--height-xs'
+            break
         case 'sm':
             buttonHeight = 'button-primitive--height-sm'
             break
@@ -129,6 +132,7 @@ export const buttonPrimitiveVariants = cva({
             danger: 'button-primitive--variant-danger',
         },
         size: {
+            xs: `button-primitive--size-xs button-primitive--height-xs text-xs`,
             sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
@@ -275,18 +279,39 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
 
 ButtonPrimitive.displayName = 'ButtonPrimitive'
 
-export const ButtonPrimitiveCheckedIndicator = ({ className, checked }: { checked: boolean, className?: string }): JSX.Element => {
-    return <IconCheck className={cn('size-3 text-secondary', {
-        'opacity-0 group-hover/button-primitive:opacity-30': !checked,
-        'opacity-100': checked,
-    }, className)} />
+export const ButtonPrimitiveCheckedIndicator = ({
+    className,
+    checked,
+}: {
+    checked: boolean
+    className?: string
+}): JSX.Element => {
+    return (
+        <IconCheck
+            className={cn(
+                'size-3 text-secondary',
+                {
+                    'opacity-0 group-hover/button-primitive:opacity-30': !checked,
+                    'opacity-100': checked,
+                },
+                className
+            )}
+        />
+    )
 }
 ButtonPrimitiveCheckedIndicator.displayName = 'ButtonPrimitiveCheckedIndicator'
 
 interface ButtonPrimitiveWithAccessControlProps extends ButtonPrimitiveProps, AccessControlProps {}
 
-export const ButtonPrimitiveWithAccessControl = ({ className, userAccessLevel, minAccessLevel, resourceType, ...props }: ButtonPrimitiveWithAccessControlProps): JSX.Element => {
-    return <AccessControlAction
+export const ButtonPrimitiveWithAccessControl = ({
+    className,
+    userAccessLevel,
+    minAccessLevel,
+    resourceType,
+    ...props
+}: ButtonPrimitiveWithAccessControlProps): JSX.Element => {
+    return (
+        <AccessControlAction
             userAccessLevel={userAccessLevel}
             minAccessLevel={minAccessLevel}
             resourceType={resourceType}
@@ -295,6 +320,6 @@ export const ButtonPrimitiveWithAccessControl = ({ className, userAccessLevel, m
                 <ButtonPrimitive className={cn(className)} {...props} disabled={!!accessControlDisabledReason} />
             )}
         </AccessControlAction>
+    )
 }
 ButtonPrimitiveWithAccessControl.displayName = 'ButtonPrimitiveWithAccessControl'
-

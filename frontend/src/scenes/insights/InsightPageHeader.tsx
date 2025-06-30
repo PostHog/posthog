@@ -117,7 +117,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { preflight } = useValues(preflightLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
-    const [tags] = useState(insight.tags)
+    const [tags, setTags] = useState(insight.tags)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -309,7 +309,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <>
                                 <SceneName
                                     defaultValue={insight.name || insight.derived_name || ''}
-                                    isEditing={insightMode === ItemMode.Edit}
                                     onSave={(value) => setInsightMetadata({ name: value })}
                                     dataAttr="insight-name"
                                 />
@@ -320,7 +319,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <>
                                 <SceneDescription
                                     defaultValue={insight.description || ''}
-                                    isEditing={insightMode === ItemMode.Edit}
                                     onSave={(value) => setInsightMetadata({ description: value })}
                                     dataAttr="insight-description"
                                 />
@@ -329,8 +327,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {canEditInsight && (
                             <SceneTags
-                                isEditing={insightMode === ItemMode.Edit}
-                                onSave={(tags) => setInsightMetadata({ tags })}
+                                onSave={(tags) => {
+                                    setInsightMetadata({ tags })
+                                    setTags(tags)
+                                }}
                                 tags={tags}
                                 tagsAvailable={allExistingTags}
                                 dataAttr="insight-tags"
