@@ -6,7 +6,7 @@ import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { PostgresUse } from '~/utils/db/postgres'
 
-import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
+import { insertHogFunction, insertIntegration } from '../../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {

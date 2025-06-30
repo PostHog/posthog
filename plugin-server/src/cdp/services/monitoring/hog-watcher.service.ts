@@ -2,17 +2,16 @@ import { Counter, Histogram } from 'prom-client'
 
 import { captureTeamEvent } from '~/utils/posthog'
 
-import { Hub } from '../../types'
-import { now } from '../../utils/now'
-import { UUIDT } from '../../utils/utils'
-import { CdpRedis } from '../redis'
+import { Hub } from '../../../types'
+import { UUIDT } from '../../../utils/utils'
+import { CdpRedis } from '../../redis'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionTiming,
     HogFunctionType,
-} from '../types'
+} from '../../types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -104,7 +103,7 @@ export class HogWatcherService {
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
-        const nowSeconds = Math.round(now() / 1000)
+        const nowSeconds = Math.round(Date.now() / 1000)
         return [
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
@@ -177,7 +176,7 @@ export class HogWatcherService {
                     ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
                     : 0
 
-            const nowSeconds = Math.round(now() / 1000)
+            const nowSeconds = Math.round(Date.now() / 1000)
 
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
@@ -268,7 +267,7 @@ export class HogWatcherService {
             const historyResults = await this.redis.usePipeline({ name: 'addTempDisabled' }, (pipeline) => {
                 functionsTempDisabled.forEach((id) => {
                     const key = `${REDIS_KEY_DISABLED_HISTORY}/${id}`
-                    pipeline.zadd(key, now(), new UUIDT().toString())
+                    pipeline.zadd(key, Date.now(), new UUIDT().toString())
                     pipeline.zrange(key, 0, -1)
                     pipeline.expire(key, this.hub.CDP_WATCHER_TTL)
                 })
