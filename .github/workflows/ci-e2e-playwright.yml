@@ -133,7 +133,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   bin/check_kafka_clickhouse_up
-                  timeout 300 docker compose -f docker-compose.dev.yml wait db redis || true
+                  bin/check_postgres_up
 
             - name: Install Depot CLI
               if: needs.changes.outputs.shouldRun == 'true'

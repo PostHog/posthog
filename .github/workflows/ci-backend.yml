@@ -139,6 +139,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Wait for services to be available
+              run: |
+                  bin/check_postgres_up
+                  bin/check_kafka_clickhouse_up
+
             - name: Run migrations up to master
               run: |
                   python manage.py migrate
@@ -583,7 +588,7 @@ jobs:
               shell: bash
               run: |
                   bin/check_kafka_clickhouse_up
-                  timeout 300 docker compose -f docker-compose.dev.yml wait db redis || true
+                  bin/check_postgres_up
 
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
@@ -776,9 +781,10 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Wait for services to be available
+              shell: bash
               run: |
                   bin/check_kafka_clickhouse_up
-                  timeout 300 docker compose -f docker-compose.dev.yml wait db redis || true
+                  bin/check_postgres_up
 
             - name: Run async migrations tests
               run: |
