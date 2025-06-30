@@ -686,7 +686,7 @@ export class HogExecutorService {
             throw new Error('Bad invocation')
         }
 
-        const params = invocation.queueParameters
+        const params = this.enrichFetchRequest(invocation.queueParameters)
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
