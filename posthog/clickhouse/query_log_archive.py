@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     user                                  LowCardinality(String), -- comment 'Name of the user who initiated the current query.',
     query_id                              String, -- comment 'ID of the query.',
     peak_threads_usage                    UInt64, -- comment 'Maximum count of simultaneous threads executing the query.',
-    -- log_comment is a garbage, we may want to copy something from it, but overall is full of data
+    -- log_comment contains mixed data quality, we may want to copy something from it, but overall is full of data
     -- log_comment                           String, -- comment 'Log comment. It can be set to arbitrary string no longer than max_query_size. An empty string if it is not defined.',
 
     -- the above columns are copied directly from system.query_log
