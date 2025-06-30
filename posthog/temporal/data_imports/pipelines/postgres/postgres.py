@@ -125,7 +125,7 @@ def _build_query(
 
     if not should_use_incremental_field:
         if add_limit:
-            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+            query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
             return sql.SQL(query_with_limit).format()
 
         return query
@@ -136,9 +136,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL(
-        "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} ORDER BY {incremental_field} ASC"
-    ).format(
+    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
         incremental_field=sql.Identifier(incremental_field),
@@ -146,10 +144,11 @@ def _build_query(
     )
 
     if add_limit:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+        query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
         return sql.SQL(query_with_limit).format()
-
-    return query
+    else:
+        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[str] | None:

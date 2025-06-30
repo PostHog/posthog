@@ -1,11 +1,7 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-import { Hub } from '../../../types'
-import { closeHub, createHub } from '../../../utils/db/hub'
-import { delay } from '../../../utils/utils'
+import { Hub } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { delay } from '~/utils/utils'
+
 import { HOG_MASK_EXAMPLES } from '../../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
@@ -13,7 +9,7 @@ import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
+const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 
 describe('HogMasker', () => {
     jest.retryTimes(3)

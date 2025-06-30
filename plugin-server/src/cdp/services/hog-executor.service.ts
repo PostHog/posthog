@@ -67,7 +67,6 @@ export const getNextRetryTime = (config: PluginsServerConfig, tries: number): Da
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
-
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -122,17 +121,19 @@ export const formatHogInput = async (
             }
         }
 
-        for (const [subkey, value] of Object.entries(bytecode)) {
-            if (subkey === EXTEND_OBJECT_KEY) {
-                continue
-            }
-            ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
-        }
+        await Promise.all(
+            Object.entries(bytecode).map(async ([subkey, value]) => {
+                if (subkey === EXTEND_OBJECT_KEY) {
+                    return
+                }
+                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+            })
+        )
 
         return ret
-    } else {
-        return bytecode
     }
+
+    return bytecode
 }
 
 const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
@@ -293,45 +294,47 @@ export class HogExecutorService {
             }
         }
 
-        for (const hogFunction of hogFunctions) {
-            // Check for non-mapping functions first
-            if (!hogFunction.mappings) {
+        await Promise.all(
+            hogFunctions.map(async (hogFunction) => {
+                // We always check the top level filters
                 if (!(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals))) {
-                    continue
-                }
-                const invocation = await _buildInvocation(hogFunction, {
-                    ...hogFunction.inputs,
-                    ...hogFunction.encrypted_inputs,
-                })
-                if (!invocation) {
-                    continue
+                    return
                 }
 
-                invocations.push(invocation)
-                continue
-            }
+                // Check for non-mapping functions first
+                if (!hogFunction.mappings) {
+                    const invocation = await _buildInvocation(hogFunction, {
+                        ...hogFunction.inputs,
+                        ...hogFunction.encrypted_inputs,
+                    })
+                    if (!invocation) {
+                        return
+                    }
 
-            for (const mapping of hogFunction.mappings) {
-                // For mappings we want to match against both the mapping filters and the global filters
-                if (
-                    !(await _filterHogFunction(hogFunction, hogFunction.filters, filterGlobals)) ||
-                    !(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))
-                ) {
-                    continue
+                    invocations.push(invocation)
+                    return
                 }
 
-                const invocation = await _buildInvocation(hogFunction, {
-                    ...hogFunction.inputs,
-                    ...hogFunction.encrypted_inputs,
-                    ...mapping.inputs,
-                })
-                if (!invocation) {
-                    continue
-                }
+                await Promise.all(
+                    hogFunction.mappings.map(async (mapping) => {
+                        if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
+                            return
+                        }
 
-                invocations.push(invocation)
-            }
-        }
+                        const invocation = await _buildInvocation(hogFunction, {
+                            ...hogFunction.inputs,
+                            ...hogFunction.encrypted_inputs,
+                            ...mapping.inputs,
+                        })
+                        if (!invocation) {
+                            return
+                        }
+
+                        invocations.push(invocation)
+                    })
+                )
+            })
+        )
 
         return {
             invocations,
@@ -349,6 +352,10 @@ export class HogExecutorService {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
 
+        // NOTE: Only needed until the migration to hog only queue is complete
+        // After which we can trust this is set correctly by the scheduler
+        invocation.state.attempts = invocation.state.attempts ?? 0
+
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
@@ -358,20 +365,22 @@ export class HogExecutorService {
 
             if (nextInvocation.queueParameters?.type === 'fetch') {
                 asyncFunctionCount++
+
+                if (result && asyncFunctionCount > maxAsyncFunctions) {
+                    // We don't want to block the consumer too much hence we have a limit on async functions
+                    logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
+                    break
+                }
                 result = await this.executeFetch(nextInvocation)
             } else {
                 result = await this.execute(nextInvocation, options)
             }
 
+            // NOTE: this is a short term hack until we have removed the old fetch queue method
+            result.invocation.queue = 'hog'
+
             logs.push(...result.logs)
             metrics.push(...result.metrics)
-
-            await new Promise((resolve) => process.nextTick(resolve))
-
-            if (result && asyncFunctionCount > maxAsyncFunctions) {
-                logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
-                break
-            }
 
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
             if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {

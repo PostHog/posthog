@@ -158,6 +158,11 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
+                    // temporary code
+                    // just for testing why fetch fails are being retried twice in prod but three times locally
+                    // this will break all segment destinations
+                    // https://posthog.slack.com/archives/C06GG249PR6/p1751026775685259
+                    endpoint = 'https://httpstatuses.maor.io/429'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
