@@ -89,7 +89,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
 
         # Right after pattern description
         markdown_lines.extend([
-            "**🔍 How we detect this:**",
+            "🔍 **How we detect this:**",
         ])
         for indicator in pattern.get("indicators", []):
             markdown_lines.append(f"- {indicator}")
