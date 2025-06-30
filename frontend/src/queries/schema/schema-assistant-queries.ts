@@ -64,7 +64,7 @@ export interface AssistantSetPropertyFilter {
     operator: AssistantSetPropertyFilterOperator
 }
 
-export type AssistantStringValuePropertyFilterOperator =
+export type AssistantStringOrBooleanValuePropertyFilterOperator =
     | PropertyOperator.Exact
     | PropertyOperator.IsNot
     | PropertyOperator.IContains
@@ -72,19 +72,20 @@ export type AssistantStringValuePropertyFilterOperator =
     | PropertyOperator.Regex
     | PropertyOperator.NotRegex
 
-export interface AssistantStringValuePropertyFilter {
+export interface AssistantStringOrBooleanValuePropertyFilter {
     /**
      * `icontains` - case insensitive contains.
      * `not_icontains` - case insensitive does not contain.
      * `regex` - matches the regex pattern.
      * `not_regex` - does not match the regex pattern.
      */
-    operator: AssistantStringValuePropertyFilterOperator
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator
     /**
      * Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against.
      * Otherwise, the value must be a substring that will be matched against the property value.
+     * Use the string values `true` or `false` for boolean properties.
      */
-    value: string
+    value: string | 'true' | 'false'
 }
 
 export type AssistantNumericValuePropertyFilterOperator =
@@ -97,21 +98,9 @@ export interface AssistantNumericValuePropertyFilter {
     value: number
 }
 
-export type AssistantBooleanValuePropertyFilterOperator =
-    | PropertyOperator.Exact
-    | PropertyOperator.IsNot
-    | PropertyOperator.IsSet
-    | PropertyOperator.IsNotSet
-
-export interface AssistantBooleanValuePropertyFilter {
-    operator: AssistantBooleanValuePropertyFilterOperator
-    value: 'true' | 'false'
-}
-
 export type AssistantStringNumberOrBooleanPropertyFilter =
-    | AssistantStringValuePropertyFilter
+    | AssistantStringOrBooleanValuePropertyFilter
     | AssistantNumericValuePropertyFilter
-    | AssistantBooleanValuePropertyFilter
     | AssistantArrayPropertyFilter
 
 export type AssistantDateTimePropertyFilterOperator =

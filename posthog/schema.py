@@ -69,18 +69,6 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
-class Value(StrEnum):
-    TRUE = "true"
-    FALSE = "false"
-
-
-class AssistantBooleanValuePropertyFilterOperator(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-    IS_SET = "is_set"
-    IS_NOT_SET = "is_not_set"
-
-
 class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
@@ -175,16 +163,6 @@ class AssistantGenericPropertyFilter3(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantBooleanValuePropertyFilterOperator
-    type: str
-    value: Value
-
-
-class AssistantGenericPropertyFilter4(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
@@ -198,7 +176,7 @@ class AssistantGenericPropertyFilter4(BaseModel):
     )
 
 
-class AssistantGenericPropertyFilter5(BaseModel):
+class AssistantGenericPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -250,7 +228,7 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
-class AssistantStringValuePropertyFilterOperator(StrEnum):
+class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -2381,14 +2359,6 @@ class AssistantArrayPropertyFilter(BaseModel):
     )
 
 
-class AssistantBooleanValuePropertyFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    operator: AssistantBooleanValuePropertyFilterOperator
-    value: Value
-
-
 class AssistantBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2524,7 +2494,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantStringValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2537,7 +2507,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -2552,7 +2522,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
     value: float
 
 
-class AssistantGenericPropertyFilter6(BaseModel):
+class AssistantGenericPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2582,7 +2552,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantStringValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2595,7 +2565,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -2617,17 +2587,6 @@ class AssistantGroupPropertyFilter3(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantBooleanValuePropertyFilterOperator
-    type: Literal["group"] = "group"
-    value: Value
-
-
-class AssistantGroupPropertyFilter4(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantArrayPropertyFilterOperator = Field(
         ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
     )
@@ -2641,7 +2600,7 @@ class AssistantGroupPropertyFilter4(BaseModel):
     )
 
 
-class AssistantGroupPropertyFilter5(BaseModel):
+class AssistantGroupPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2652,7 +2611,7 @@ class AssistantGroupPropertyFilter5(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGroupPropertyFilter6(BaseModel):
+class AssistantGroupPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2698,7 +2657,6 @@ class AssistantRetentionActionsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -2706,7 +2664,6 @@ class AssistantRetentionActionsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -2731,7 +2688,6 @@ class AssistantRetentionEventsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -2739,7 +2695,6 @@ class AssistantRetentionEventsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -2760,11 +2715,11 @@ class AssistantSetPropertyFilter(BaseModel):
     )
 
 
-class AssistantStringValuePropertyFilter(BaseModel):
+class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: AssistantStringValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2776,7 +2731,7 @@ class AssistantStringValuePropertyFilter(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -4401,7 +4356,6 @@ class AssistantFunnelNodeShared(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4409,7 +4363,6 @@ class AssistantFunnelNodeShared(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4441,7 +4394,6 @@ class AssistantFunnelsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4449,7 +4401,6 @@ class AssistantFunnelsActionsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4484,7 +4435,6 @@ class AssistantFunnelsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4492,7 +4442,6 @@ class AssistantFunnelsEventsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4536,7 +4485,6 @@ class AssistantFunnelsQuery(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4544,7 +4492,6 @@ class AssistantFunnelsQuery(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4576,7 +4523,6 @@ class AssistantInsightsQueryBase(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4584,7 +4530,6 @@ class AssistantInsightsQueryBase(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4673,7 +4618,6 @@ class AssistantRetentionQuery(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4681,7 +4625,6 @@ class AssistantRetentionQuery(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4726,7 +4669,6 @@ class AssistantTrendsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4734,7 +4676,6 @@ class AssistantTrendsActionsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4776,7 +4717,6 @@ class AssistantTrendsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4784,7 +4724,6 @@ class AssistantTrendsEventsNode(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -4820,7 +4759,6 @@ class AssistantTrendsQuery(BaseModel):
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
                     AssistantGenericPropertyFilter5,
-                    AssistantGenericPropertyFilter6,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
@@ -4828,7 +4766,6 @@ class AssistantTrendsQuery(BaseModel):
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
                     AssistantGroupPropertyFilter5,
-                    AssistantGroupPropertyFilter6,
                 ],
             ]
         ]
@@ -9504,9 +9441,8 @@ class AssistantBasePropertyFilter(
             AssistantDateTimePropertyFilter,
             AssistantSetPropertyFilter,
             Union[
-                AssistantStringValuePropertyFilter,
+                AssistantStringOrBooleanValuePropertyFilter,
                 AssistantNumericValuePropertyFilter,
-                AssistantBooleanValuePropertyFilter,
                 AssistantArrayPropertyFilter,
             ],
         ]
@@ -9516,9 +9452,8 @@ class AssistantBasePropertyFilter(
         AssistantDateTimePropertyFilter,
         AssistantSetPropertyFilter,
         Union[
-            AssistantStringValuePropertyFilter,
+            AssistantStringOrBooleanValuePropertyFilter,
             AssistantNumericValuePropertyFilter,
-            AssistantBooleanValuePropertyFilter,
             AssistantArrayPropertyFilter,
         ],
     ]
