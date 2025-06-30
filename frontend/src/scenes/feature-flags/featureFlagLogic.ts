@@ -69,8 +69,11 @@ import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
+import { generateUUID } from 'lib/utils/generateUUID'
 
-export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
+export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
+    key: string
+}
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -334,8 +337,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
-            errors?: any
-        ) => ({ filters, active, errors }),
+            errors?: any,
+            key?: string
+        ) => ({ filters, active, errors, key }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
     }),
@@ -628,12 +632,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 filters: { ...NEW_FLAG.filters },
                 active: NEW_FLAG.active,
+                key: generateUUID(),
             } as ScheduleFlagPayload,
             {
-                setSchedulePayload: (state, { filters, active }) => {
+                setSchedulePayload: (state, { filters, active, key }) => {
                     return {
                         filters: filters === null ? state.filters : filters,
                         active: active === null ? state.active : active,
+                        key: key == null ? state.key : key,
                     }
                 },
             },
@@ -1135,7 +1141,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {})
+                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, generateUUID())
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
