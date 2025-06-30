@@ -417,10 +417,6 @@ export class KafkaConsumer {
                             logger.info('🔁', 'background task finally triggered whilst isStopping')
                         }
 
-                        // Only when we are fully done with the background work we store the offsets
-                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                        // Remove the background work from the queue when it is finished
-
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.indexOf(backgroundTask)
                         void this.backgroundTask.splice(index, 1)
