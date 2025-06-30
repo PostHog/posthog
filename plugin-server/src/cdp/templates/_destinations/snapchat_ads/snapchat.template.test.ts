@@ -10,11 +10,8 @@ describe('snapchat template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('works with single product event', async () => {
@@ -70,11 +67,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -153,11 +151,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -189,11 +188,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -225,11 +225,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 400, headers: {} },
             body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
         })
@@ -264,11 +265,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events/validate?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })
@@ -322,11 +324,12 @@ describe('snapchat template', () => {
               },
               "method": "POST",
               "return_queue": "hog",
+              "type": "fetch",
               "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"status": "OK"}',
         })

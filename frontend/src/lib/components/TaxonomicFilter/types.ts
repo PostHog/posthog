@@ -4,7 +4,7 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextOption } from 'scenes/max/maxTypes'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
@@ -67,6 +67,7 @@ export interface DataWarehousePopoverField {
     hogQLOnly?: boolean
     optional?: boolean
     tableName?: string
+    type?: DatabaseSerializedFieldType
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {

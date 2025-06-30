@@ -73,7 +73,7 @@ function matchWebVitalsEvents(
     for (const event of sortPerformanceEvents(performanceEvents)) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
-            nextTimestamp = navigationTimestamps.find((t) => t > event.timestamp) ?? null
+            nextTimestamp = navigationTimestamps.find((t) => t > (event.timestamp as number)) ?? null
         } else {
             if (!lastNavigationEvent) {
                 continue
@@ -85,7 +85,7 @@ function matchWebVitalsEvents(
                 }
 
                 const webVitalUnixTimestamp = new Date(webVital.timestamp).valueOf()
-                const isAfterLastNavigation = webVitalUnixTimestamp > lastNavigationEvent.timestamp
+                const isAfterLastNavigation = webVitalUnixTimestamp > (lastNavigationEvent.timestamp as number)
                 const isBeforeNextNavigation = webVitalUnixTimestamp < (nextTimestamp ?? Infinity)
                 if (isAfterLastNavigation && isBeforeNextNavigation) {
                     lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || new Set()

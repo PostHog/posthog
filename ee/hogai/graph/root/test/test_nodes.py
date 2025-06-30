@@ -22,8 +22,10 @@ from posthog.schema import (
     HogQLQuery,
     HumanMessage,
     LifecycleQuery,
+    MaxActionContext,
     MaxContextShape,
     MaxDashboardContext,
+    MaxEventContext,
     MaxInsightContext,
     RetentionEntity,
     RetentionFilter,
@@ -41,7 +43,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 responses=[LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")]
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -76,7 +78,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ],
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -123,7 +125,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ],
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
             next_state = node.run(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -147,7 +149,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_reconstructs_conversation(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(
             node._construct_and_update_messages_window(state_1, {})[0], [LangchainHumanMessage(content="Hello")]
@@ -172,7 +174,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -213,7 +215,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_node_filters_tool_calls_without_responses(self, mock_model):
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hello"),
@@ -269,7 +271,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.root.nodes.ChatOpenAI",
             return_value=mock_with_tokens,
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
 
             # Create a state that has hit the hard limit (4 tool calls)
             state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=4)
@@ -293,7 +295,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_token_limit_is_respected(self, mock_model):
         # Trims after 64k
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Hi" * 64100, id="1"),
@@ -392,7 +394,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_run_updates_conversation_window(self, mock_model):
         # Mock the model to return a simple response
-        node = RootNode(self.team)
+        node = RootNode(self.team, self.user)
 
         # Create initial state with a large conversation
         initial_state = AssistantState(
@@ -436,7 +438,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_model.bind_tools.return_value = mock_model
             mock_chat_openai.return_value = mock_model
 
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
 
             node._get_model(
                 AssistantState(messages=[HumanMessage(content="show me long recordings")]),
@@ -466,7 +468,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 return_value=("Success", {}),
             ),
         ):
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             next_state = node.run(state, {})
@@ -486,7 +488,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             fake_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="I'll help with recordings")])
             mock_get_model.return_value = fake_model
 
-            node = RootNode(self.team)
+            node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             # Test with contextual tools
@@ -513,10 +515,34 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("contextual_tools", config_arg["configurable"])
             self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
 
+    def test_node_includes_project_org_user_context_in_prompt_template(self):
+        with (
+            # This test mocks deeper than ideal, and really it should be spying on the actual LLM call, rather than
+            # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
+            # mock the "right" thing, so going for a kludge here.
+            patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
+            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
+        ):
+            mock_model = MagicMock()
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+
+            node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
+
+            mock_chat_prompt_template.assert_called_once()
+            system_content = "\n\n".join(
+                content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
+            )
+            self.assertIn("You are currently in project ", system_content)
+            self.assertIn("The user's name appears to be ", system_content)
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
 
         # Test case 1: Last message is AssistantToolCallMessage - should return "root"
         state_1 = AssistantState(
@@ -554,12 +580,12 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(node.router(state_4), "root")
 
     def test_run_no_assistant_message(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
     def test_run_valid_tool_call(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -582,7 +608,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_insight_type, "trends")
 
     def test_run_valid_contextual_tool_call(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -604,7 +630,14 @@ class TestRootNodeTools(BaseTest):
             return_value=("Success", {}),
         ):
             result = node.run(
-                state, {"configurable": {"contextual_tools": {"search_session_recordings": {"current_filters": {}}}}}
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
             )
 
         self.assertIsInstance(result, PartialAssistantState)
@@ -614,7 +647,7 @@ class TestRootNodeTools(BaseTest):
         self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
     def test_run_multiple_tool_calls_raises(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -640,7 +673,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
     def test_run_increments_tool_count(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
                 AssistantMessage(
@@ -661,7 +694,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
 
     def test_run_resets_tool_count(self):
-        node = RootNodeTools(self.team)
+        node = RootNodeTools(self.team, self.user)
 
         # Test reset when no tool calls in AssistantMessage
         state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
@@ -677,7 +710,7 @@ class TestRootNodeTools(BaseTest):
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.mixin = RootNode(self.team)  # Using RootNode since it inherits from RootNodeUIContextMixin
+        self.mixin = RootNode(self.team, self.user)  # Using RootNode since it inherits from RootNodeUIContextMixin
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
@@ -685,7 +718,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="User Trends",
             description="Daily active users",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -714,7 +747,7 @@ Trend results: 100 users
         mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
 
         insight = MaxInsightContext(
-            id=456,
+            id="456",
             name="Conversion Funnel",
             description=None,
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
@@ -741,7 +774,7 @@ Funnel results: 50% conversion
         mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
 
         insight = MaxInsightContext(
-            id=789,
+            id="789",
             name=None,
             description=None,
             query=RetentionQuery(
@@ -772,7 +805,7 @@ Retention: 30% Day 7
         mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
 
         insight = MaxInsightContext(
-            id=101,
+            id="101",
             name="Custom Query",
             description="HogQL analysis",
             query=HogQLQuery(query="SELECT count() FROM events"),
@@ -798,7 +831,7 @@ Query results: 42 events
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = MaxInsightContext(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
+        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
@@ -811,7 +844,7 @@ Query results: 42 events
         mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Query",
             description=None,
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -828,7 +861,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Dashboard Insight",
             description="Test insight",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -850,9 +883,61 @@ Query results: 42 events
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
-        self.assertIn("Dashboard Insights", result)
+        self.assertIn("### Dashboard insights", result)
         self.assertIn("Insight: Dashboard Insight", result)
         self.assertNotIn("# Insights", result)
+
+    def test_format_ui_context_with_events(self):
+        # Create mock events
+        event1 = MaxEventContext(id="1", name="page_view")
+        event2 = MaxEventContext(id="2", name="button_click")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view", "button_click"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = MaxEventContext(id="1", name="page_view", description="User viewed a page")
+        event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_actions(self):
+        # Create mock actions
+        action1 = MaxActionContext(id=1.0, name="Sign Up")
+        action2 = MaxActionContext(id=2.0, name="Purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up", "Purchase"', result)
+        self.assertIn("<actions_context>", result)
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = MaxActionContext(id=1.0, name="Sign Up", description="User creates account")
+        action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
+        self.assertIn("<actions_context>", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
@@ -861,14 +946,14 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Standalone Insight",
             description="Test standalone insight",
             query=FunnelsQuery(series=[EventsNode(event="sign_up")]),
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=[insight])
+        ui_context = MaxContextShape(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -893,7 +978,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Test Insight",
             description="Test description",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -916,7 +1001,7 @@ Query results: 42 events
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Insight",
             description=None,
             query=TrendsQuery(series=[]),

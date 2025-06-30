@@ -97,18 +97,18 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
                 <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {/* Product icon */}
-                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
-
                         {/* Product name and description */}
-                        <div>
-                            <h3 className="font-bold mb-0 flex items-center gap-x-2">
-                                {product.name}{' '}
-                                {isTemporaryFreeProduct && (
-                                    <LemonTag type="highlight">included with your plan</LemonTag>
-                                )}
-                            </h3>
-                            <div>{product.description}</div>
+                        <div className="flex gap-x-2">
+                            <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>
+                                <h3 className="font-bold mb-0 flex items-center gap-x-2">
+                                    {product.name}{' '}
+                                    {isTemporaryFreeProduct && (
+                                        <LemonTag type="highlight">included with your plan</LemonTag>
+                                    )}
+                                </h3>
+                                <div>{product.description}</div>
+                            </div>
                         </div>
 
                         {/* Product actions */}

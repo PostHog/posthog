@@ -2,7 +2,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::instrument;
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
@@ -15,7 +14,6 @@ use common_database::Client as DatabaseClient;
 
 impl Cohort {
     /// Returns all cohorts for a given team
-    #[instrument(skip_all)]
     pub async fn list_from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
         project_id: i64,

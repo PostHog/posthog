@@ -1,4 +1,4 @@
-import { LemonButtonProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -39,7 +39,7 @@ export interface OperatorValueSelectProps {
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
-    size?: LemonButtonProps['size']
+    size?: 'xsmall' | 'small' | 'medium'
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -188,10 +188,8 @@ export function OperatorValueSelect({
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
-                    className={
-                        // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                        'shrink grow-[1000] min-w-[10rem]'
-                    }
+                    // High flex-grow for proper sizing within TaxonomicPropertyFilter
+                    className="shrink grow-[1000] min-w-[10rem]"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue

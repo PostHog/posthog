@@ -113,32 +113,40 @@ export type HogFunctionFilterGlobals = {
     properties: Record<string, any>
     distinct_id: string
 
-    person?: {
+    person: {
         id: string
         properties: Record<string, any>
-    }
-    pdi?: {
+    } | null
+    pdi: {
         distinct_id: string
         person_id: string
         person: {
             id: string
             properties: Record<string, any>
         }
-    }
+    } | null
 
-    group_0?: {
+    // Used by groupId filters on event_metadata
+    $group_0: string | null
+    $group_1: string | null
+    $group_2: string | null
+    $group_3: string | null
+    $group_4: string | null
+
+    // Used by group property filters
+    group_0: {
         properties: Record<string, any>
     }
-    group_1?: {
+    group_1: {
         properties: Record<string, any>
     }
-    group_2?: {
+    group_2: {
         properties: Record<string, any>
     }
-    group_3?: {
+    group_3: {
         properties: Record<string, any>
     }
-    group_4?: {
+    group_4: {
         properties: Record<string, any>
     }
 }
@@ -166,7 +174,8 @@ export type LogEntrySerialized = Omit<LogEntry, 'timestamp'> & {
 
 export type MinimalAppMetric = {
     team_id: number
-    app_source_id: string
+    app_source_id: string // The main item (like the hog function or hog flow ID)
+    instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other'
     metric_name:
         | 'succeeded'
@@ -179,6 +188,8 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
+        | 'event_triggered_destination'
+        | 'destination_invoked'
 
     count: number
 }
@@ -186,16 +197,6 @@ export type MinimalAppMetric = {
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
-    instance_id?: string
-}
-
-export type HogFunctionQueueParametersFetchRequest = {
-    url: string
-    method: string
-    body?: string
-    return_queue: CyclotronJobQueueKind
-    max_tries?: number
-    headers?: Record<string, string>
 }
 
 export type CyclotronFetchFailureKind =
@@ -221,7 +222,18 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
+export type HogFunctionQueueParametersFetchRequest = {
+    type: 'fetch'
+    url: string
+    method: string
+    body?: string
+    return_queue: CyclotronJobQueueKind
+    max_tries?: number
+    headers?: Record<string, string>
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
+    type: 'fetch-response'
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** On success, the fetch worker returns only the successful response */
@@ -282,6 +294,7 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
         globals: HogFunctionInvocationGlobalsWithInputs
         vmState?: VMState
         timings: HogFunctionTiming[]
+        attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
     }
     hogFunction: HogFunctionType
 }
@@ -292,10 +305,14 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
+    event: HogFunctionInvocationGlobals['event']
     personId?: string
-    event?: any // TODO: Type better
     variables?: Record<string, any>
-    currentActionId?: string
+    currentAction?: {
+        id: string
+        startedAtTimestamp: number
+    }
+    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
@@ -326,12 +343,7 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType =
-    | 'destination'
-    | 'transformation'
-    | 'internal_destination'
-    | 'source_webhook'
-    | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

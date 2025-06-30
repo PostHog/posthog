@@ -23,6 +23,7 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
         "verification_challenge",
         "last_verification_retry",
     )
+    autocomplete_fields = ["organization"]
     fieldsets = (
         (None, {"fields": ("id", "organization", "domain")}),
         ("Verification", {"fields": ("verification_challenge", "verified_at", "last_verification_retry")}),

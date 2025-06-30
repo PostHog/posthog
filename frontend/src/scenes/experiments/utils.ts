@@ -301,6 +301,9 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
     throw new Error('Feature flag must use multiple variants with control as the first variant.')
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     return {
         kind: NodeKind.ExperimentTrendsQuery,
@@ -360,6 +363,9 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -374,6 +380,9 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
     }
 }
 
+/**
+ * @deprecated
+ */
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -386,6 +395,9 @@ export function getDefaultCountMetric(): ExperimentMetric {
     }
 }
 
+/**
+ * @deprecated
+ */
 export function getDefaultContinuousMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -398,6 +410,9 @@ export function getDefaultContinuousMetric(): ExperimentMetric {
     }
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
@@ -428,6 +443,7 @@ export function getExperimentMetricFromInsight(
                 layout: insight.query.source.funnelsFilter?.layout,
                 breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
                 breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
+                funnelOrderType: insight.query.source.funnelsFilter?.funnelOrderType,
             },
             filterTestAccounts: insight.query.source.filterTestAccounts,
         })
@@ -457,6 +473,9 @@ export function getExperimentMetricFromInsight(
     return undefined
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
@@ -477,6 +496,9 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
     return {}
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function filterToExposureConfig(
     entity: Record<string, any> | undefined
 ): ExperimentEventExposureConfig | undefined {
@@ -497,6 +519,9 @@ export function filterToExposureConfig(
     return undefined
 }
 
+/**
+ * @deprecated in favot of getFilter
+ */
 export function metricToFilter(metric: ExperimentMetric): FilterType {
     const createSourceNode = (source: any, type: string): ExperimentMetricSource => {
         return {
@@ -507,7 +532,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
             math: source.math,
             math_property: source.math_property,
             math_hogql: source.math_hogql,
-            properties: source.properties,
+            properties: source.properties || [],
             ...(type === 'data_warehouse' && {
                 timestamp_field: source.timestamp_field,
                 events_join_key: source.events_join_key,
@@ -560,6 +585,9 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
     return { events: [], actions: [], data_warehouse: [] }
 }
 
+/**
+ * TODO: review for refactor.
+ */
 export function filterToMetricConfig(
     metricType: ExperimentMetricType,
     actions: Record<string, any>[] | undefined,
@@ -671,6 +699,9 @@ export function filterToMetricConfig(
     )
 }
 
+/**
+ * @deprecated create a query builder with getQuery instead
+ */
 export function metricToQuery(
     metric: ExperimentMetric,
     filterTestAccounts: boolean
@@ -711,6 +742,7 @@ export function metricToQuery(
                         ...(metric.source.math === ExperimentMetricMathType.UniqueSessions && {
                             math: ExperimentMetricMathType.UniqueSessions,
                         }),
+                        properties: source.properties || [],
                     },
                 ],
             } as TrendsQuery
@@ -726,6 +758,7 @@ export function metricToQuery(
                 },
                 funnelsFilter: {
                     layout: FunnelLayout.horizontal,
+                    ...(metric.funnel_order_type && { funnelOrderType: metric.funnel_order_type }),
                 },
                 series: getFunnelPreviewSeries(metric),
             } as FunnelsQuery
@@ -735,11 +768,17 @@ export function metricToQuery(
     }
 }
 
+/**
+ * @deprecated
+ */
 const shiftOrderRight = (step: ActionFilter): ActionFilter => ({
     ...step,
     order: (step.order ?? 0) + 1,
 })
 
+/**
+ * @deprecated
+ */
 export function getFunnelPreviewSeries(
     metric: ExperimentFunnelMetric
 ): (EventsNode | ActionsNode | DataWarehouseNode)[] {
@@ -804,6 +843,9 @@ type AllowedQuery = { kind: AllowedNodeKind } & Record<string, any>
 
 type QueryHandler = (query: AllowedQuery) => InsightQueryNode | undefined
 
+/**
+ * @deprecated
+ */
 const queryKindtoSource: Record<AllowedNodeKind, QueryHandler> = {
     /**
      * Legacy Experiments
@@ -820,6 +862,9 @@ const queryKindtoSource: Record<AllowedNodeKind, QueryHandler> = {
     [NodeKind.ExperimentQuery]: ({ metric }) => metricToQuery(metric, false),
 }
 
+/**
+ * @deprecated
+ */
 export const toInsightVizNode = <T extends AllowedQuery>(query: T): InsightVizNode => {
     const handler = queryKindtoSource[query.kind]
     if (!handler) {
@@ -870,6 +915,9 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
 
+/**
+ * TODO: remove since rollout is complete.
+ */
 export const shouldUseNewQueryRunnerForNewObjects = (featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
     // For non-paying users, we use dedicated flag to control the rollout of the new query runner
     const isOnFreePlan = billing?.subscription_level === 'free'

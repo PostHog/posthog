@@ -21,7 +21,6 @@ from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
@@ -39,6 +38,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
@@ -1392,6 +1392,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1401,6 +1402,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
 
@@ -1470,6 +1472,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1479,6 +1482,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
 
@@ -1723,9 +1727,12 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1809,9 +1816,12 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -2095,25 +2105,6 @@ async def test_stripe_earliest_incremental_value(team, stripe_balance_transactio
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_earliest_incremental_value_v2(team, stripe_balance_transaction, mock_stripe_client):
-    with override_settings(STRIPE_V2_TEAM_IDS=[str(team.id)]):
-        _, inputs = await _run(
-            team=team,
-            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-            table_name="stripe_balancetransaction",
-            source_type="Stripe",
-            job_inputs={"stripe_secret_key": "sk_test_testkey", "stripe_account_id": "acct_id"},
-            mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
-        )
-
-        schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-        assert schema.incremental_field_earliest_value == stripe_balance_transaction["data"][0]["created"]
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_append_only_table(team, mock_stripe_client):
     _, inputs = await _run(
         team=team,
@@ -2133,3 +2124,37 @@ async def test_append_only_table(team, mock_stripe_client):
     # We should now have 2 rows with the same `id`
     assert len(res.results) == 2
     assert res.results[0][0] == res.results[1][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, mock_stripe_client):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_PRICE_RESOURCE_NAME,
+            table_name="stripe_price",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_price["data"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    # assert that the running job was completed successfully and that the new workflow was triggered
+    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
+
+    run: ExternalDataJob = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+    assert run.status == ExternalDataJob.Status.COMPLETED

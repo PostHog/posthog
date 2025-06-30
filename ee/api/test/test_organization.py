@@ -313,3 +313,242 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"members_can_invite": True})
         self.assertEqual(response.status_code, 403)
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_success(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(staging_env.id): production_env.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
+
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={str(staging_env.id): production_env.id},
+            user_id=self.user.id,
+        )
+
+    def test_environments_rollback_empty_mappings(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Environment mappings are required",
+                "type": "validation_error",
+            },
+        )
+
+    def test_environments_rollback_invalid_environments(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        nonexistent_source_id = "999999"
+        nonexistent_target_id = 888888
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {nonexistent_source_id: nonexistent_target_id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Environments not found: {888888, 999999}",
+                "type": "validation_error",
+            },
+        )
+
+    def test_environments_rollback_permission_denied(self):
+        project_2 = Team.objects.create(organization=self.organization, name="Project 2")
+        env_2 = Team.objects.create(organization=self.organization, name="Env 2", project_id=project_2.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {str(project_2.id): env_2.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "You do not have admin access to this resource.")
+
+    def test_environments_rollback_wrong_organization(self):
+        other_org = Organization.objects.create(name="Other Org")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{other_org.id}/environments_rollback/",
+            {"1": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Not found.")
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_multiple_mappings(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+        dev_env = Team.objects.create(organization=self.organization, name="Dev", project_id=main_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(staging_env.id): production_env.id,
+                str(dev_env.id): production_env.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
+
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={
+                str(staging_env.id): production_env.id,
+                str(dev_env.id): production_env.id,
+            },
+            user_id=self.user.id,
+        )
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_data_format_conversion(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                staging_env.id: str(production_env.id),
+                str(production_env.id): production_env.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"success": True, "message": "Migration started"})
+
+        mock_task_delay.assert_called_once_with(
+            organization_id=self.organization.id,
+            environment_mappings={
+                str(staging_env.id): production_env.id,
+                str(production_env.id): production_env.id,
+            },
+            user_id=self.user.id,
+        )
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_validates_environments_exist(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        nonexistent_source_id = "99999"
+        nonexistent_target_id = "88888"
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                nonexistent_source_id: production_env.id,
+                str(production_env.id): nonexistent_target_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Environments not found", response.json()["detail"])
+        mock_task_delay.assert_not_called()
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_validates_environments_belong_to_organization(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        our_production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+
+        other_organization = Organization.objects.create(name="Other Organization")
+        other_project = Team.objects.create(organization=other_organization, name="Other Project")
+        other_env = Team.objects.create(organization=other_organization, name="Other Env", project_id=other_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {
+                str(other_env.id): our_production_env.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Environments not found", response.json()["detail"])
+        mock_task_delay.assert_not_called()
+
+    @patch("posthog.tasks.tasks.environments_rollback_migration.delay")
+    def test_environments_rollback_requires_admin_permission(self, mock_task_delay):
+        main_project = Team.objects.create(organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            organization=self.organization, name="Production", project_id=main_project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=main_project.id)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/environments_rollback/",
+            {str(staging_env.id): production_env.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "You do not have admin access to this resource.")
+        mock_task_delay.assert_not_called()

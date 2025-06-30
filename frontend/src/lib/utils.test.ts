@@ -62,12 +62,6 @@ describe('lib/utils', () => {
             expect(toParams(null as any)).toEqual('')
         })
 
-        it('is tolerant of empty objects', () => {
-            const left = toParams({ a: 'b', ...{}, b: 'c' })
-            const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
-            expect(left).toEqual(right)
-        })
-
         it('can handle numeric values', () => {
             const actual = toParams({ a: 123 })
             expect(actual).toEqual('a=123')
@@ -535,6 +529,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
+            expect(humanFriendlyDuration(119.6)).toEqual('1m 59s')
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
         })
         it('returns correct value for t > 120', () => {
@@ -545,7 +540,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
             expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
             expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 1s')
         })
         it('returns correct value for t >= 86400', () => {
             expect(humanFriendlyDuration(86400)).toEqual('1d')

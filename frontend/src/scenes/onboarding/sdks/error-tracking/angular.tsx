@@ -130,7 +130,7 @@ export function runOutsideAngular<T>(callback: () => T): T {
   // Running the \`callback\` within the root execution context enables Angular
   // processes (such as SSR and hydration) to continue functioning normally without
   // timeouts and delays that could affect the user experience. This approach is
-  // necessary because some of the Sentry functionality continues to run in the background.
+  // necessary because some of the error tracking functionality continues to run in the background.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
   return isNgZoneEnabled ? Zone.root.run(callback) : callback();
 }

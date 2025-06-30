@@ -44,6 +44,7 @@ import {
     Experiment,
     ExperimentHoldoutType,
     ExperimentIdType,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -132,6 +133,7 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
         metrics_count: allMetrics.length,
         secondary_metrics_count: allSecondaryMetrics.length,
         saved_metrics_count: experiment.saved_metrics.length,
+        stats_method: experiment.stats_config?.method || ExperimentStatsMethod.Bayesian,
     }
 }
 

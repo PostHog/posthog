@@ -7,7 +7,6 @@ use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::instrument;
 
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
@@ -113,12 +112,11 @@ impl DependencyProvider for FeatureFlag {
 
 impl FeatureFlagList {
     /// Returns feature flags from redis given a project_id
-    #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
-        tracing::info!(
+        tracing::debug!(
             "Attempting to read flags from Redis at key '{}{}'",
             TEAM_FLAGS_CACHE_PREFIX,
             project_id
@@ -138,7 +136,7 @@ impl FeatureFlagList {
                 FlagError::RedisDataParsingError
             })?;
 
-        tracing::info!(
+        tracing::debug!(
             "Successfully read {} flags from Redis at key '{}{}'",
             flags_list.len(),
             TEAM_FLAGS_CACHE_PREFIX,
@@ -149,7 +147,6 @@ impl FeatureFlagList {
     }
 
     /// Returns feature flags from postgres given a project_id
-    #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
         project_id: i64,
@@ -281,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
 
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -315,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_invalid_team_from_redis() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
 
         match FeatureFlagList::from_redis(redis_client.clone(), 1234).await {
             Err(FlagError::TokenValidationError) => (),
@@ -324,13 +321,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "Failed to create redis client")]
     async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
-        let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
-
-        match FeatureFlagList::from_redis(client.clone(), 1234).await {
-            Err(FlagError::RedisUnavailable) => (),
-            _ => panic!("Expected RedisUnavailable"),
-        };
+        // Test that client creation fails when Redis is unavailable
+        setup_redis_client(Some("redis://localhost:1111/".to_string())).await;
     }
 
     #[tokio::test]
@@ -596,7 +590,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multivariate_flag_parsing() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -691,7 +685,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multivariate_flag_with_payloads() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -836,7 +830,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_flag_with_super_groups() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -927,7 +921,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_flags_with_different_property_types() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1030,7 +1024,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deleted_and_inactive_flags() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1128,13 +1122,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_handling() {
-        let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string()));
+        let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string())).await;
         let reader = setup_pg_reader_client(None).await;
-
-        // Test Redis connection error
-        let bad_redis_client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
-        let result = FeatureFlagList::from_redis(bad_redis_client, 1).await;
-        assert!(matches!(result, Err(FlagError::RedisUnavailable)));
 
         // Test malformed JSON in Redis
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1161,7 +1150,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_access() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1234,7 +1223,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_performance() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1310,7 +1299,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_edge_cases() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1405,7 +1394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_consistent_behavior_from_both_clients() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)
@@ -1510,7 +1499,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rollout_percentage_edge_cases() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let reader = setup_pg_reader_client(None).await;
 
         let team = insert_new_team_in_pg(reader.clone(), None)

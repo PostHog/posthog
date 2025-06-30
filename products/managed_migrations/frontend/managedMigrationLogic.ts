@@ -1,19 +1,9 @@
-import {
-    actions,
-    afterMount,
-    beforeUnmount,
-    kea,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, ProjectTreeRef } from '~/types'
@@ -22,13 +12,17 @@ import type { managedMigrationLogicType } from './managedMigrationLogicType'
 import { ManagedMigration } from './types'
 
 export interface ManagedMigrationForm {
-    source_type: 's3'
+    source_type: 's3' | 'mixpanel' | 'amplitude'
     access_key: string
     secret_key: string
-    s3_region: string
-    s3_bucket: string
-    s3_prefix: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
+    // s3 specific fields
+    s3_region?: string
+    s3_bucket?: string
+    s3_prefix?: string
+    // date range specific fields
+    start_date?: string
+    end_date?: string
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
@@ -39,6 +33,8 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     s3_bucket: '',
     s3_prefix: '',
     content_type: 'captured',
+    start_date: '',
+    end_date: '',
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -69,30 +65,80 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     })),
     forms({
         managedMigration: {
-            defaults: NEW_MANAGED_MIGRATION as ManagedMigration,
-            errors: ({ source_type, access_key, secret_key, s3_region, s3_bucket }) => ({
-                source_type: !source_type ? 'Source is required' : null,
-                access_key: !access_key ? 'Access key is required' : null,
-                secret_key: !secret_key ? 'Secret key is required' : null,
-                s3_region: !s3_region ? 'S3 region is required' : null,
-                s3_bucket: !s3_bucket ? 'S3 bucket is required' : null,
-            }),
-            submit: async (values) => {
+            defaults: NEW_MANAGED_MIGRATION,
+            errors: ({
+                source_type,
+                access_key,
+                secret_key,
+                s3_region,
+                s3_bucket,
+                start_date,
+                end_date,
+            }: ManagedMigrationForm) => {
+                const errors: Record<string, string | null> = {
+                    access_key: !access_key ? 'Access key is required' : null,
+                    secret_key: !secret_key ? 'Secret key is required' : null,
+                }
+
+                if (source_type === 's3') {
+                    errors.s3_region = !s3_region ? 'S3 region is required' : null
+                    errors.s3_bucket = !s3_bucket ? 'S3 bucket is required' : null
+                } else if (source_type === 'mixpanel' || source_type === 'amplitude') {
+                    errors.start_date = !start_date ? 'Start date is required' : null
+                    errors.end_date = !end_date ? 'End date is required' : null
+                }
+                return errors
+            },
+            submit: async (values: ManagedMigrationForm) => {
                 const projectId = ApiConfig.getCurrentProjectId()
-                const response = await api.create(`api/projects/${projectId}/managed_migrations`, values)
-                router.actions.push(urls.managedMigration())
-                return response
+                let payload: ManagedMigrationForm = {
+                    source_type: values.source_type,
+                    access_key: values.access_key,
+                    secret_key: values.secret_key,
+                    content_type: values.content_type,
+                }
+                if (values.source_type === 's3') {
+                    payload = {
+                        ...payload,
+                        s3_region: values.s3_region,
+                        s3_bucket: values.s3_bucket,
+                        s3_prefix: values.s3_prefix,
+                    }
+                } else if (values.source_type === 'mixpanel' || values.source_type === 'amplitude') {
+                    payload = {
+                        ...payload,
+                        start_date: values.start_date,
+                        end_date: values.end_date,
+                    }
+                }
+                try {
+                    const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
+                    return response
+                } catch (error: any) {
+                    if (error.status === 400 && error.data?.error) {
+                        throw new Error(error.data.error)
+                    }
+                    throw error
+                }
             },
         },
     }),
-    sharedListeners(({ actions }: { actions: any }) => ({
-        afterSubmit: async () => {
-            await actions.loadMigrations()
-        },
-    })),
     listeners(({ actions, values, cache }) => ({
+        submitManagedMigrationSuccess: async () => {
+            actions.loadMigrations()
+            router.actions.push(urls.managedMigration())
+        },
+        submitManagedMigrationFailure: async ({ error }) => {
+            if (error?.message) {
+                lemonToast.error(error.message)
+            } else {
+                lemonToast.error('Failed to create migration. Please try again.')
+            }
+        },
         loadMigrationsSuccess: () => {
-            const hasRunningMigrations = values.migrations.some((migration) => migration.status === 'running')
+            const hasRunningMigrations = values.migrations.some(
+                (migration: ManagedMigration) => migration.status === 'running'
+            )
             if (hasRunningMigrations && !values.isPolling) {
                 actions.startPolling()
             } else if (!hasRunningMigrations && values.isPolling) {
@@ -120,7 +166,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     selectors({
         breadcrumbs: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): Breadcrumb[] => [
+            (managedMigrationId: string | null): Breadcrumb[] => [
                 {
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
@@ -139,7 +185,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         ],
         projectTreeRef: [
             (_, p) => [p.managedMigrationId],
-            (managedMigrationId): ProjectTreeRef => ({
+            (managedMigrationId: string | null): ProjectTreeRef => ({
                 type: 'managed-migration',
                 ref: managedMigrationId,
             }),

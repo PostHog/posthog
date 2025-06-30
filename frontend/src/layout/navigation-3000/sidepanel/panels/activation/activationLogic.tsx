@@ -33,6 +33,7 @@ import {
     ProductKey,
     ReplayTabs,
     TeamBasicType,
+    OnboardingStepKey,
     type TeamPublicType,
     type TeamType,
 } from '~/types'
@@ -136,7 +137,7 @@ export const activationLogic = kea<activationLogicType>([
                     const response = await api.get(url)
                     breakpoint()
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [url]: response.count,
                     }
                     return cache.apiCache[url]
@@ -256,7 +257,7 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
@@ -333,7 +334,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
@@ -351,7 +352,7 @@ export const activationLogic = kea<activationLogicType>([
 
             actions.updateCurrentTeam({
                 onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    ...values.currentTeam?.onboarding_tasks,
                     [id]: ActivationTaskStatus.COMPLETED,
                 },
             })
