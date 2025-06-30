@@ -53,7 +53,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_increment_request_count() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
 
         let team_id = 789;
         let count = 5;

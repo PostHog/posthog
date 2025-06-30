@@ -1726,6 +1726,9 @@ importers:
       ts-pattern:
         specifier: '*'
         version: 4.3.0
+      use-debounce:
+        specifier: '*'
+        version: 9.0.3(react@18.2.0)
       use-resize-observer:
         specifier: '*'
         version: 8.0.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -16523,8 +16526,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.278.0:
-    resolution: {integrity: sha512-5GpkhTsDyBBtjcGOFxTKHrIwdP2x/qrYC2iDC3z20hFI6KMlQLRryN/ch1EiHbSN3gfILEv3eb7fp4Ox4iTX0A==}
+  unlayer-types@1.279.0:
+    resolution: {integrity: sha512-J8cYUsH2tdBtVoF+n9wIELToNle738hE+mJtGQiTo9G2LOSOt7P6OO4IKVZwx3x7Ir9sbBLOwy2ik9rMiKuvPw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -33653,7 +33656,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.278.0
+      unlayer-types: 1.279.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35671,7 +35674,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.278.0: {}
+  unlayer-types@1.279.0: {}
 
   unpipe@1.0.0: {}
 
