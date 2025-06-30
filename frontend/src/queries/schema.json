@@ -1226,7 +1226,7 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "$ref": "#/definitions/AssistantStringValuePropertyFilterOperator",
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
@@ -1255,6 +1255,46 @@
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
                             "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "value": {
+                            "type": "number"
                         }
                     },
                     "required": ["key", "operator", "type", "value"],
@@ -1426,7 +1466,7 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "$ref": "#/definitions/AssistantStringValuePropertyFilterOperator",
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
@@ -1436,6 +1476,31 @@
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
                             "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Index of the group type from the group mapping."
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
                         }
                     },
                     "required": ["group_type_index", "key", "operator", "type", "value"],
@@ -1613,6 +1678,23 @@
                 }
             ]
         },
+        "AssistantNumericValuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantNumericValuePropertyFilterOperator": {
+            "enum": ["exact", "gt", "lt"],
+            "type": "string"
+        },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
@@ -1779,11 +1861,24 @@
             "enum": ["is_set", "is_not_set"],
             "type": "string"
         },
-        "AssistantSingleValuePropertyFilter": {
+        "AssistantStringNumberOrBooleanPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStringValuePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantNumericValuePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
+                }
+            ]
+        },
+        "AssistantStringValuePropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "operator": {
-                    "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                    "$ref": "#/definitions/AssistantStringValuePropertyFilterOperator",
                     "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                 },
                 "value": {
@@ -1794,19 +1889,9 @@
             "required": ["operator", "value"],
             "type": "object"
         },
-        "AssistantSingleValuePropertyFilterOperator": {
+        "AssistantStringValuePropertyFilterOperator": {
             "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
-        },
-        "AssistantStringNumberOrBooleanPropertyFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/AssistantSingleValuePropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
-                }
-            ]
         },
         "AssistantToolCall": {
             "additionalProperties": false,
