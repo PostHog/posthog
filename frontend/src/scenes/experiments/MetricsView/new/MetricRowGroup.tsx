@@ -65,8 +65,8 @@ export function MetricRowGroup({
                     baselineResult={baselineResult}
                     testVariantResult={variantResult}
                     isFirstRow={index === 0}
-                    metric={index === 0 ? metric : undefined}
-                    metricType={index === 0 ? metricType : undefined}
+                    metric={metric}
+                    metricType={metricType}
                     metricIndex={metricIndex}
                     chartRadius={chartRadius}
                     isSecondary={isSecondary}
