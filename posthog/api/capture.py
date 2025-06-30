@@ -945,7 +945,7 @@ def new_capture_internal(
         "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
     )
 
-    event_payload = prepare_capture_payload(token, distinct_id, raw_event)
+    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event)
 
     # determine if this is a recordings or events type, route to correct capture endpoint
     resolved_capture_path = CAPTURE_EVENTS_PATH
@@ -969,12 +969,21 @@ def new_capture_internal(
 
 
 # prep payload for new_capture_internal to POST to capture-rs
-def prepare_capture_payload(
-    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]
+def prepare_capture_internal_payload(
+    token: Optional[str],
+    distinct_id: Optional[str],
+    raw_event: dict[str, Any],
+    process_person_profiles: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability
     properties = raw_event.pop("properties", {})
     properties["capture_internal"] = True
+
+    # be specific about this in internal events; person processing is resource intensive at the moment
+    if process_person_profiles:
+        properties["$process_person_profile"] = True
+    else:
+        properties["$process_person_profile"] = False
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
