@@ -916,9 +916,32 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     MetaAds: {
         name: 'MetaAds',
         label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in{' '}
+                <Link to="https://posthog.com/docs/cdp/sources/meta-ads" target="_blank">
+                    the docs
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'account_id',
+                label: 'Account ID',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+            {
+                name: 'meta_ads_integration_id',
+                label: 'Meta Ads account',
+                type: 'oauth',
+                required: true,
+                kind: 'meta-ads',
+            },
+        ],
+        betaSource: true,
     },
     Klaviyo: {
         name: 'Klaviyo',

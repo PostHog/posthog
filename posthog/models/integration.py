@@ -61,6 +61,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        META_ADS = "meta-ads"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
@@ -141,6 +142,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "meta-ads",
         "snapchat",
         "linkedin-ads",
         "intercom",
@@ -282,6 +284,21 @@ class OauthIntegration:
                 client_id=settings.INTERCOM_APP_CLIENT_ID,
                 client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
                 scope="",
+                id_path="id",
+                name_path="email",
+            )
+        elif kind == "meta-ads":
+            if not settings.META_ADS_APP_CLIENT_ID or not settings.META_ADS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Meta Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.facebook.com/v21.0/dialog/oauth",
+                token_url="https://graph.facebook.com/v21.0/oauth/access_token",
+                token_info_url="https://graph.facebook.com/v21.0/me",
+                token_info_config_fields=["id", "name", "email"],
+                client_id=settings.META_ADS_APP_CLIENT_ID,
+                client_secret=settings.META_ADS_APP_CLIENT_SECRET,
+                scope="ads_read ads_management business_management read_insights",
                 id_path="id",
                 name_path="email",
             )
@@ -710,6 +727,64 @@ class GoogleAdsIntegration:
             all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
 
         return all_accounts
+
+
+class MetaAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "meta-ads":
+            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def list_meta_ads_accounts(self) -> dict:
+        """List ad accounts accessible by the user."""
+        response = requests.get(
+            "https://graph.facebook.com/v21.0/me/adaccounts",
+            params={
+                "fields": "id,name,account_status,currency,timezone_name",
+                "access_token": self.integration.sensitive_config["access_token"],
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"MetaAdsIntegration: Failed to list ad accounts: {response.text}"))
+            raise Exception("There was an internal error")
+
+        return response.json()
+
+    def list_meta_ads_campaigns(self, account_id: str) -> dict:
+        """List campaigns for a specific ad account."""
+        response = requests.get(
+            f"https://graph.facebook.com/v21.0/{account_id}/campaigns",
+            params={
+                "fields": "id,name,status,objective,created_time,updated_time",
+                "access_token": self.integration.sensitive_config["access_token"],
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"MetaAdsIntegration: Failed to list campaigns: {response.text}"))
+            raise Exception("There was an internal error")
+
+        return response.json()
+
+    def get_account_info(self, account_id: str) -> dict:
+        """Get detailed information about a specific ad account."""
+        response = requests.get(
+            f"https://graph.facebook.com/v21.0/{account_id}",
+            params={
+                "fields": "id,name,account_status,currency,timezone_name,business_country_code,created_time",
+                "access_token": self.integration.sensitive_config["access_token"],
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"MetaAdsIntegration: Failed to get account info: {response.text}"))
+            raise Exception("There was an internal error")
+
+        return response.json()
 
 
 class GoogleCloudIntegration:
