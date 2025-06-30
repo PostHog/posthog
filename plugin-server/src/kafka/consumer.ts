@@ -127,11 +127,11 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
-    private backgroundTask: Promise<void>[]
+    private backgroundTasks: Promise<void>[]
     private podName: string
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
-        this.backgroundTask = []
+        this.backgroundTasks = []
         this.podName = process.env.HOSTNAME || hostname()
 
         this.config.autoCommit ??= true
@@ -412,17 +412,17 @@ export class KafkaConsumer {
 
                     const backgroundTaskStart = performance.now()
 
-                    const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).finally(async () => {
+                    const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).then(async () => {
                         if (this.isStopping) {
                             logger.info('🔁', 'background task finally triggered whilst isStopping')
                         }
 
                         // First of all clear ourselves from the queue
-                        const index = this.backgroundTask.indexOf(backgroundTask)
-                        void this.backgroundTask.splice(index, 1)
+                        const index = this.backgroundTasks.indexOf(backgroundTask)
+                        void this.backgroundTasks.splice(index, 1)
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        await Promise.all(this.backgroundTask.slice(0, index))
+                        await Promise.all(this.backgroundTasks.slice(0, index))
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             if (this.isStopping) {
@@ -443,23 +443,23 @@ export class KafkaConsumer {
                     })
 
                     // At first we just add the background work to the queue
-                    this.backgroundTask.push(backgroundTask)
+                    this.backgroundTasks.push(backgroundTask)
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
 
-                    if (this.backgroundTask.length >= this.maxBackgroundTasks) {
+                    if (this.backgroundTasks.length >= this.maxBackgroundTasks) {
                         const stopTimer = consumedBatchBackpressureDuration.startTimer({
                             topic: this.config.topic,
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0]
+                        await this.backgroundTasks[0]
                         stopTimer()
                     }
                 }
 
                 // Once we are stopping, make sure that we wait for all background work to finish
-                await Promise.all(this.backgroundTask)
+                await Promise.all(this.backgroundTasks)
             } catch (error) {
                 throw error
             } finally {
