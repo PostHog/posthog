@@ -4,7 +4,7 @@ import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
@@ -27,6 +27,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { runInstrumentedFunction } from './main/utils'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
@@ -44,11 +45,6 @@ import { initPlugins as _initPlugins } from './worker/tasks'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
-
-const pluginServerStartupTimeMs = new Counter({
-    name: 'plugin_server_startup_time_ms',
-    help: 'Time taken to start the plugin server, in milliseconds',
-})
 
 export class PluginServer {
     config: PluginsServerConfig
@@ -75,7 +71,15 @@ export class PluginServer {
     }
 
     async start() {
-        const startupTimer = new Date()
+        await runInstrumentedFunction({
+            timeoutMessage: 'Plugin server startup timeout',
+            timeout: 10000,
+            statsKey: 'pluginServer.start',
+            sendException: false,
+            func: async () => await this._start(),
+        })
+    }
+    private async _start() {
         this.setupListeners()
 
         const capabilities = getPluginServerCapabilities(this.config)
@@ -295,8 +299,7 @@ export class PluginServer {
                 })
             }
 
-            pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
-            logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+            logger.info('🚀', `All systems go!`)
         } catch (error) {
             captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
@@ -340,29 +343,51 @@ export class PluginServer {
 
         this.stopping = true
 
-        logger.info('💤', ' Shutting down gracefully...')
+        const shutdownError = await runInstrumentedFunction({
+            timeoutMessage: 'Plugin server shutdown timeout',
+            timeout: 10000,
+            statsKey: 'pluginServer.stop',
+            func: async () => {
+                try {
+                    logger.info('💤', ' Shutting down gracefully...')
 
-        this.httpServer?.close()
-        Object.values(schedule.scheduledJobs).forEach((job) => {
-            job.cancel()
+                    this.httpServer?.close()
+                    Object.values(schedule.scheduledJobs).forEach((job) => {
+                        job.cancel()
+                    })
+
+                    logger.info('💤', ' Shutting down services...')
+                    await Promise.allSettled([
+                        this.pubsub?.stop(),
+                        ...this.services.map((s) => s.onShutdown()),
+                        posthogShutdown(),
+                    ])
+
+                    if (this.hub) {
+                        logger.info('💤', ' Shutting down plugins...')
+                        // Wait *up to* 5 seconds to shut down VMs.
+                        await Promise.race([teardownPlugins(this.hub), delay(5000)])
+
+                        logger.info('💤', ' Shutting down kafka producer...')
+                        // Wait 2 seconds to flush the last queues and caches
+                        await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
+                        await closeHub(this.hub)
+                    }
+
+                    logger.info('💤', ' Shutting down completed. Exiting...')
+                } catch (error) {
+                    logger.error('💥', 'Exception while shutting down server, exiting!', { error })
+                    captureException(error)
+
+                    return error
+                }
+            },
         })
 
-        logger.info('💤', ' Shutting down services...')
-        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
-
-        if (this.hub) {
-            logger.info('💤', ' Shutting down plugins...')
-            // Wait *up to* 5 seconds to shut down VMs.
-            await Promise.race([teardownPlugins(this.hub), delay(5000)])
-
-            logger.info('💤', ' Shutting down kafka producer...')
-            // Wait 2 seconds to flush the last queues and caches
-            await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
-            await closeHub(this.hub)
+        if (shutdownError || error) {
+            process.exit(1)
+        } else {
+            process.exit(0)
         }
-
-        logger.info('💤', ' Shutting down completed. Exiting...')
-
-        process.exit(error ? 1 : 0)
     }
 }
