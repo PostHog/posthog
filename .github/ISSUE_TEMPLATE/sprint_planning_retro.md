@@ -21,7 +21,8 @@ For your team sprint planning copy this template into a comment below for each t
 **Support hero:** ___
 
 ## Changelog
-Things @joethreepwood should add to the changelog. PR links appreciated. 
+List any [new minor/medium features](https://posthog.com/handbook/brand/product-announcements#types-of-announcement) @joethreepwood should add to the changelog. PR links appreciated. For major features or new products, please refer to [the handbook](https://posthog.com/handbook/team-structure#launching-new-products-and-features). 
+
 - 
 
 ## OKR
