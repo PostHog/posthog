@@ -21,7 +21,7 @@ import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { promisifyCallback } from '../utils/utils'
+import { delay, promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
 
@@ -129,6 +129,7 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTasks: Promise<void>[]
     private podName: string
+    private heartbeatInterval: NodeJS.Timeout | null = null
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTasks = []
@@ -357,6 +358,16 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
+        this.heartbeatInterval = setInterval(async () => {
+            if (!this.isStopping && this.rdKafkaConsumer.isConnected()) {
+                // TRICKY: We have to call consume to keep the hearbeat alive
+                const messages = await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(0, cb))
+                if (messages.length > 0) {
+                    throw new Error('Heartbeat received messages, but should not have')
+                }
+            }
+        }, 5000) // Heartbeat every 5 seconds
+
         const startConsuming = async () => {
             let lastConsumeTime = 0
             try {
@@ -395,6 +406,11 @@ export class KafkaConsumer {
 
                     const startProcessingTimeMs = new Date().valueOf()
                     const result = await eachBatch(messages)
+
+                    if (process.env.CONSUMER_ARTIFICIAL_DELAY_MS) {
+                        logger.warn('🔁', 'artificial delay', { delay: process.env.CONSUMER_ARTIFICIAL_DELAY_MS })
+                        await delay(parseInt(process.env.CONSUMER_ARTIFICIAL_DELAY_MS))
+                    }
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
@@ -506,6 +522,11 @@ export class KafkaConsumer {
         }
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
+
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval)
+            this.heartbeatInterval = null
+        }
 
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
