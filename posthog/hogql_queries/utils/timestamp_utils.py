@@ -69,7 +69,7 @@ def get_earliest_timestamp_from_series(
     return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
-def _get_week_boundaries(date: datetime.date, week_start_day: WeekStartDay) -> tuple[datetime.date, datetime.date]:
+def _get_week_boundaries(date: datetime, week_start_day: WeekStartDay) -> tuple[datetime, datetime]:
     """
     Get the start and end dates of the week for a given date, considering the week start day.
 
@@ -88,7 +88,7 @@ def _get_week_boundaries(date: datetime.date, week_start_day: WeekStartDay) -> t
     return start_date, end_date
 
 
-def _format_date_range(start_date: datetime.date, end_date: datetime.date) -> str:
+def _format_date_range(start_date: datetime, end_date: datetime) -> str:
     """
     Format the date range based on the start and end dates, considering the query date range.
 
@@ -118,6 +118,9 @@ def _format_week_label(date: datetime, query_date_range: QueryDateRange, week_st
     """
     date = date.date() if isinstance(date, datetime) else date
     start_date, end_date = _get_week_boundaries(date, week_start_day)
+
+    start_date = start_date.date() if isinstance(start_date, datetime) else start_date
+    end_date = end_date.date() if isinstance(end_date, datetime) else end_date
 
     # Ensure the start and end dates are within the query date range
     start_date = max(start_date, query_date_range.date_from().date())

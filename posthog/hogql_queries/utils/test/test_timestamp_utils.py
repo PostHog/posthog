@@ -51,7 +51,7 @@ class TestTimestampUtils(APIBaseTest):
             interval=IntervalType.DAY,
             now=parser.isoparse("2025-06-21T00:00:00.000Z"),
         )
-        formatted_date = format_label_date(date, query_date_range, WeekStartDay.SUNDAY)
+        formatted_date = format_label_date(date, query_date_range, WeekStartDay.SUNDAY)  # type: ignore[arg-type]
         assert formatted_date == "31-Dec-2022"
 
     def test_format_label_date_with_missing_interval(self):
@@ -73,7 +73,7 @@ class TestTimestampUtils(APIBaseTest):
             interval=IntervalType.WEEK,
             now=parser.isoparse("2025-06-30T00:00:00.000Z"),
         )
-        formatted_date = format_label_date(date, query_date_range, WeekStartDay.SUNDAY)
+        formatted_date = format_label_date(date, query_date_range, WeekStartDay.SUNDAY)  # type: ignore[arg-type]
         assert formatted_date == "8–14 Jun"
 
     def test_format_label_date_with_week_interval_same_month_and_year(self):
