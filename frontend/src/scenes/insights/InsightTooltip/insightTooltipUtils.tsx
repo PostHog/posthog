@@ -119,7 +119,7 @@ function getWeekBoundaries(
 }
 
 /**
- * Format a date range intelligently, omitting redundant information
+ * Format a date range
  */
 function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
     // Same year and month
