@@ -1,4 +1,3 @@
-
 import dataclasses
 
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
@@ -29,4 +28,5 @@ class SessionGroupSummarySingleSessionOutput:
 class SessionGroupSummaryOfSummariesInputs:
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
+    redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None
