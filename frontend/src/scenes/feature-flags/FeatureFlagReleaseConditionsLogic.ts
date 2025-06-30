@@ -49,19 +49,26 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
+    isSuper?: boolean
 }
 
 function ensureSortKeys(filters: FeatureFlagFilters): FeatureFlagFilters {
     return {
         ...filters,
-        groups: filters.groups.map((group) => ({ ...group, sort_key: group.sort_key ?? generateUUID() })),
+        groups: filters.groups.map((group: FeatureFlagGroupType) => ({
+            ...group,
+            sort_key: group.sort_key ?? generateUUID(),
+        })),
     }
 }
 
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id }) => id ?? 'unknown'),
+    key(({ id, isSuper }) => {
+        const key = `${id ?? 'unknown'}-${isSuper ? 'super' : 'normal'}`
+        return key
+    }),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
@@ -95,7 +102,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: {
             setFilters: (_, { filters }) => {
                 // Only assign sort_keys to groups that don't have one
-                const groupsWithKeys = filters.groups.map((group) => {
+                const groupsWithKeys = filters.groups.map((group: FeatureFlagGroupType) => {
                     if (group.sort_key) {
                         return group
                     }
@@ -293,6 +300,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
     })),
     selectors({
+        // Get the appropriate groups based on isSuper
+        filterGroups: [
+            (s) => [s.filters, (_, props) => props.isSuper],
+            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups),
+        ],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes): TaxonomicFilterGroupType[] => {
