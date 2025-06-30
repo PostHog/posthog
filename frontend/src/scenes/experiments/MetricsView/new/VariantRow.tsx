@@ -62,14 +62,15 @@ export function VariantRow({
 
             {/* Baseline column - only render for first row with rowspan */}
             {isFirstRow && (
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-center" rowSpan={totalVariantRows}>
+                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left" rowSpan={totalVariantRows}>
                     {baselineResult ? (
-                        <div className="flex flex-col items-center space-y-1">
-                            <span className="text-sm font-semibold text-text-primary">{baselineResult.key}</span>
-                            <span className="text-xs text-muted">
-                                {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
-                            </span>
-                            <span className="text-sm font-medium">{formatVariantData(baselineResult).formattedValue}</span>
+                        <div className="text-sm">
+                            <div className="font-semibold text-text-primary">
+                                {baselineResult.key}: {formatVariantData(baselineResult).formattedValue}
+                            </div>
+                            <div className="text-xs text-muted">
+                                {baselineResult.sum}/{humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                            </div>
                         </div>
                     ) : (
                         <div className="text-xs text-muted">—</div>
@@ -78,16 +79,15 @@ export function VariantRow({
             )}
 
             {/* Variant column - show current test variant */}
-            <td className="w-1/5 border-b border-r border-border p-3 align-top text-center">
+            <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">
                 {testVariantResult ? (
-                    <div className="flex flex-col items-center space-y-1">
-                        <span className="text-sm font-semibold text-text-primary">{testVariantResult.key}</span>
-                        <span className="text-xs text-muted">
-                            {humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
-                        </span>
-                        <span className="text-sm font-medium">
-                            {formatVariantData(testVariantResult).formattedValue}
-                        </span>
+                    <div className="text-sm">
+                        <div className="font-semibold text-text-primary">
+                            {testVariantResult.key}: {formatVariantData(testVariantResult).formattedValue}
+                        </div>
+                        <div className="text-xs text-muted">
+                            {testVariantResult.sum}/{humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
+                        </div>
                     </div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
