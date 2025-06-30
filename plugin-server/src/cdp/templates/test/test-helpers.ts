@@ -252,9 +252,7 @@ export class TemplateTester {
         invocation: CyclotronJobInvocationHogFunction,
         response: { status: number; body: Record<string, any> }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const modifiedInvocation = cloneInvocation(invocation, {
-            queue: 'hog' as const,
-        })
+        const modifiedInvocation = cloneInvocation(invocation)
 
         modifiedInvocation.state.vmState!.stack.push({
             status: response.status,

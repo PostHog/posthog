@@ -63,11 +63,9 @@ describe('google template', () => {
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
@@ -103,11 +101,9 @@ describe('google template', () => {
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
@@ -144,11 +140,9 @@ describe('google template', () => {
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }

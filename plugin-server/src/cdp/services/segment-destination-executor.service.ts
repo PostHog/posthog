@@ -108,9 +108,7 @@ export class SegmentDestinationExecutorService {
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'segment',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }

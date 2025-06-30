@@ -36,7 +36,6 @@ describe('webhook template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://example.com?v=1.0.0",
             }

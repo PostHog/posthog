@@ -34,9 +34,7 @@ const createResult = (options: {
 
     return createInvocationResult(
         invocation,
-        {
-            queue: 'hog',
-        },
+        {},
         {
             finished: options.finished ?? true,
             error: options.error,

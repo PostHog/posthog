@@ -138,7 +138,7 @@ describe('Hog Executor', () => {
                     teamId: 1,
                     hogFunction: invocation.hogFunction,
                     functionId: invocation.functionId,
-                    queue: 'fetch',
+                    queue: 'hog',
                     queueMetadata: undefined,
                     queueScheduledAt: undefined,
                     queueSource: undefined,
@@ -189,7 +189,6 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
-                  "return_queue": "hog",
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -229,7 +228,6 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
-                  "return_queue": "hog",
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -264,8 +262,9 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({
-                queue: 'fetch',
+                queue: 'hog',
                 queueParameters: {
+                    type: 'fetch',
                     url: 'https://example.com/posthog-webhook',
                     method: 'POST',
                     headers: { version: 'v=1.2.3' },

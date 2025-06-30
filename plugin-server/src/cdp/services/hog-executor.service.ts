@@ -403,9 +403,7 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'hog',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -656,9 +654,7 @@ export class HogExecutorService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {
-                queue: 'hog',
-            },
+            {},
             {
                 finished: false,
             }
