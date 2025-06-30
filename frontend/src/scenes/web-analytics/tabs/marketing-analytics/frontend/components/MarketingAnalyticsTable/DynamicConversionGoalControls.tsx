@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { objectsEqual } from 'lib/utils'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
@@ -17,9 +18,14 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
+    const conversionGoalIdRef = useRef<string>()
+    if (!conversionGoalIdRef.current) {
+        conversionGoalIdRef.current = crypto.randomUUID()
+    }
+
     const [localConversionGoal, setLocalConversionGoal] = useState<ConversionGoalFilter>({
         ...defaultConversionGoalFilter,
-        conversion_goal_id: crypto.randomUUID(),
+        conversion_goal_id: conversionGoalIdRef.current,
         conversion_goal_name: '',
     })
     const [localConversionGoalName, setLocalConversionGoalName] = useState<string>('')
@@ -30,12 +36,11 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
         (filter: ConversionGoalFilter): void => {
             const newGoal: ConversionGoalFilter = {
                 ...filter,
-                conversion_goal_id: filter.conversion_goal_id,
                 conversion_goal_name: localConversionGoalName || filter.custom_name || filter.name || 'No name',
             }
             setLocalConversionGoal(newGoal)
         },
-        [localConversionGoal]
+        [localConversionGoalName]
     )
 
     const handleApplyConversionGoal = useCallback((): void => {
@@ -47,8 +52,10 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     }, [localConversionGoal, addOrUpdateConversionGoal])
 
     const handleClearConversionGoal = useCallback((): void => {
+        conversionGoalIdRef.current = crypto.randomUUID()
         setLocalConversionGoal({
             ...defaultConversionGoalFilter,
+            conversion_goal_id: conversionGoalIdRef.current,
             conversion_goal_name: '',
         })
         clearDynamicConversionGoal()
@@ -56,7 +63,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
 
     // Check if there are changes to apply
     const hasEvent = localConversionGoal.name !== defaultConversionGoalFilter.name
-    const hasChanges = JSON.stringify(localConversionGoal) !== JSON.stringify(dynamicConversionGoal) && hasEvent
+    const hasChanges = !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent
     const canSave =
         !conversion_goals.some((goal) => goal.conversion_goal_id === localConversionGoal.conversion_goal_id) && hasEvent
     const hasActiveGoal = !!dynamicConversionGoal

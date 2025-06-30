@@ -2442,8 +2442,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 loading: boolean,
-                dateFilter: any,
-                webAnalyticsFilters: any,
+                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
                 dynamicConversionGoal: ConversionGoalFilter | null
             ): DataTableNode | null => {
