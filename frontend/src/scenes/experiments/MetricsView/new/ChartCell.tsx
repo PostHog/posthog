@@ -98,6 +98,7 @@ export function ChartCell({
                         fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                             isSecondary ? 'secondary' : 'primary'
                         })`}
+                        opacity={0.7}
                     />
                 ) : (
                     <rect
@@ -108,6 +109,7 @@ export function ChartCell({
                         fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                             isSecondary ? 'secondary' : 'primary'
                         })`}
+                        opacity={0.7}
                         rx={3}
                         ry={3}
                     />
