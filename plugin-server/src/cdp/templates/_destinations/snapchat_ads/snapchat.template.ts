@@ -1,5 +1,4 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
-
 import { HogFunctionTemplate } from '~/cdp/types'
 
 const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] => {
