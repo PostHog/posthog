@@ -28,6 +28,7 @@ from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    compress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
     get_data_str_from_redis,
@@ -105,13 +106,14 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         prompt=patterns_extraction_prompt, user_id=inputs.user_id, session_ids=session_ids
     )
     patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
+    compressed_patterns_extraction = compress_redis_data(patterns_extraction_str)
 
     # TODO: Remove after testing
     with open("patterns_extraction.json", "w") as f:
         f.write(patterns_extraction_str)
 
     # Store the extracted patterns in Redis
-    redis_client.setex(redis_output_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, patterns_extraction_str)
+    redis_client.setex(redis_output_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_patterns_extraction)
     return None
 
 
