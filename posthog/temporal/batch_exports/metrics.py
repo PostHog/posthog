@@ -105,7 +105,11 @@ class ExecutionTimeRecorder:
 
         meter = get_metric_meter(attributes)
         hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
-        hist.record(value=delta)
+        try:
+            hist.record(value=delta)
+        except Exception:
+            logger = get_internal_logger()
+            logger.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
 
         if self.log:
             log_execution_time(

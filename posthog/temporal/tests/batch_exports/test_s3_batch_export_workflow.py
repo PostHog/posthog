@@ -975,7 +975,6 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
             clickhouse_client=clickhouse_client,
             s3_client=minio_client,
         )
-        raise ValueError()
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
