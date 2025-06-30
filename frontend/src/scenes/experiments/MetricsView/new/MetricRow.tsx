@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { humanFriendlyNumber } from 'lib/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
@@ -85,48 +86,75 @@ export function MetricRow({
                         />
                     </div>
                 </div>
-                <div
-                    className="w-4/5 min-w-[780px]"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${panelHeight}px` }}
-                >
-                    {resultsLoading ? (
-                        <ChartLoadingState height={panelHeight} />
-                    ) : result && hasMinimumExposureForResults ? (
-                        <div className="relative">
-                            <Chart
-                                chartSvgRef={chartSvgRef}
-                                variantResults={variantResults}
-                                chartRadius={chartRadius}
-                                metricIndex={metricIndex}
-                                tickValues={tickValues}
-                                isSecondary={isSecondary}
-                            />
-                            <DetailsButton
+                <div className="w-4/5 min-w-[780px] flex">
+                    {/* Variant Info Column */}
+                    <div
+                        className="w-48 border-r border-primary flex-shrink-0"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${panelHeight}px` }}
+                    >
+                        {result && hasMinimumExposureForResults && variantResults.length > 0 ? (
+                            <div className="px-3 py-2 h-full flex flex-col justify-center space-y-2">
+                                {variantResults.map((variantResult: any) => (
+                                    <div key={variantResult.key} className="flex justify-between items-center">
+                                        <span className="text-sm font-semibold text-text-primary">
+                                            {variantResult.key}
+                                        </span>
+                                        <span className="text-xs text-muted font-medium">
+                                            {humanFriendlyNumber(variantResult.number_of_samples || 0)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="h-full" />
+                        )}
+                    </div>
+
+                    {/* Chart Column */}
+                    <div
+                        className="flex-1"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${panelHeight}px` }}
+                    >
+                        {result && hasMinimumExposureForResults ? (
+                            <div className="relative">
+                                <Chart
+                                    chartSvgRef={chartSvgRef}
+                                    variantResults={variantResults}
+                                    chartRadius={chartRadius}
+                                    metricIndex={metricIndex}
+                                    tickValues={tickValues}
+                                    isSecondary={isSecondary}
+                                />
+                                <DetailsButton
+                                    metric={metric}
+                                    isSecondary={isSecondary}
+                                    experiment={experiment}
+                                    setIsModalOpen={setIsModalOpen}
+                                />
+                                <DetailsModal
+                                    isOpen={isModalOpen}
+                                    onClose={() => setIsModalOpen(false)}
+                                    metric={metric}
+                                    result={result}
+                                    experiment={experiment}
+                                    metricIndex={metricIndex}
+                                    isSecondary={isSecondary}
+                                />
+                            </div>
+                        ) : resultsLoading ? (
+                            <ChartLoadingState height={panelHeight} />
+                        ) : (
+                            <ChartEmptyState
+                                height={panelHeight}
+                                experimentStarted={!!experiment.start_date}
+                                hasMinimumExposure={hasMinimumExposureForResults}
                                 metric={metric}
-                                isSecondary={isSecondary}
-                                experiment={experiment}
-                                setIsModalOpen={setIsModalOpen}
+                                error={error}
                             />
-                            <DetailsModal
-                                isOpen={isModalOpen}
-                                onClose={() => setIsModalOpen(false)}
-                                metric={metric}
-                                result={result}
-                                experiment={experiment}
-                                metricIndex={metricIndex}
-                                isSecondary={isSecondary}
-                            />
-                        </div>
-                    ) : (
-                        <ChartEmptyState
-                            height={panelHeight}
-                            experimentStarted={!!experiment.start_date}
-                            hasMinimumExposure={hasMinimumExposureForResults}
-                            metric={metric}
-                            error={error}
-                        />
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
