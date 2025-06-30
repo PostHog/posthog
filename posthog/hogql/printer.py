@@ -268,7 +268,7 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class _Printer(Visitor):
+class _Printer(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
