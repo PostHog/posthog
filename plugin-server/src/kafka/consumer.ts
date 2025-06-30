@@ -381,7 +381,7 @@ export class KafkaConsumer {
                             const newMessages = await retryIfRetriable(() =>
                                 promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSizeToFetch, cb))
                             )
-                            messageQueue.concat(newMessages)
+                            messageQueue.push(...newMessages)
                         }
                     } catch (error) {
                         logger.error('🔁', fromMainLoop ? 'main_loop_consume_error' : 'continuous_consume_error', {
