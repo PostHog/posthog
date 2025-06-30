@@ -18,7 +18,7 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
     const { setPanelInfoActive } = useActions(sceneLayoutLogic)
 
-    // HACKY: Show the panel info if
+    // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
         setPanelInfoActive(true)
         return () => setPanelInfoActive(false)

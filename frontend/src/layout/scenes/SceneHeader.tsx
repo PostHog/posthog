@@ -32,7 +32,7 @@ export function SceneHeader(): JSX.Element | null {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
-    const { panelInfoOpen } = useValues(sceneLayoutLogic)
+    const { panelInfoOpen, panelInfoActive } = useValues(sceneLayoutLogic)
     // const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     // const { openMoveToModal } = useActions(moveToLogic)
     // const [compactionRate, setCompactionRate] = useState(0)
@@ -93,7 +93,7 @@ export function SceneHeader(): JSX.Element | null {
                         size="small"
                         onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
                         icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
-                        className="TopBar3000__hamburger"
+                        className="-ml-2"
                     />
                 )}
                 <div className="grid grid-cols-[1fr_auto] gap-2 justify-between w-full">
@@ -117,15 +117,18 @@ export function SceneHeader(): JSX.Element | null {
                         </div>
                     )}
                     <div className="flex gap-2 items-center">
-                        <div className="TopBar3000__actions" ref={setActionsContainer} />
-                        <ButtonPrimitive
-                            onClick={() => setPanelInfoOpen(!panelInfoOpen)}
-                            iconOnly
-                            tooltip={panelInfoOpen ? 'Close info panel' : 'Open info panel'}
-                            active={panelInfoOpen}
-                        >
-                            <IconListCheck className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
-                        </ButtonPrimitive>
+                        <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
+
+                        {panelInfoActive && (
+                            <ButtonPrimitive
+                                onClick={() => setPanelInfoOpen(!panelInfoOpen)}
+                                iconOnly
+                                tooltip={panelInfoOpen ? 'Close info panel' : 'Open info panel'}
+                                active={panelInfoOpen}
+                            >
+                                <IconListCheck className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
+                            </ButtonPrimitive>
+                        )}
                     </div>
                 </div>
             </div>
