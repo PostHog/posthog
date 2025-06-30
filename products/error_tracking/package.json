@@ -21,6 +21,7 @@
         "react": "*",
         "react-transition-group": "*",
         "ts-pattern": "*",
-        "use-resize-observer": "*"
+        "use-resize-observer": "*",
+        "use-debounce": "*"
     }
 }
