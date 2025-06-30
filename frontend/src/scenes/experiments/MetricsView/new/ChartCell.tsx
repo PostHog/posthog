@@ -27,7 +27,7 @@ export function ChartCell({
 
     // Position calculations
     const viewBoxHeight = 100 // Use percentage-based viewBox
-    const barHeightPercent = 40 // Percentage of cell height for the bar
+    const barHeightPercent = 30 // Percentage of cell height for the bar (reduced from 40)
     const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
