@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, team_id, user_id, user_group_id, role_id, order_key, bytecode, created_at, updated_at\n                FROM posthog_errortrackinggroupingrule\n                WHERE team_id = $1 AND disabled_data IS NULL\n            ",
+  "query": "\n                SELECT id, team_id, user_id, role_id, order_key, bytecode, created_at, updated_at\n                FROM posthog_errortrackinggroupingrule\n                WHERE team_id = $1 AND disabled_data IS NULL\n            ",
   "describe": {
     "columns": [
       {
@@ -20,31 +20,26 @@
       },
       {
         "ordinal": 3,
-        "name": "user_group_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 4,
         "name": "role_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "order_key",
         "type_info": "Int4"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "bytecode",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -59,12 +54,11 @@
       false,
       true,
       true,
-      true,
       false,
       false,
       false,
       false
     ]
   },
-  "hash": "f8bced8a6b1b63e7311bbd03bf992ac2371808f73d0bc8744282a271f3f2b131"
+  "hash": "575b8f4c016f9c61eefc2307ec96840aac8134ea6fd2a78b9a999efde05f6f4d"
 }
