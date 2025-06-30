@@ -1,5 +1,6 @@
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
 import json
+from datetime import datetime
 
 AI_FILTER_INITIAL_PROMPT = """
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings. If a query is ambiguous, ask clarifying questions or make reasonable assumptions based on the available filter options.
@@ -282,6 +283,10 @@ json
 
 5. Prefer event over session properties, and session properties over person properties where it isn't clear
 """
+
+day = datetime.now().day
+today_date = datetime.now().strftime(f"{day} %B %Y")
+AI_FILTER_INITIAL_PROMPT += f"\nToday is {today_date}"
 
 AI_FILTER_PROPERTIES_PROMPT = f"""
 <key> Field
