@@ -1,6 +1,5 @@
 from functools import cached_property
 from datetime import datetime
-from typing import Literal
 import structlog
 
 from posthog.hogql import ast
@@ -13,13 +12,11 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
-    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
 )
 from .conversion_goal_processor import ConversionGoalProcessor
-from posthog.hogql.errors import BaseHogQLError
 
 from .constants import (
     BASE_COLUMNS,
@@ -163,9 +160,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         results = response.results or []
         requested_limit = self.query.limit or DEFAULT_LIMIT
-        columns = [
-            column.alias for column in query.select
-        ]
+        columns = [column.alias for column in query.select]
 
         # Check if there are more results
         has_more = len(results) > requested_limit
@@ -173,9 +168,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Trim results to the requested limit if we got extra
         if has_more:
             results = results[:requested_limit]
-
-        # Get conversion goals from team config for column names
-        conversion_goals = self._get_team_conversion_goals()
 
         return MarketingAnalyticsTableQueryResponse(
             results=results,
