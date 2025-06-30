@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
@@ -20,7 +20,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
 
     const conversionGoalIdRef = useRef<string>()
     if (!conversionGoalIdRef.current) {
-        conversionGoalIdRef.current = crypto.randomUUID()
+        conversionGoalIdRef.current = uuid()
     }
 
     const [localConversionGoal, setLocalConversionGoal] = useState<ConversionGoalFilter>({
@@ -52,7 +52,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     }, [localConversionGoal, addOrUpdateConversionGoal])
 
     const handleClearConversionGoal = useCallback((): void => {
-        conversionGoalIdRef.current = crypto.randomUUID()
+        conversionGoalIdRef.current = uuid()
         setLocalConversionGoal({
             ...defaultConversionGoalFilter,
             conversion_goal_id: conversionGoalIdRef.current,
