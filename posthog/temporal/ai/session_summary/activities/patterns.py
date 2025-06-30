@@ -18,7 +18,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
     generate_session_group_patterns_extraction_prompt,
@@ -32,15 +32,31 @@ from posthog.temporal.ai.session_summary.state import (
     get_data_class_from_redis,
     get_data_str_from_redis,
 )
-from posthog.temporal.ai.session_summary.summarize_session_group import (
-    _get_session_group_single_session_summaries_inputs_from_redis,
-)
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 
 logger = structlog.get_logger(__name__)
 
 
-def get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -> list[str]:
+def _get_session_group_single_session_summaries_inputs_from_redis(
+    redis_client: Redis,
+    redis_input_keys: list[str],
+) -> list[SingleSessionSummaryLlmInputs]:
+    inputs = []
+    for redis_input_key in redis_input_keys:
+        llm_input = cast(
+            SingleSessionSummaryLlmInputs,
+            get_data_class_from_redis(
+                redis_client=redis_client,
+                redis_key=redis_input_key,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                target_class=SingleSessionSummaryLlmInputs,
+            ),
+        )
+        inputs.append(llm_input)
+    return inputs
+
+
+def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -> list[str]:
     return list(
         dict.fromkeys(
             [single_session_input.session_id for single_session_input in inputs.single_session_summaries_inputs]
@@ -48,7 +64,7 @@ def get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) ->
     )
 
 
-def get_session_summaries_str_from_inputs(
+def _get_session_summaries_str_from_inputs(
     redis_client: Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
     return [
@@ -68,14 +84,14 @@ def get_session_summaries_str_from_inputs(
 @temporalio.activity.defn
 async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> None:
     redis_client = get_client()
-    session_ids = get_session_ids_from_inputs(inputs)
+    session_ids = _get_session_ids_from_inputs(inputs)
     redis_output_key = generate_state_key(
         key_base=inputs.redis_key_base,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(session_ids),
     )
     # Get session summaries from Redis
-    session_summaries_str = get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
         remove_excessive_content_from_session_summary_for_llm(session_summary_str)
@@ -159,7 +175,7 @@ async def _generate_patterns_assignments(
 async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> None:
     """Summarize a group of sessions in one call"""
     redis_client = get_client()
-    session_ids = get_session_ids_from_inputs(inputs)
+    session_ids = _get_session_ids_from_inputs(inputs)
     total_sessions_count = len(session_ids)
     redis_input_key = generate_state_key(
         key_base=inputs.redis_key_base,
@@ -167,7 +183,7 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
         state_id=",".join(session_ids),
     )
     # Get session summaries from Redis
-    session_summaries_str = get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
     # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
     intermediate_session_summaries_str = [
         remove_excessive_content_from_session_summary_for_llm(session_summary_str)

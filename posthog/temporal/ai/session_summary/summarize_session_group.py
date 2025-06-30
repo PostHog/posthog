@@ -1,47 +1,39 @@
 import asyncio
-import dataclasses
 from datetime import timedelta
 import hashlib
 import json
 from typing import cast
 import uuid
-from redis import Redis
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
-from ee.session_recordings.session_summary.llm.consume import (
-    get_llm_session_group_patterns_assignment,
-    get_llm_session_group_patterns_extraction,
-    get_llm_single_session_summary,
-)
-from ee.session_recordings.session_summary.patterns.output_data import (
-    RawSessionGroupPatternAssignmentsList,
-    RawSessionGroupSummaryPatternsList,
-    combine_event_ids_mappings_from_single_session_summaries,
-    combine_patterns_assignments_from_single_session_summaries,
-    combine_patterns_ids_with_events_context,
-    combine_patterns_with_events_context,
-    load_session_summary_from_string,
-)
+from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.summarize_session_group import (
-    generate_session_group_patterns_assignment_prompt,
-    generate_session_group_patterns_extraction_prompt,
-    remove_excessive_content_from_session_summary_for_llm,
-)
 from posthog import constants
-from posthog.redis import get_client
 from posthog.models.team.team import Team
+from posthog.temporal.ai.session_summary.activities.patterns import (
+    assign_events_to_patterns_activity,
+    extract_session_group_patterns_activity,
+)
 from posthog.temporal.ai.session_summary.shared import (
     SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SingleSessionSummaryInputs,
     compress_redis_data,
-    fetch_session_data_activity
+    fetch_session_data_activity,
 )
-from posthog.temporal.ai.session_summary.state import generate_state_key, get_data_class_from_redis, get_data_str_from_redis, get_redis_state_client, StateActivitiesEnum
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryInputs, SessionGroupSummarySingleSessionOutput
+from posthog.temporal.ai.session_summary.state import (
+    get_data_class_from_redis,
+    get_data_str_from_redis,
+    get_redis_state_client,
+    StateActivitiesEnum,
+)
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryInputs,
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummarySingleSessionOutput,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError
@@ -70,13 +62,16 @@ async def get_llm_single_session_summary_activity(
         )
     except ValueError:
         # If not yet, or TTL expired - generate the summary with LLM
-        llm_input = cast(SingleSessionSummaryLlmInputs, get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        ))
-        
+        llm_input = cast(
+            SingleSessionSummaryLlmInputs,
+            get_data_class_from_redis(
+                redis_client=redis_client,
+                redis_key=redis_input_key,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                target_class=SingleSessionSummaryLlmInputs,
+            ),
+        )
+
         # Get summary from LLM
         session_summary_str = await get_llm_single_session_summary(
             session_id=llm_input.session_id,
@@ -104,29 +99,6 @@ async def get_llm_single_session_summary_activity(
         )
     # Returning nothing as the data is stored in Redis
     return None
-
-
-def _get_session_group_single_session_summaries_inputs_from_redis(
-    redis_client: Redis,
-    redis_input_keys: list[str],
-) -> list[SingleSessionSummaryLlmInputs]:
-    inputs = []
-    for redis_input_key in redis_input_keys:
-        llm_input = cast(SingleSessionSummaryLlmInputs, get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
-        ))
-        inputs.append(llm_input)
-    return inputs
-
-
-
-
-
-
-
 
 
 @temporalio.workflow.defn(name="summarize-session-group")
@@ -277,8 +249,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         #     with open(file, "r") as f:
         #         summaries[file.stem] = f.read()
 
-        summary_of_summaries = await temporalio.workflow.execute_activity(
-            get_llm_session_group_summary_activity,
+        # Extract patterns from session summaries
+        await temporalio.workflow.execute_activity(
+            extract_session_group_patterns_activity,
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
@@ -287,7 +260,19 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        return summary_of_summaries
+
+        # Assign events to patterns
+        await temporalio.workflow.execute_activity(
+            assign_events_to_patterns_activity,
+            SessionGroupSummaryOfSummariesInputs(
+                single_session_summaries_inputs=summaries_session_inputs,
+                user_id=inputs.user_id,
+                extra_summary_context=inputs.extra_summary_context,
+            ),
+            start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return ""
 
 
 async def _execute_workflow(inputs: SessionGroupSummaryInputs, workflow_id: str) -> str:

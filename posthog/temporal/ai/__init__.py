@@ -16,7 +16,6 @@ from .session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
     get_llm_single_session_summary_activity,
-    get_llm_session_group_summary_activity,
 )
 
 from .session_summary.shared import SingleSessionSummaryInputs, fetch_session_data_activity
@@ -29,7 +28,6 @@ ACTIVITIES = [
     batch_embed_and_sync_actions,
     stream_llm_single_session_summary_activity,
     get_llm_single_session_summary_activity,
-    get_llm_session_group_summary_activity,
     fetch_session_data_activity,
 ]
 
