@@ -343,8 +343,9 @@ export class KafkaConsumer {
         // TRICKY: node-rdkafka has a bug where it wont respect the batchsize if it is 0 so we override it here
         this.consumePromise = retryIfRetriable(() =>
             promisifyCallback<Message[]>((cb) => (this.rdKafkaConsumer as any)['_consumeNum'](timeoutMs, batchSize, cb))
-        ).finally(() => {
+        ).then((messages) => {
             this.consumePromise = null
+            return messages
         })
 
         return this.consumePromise
