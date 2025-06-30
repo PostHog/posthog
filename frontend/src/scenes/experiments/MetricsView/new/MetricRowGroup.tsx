@@ -37,18 +37,27 @@ export function MetricRowGroup({
     const baseline = variants.find((v) => v === 'control') || variants[0]
     const testVariants = variants.filter((v) => v !== baseline)
 
-    // Create ordered list: baseline first, then test variants
-    const orderedVariants = [baseline, ...testVariants]
-
-    // Filter variant results to match our ordered variants and ensure we have data
-    const orderedVariantResults = orderedVariants
+    // Get all variant results in order: baseline first, then test variants
+    const baselineResult = variantResults.find((vr: ExperimentVariantResult) => vr.key === baseline)
+    const testVariantResults = testVariants
         .map((variantKey) => {
             const variantResult = variantResults.find((vr: ExperimentVariantResult) => vr.key === variantKey)
             return variantResult ? { variantKey, variantResult } : null
         })
         .filter(Boolean) as { variantKey: string; variantResult: ExperimentVariantResult }[]
 
-    if (orderedVariantResults.length === 0) {
+    // Create all rows: baseline + test variants
+    const allVariantRows = []
+    if (baselineResult) {
+        allVariantRows.push({ variantKey: baseline, variantResult: baselineResult, isBaseline: true })
+    }
+    testVariantResults.forEach(({ variantKey, variantResult }) => {
+        allVariantRows.push({ variantKey, variantResult, isBaseline: false })
+    })
+
+    const totalRows = allVariantRows.length
+
+    if (allVariantRows.length === 0) {
         return (
             <tr className="variant-row">
                 <td className="metric-cell">
@@ -63,19 +72,19 @@ export function MetricRowGroup({
 
     return (
         <>
-            {orderedVariantResults.map(({ variantKey, variantResult }, index) => (
+            {allVariantRows.map(({ variantKey, variantResult, isBaseline }, index) => (
                 <VariantRow
                     key={`${metricIndex}-${variantKey}`}
                     variantResult={variantResult}
-                    variantKey={variantKey}
-                    isBaseline={variantKey === baseline}
+                    baselineResult={baselineResult || null}
+                    testVariantResult={isBaseline ? null : variantResult}
                     isFirstRow={index === 0}
                     metric={index === 0 ? metric : undefined}
                     metricType={index === 0 ? metricType : undefined}
                     metricIndex={metricIndex}
                     chartRadius={chartRadius}
                     isSecondary={isSecondary}
-                    totalVariantRows={orderedVariantResults.length}
+                    totalVariantRows={totalRows}
                     onDuplicateMetric={index === 0 ? onDuplicateMetric : undefined}
                     canDuplicateMetric={index === 0 ? canDuplicateMetric : undefined}
                 />
