@@ -66,7 +66,7 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     ],
     "decide": ["http"],
     "query": ["http", "postgres", "cache"],
-    "report": ["http", "postgres"],
+    "report": ["http", "kafka_connected"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy
