@@ -1,7 +1,4 @@
-import collections.abc
 import datetime as dt
-import functools
-import inspect
 import time
 import typing
 
@@ -33,78 +30,7 @@ def get_export_finished_metric(status: str) -> MetricCounter:
     )
 
 
-P = typing.ParamSpec("P")
-T = typing.TypeVar("T")
-
 Attributes = dict[str, str | int | float | bool]
-
-
-def record_execution_time(
-    histogram_name: str | None = None,
-    description: str | None = None,
-    histogram_attributes: Attributes | None = None,
-    log: bool = True,
-    log_message: str | None = None,
-    log_name: str | None = None,
-    log_attributes: Attributes | None = None,
-) -> collections.abc.Callable[
-    [collections.abc.Callable[P, T] | collections.abc.Callable[P, collections.abc.Awaitable[T]]],
-    collections.abc.Callable[P, T] | collections.abc.Callable[P, collections.abc.Awaitable[T]],
-]:
-    """Decorate function to record execution time.
-
-    Arguments:
-        histogram_name: Name for the histogram (defaults to function name).
-        description: Description of the metric.
-        additional_attributes: Additional attributes to include with the metric.
-        log: Whether to log the execution time.
-        log_message: Custom log message.
-        log_name: Custom name for function we are logging. Use this to provide
-            a human-readable name in the logs that is not constrained by
-            requirements of histogram name.
-
-    Returns:
-        Decorated function that records execution time
-    """
-
-    def decorator(func):
-        hist_name = histogram_name or func.__name__
-
-        if inspect.iscoroutinefunction(func):
-
-            @functools.wraps(func)
-            async def async_wrapper(*args: P.args, **kwargs: P.kwargs):
-                with ExecutionTimeRecorder(
-                    hist_name,
-                    description=description,
-                    histogram_attributes=histogram_attributes,
-                    log=log,
-                    log_message=log_message,
-                    log_name=log_name,
-                    log_attributes=log_attributes,
-                ):
-                    return await func(*args, **kwargs)
-
-            return async_wrapper
-
-        else:
-
-            @functools.wraps(func)
-            def sync_wrapper(*args: P.args, **kwargs: P.kwargs):
-                with ExecutionTimeRecorder(
-                    hist_name,
-                    description=description,
-                    histogram_attributes=histogram_attributes,
-                    log=log,
-                    log_message=log_message,
-                    log_name=log_name,
-                    log_attributes=log_attributes,
-                ):
-                    return func(*args, **kwargs)
-
-            return sync_wrapper
-
-    return decorator
 
 
 class ExecutionTimeRecorder:

@@ -47,7 +47,7 @@ from posthog.temporal.batch_exports.heartbeat import (
     HeartbeatParseError,
     should_resume_from_activity_heartbeat,
 )
-from posthog.temporal.batch_exports.metrics import ExecutionTimeRecorder, record_execution_time
+from posthog.temporal.batch_exports.metrics import ExecutionTimeRecorder
 from posthog.temporal.batch_exports.pre_export_stage import (
     ProducerFromInternalS3Stage,
     execute_batch_export_insert_activity_using_s3_stage,
@@ -930,10 +930,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
 
 @activity.defn
-@record_execution_time(
-    "insert_into_s3_activity_from_stage_duration",
-    description="Total duration of the insert_into_s3_activity_from_stage activity",
-)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsCompleted:
     """Activity to batch export data to a customer's S3.
 
