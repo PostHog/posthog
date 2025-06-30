@@ -1,4 +1,4 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
@@ -575,7 +575,8 @@ export function ProjectTree({
                             const width = header.width || 0
                             const offset = header.offset || 0
                             const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
-
+                            const isFolder =
+                                (item.children && item.children.length > 0) || item.record?.type === 'folder'
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
                             const offsetAdjusted = index === 0 ? offset : offset - 12
@@ -602,7 +603,15 @@ export function ProjectTree({
                                         }
                                         placement="top-start"
                                     >
-                                        <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
+                                        <span
+                                            className={cn(
+                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                {
+                                                    'font-semibold':
+                                                        index === 0 && isFolder && item.type !== 'empty-folder',
+                                                }
+                                            )}
+                                        >
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
@@ -731,70 +740,69 @@ export function ProjectTree({
                                 tooltip="New root folder"
                                 iconOnly
                                 data-attr="tree-panel-new-root-folder-button"
+                                size="sm"
                             >
-                                <IconFolderPlus className="text-tertiary" />
+                                <IconFolderPlus className="text-tertiary size-3" />
                             </ButtonPrimitive>
                         ) : null}
 
-                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                        <ButtonPrimitive
+                            onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
+                            tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                            iconOnly
+                            data-attr="tree-panel-enable-multi-select-button"
+                            size="sm"
+                            active={selectMode === 'multi'}
+                            aria-pressed={selectMode === 'multi'}
+                        >
+                            <IconCheckbox
+                                className={cn('size-3', {
+                                    'text-tertiary': selectMode === 'default',
+                                    'text-primary': selectMode === 'multi',
+                                })}
+                            />
+                        </ButtonPrimitive>
+
+                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' && (
                             <ButtonPrimitive
-                                onClick={() => setSelectMode('multi')}
-                                tooltip="Enable multi-select"
-                                iconOnly
-                                data-attr="tree-panel-enable-multi-select-button"
+                                onClick={() => {
+                                    setCheckedItems({})
+                                    setSelectMode('default')
+                                }}
+                                tooltip="Clear selected and disable multi-select"
+                                data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
+                                size="sm"
                             >
-                                <IconCheckbox className="text-tertiary size-4" />
+                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                             </ButtonPrimitive>
-                        ) : (
-                            <>
-                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                    <ButtonPrimitive
-                                        onClick={() => {
-                                            setCheckedItems({})
-                                            setSelectMode('default')
-                                        }}
-                                        tooltip="Clear selected and disable multi-select"
-                                        data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
-                                    >
-                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                    </ButtonPrimitive>
-                                ) : (
-                                    <ButtonPrimitive
-                                        onClick={() => setSelectMode('default')}
-                                        tooltip="Disable multi-select"
-                                        iconOnly
-                                        data-attr="tree-panel-disable-multi-select-button"
-                                    >
-                                        <IconX className="text-tertiary size-4" />
-                                    </ButtonPrimitive>
-                                )}
-                            </>
                         )}
                     </>
                 ) : null
             }
         >
-            <ButtonPrimitive
-                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
-                data-attr="tree-panel-switch-view-button"
-            >
-                <IconChevronRight
-                    className={cn('size-4', {
-                        'rotate-180': projectTreeMode === 'table',
-                        'rotate-0': projectTreeMode === 'tree',
-                    })}
-                />
-            </ButtonPrimitive>
-
-            {showRecents ? (
+            {root === 'project://' && (
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    data-attr="tree-panel-switch-view-button"
+                    iconOnly
+                >
+                    <IconChevronRight
+                        className={cn('size-3', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            )}
+            {showRecents && (
                 <>
                     <div role="status" aria-live="polite" className="sr-only">
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
                     </div>
                 </>
-            ) : null}
+            )}
 
             {tree}
         </PanelLayoutPanel>
