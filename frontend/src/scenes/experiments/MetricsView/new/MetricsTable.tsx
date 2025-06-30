@@ -81,7 +81,7 @@ export function MetricsTable({
     return (
         <div className="w-full overflow-x-auto rounded-md border border-border bg-bg-table">
             <table className="w-full border-collapse text-sm">
-                <TableHeader results={results} />
+                <TableHeader results={results} chartRadius={chartRadius} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
