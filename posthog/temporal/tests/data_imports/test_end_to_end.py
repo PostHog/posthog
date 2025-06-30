@@ -56,6 +56,7 @@ from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
@@ -153,7 +154,7 @@ def mock_stripe_client(
         instance.products.list.return_value = mock_product_list
         instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
-        instance.credit_notes_list.return_value = mock_credit_notes_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
 
         yield instance
 
@@ -471,6 +472,19 @@ async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_invoiceitem["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+        table_name="stripe_creditnote",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_credit_note["data"],
     )
 
 

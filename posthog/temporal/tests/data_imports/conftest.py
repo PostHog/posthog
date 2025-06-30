@@ -879,6 +879,70 @@ def stripe_invoiceitem():
 
 
 @pytest.fixture
+def stripe_credit_note():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "cn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "credit_note",
+                    "amount": 1000,
+                    "currency": "usd",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "discount_amount": 0,
+                    "discount_amounts": [],
+                    "invoice": "in_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "lines": {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": "cnli_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "object": "credit_note_line_item",
+                                "amount": 1000,
+                                "description": "Credit for returned item",
+                                "discount_amount": 0,
+                                "discount_amounts": [],
+                                "invoice_line_item": "il_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "livemode": false,
+                                "quantity": 1,
+                                "tax_amounts": [],
+                                "tax_rates": [],
+                                "type": "invoice_line_item",
+                                "unit_amount": 1000,
+                                "unit_amount_decimal": "1000"
+                            }
+                        ],
+                        "has_more": false,
+                        "total_count": 1,
+                        "url": "/v1/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/lines"
+                    },
+                    "livemode": false,
+                    "memo": "Credit for returned item",
+                    "metadata": {},
+                    "number": "ABCD-1234",
+                    "out_of_band_amount": null,
+                    "pdf": "https://pay.stripe.com/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/pdf",
+                    "reason": "duplicate",
+                    "refund": null,
+                    "status": "issued",
+                    "subtotal": 1000,
+                    "tax_amounts": [],
+                    "total": 1000,
+                    "type": "post_payment",
+                    "voided_at": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """
