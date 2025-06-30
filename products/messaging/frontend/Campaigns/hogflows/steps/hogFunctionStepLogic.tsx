@@ -1,11 +1,20 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { afterMount, kea, key, path, props } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { CyclotronJobInvocationGlobals, EventType, HogFunctionTemplateType, PersonType } from '~/types'
+import {
+    CyclotronJobInvocationGlobals,
+    EventType,
+    HogFunctionConfigurationType,
+    HogFunctionTemplateType,
+    PersonType,
+} from '~/types'
 
 import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
+import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
+import { sanitizeConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
 export function convertToHogFunctionInvocationGlobals(
     event: EventType,
@@ -67,6 +76,38 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
                 },
             },
         ],
+    })),
+    forms(({ values, props, asyncActions }) => ({
+        configuration: {
+            defaults: {} as HogFunctionConfigurationType,
+            alwaysShowErrors: true,
+            submit: async (data) => {
+                const payload: Record<string, any> = sanitizeConfiguration(data)
+                // Only sent on create
+                payload.template_id = props.templateId || values.hogFunction?.template?.id
+
+                if (!values.hasAddon && values.type !== 'transformation') {
+                    // Remove the source field if the user doesn't have the addon (except for transformations)
+                    delete payload.hog
+                }
+
+                if (!props.id || props.id === 'new') {
+                    const type = values.type
+                    const typeFolder =
+                        type === 'site_app'
+                            ? 'Site apps'
+                            : type === 'transformation'
+                            ? 'Transformations'
+                            : type === 'source_webhook'
+                            ? 'Sources'
+                            : 'Destinations'
+                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
+                    if (typeof folder === 'string') {
+                        payload._create_in_folder = folder
+                    }
+                }
+            },
+        },
     })),
     afterMount(({ props, actions }) => {
         if (props.templateId) {

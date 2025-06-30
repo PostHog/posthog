@@ -1,4 +1,4 @@
-import { IconClock, IconHourglass } from '@posthog/icons'
+import { IconHourglass } from '@posthog/icons'
 import { LemonLabel } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'

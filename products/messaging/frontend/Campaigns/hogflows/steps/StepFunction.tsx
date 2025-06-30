@@ -6,6 +6,7 @@ import { HogFlowAction } from '../types'
 import { hogFunctionStepLogic } from './hogFunctionStepLogic'
 import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { Form } from 'kea-forms'
 
 export function StepFunctionConfiguration({
     node,
@@ -49,13 +50,20 @@ export function StepFunctionConfiguration({
     }
 
     return (
-        <CyclotronJobInputs
-            configuration={{
-                inputs,
-                inputs_schema: template?.inputs_schema ?? [],
-            }}
-            onInputChange={handleInputChange}
-            showSource={false}
-        />
+        <Form
+            logic={hogFunctionStepLogic}
+            props={{ id: node.id, templateId: node.data.config.template_id }}
+            formKey="configuration"
+            className="flex flex-col gap-2"
+        >
+            <CyclotronJobInputs
+                configuration={{
+                    inputs,
+                    inputs_schema: template?.inputs_schema ?? [],
+                }}
+                onInputChange={handleInputChange}
+                showSource={false}
+            />
+        </Form>
     )
 }
