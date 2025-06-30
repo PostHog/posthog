@@ -47,8 +47,8 @@ export function MetricRowGroup({
                 <td className="w-1/4 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative">
                     <div className="p-4 text-muted text-sm">No variant data available</div>
                 </td>
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-center">—</td>
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-center">—</td>
+                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">—</td>
+                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">—</td>
                 <td className="w-2/5 min-w-[300px] border-b border-border p-2 align-top text-center">—</td>
             </tr>
         )
