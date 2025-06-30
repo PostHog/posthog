@@ -130,6 +130,7 @@ export class KafkaConsumer {
     private backgroundTasks: Promise<void>[]
     private podName: string
     private heartbeatInterval: NodeJS.Timeout | null = null
+    private consumePromise: Promise<Message[]> | null = null
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTasks = []
@@ -332,6 +333,20 @@ export class KafkaConsumer {
         }
     }
 
+    private async consume(batchSize: number): Promise<Message[]> {
+        if (this.consumePromise) {
+            await this.consumePromise
+        }
+
+        this.consumePromise = retryIfRetriable(() =>
+            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSize, cb))
+        ).finally(() => {
+            this.consumePromise = null
+        })
+
+        return this.consumePromise
+    }
+
     public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
@@ -359,9 +374,9 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
         this.heartbeatInterval = setInterval(async () => {
-            if (!this.isStopping && this.rdKafkaConsumer.isConnected()) {
+            if (!this.isStopping && this.rdKafkaConsumer.isConnected() && !this.consumePromise) {
                 // TRICKY: We have to call consume to keep the hearbeat alive
-                const messages = await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(0, cb))
+                const messages = await this.consume(0)
                 if (messages.length > 0) {
                     throw new Error('Heartbeat received messages, but should not have')
                 }
@@ -380,11 +395,8 @@ export class KafkaConsumer {
                         histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
                     }
                     lastConsumeTime = consumeStartTime
-                    // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
-                    // error when consuming, hence the retryIfRetriable.
-                    const messages = await retryIfRetriable(() =>
-                        promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-                    )
+
+                    const messages = await this.consume(this.fetchBatchSize)
 
                     logger.debug('🔁', 'messages', { count: messages.length })
 
