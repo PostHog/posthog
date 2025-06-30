@@ -457,8 +457,16 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def _get_team_conversion_goals(self) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
         """Get conversion goals from team marketing analytics config and convert to proper objects"""
-        conversion_goals = self.team.marketing_analytics_config.conversion_goals
-        return convert_team_conversion_goals_to_objects(conversion_goals, self.team.pk)
+        conversion_goals = convert_team_conversion_goals_to_objects(
+            self.team.marketing_analytics_config.conversion_goals, self.team.pk
+        )
+
+        if self.query.dynamicConversionGoal:
+            conversion_goals = (
+                convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk)
+                + conversion_goals
+            )
+        return conversion_goals
 
     def _get_where_conditions(
         self,
