@@ -66,7 +66,7 @@ export function VariantRow({
                     {baselineResult ? (
                         <div className="text-sm">
                             <div className="font-semibold text-text-primary">
-                                {baselineResult.key}: {formatVariantData(baselineResult).formattedValue}
+                                {formatVariantData(baselineResult).formattedValue}
                             </div>
                             <div className="text-xs text-muted">
                                 {baselineResult.sum}/{humanFriendlyNumber(baselineResult.number_of_samples || 0)}
