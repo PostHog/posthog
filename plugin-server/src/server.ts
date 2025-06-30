@@ -342,51 +342,51 @@ export class PluginServer {
 
         this.stopping = true
 
-        const shutdownError = await runInstrumentedFunction({
-            timeoutMessage: 'Plugin server shutdown timeout',
-            timeout: 10000,
-            statsKey: 'pluginServer.stop',
-            func: async () => {
-                try {
-                    logger.info('💤', ' Shutting down gracefully...')
+        const shutdownStart = performance.now()
 
-                    this.httpServer?.close()
-                    Object.values(schedule.scheduledJobs).forEach((job) => {
-                        job.cancel()
-                    })
+        try {
+            logger.info('💤', ' Shutting down gracefully...')
 
-                    logger.info('💤', ' Shutting down services...')
-                    await Promise.allSettled([
-                        this.pubsub?.stop(),
-                        ...this.services.map((s) => s.onShutdown()),
-                        posthogShutdown(),
-                    ])
+            this.httpServer?.close()
 
-                    if (this.hub) {
-                        logger.info('💤', ' Shutting down plugins...')
-                        // Wait *up to* 5 seconds to shut down VMs.
-                        await Promise.race([teardownPlugins(this.hub), delay(5000)])
+            Object.values(schedule.scheduledJobs).forEach((job) => {
+                job.cancel()
+            })
 
-                        logger.info('💤', ' Shutting down kafka producer...')
-                        // Wait 2 seconds to flush the last queues and caches
-                        await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
-                        await closeHub(this.hub)
-                    }
+            logger.info('💤', ' Shutting down services...')
+            await Promise.allSettled([
+                this.pubsub?.stop(),
+                ...this.services.map((s) => s.onShutdown()),
+                posthogShutdown(),
+            ])
 
-                    logger.info('💤', ' Shutting down completed. Exiting...')
-                } catch (error) {
-                    logger.error('💥', 'Exception while shutting down server, exiting!', { error })
-                    captureException(error)
+            if (this.hub) {
+                logger.info('💤', ' Shutting down plugins...')
+                // Wait *up to* 5 seconds to shut down VMs.
+                await Promise.race([teardownPlugins(this.hub), delay(5000)])
 
-                    return error
-                }
-            },
-        })
+                logger.info('💤', ' Shutting down kafka producer...')
+                // Wait 2 seconds to flush the last queues and caches
+                await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
+                await closeHub(this.hub)
+            }
 
-        if (shutdownError || error) {
-            process.exit(1)
-        } else {
+            // NOTE: We can't use a prom metric here as the http server closes and prometheus is pull based
+            const shutdownDuration = performance.now() - shutdownStart
+            logger.info('💤', `Shutting down completed in ${shutdownDuration}ms`, {
+                duration: shutdownDuration,
+            })
+
             process.exit(0)
+        } catch (error) {
+            const shutdownDuration = performance.now() - shutdownStart
+            logger.error('💥', `Exception while shutting down server, exiting!`, {
+                error,
+                duration: shutdownDuration,
+            })
+            captureException(error)
+
+            process.exit(1)
         }
     }
 }
