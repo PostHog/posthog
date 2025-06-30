@@ -41,7 +41,6 @@ export function MetricsTable({
 
     const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
-
     // Calculate shared chartRadius across all metrics
     const maxAbsValue = Math.max(
         ...results.flatMap((result: NewExperimentQueryResponse) => {
@@ -66,9 +65,7 @@ export function MetricsTable({
     if (metrics.length === 0) {
         return (
             <div className="p-8 text-center border border-border rounded-md bg-bg-table">
-                <div className="text-muted">
-                    No {isSecondary ? 'secondary' : 'primary'} metrics configured
-                </div>
+                <div className="text-muted">No {isSecondary ? 'secondary' : 'primary'} metrics configured</div>
             </div>
         )
     }
@@ -93,7 +90,7 @@ export function MetricsTable({
                         if (!result && !error) {
                             return (
                                 <tr key={metricIndex}>
-                                    <td colSpan={5}>
+                                    <td colSpan={6}>
                                         <ChartLoadingState height={60} />
                                     </td>
                                 </tr>
@@ -103,7 +100,7 @@ export function MetricsTable({
                         if (error || !hasMinimumExposureForResults) {
                             return (
                                 <tr key={metricIndex}>
-                                    <td colSpan={5}>
+                                    <td colSpan={6}>
                                         <ChartEmptyState
                                             height={60}
                                             experimentStarted={!!experiment.start_date}
