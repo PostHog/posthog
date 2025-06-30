@@ -34,10 +34,12 @@ from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide"]
+ServiceRole = Literal["events", "report", "web", "worker", "decide"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
+    # TODO: remove kafka_connected after capture_internal is refactored
+    "report": ["http", "kafka_connected"],
     "web": [
         "http",
         # NOTE: we include Postgres because the way we use django means every request hits the DB
