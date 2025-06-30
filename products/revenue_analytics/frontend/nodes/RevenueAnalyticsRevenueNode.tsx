@@ -18,7 +18,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
 import { IconAreaChart, IconSwapHoriz } from 'lib/lemon-ui/icons'
 
@@ -82,12 +82,12 @@ const TileWrapper = ({ title, tooltip, extra, children }: React.PropsWithChildre
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-between">
-                <h3 className="text-lg font-semibold flex items-center">
-                    {title}&nbsp;
+                <span className="text-lg font-semibold flex items-center gap-1">
+                    {title}
                     <Tooltip title={tooltip}>
                         <IconInfo />
                     </Tooltip>
-                </h3>
+                </span>
                 {extra}
             </div>
 
@@ -214,18 +214,23 @@ const MRRTile = ({ response, responseLoading, queryId, context }: TileProps): JS
         <TileWrapper
             title={
                 <>
-                    <Tooltip title={mrrMode === 'mrr' ? 'Switch to ARR' : 'Switch to MRR'}>
-                        <span className="cursor-pointer" onClick={() => setMRRMode(mrrMode === 'mrr' ? 'arr' : 'mrr')}>
-                            <IconSwapHoriz />
-                        </span>
-                    </Tooltip>
-                    &nbsp;
-                    {mrrMode === 'mrr' ? 'MRR' : 'ARR'}
-                    &nbsp;
-                    <AlphaTag />
+                    <LemonButton
+                        icon={<IconSwapHoriz />}
+                        onClick={() => setMRRMode(mrrMode === 'mrr' ? 'arr' : 'mrr')}
+                        tooltip={mrrMode === 'mrr' ? 'Switch to ARR' : 'Switch to MRR'}
+                        type="secondary"
+                        size="small"
+                    >
+                        <span className="font-semibold">{mrrMode === 'mrr' ? 'MRR' : 'ARR'}</span>
+                    </LemonButton>
                 </>
             }
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
+            extra={
+                <span className="flex items-center">
+                    <AlphaTag />
+                </span>
+            }
         >
             {responseLoading ? (
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
