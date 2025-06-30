@@ -15,7 +15,9 @@ impl FlagFilters {
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
-        any_group_requires_cohort_filters(Some(&self.groups))
+        Some(&self.groups).map_or(false, |groups| {
+            groups.iter().any(|group| group.requires_cohort_filters())
+        })
     }
 }
 
@@ -30,11 +32,7 @@ fn any_group_requires_db_properties(
     })
 }
 
-fn any_group_requires_cohort_filters(groups: Option<&Vec<FlagPropertyGroup>>) -> bool {
-    groups.map_or(false, |groups| {
-        groups.iter().any(|group| group.requires_cohort_filters())
-    })
-}
+
 
 #[cfg(test)]
 mod tests {
