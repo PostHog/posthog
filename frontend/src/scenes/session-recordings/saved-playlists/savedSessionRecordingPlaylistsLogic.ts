@@ -220,6 +220,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         },
         loadPlaylistsSuccess: ({ playlists }) => {
             try {
+                if (!playlists) {
+                    return
+                }
                 // the feature flag might be off, so we don't show the count column
                 // but we want to know if we _would_ have shown counts
                 // so we'll emit a posthog event
