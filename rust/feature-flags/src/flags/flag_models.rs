@@ -48,7 +48,16 @@ pub struct FlagFilters {
     pub payloads: Option<serde_json::Value>,
     /// Super groups are a special group of feature flag conditions that act as a gate that must be
     /// satisfied before any other conditions are evaluated. If they match, the flag is enabled and no
-    /// other conditions are evaluated. If they don't match, fallback to regular conditions.
+    /// other conditions are evaluated. If they don't match, fallback to regular conditions. Right now,
+    /// these are only used for early access features which is a key and a boolean like so:
+    /// {
+    ///   "key": "$feature_enrollment/feature-flags-flag-dependency",
+    ///   "type": "person",
+    ///   "value": [
+    ///     "true"
+    ///   ],
+    ///   "operator": "exact"
+    /// }
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
     /// Holdout groups are conditions that define a set of users intentionally excluded from a test

@@ -1738,52 +1738,6 @@ mod tests {
     }
 
     #[test]
-    fn test_requires_db_preparation_if_super_group_set_and_not_enough_overrides() {
-        let mut flag = create_simple_flag(vec![], 1.0);
-        flag.filters.super_groups = Some(vec![FlagPropertyGroup {
-            properties: Some(vec![
-                create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-                create_simple_property_filter(
-                    "another_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-            ]),
-            rollout_percentage: Some(1.0),
-            variant: None,
-        }]);
-
-        {
-            let overrides = HashMap::from([
-                // Not enough overrides to evaluate locally
-                (
-                    "some_property".to_string(),
-                    Value::String("value".to_string()),
-                ),
-            ]);
-            assert!(flag.requires_db_preparation(&overrides));
-        }
-
-        {
-            let overrides = HashMap::from([
-                (
-                    "some_property".to_string(),
-                    Value::String("value".to_string()),
-                ),
-                (
-                    "another_property".to_string(),
-                    Value::String("value".to_string()),
-                ),
-            ]);
-            assert!(!flag.requires_db_preparation(&overrides));
-        }
-    }
-
-    #[test]
     fn test_requires_db_preparation_if_holdout_groups_set_and_not_enough_overrides() {
         let mut flag = create_simple_flag(vec![], 100.0);
         flag.filters.holdout_groups = Some(vec![

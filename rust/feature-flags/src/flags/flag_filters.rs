@@ -7,14 +7,16 @@ use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
 impl FlagFilters {
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
         self.aggregation_group_type_index.is_some()
+            || self
+                .super_groups
+                .as_ref()
+                .map_or(false, |groups| !groups.is_empty())
             || any_group_requires_db_properties(Some(&self.groups), overrides)
-            || any_group_requires_db_properties(self.super_groups.as_ref(), overrides)
             || any_group_requires_db_properties(self.holdout_groups.as_ref(), overrides)
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
         any_group_requires_cohort_filters(Some(&self.groups))
-            || any_group_requires_cohort_filters(self.super_groups.as_ref())
             || any_group_requires_cohort_filters(self.holdout_groups.as_ref())
     }
 }
@@ -151,6 +153,35 @@ mod tests {
         // Even though there are no properties, we still need to evaluate the DB properties
         // because the group type index is set.
         assert!(filters.requires_db_properties(&HashMap::new()));
+    }
+
+    #[test]
+    fn test_requires_db_properties_when_super_groups_set_and_not_empty() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.super_groups = Some(vec![create_simple_flag_property_group(
+            vec![create_simple_property_filter(
+                "$feature_enrollment/feature-flags-flag-dependency",
+                PropertyType::Person,
+                OperatorType::Exact,
+            )],
+            100.0,
+        )]);
+        let overrides = HashMap::from([(
+            "$feature_enrollment/feature-flags-flag-dependency".to_string(),
+            Value::String("value".to_string()),
+        )]);
+
+        // Super groups always require DB properties. We don't let people override them.
+        assert!(filters.requires_db_properties(&overrides));
+    }
+
+    #[test]
+    fn test_does_not_require_db_properties_when_super_groups_empty() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.super_groups = Some(vec![]);
+
+        // Super groups always require DB properties. We don't let people override them.
+        assert!(!filters.requires_db_properties(&HashMap::new()));
     }
 
     #[test]
