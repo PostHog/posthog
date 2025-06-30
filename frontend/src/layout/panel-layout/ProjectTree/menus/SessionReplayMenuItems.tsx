@@ -68,11 +68,11 @@ export function SessionReplayMenuItems({ MenuItem = DropdownMenuItem, onLinkClic
                             buttonProps={{
                                 menuItem: true,
                             }}
-                            to={urls.replay(ReplayTabs.Home)}
+                            to={urls.replay(ReplayTabs.Playlists)}
                             onKeyDown={handleKeyDown}
                             onClick={() => onLinkClick?.(false)}
                         >
-                            Saved filters
+                            Collections
                         </Link>
                     </MenuItem>
                 </>

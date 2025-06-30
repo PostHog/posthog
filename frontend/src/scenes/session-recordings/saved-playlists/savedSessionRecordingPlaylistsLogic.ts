@@ -130,6 +130,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
+                // We do not need to call it on the Home tab anymore
                 if (props.tab && props.tab === ReplayTabs.Home) {
                     return
                 }
@@ -347,7 +348,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         },
     })),
     afterMount(({ actions, props }) => {
-        //only call then on the Home tab
+        //only call saved filters on the Home tab
+        // TODO: Separate to another logic on step 2 @veryayskiy
         if (props.tab && props.tab === ReplayTabs.Home) {
             actions.loadSavedFilters()
             actions.checkForSavedFilterRedirect()
