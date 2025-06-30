@@ -8,9 +8,9 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
 import { StepView } from './components/StepView'
 import { HogFlowStep, HogFlowStepNodeProps } from './types'
-import { tzLabel } from 'scenes/settings/environment/TimezoneConfig'
 import { teamLogic } from 'scenes/teamLogic'
 import { WeekdayType } from '~/types'
+import { timeZoneLabel } from 'lib/utils'
 
 export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     type: 'wait_until_time_window',
@@ -55,7 +55,7 @@ function StepWaitUntilTimeWindowConfiguration({
 
     const options = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
         key: tz,
-        label: tzLabel(tz, offset),
+        label: timeZoneLabel(tz, offset),
     }))
 
     // Date options - using string values for LemonSelect compatibility

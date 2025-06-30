@@ -1543,6 +1543,12 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     }
 }
 
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    return `${timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
+        offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    }${Math.abs(Math.floor(offset))}:${(Math.abs(offset % 1) * 60).toString().padStart(2, '0')})`
+}
+
 export function humanTzOffset(timezone?: string): string {
     const offset = dayjs().tz(timezone).utcOffset() / 60
     if (!offset) {
