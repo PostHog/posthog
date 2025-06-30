@@ -1727,9 +1727,12 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1813,9 +1816,12 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
