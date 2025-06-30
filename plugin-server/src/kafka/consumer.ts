@@ -427,17 +427,22 @@ export class KafkaConsumer {
                         )
                         await Promise.all(otherBackgroundTasks)
 
+                        logger.info(
+                            '🔁',
+                            `waiting for ${otherBackgroundTasks.length} other background tasks to finish too ${
+                                performance.now() - backgroundTaskStart
+                            }ms`
+                        )
+
+                        const storeOffsetsStart = performance.now()
+
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            logger.info(
-                                '🔁',
-                                `waiting for other background tasks to finish: ${otherBackgroundTasks.length}`
-                            )
                             this.storeOffsetsForMessages(messages)
                         }
 
-                        const duration = performance.now() - backgroundTaskStart
+                        const storeOffsetsDuration = performance.now() - storeOffsetsStart
 
-                        logger.info('🔁', `waiting for other background tasks took ${duration}ms`)
+                        logger.info('🔁', `committing offsets took ${storeOffsetsDuration}ms`)
 
                         if (result?.backgroundTask) {
                             // We only want to count the time spent in the background work if it was real
@@ -446,7 +451,7 @@ export class KafkaConsumer {
                                     topic: this.config.topic,
                                     groupId: this.config.groupId,
                                 })
-                                .observe(duration)
+                                .observe(performance.now() - backgroundTaskStart)
                         }
                     })
 
