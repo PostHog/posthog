@@ -1,7 +1,7 @@
 import { useChartColors } from '../shared/colors'
 import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, valueToXCoordinate } from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
-import { BAR_HEIGHT, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
+import { SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
@@ -26,18 +26,16 @@ export function ChartCell({
     const hasEnoughData = !!interval
 
     // Position calculations
-    const fullCellHeight = BAR_HEIGHT + 32 // Full height including padding for grid lines
-    const y = (fullCellHeight - BAR_HEIGHT) / 2 // Center the bar vertically
+    const viewBoxHeight = 100 // Use percentage-based viewBox
+    const barHeightPercent = 40 // Percentage of cell height for the bar
+    const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     if (!hasEnoughData) {
         return (
-            <td
-                className="min-w-[400px] border-b border-border p-0 align-top text-center relative"
-                style={{ height: `${fullCellHeight}px` }}
-            >
+            <td className="min-w-[400px] border-b border-border p-0 align-top text-center relative">
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
         )
@@ -46,10 +44,9 @@ export function ChartCell({
     return (
         <td className="min-w-[400px] border-b border-border p-0 align-top text-center relative">
             <svg
-                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${fullCellHeight}`}
-                preserveAspectRatio="xMidYMid meet"
-                className="block w-full max-w-full"
-                style={{ height: `${fullCellHeight}px` }}
+                viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                preserveAspectRatio="none"
+                className="block w-full h-full absolute inset-0"
             >
                 {/* Zero line grid - spans full height */}
                 {showGridLines && (
@@ -57,7 +54,7 @@ export function ChartCell({
                         x1={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
                         y1={0}
                         x2={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                        y2={fullCellHeight}
+                        y2={viewBoxHeight}
                         stroke={colors.ZERO_LINE}
                         strokeWidth={1}
                         opacity={0.3}
@@ -89,7 +86,7 @@ export function ChartCell({
                 {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
                 {isBayesianResult(variantResult) ? (
                     <path
-                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
                         fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                             isSecondary ? 'secondary' : 'primary'
                         })`}
@@ -99,7 +96,7 @@ export function ChartCell({
                         x={x1}
                         y={y}
                         width={x2 - x1}
-                        height={BAR_HEIGHT}
+                        height={barHeightPercent}
                         fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
                             isSecondary ? 'secondary' : 'primary'
                         })`}
@@ -113,7 +110,7 @@ export function ChartCell({
                     x1={deltaX}
                     y1={y}
                     x2={deltaX}
-                    y2={y + BAR_HEIGHT}
+                    y2={y + barHeightPercent}
                     stroke={colors.BAR_MIDDLE_POINT}
                     strokeWidth={2}
                     shapeRendering="crispEdges"
