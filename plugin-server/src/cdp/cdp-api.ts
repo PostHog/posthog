@@ -12,6 +12,7 @@ import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-ex
 import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
+import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
@@ -22,6 +23,7 @@ import { convertToHogFunctionInvocationGlobals } from './utils'
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
+    private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
@@ -32,9 +34,10 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
