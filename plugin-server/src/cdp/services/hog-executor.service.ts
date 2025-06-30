@@ -352,10 +352,6 @@ export class HogExecutorService {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
 
-        // NOTE: Only needed until the migration to hog only queue is complete
-        // After which we can trust this is set correctly by the scheduler
-        invocation.state.attempts = invocation.state.attempts ?? 0
-
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
