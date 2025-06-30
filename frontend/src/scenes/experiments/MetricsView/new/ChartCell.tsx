@@ -1,4 +1,3 @@
-import { useRef, useEffect, useState } from 'react'
 import { useChartColors } from '../shared/colors'
 import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, valueToXCoordinate } from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
@@ -9,11 +8,16 @@ interface ChartCellProps {
     chartRadius: number
     metricIndex: number
     isSecondary: boolean
+    showGridLines?: boolean
 }
 
-export function ChartCell({ variantResult, chartRadius, metricIndex, isSecondary }: ChartCellProps): JSX.Element {
-    const svgRef = useRef<SVGSVGElement>(null)
-    const [svgHeight, setSvgHeight] = useState(BAR_HEIGHT + 16) // padding
+export function ChartCell({
+    variantResult,
+    chartRadius,
+    metricIndex,
+    isSecondary,
+    showGridLines = true,
+}: ChartCellProps): JSX.Element {
     const colors = useChartColors()
 
     const interval = getVariantInterval(variantResult)
@@ -22,39 +26,44 @@ export function ChartCell({ variantResult, chartRadius, metricIndex, isSecondary
     const hasEnoughData = !!interval
 
     // Position calculations
-    const chartHeight = BAR_HEIGHT + 16
-    const y = 8 // padding top
+    const fullCellHeight = BAR_HEIGHT + 32 // Full height including padding for grid lines
+    const y = (fullCellHeight - BAR_HEIGHT) / 2 // Center the bar vertically
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    useEffect(() => {
-        if (svgRef.current) {
-            const resizeObserver = new ResizeObserver(() => {
-                setSvgHeight(chartHeight)
-            })
-            resizeObserver.observe(svgRef.current)
-            return () => resizeObserver.disconnect()
-        }
-    }, [chartHeight])
-
     if (!hasEnoughData) {
         return (
-            <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
+            <td
+                className="min-w-[400px] border-b border-border p-0 align-top text-center relative"
+                style={{ height: `${fullCellHeight}px` }}
+            >
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
         )
     }
 
     return (
-        <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
+        <td className="min-w-[400px] border-b border-border p-0 align-top text-center relative">
             <svg
-                ref={svgRef}
-                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
+                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${fullCellHeight}`}
                 preserveAspectRatio="xMidYMid meet"
                 className="block w-full max-w-full"
-                style={{ height: `${svgHeight}px` }}
+                style={{ height: `${fullCellHeight}px` }}
             >
+                {/* Zero line grid - spans full height */}
+                {showGridLines && (
+                    <line
+                        x1={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                        y1={0}
+                        x2={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                        y2={fullCellHeight}
+                        stroke={colors.ZERO_LINE}
+                        strokeWidth={1}
+                        opacity={0.3}
+                    />
+                )}
+
                 {/* Gradient definition */}
                 <defs>
                     <linearGradient
