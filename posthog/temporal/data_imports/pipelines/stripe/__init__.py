@@ -14,9 +14,13 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 
@@ -46,9 +50,13 @@ def stripe_source(
             BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
             CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
             CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
+            DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
+            INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
             INVOICE_RESOURCE_NAME: StripeResource(method=client.invoices.list),
+            PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
             PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
             PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
+            REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
             SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
         }
 
@@ -136,9 +144,13 @@ def validate_credentials(api_key: str) -> bool:
         {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
         {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
         {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
+        {"name": DISPUTE_RESOURCE_NAME, "method": client.disputes.list, "params": {"limit": 1}},
+        {"name": INVOICE_ITEM_RESOURCE_NAME, "method": client.invoice_items.list, "params": {"limit": 1}},
         {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
+        {"name": PAYOUT_RESOURCE_NAME, "method": client.payouts.list, "params": {"limit": 1}},
         {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
         {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
+        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
     ]
 
