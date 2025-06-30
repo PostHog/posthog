@@ -84,19 +84,6 @@ export function VariantBar({
         <g key={variantResult.key} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="cursor-pointer">
             {hasEnoughData ? (
                 <>
-                    {/* Variant name */}
-                    <text
-                        x={x1 - 8}
-                        y={y + BAR_HEIGHT / 2}
-                        fontSize="10"
-                        textAnchor="end"
-                        dominantBaseline="middle"
-                        fill="var(--text-secondary)"
-                        fontWeight="600"
-                    >
-                        {variantResult.key}
-                    </text>
-
                     {/* Gradient definition for both violin and rectangular bars */}
                     <defs>
                         <VariantGradient
@@ -144,19 +131,6 @@ export function VariantBar({
                 </>
             ) : (
                 <>
-                    {/* Variant name for no data case */}
-                    <text
-                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 150}
-                        y={y + BAR_HEIGHT / 2}
-                        fontSize="10"
-                        textAnchor="end"
-                        dominantBaseline="middle"
-                        fill="var(--text-secondary)"
-                        fontWeight="600"
-                    >
-                        {variantResult.key}
-                    </text>
-
                     {/* "Not enough data" message */}
                     <rect
                         x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 50}
