@@ -267,8 +267,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
-
-        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 
