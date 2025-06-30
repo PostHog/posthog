@@ -370,6 +370,12 @@ export class KafkaConsumer {
                     try {
                         const batchSizeToFetch = Math.min(1, this.fetchBatchSize - messageQueue.length)
                         if (batchSizeToFetch > 0) {
+                            const consumeStartTime = performance.now()
+                            if (lastConsumeTime > 0) {
+                                const intervalMs = consumeStartTime - lastConsumeTime
+                                histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
+                            }
+                            lastConsumeTime = consumeStartTime
                             const newMessages = await retryIfRetriable(() =>
                                 promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSizeToFetch, cb))
                             )
