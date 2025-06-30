@@ -260,7 +260,7 @@ class PendingDeletesDictionary(Dictionary):
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
+        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name}"
 
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
@@ -685,7 +685,6 @@ def mark_deletions_verified(
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> VerifiedDeletionResources:
     now = timezone.now()
-
     deletion_ids = [
         id
         for (id,) in cluster.any_host_by_role(
