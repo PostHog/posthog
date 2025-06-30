@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     REFUND_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.pipelines.stripe.settings import INCREMENTAL_FIELDS
 
 DEFAULT_LIMIT = 100
 
@@ -68,6 +69,10 @@ def stripe_source(
 
         logger.debug(f"Stripe: reading from resource {resource}")
 
+        # Get the incremental field name for this endpoint
+        incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+        incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
+
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
@@ -80,31 +85,43 @@ def stripe_source(
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
             logger.debug(
-                f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
+                f"Stripe: iterating earliest objects from resource: {incremental_field_name}[lt] = {db_incremental_field_earliest_value}"
             )
 
             stripe_objects = resource.method(
-                params={**default_params, **resource.params, "created[lt]": db_incremental_field_earliest_value}
+                params={
+                    **default_params,
+                    **resource.params,
+                    f"{incremental_field_name}[lt]": db_incremental_field_earliest_value,
+                }
             )
             yield from stripe_objects.auto_paging_iter()
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
             logger.debug(
-                f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}"
+                f"Stripe: iterating latest objects from resource: {incremental_field_name}[gt] = {db_incremental_field_last_value}"
             )
 
             stripe_objects = resource.method(
-                params={**default_params, **resource.params, "created[gt]": db_incremental_field_last_value}
+                params={
+                    **default_params,
+                    **resource.params,
+                    f"{incremental_field_name}[gt]": db_incremental_field_last_value,
+                }
             )
             for obj in stripe_objects.auto_paging_iter():
-                if obj["created"] <= db_incremental_field_last_value:
+                if obj[incremental_field_name] <= db_incremental_field_last_value:
                     break
 
                 yield obj
 
     column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
+
+    # Get the incremental field name for partition keys
+    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     return SourceResponse(
         items=get_rows(),
@@ -117,7 +134,7 @@ def stripe_source(
         partition_size=1,  # this enables partitioning
         partition_mode="datetime",
         partition_format="month",
-        partition_keys=["created"],
+        partition_keys=[incremental_field_name],
     )
 
 

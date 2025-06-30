@@ -112,6 +112,7 @@ def mock_stripe_client(
     stripe_product,
     stripe_refund,
     stripe_subscription,
+    stripe_credit_note,
 ):
     with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
@@ -125,6 +126,7 @@ def mock_stripe_client(
         mock_product_list = mock.MagicMock()
         mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
@@ -137,6 +139,7 @@ def mock_stripe_client(
         mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
         mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
@@ -150,6 +153,7 @@ def mock_stripe_client(
         instance.products.list.return_value = mock_product_list
         instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes_list.return_value = mock_credit_notes_list
 
         yield instance
 
