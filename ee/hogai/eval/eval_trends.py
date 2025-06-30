@@ -327,7 +327,7 @@ Time interval: day
                             "date_to": f"{datetime.now().year}-01-31",
                         },
                         filterTestAccounts=True,
-                        interval="month",
+                        interval="day",
                         trendsFilter=AssistantTrendsFilter(
                             display="ActionsLineGraph",
                             showLegend=True,
