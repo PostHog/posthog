@@ -207,16 +207,16 @@ const testWithTeamIngester = (
             PERSON_BATCH_WRITING_MODE: 'NONE',
         })
 
-        // testWithTeamIngesterBase(`${name} (batch writing enabled)`, testFn, {
-        //     ...pluginServerConfig,
-        //     PERSON_BATCH_WRITING_MODE: 'BATCH',
-        // })
+        testWithTeamIngesterBase(`${name} (batch writing enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'BATCH',
+        })
 
-        // testWithTeamIngesterBase(`${name} (batch writing shadow mode enabled)`, testFn, {
-        //     ...pluginServerConfig,
-        //     PERSON_BATCH_WRITING_MODE: 'SHADOW',
-        //     PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
-        // })
+        testWithTeamIngesterBase(`${name} (batch writing shadow mode enabled)`, testFn, {
+            ...pluginServerConfig,
+            PERSON_BATCH_WRITING_MODE: 'SHADOW',
+            PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
+        })
     })
 }
 
@@ -1437,127 +1437,136 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    // testWithTeamIngester(
-    //     'alias events ordering scenario 2: user 2 first, separate batch',
-    //     async (ingester, hub, team) => {
-    //         const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
-    //         const user1DistinctId = "user1-distinct-id"
-    //         const user2DistinctId = "user2-distinct-id"
-    //         const user3DistinctId = "user3-distinct-id"
+    testWithTeamIngester(
+        'alias events ordering scenario 2: user 2 first, separate batch',
+        async (ingester, hub, team) => {
+            const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+            const user1DistinctId = 'user1-distinct-id'
+            const user2DistinctId = 'user2-distinct-id'
+            const user3DistinctId = 'user3-distinct-id'
 
-    //         const events = [
+            const events = [
+                // User 2 creation
+                new EventBuilder(team, user2DistinctId)
+                    .withProperties({
+                        anon_distinct_id: user2DistinctId,
+                        $set: {
+                            name: 'User 2',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 2 - Updated',
+                        },
+                    })
+                    .build(),
 
-    //             // User 2 creation
-    //             new EventBuilder(team, user2DistinctId)
-    //                 .withProperties({
-    //                     "anon_distinct_id": user2DistinctId,
-    //                     $set: {
-    //                         name: 'User 2',
-    //                         email: `user2-${user2DistinctId}@example.com`,
-    //                         age: 30,
-    //                         test_name: testName
-    //                     }
-    //                 })
-    //                 .build(),
-    //             new EventBuilder(team, user2DistinctId)
-    //                 .withEvent('$identify')
-    //                 .withProperties({
-    //                     $set: {
-    //                         new_name: 'User 2 - Updated'
-    //                     }
-    //                 })
-    //                 .build(),
+                // Create alias for user3 -> user2
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user2DistinctId,
+                        alias: user3DistinctId,
+                    })
+                    .build(),
+            ]
 
-    //             // Create alias for user3 -> user2
-    //             new EventBuilder(team, user2DistinctId)
-    //                 .withEvent('$create_alias')
-    //                 .withProperties({
-    //                     distinct_id: user2DistinctId,
-    //                     alias: user3DistinctId
-    //                 })
-    //                 .build(),
+            const events2 = [
+                // User 1 creation
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 1 - Updated',
+                        },
+                    })
+                    .build(),
 
-    //         ]
+                // Merge users: alias user1 -> user2
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user1DistinctId,
+                        alias: user2DistinctId,
+                    })
+                    .build(),
+            ]
 
-    //         const events2 = [
-    //             // User 1 creation
-    //             new EventBuilder(team, user1DistinctId)
-    //                 .withEvent('$identify')
-    //                 .withProperties({
-    //                     $set: {
-    //                         name: 'User 1',
-    //                         email: `user1-${user1DistinctId}@example.com`,
-    //                         age: 30,
-    //                         test_name: testName
-    //                     }
-    //                 })
-    //                 .build(),
-    //             new EventBuilder(team, user1DistinctId)
-    //                 .withEvent('$identify')
-    //                 .withProperties({
-    //                     $set: {
-    //                         new_name: 'User 1 - Updated'
-    //                     }
-    //                 })
-    //                 .build(),
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
 
-    //             // Merge users: alias user1 -> user2
-    //             new EventBuilder(team, user1DistinctId)
-    //                 .withEvent('$create_alias')
-    //                 .withProperties({
-    //                     distinct_id: user1DistinctId,
-    //                     alias: user2DistinctId
-    //                 })
-    //                 .build(),
+            await ingester.handleKafkaBatch(createKafkaMessages(events2))
+            await waitForKafkaMessages(hub)
 
-    //         ]
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(6)
 
-    //         await ingester.handleKafkaBatch(createKafkaMessages(events))
-    //         await waitForKafkaMessages(hub)
+                // TODO: Add specific assertions based on expected behavior
+                // All events should be processed without errors
+                expect(events).toBeDefined()
+            })
 
-    //         await ingester.handleKafkaBatch(createKafkaMessages(events2))
-    //         await waitForKafkaMessages(hub)
-
-    //         await waitForExpect(async () => {
-    //             const events = await fetchEvents(hub, team.id)
-    //             expect(events.length).toBe(6)
-
-    //             // TODO: Add specific assertions based on expected behavior
-    //             // All events should be processed without errors
-    //             expect(events).toBeDefined()
-    //         })
-
-    //         // fetch the person properties
-    //         await waitForExpect(async () => {
-    //             const persons = await fetchPostgresPersons(hub.db, team.id)
-    //             expect(persons.length).toBe(2)
-    //             expect(persons.map((person) => person.properties)).toEqual(
-    //                 expect.arrayContaining([
-    //                     expect.objectContaining({
-    //                         name: 'User 1',
-    //                         new_name: 'User 1 - Updated',
-    //                         email: `user1-${user1DistinctId}@example.com`,
-    //                         age: 30,
-    //                         test_name: testName
-    //                     }),
-    //                     expect.objectContaining({
-    //                         name: 'User 2',
-    //                         new_name: 'User 2 - Updated',
-    //                         email: `user2-${user2DistinctId}@example.com`,
-    //                         age: 30,
-    //                         test_name: testName
-    //                     })]))
-    //             const person1 = persons.find((person) => person.properties.name === 'User 1')!
-    //             const person2 = persons.find((person) => person.properties.name === 'User 2')!
-    //             const distinctIdsPersons1 = await hub.db.fetchDistinctIds({ id: person1.id, team_id: team.id } as InternalPerson, Database.Postgres)
-    //             expect(distinctIdsPersons1.length).toBe(1)
-    //             // Except distinctids to match the ids, in any order
-    //             expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(expect.arrayContaining([user1DistinctId]))
-    //             const distinctIdsPersons2 = await hub.db.fetchDistinctIds({ id: person2.id, team_id: team.id } as InternalPerson, Database.Postgres)
-    //             expect(distinctIdsPersons2.length).toBe(2)
-    //             // Except distinctids to match the ids, in any order
-    //             expect(distinctIdsPersons2.map((distinctId) => distinctId.distinct_id)).toEqual(expect.arrayContaining([user2DistinctId, user3DistinctId]))
-    //         })
-    //     }
-    // )
+            // fetch the person properties
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(2)
+                expect(persons.map((person) => person.properties)).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'User 1',
+                            new_name: 'User 1 - Updated',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                        expect.objectContaining({
+                            name: 'User 2',
+                            new_name: 'User 2 - Updated',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                    ])
+                )
+                const person1 = persons.find((person) => person.properties.name === 'User 1')!
+                const person2 = persons.find((person) => person.properties.name === 'User 2')!
+                const distinctIdsPersons1 = await hub.db.fetchDistinctIds(
+                    { id: person1.id, team_id: team.id } as InternalPerson,
+                    Database.Postgres
+                )
+                expect(distinctIdsPersons1.length).toBe(1)
+                // Except distinctids to match the ids, in any order
+                expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user1DistinctId])
+                )
+                const distinctIdsPersons2 = await hub.db.fetchDistinctIds(
+                    { id: person2.id, team_id: team.id } as InternalPerson,
+                    Database.Postgres
+                )
+                expect(distinctIdsPersons2.length).toBe(2)
+                // Except distinctids to match the ids, in any order
+                expect(distinctIdsPersons2.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user2DistinctId, user3DistinctId])
+                )
+            })
+        }
+    )
 })
