@@ -111,6 +111,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    continuousConsumptionEnabled?: boolean
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -137,6 +138,7 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
+        this.config.continuousConsumptionEnabled ??= false
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
@@ -359,6 +361,35 @@ export class KafkaConsumer {
 
         const startConsuming = async () => {
             let lastConsumeTime = 0
+            const messageQueue: Message[] = []
+            let consumeTimer: NodeJS.Timeout | null = null
+            let isReadingInMainLoop = false
+
+            const continuousConsume = async () => {
+                if (!this.isStopping && !isReadingInMainLoop) {
+                    try {
+                        const batchSizeToFetch = Math.min(1, this.fetchBatchSize - messageQueue.length)
+                        if (batchSizeToFetch > 0) {
+                            const newMessages = await retryIfRetriable(() =>
+                                promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSizeToFetch, cb))
+                            )
+                            messageQueue.push(...newMessages)
+                        }
+                    } catch (error) {
+                        logger.error('🔁', 'continuous_consume_error', { error: String(error) })
+                    }
+                } else if (this.isStopping) {
+                    if (consumeTimer) {
+                        clearInterval(consumeTimer)
+                        consumeTimer = null
+                    }
+                }
+            }
+
+            if (this.config.continuousConsumptionEnabled) {
+                consumeTimer = setInterval(continuousConsume, 1000)
+            }
+
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
@@ -369,11 +400,37 @@ export class KafkaConsumer {
                         histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
                     }
                     lastConsumeTime = consumeStartTime
-                    // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
-                    // error when consuming, hence the retryIfRetriable.
-                    const messages = await retryIfRetriable(() =>
-                        promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-                    )
+
+                    let messages: Message[]
+
+                    if (this.config.continuousConsumptionEnabled) {
+                        isReadingInMainLoop = true
+                        if (messageQueue.length > 0) {
+                            messages = messageQueue.splice(0, this.fetchBatchSize)
+                        } else {
+                            messages = []
+                        }
+                        const remainingToFetch = this.fetchBatchSize - messages.length
+                        if (remainingToFetch > 0) {
+                            try {
+                                const additionalMessages = await retryIfRetriable(() =>
+                                    promisifyCallback<Message[]>((cb) =>
+                                        this.rdKafkaConsumer.consume(remainingToFetch, cb)
+                                    )
+                                )
+                                messages.push(...additionalMessages)
+                            } catch (error) {
+                                logger.error('🔁', 'additional_consume_error', { error: String(error) })
+                            }
+                        }
+                        isReadingInMainLoop = false
+                    } else {
+                        // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
+                        // error when consuming, hence the retryIfRetriable.
+                        messages = await retryIfRetriable(() =>
+                            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
+                        )
+                    }
 
                     logger.debug('🔁', 'messages', { count: messages.length })
 

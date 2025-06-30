@@ -160,7 +160,11 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.groupId,
+            topic: this.topic,
+            continuousConsumptionEnabled: this.hub.CONSUMER_CONTINUOUS_CONSUMPTION_ENABLED,
+        })
     }
 
     public get service(): PluginServerService {
