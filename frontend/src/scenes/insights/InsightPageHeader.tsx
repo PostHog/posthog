@@ -304,7 +304,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneLayoutPanelInfo>
                 <>
-                    <div className="p-1 flex flex-col gap-2">
+                    <div className="px-1 pt-2 flex flex-col gap-2">
                         {!!(canEditInsight || insight.name) && (
                             <>
                                 <SceneName

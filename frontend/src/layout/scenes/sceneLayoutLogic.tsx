@@ -21,6 +21,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setFileActionsContainer: (element: HTMLElement | null) => ({ element }),
         setPanelInfoActive: (active: boolean) => ({ active }),
         setPanelInfoOpen: (open: boolean) => ({ open }),
+        setShowPanelOverlay: (isOverlay: boolean) => ({ isOverlay }),
     }),
     reducers({
         fileActionsContainer: [
@@ -53,6 +54,12 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             false,
             {
                 setPanelInfoOpen: (_, { open }) => open,
+            },
+        ],
+        showPanelOverlay: [
+            true,
+            {
+                setShowPanelOverlay: (_, { isOverlay }) => isOverlay,
             },
         ],
     }),

@@ -30,12 +30,15 @@ export function SceneHeader(): JSX.Element | null {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
-    const { panelInfoOpen, panelInfoActive } = useValues(sceneLayoutLogic)
+    const { panelInfoOpen, panelInfoActive, showPanelOverlay } = useValues(sceneLayoutLogic)
 
     return breadcrumbs.length || projectTreeRefEntry ? (
         <div
             className={cn(
-                'py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]'
+                'py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]',
+                {
+                    'pr-2': panelInfoActive,
+                }
             )}
         >
             <div className="flex items-center gap-2">
@@ -65,7 +68,7 @@ export function SceneHeader(): JSX.Element | null {
                     <div className="flex gap-2 items-center">
                         <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
 
-                        {panelInfoActive && (
+                        {panelInfoActive && showPanelOverlay && (
                             <ButtonPrimitive
                                 onClick={() => setPanelInfoOpen(!panelInfoOpen)}
                                 iconOnly

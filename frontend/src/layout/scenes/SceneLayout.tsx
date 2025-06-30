@@ -1,5 +1,7 @@
+import { IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -16,17 +18,15 @@ type SceneLayoutProps = {
 
 export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }): JSX.Element {
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
-    const { setPanelInfoActive, setPanelInfoOpen } = useActions(sceneLayoutLogic)
+    const { setPanelInfoActive } = useActions(sceneLayoutLogic)
 
     // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
         setPanelInfoActive(true)
-        setPanelInfoOpen(false)
         return () => {
             setPanelInfoActive(false)
-            setPanelInfoOpen(false)
         }
-    }, [setPanelInfoActive, setPanelInfoOpen])
+    }, [setPanelInfoActive])
 
     return (
         <>
@@ -38,16 +38,18 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { setFileActionsContainer, setPanelInfoOpen } = useActions(sceneLayoutLogic)
-    const { panelInfoActive, panelInfoOpen } = useValues(sceneLayoutLogic)
+    const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
+    const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (sceneLayoutContainer.current) {
             const resizeObserver = new ResizeObserver((entries) => {
                 for (const entry of entries) {
-                    if (entry.contentRect.width > 1300) {
-                        setPanelInfoOpen(true)
+                    if (entry.contentRect.width >= 1300) {
+                        setShowPanelOverlay(false)
+                    } else {
+                        setShowPanelOverlay(true)
                     }
                 }
             })
@@ -55,30 +57,60 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             resizeObserver.observe(sceneLayoutContainer.current)
 
             return () => {
-                setPanelInfoOpen(false)
                 resizeObserver.disconnect()
             }
         }
     }, [setPanelInfoOpen])
 
     return (
-        <div className={cn('scene-layout flex-1 flex flex-col h-full', className)} ref={sceneLayoutContainer}>
-            {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
-            <div
-                className={cn('scene-layout__content', {
-                    'scene-layout__content--has-panel': panelInfoActive && panelInfoOpen,
-                })}
-            >
-                {panelInfoActive && panelInfoOpen && (
+        <div
+            className={cn('scene-layout flex-1 flex flex-col', className, {
+                'scene-layout--has-panel-overlay': panelInfoActive,
+            })}
+            ref={sceneLayoutContainer}
+        >
+            <div className="scene-layout__content">
+                <div className="flex flex-col flex-1">
+                    {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
+
+                    <div
+                        className={cn('flex-1 flex flex-col p-4 w-full order-1', {
+                            'p-0': layoutConfig?.layout === 'app-raw-no-header',
+                        })}
+                    >
+                        {children}
+                    </div>
+                </div>
+
+                {panelInfoActive && (
                     <>
-                        <div className={cn('scene-layout__content-panel order-2 right-0')}>
+                        <div
+                            className={cn('scene-layout__content-panel order-2 bg-surface-primary flex flex-col', {
+                                hidden: !panelInfoOpen && showPanelOverlay,
+                                'right-0': showPanelOverlay,
+                                'right-[3rem]': !showPanelOverlay,
+                            })}
+                        >
+                            <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <IconInfo className="size-4 text-tertiary" />
+                                    <h4 className="text-base font-medium text-primary m-0">Info</h4>
+                                </div>
+
+                                {showPanelOverlay && panelInfoOpen && (
+                                    <ButtonPrimitive iconOnly onClick={() => setPanelInfoOpen(false)}>
+                                        <IconX className="size-4" />
+                                    </ButtonPrimitive>
+                                )}
+                            </div>
                             <ScrollableShadows
                                 direction="vertical"
-                                className="h-full"
-                                innerClassName="p-2 bg-surface-primary rounded-sm border border-primary"
+                                className="h-full flex-1"
+                                innerClassName="px-2 pb-4"
                             >
                                 <div ref={setFileActionsContainer} />
                             </ScrollableShadows>
+
                             {/* <TabsPrimitive defaultValue="info">
                             <div className="flex justify-between items-center border-b border-primary">
                                 <TabsPrimitiveList className="px-2">
@@ -100,25 +132,20 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 <div ref={setFileActionsContainer}/>
                             </TabsPrimitiveContent>
                             <TabsPrimitiveContent value="settings" className="p-1">
-ettings
+    ettings
                             </TabsPrimitiveContent>
                         </TabsPrimitive> */}
                         </div>
-                        <div
-                            onClick={() => {
-                                setPanelInfoOpen(false)
-                            }}
-                            className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
-                        />
+                        {panelInfoOpen && showPanelOverlay && (
+                            <div
+                                onClick={() => {
+                                    setPanelInfoOpen(false)
+                                }}
+                                className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                            />
+                        )}
                     </>
                 )}
-                <div
-                    className={cn('flex-1 flex flex-col p-4 w-full order-1', {
-                        'p-0': layoutConfig?.layout === 'app-raw-no-header',
-                    })}
-                >
-                    {children}
-                </div>
             </div>
         </div>
     )
