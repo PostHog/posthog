@@ -15,14 +15,13 @@ import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
 import { isTestEnv } from '~/utils/env-utils'
-import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
 import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { delay, promisifyCallback } from '../utils/utils'
+import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
 
@@ -131,7 +130,6 @@ export class KafkaConsumer {
     private backgroundTasks: Promise<void>[]
     private podName: string
     private heartbeatInterval: NodeJS.Timeout | null = null
-    private consumePromise: Promise<Message[]> | null = null
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTasks = []
@@ -417,39 +415,19 @@ export class KafkaConsumer {
                     const backgroundTaskStart = performance.now()
 
                     const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).then(async () => {
-                        logger.info('🔁', 'background task completed')
-
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTasks.indexOf(backgroundTask)
                         void this.backgroundTasks.splice(index, 1)
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
                         const otherBackgroundTasks = this.backgroundTasks.slice(0, index)
-                        logger.info(
-                            '🔁',
-                            `waiting for other background tasks to finish: ${otherBackgroundTasks.length}`
-                        )
                         await Promise.all(otherBackgroundTasks)
-
-                        logger.info(
-                            '🔁',
-                            `waiting for ${otherBackgroundTasks.length} other background tasks to finish too ${
-                                performance.now() - backgroundTaskStart
-                            }ms`
-                        )
-
-                        const storeOffsetsStart = performance.now()
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(messages)
                         }
 
-                        const storeOffsetsDuration = performance.now() - storeOffsetsStart
-
-                        logger.info('🔁', `committing offsets took ${storeOffsetsDuration}ms`)
-
                         const overallDuration = performance.now() - backgroundTaskStart
-                        logger.info('🔁', `overall background task took ${overallDuration}ms`)
 
                         if (result?.backgroundTask) {
                             // We only want to count the time spent in the background work if it was real
