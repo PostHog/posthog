@@ -16,13 +16,17 @@ type SceneLayoutProps = {
 
 export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }): JSX.Element {
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
-    const { setPanelInfoActive } = useActions(sceneLayoutLogic)
+    const { setPanelInfoActive, setPanelInfoOpen } = useActions(sceneLayoutLogic)
 
     // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
         setPanelInfoActive(true)
-        return () => setPanelInfoActive(false)
-    }, [setPanelInfoActive])
+        setPanelInfoOpen(false)
+        return () => {
+            setPanelInfoActive(false)
+            setPanelInfoOpen(false)
+        }
+    }, [setPanelInfoActive, setPanelInfoOpen])
 
     return (
         <>
@@ -42,7 +46,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         if (sceneLayoutContainer.current) {
             const resizeObserver = new ResizeObserver((entries) => {
                 for (const entry of entries) {
-                    if (entry.contentRect.width > 1000) {
+                    if (entry.contentRect.width > 1300) {
                         setPanelInfoOpen(true)
                     }
                 }
@@ -51,6 +55,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             resizeObserver.observe(sceneLayoutContainer.current)
 
             return () => {
+                setPanelInfoOpen(false)
                 resizeObserver.disconnect()
             }
         }

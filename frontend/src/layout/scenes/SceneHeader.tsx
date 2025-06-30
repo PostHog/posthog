@@ -3,8 +3,6 @@ import './SceneHeader.scss'
 import { IconChevronDown, IconListCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -33,53 +31,6 @@ export function SceneHeader(): JSX.Element | null {
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
     const { panelInfoOpen, panelInfoActive } = useValues(sceneLayoutLogic)
-    // const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    // const { openMoveToModal } = useActions(moveToLogic)
-    // const [compactionRate, setCompactionRate] = useState(0)
-    // const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
-    // const { addShortcutItem } = useActions(projectTreeDataLogic)
-    // Always show in full on mobile, as there we are very constrained in width, but not so much height
-    // const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
-    // const isOnboarding = router.values.location.pathname.includes('/onboarding/')
-    // const hasRenameState = !!renameState
-
-    // useLayoutEffect(() => {
-    //     function handleScroll(): void {
-    //         const mainElement = document.getElementsByTagName('main')[0]
-    //         const mainScrollTop = mainElement.scrollTop
-    //         const compactionDistance = Math.min(
-    //             // This ensures that scrolling to the bottom of the scene will always result in the compact top bar state
-    //             // even if there's just a few pixels of scroll room. Otherwise, the top bar would be halfway-compact then
-    //             mainElement.scrollHeight - mainElement.clientHeight,
-    //             BREADCRUMBS_HEIGHT_COMPACT
-    //         )
-    //         // To avoid flickering effect we need to wait for the element to be visible
-    //         const completionRateTransfer = 0.9
-    //         const newCompactionRate = compactionDistance > 0 ? Math.min(mainScrollTop / compactionDistance, 1) : 0
-    //         setCompactionRate((compactionRate) => {
-    //             if (
-    //                 hasRenameState &&
-    //                 ((newCompactionRate > completionRateTransfer && compactionRate <= completionRateTransfer) ||
-    //                     (newCompactionRate <= completionRateTransfer && compactionRate > completionRateTransfer))
-    //             ) {
-    //                 // Transfer selection from the outgoing input to the incoming one
-    //                 const [source, target] =
-    //                     newCompactionRate > completionRateTransfer ? ['large', 'small'] : ['small', 'large']
-    //                 const sourceEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${source}"]`)
-    //                 const targetEl = document.querySelector<HTMLInputElement>(`input[name="item-name-${target}"]`)
-    //                 if (sourceEl && targetEl) {
-    //                     targetEl.focus()
-    //                     targetEl.setSelectionRange(sourceEl.selectionStart || 0, sourceEl.selectionEnd || 0)
-    //                 }
-    //             }
-    //             return newCompactionRate
-    //         })
-    //     }
-
-    //     const main = document.getElementsByTagName('main')[0]
-    //     main.addEventListener('scroll', handleScroll)
-    //     return () => main.removeEventListener('scroll', handleScroll)
-    // }, [hasRenameState])
 
     return breadcrumbs.length || projectTreeRefEntry ? (
         <div
@@ -109,11 +60,6 @@ export function SceneHeader(): JSX.Element | null {
                                     )}
                                 </React.Fragment>
                             ))}
-                            <FlaggedFeature flag="metalytics">
-                                <div className="shrink-1">
-                                    <MetalyticsSummary />
-                                </div>
-                            </FlaggedFeature>
                         </div>
                     )}
                     <div className="flex gap-2 items-center">
@@ -156,7 +102,12 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         nameElement = breadcrumb.symbol
     } else {
         nameElement = (
-            <span className="flex items-center gap-1.5 truncate inline-block">
+            <span
+                className={cn('flex items-center gap-1.5 inline-block', {
+                    truncate: here,
+                    'whitespace-nowrap': !here,
+                })}
+            >
                 {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
