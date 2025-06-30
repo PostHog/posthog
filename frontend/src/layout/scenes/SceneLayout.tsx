@@ -49,8 +49,10 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 for (const entry of entries) {
                     if (entry.contentRect.width >= 1300) {
                         setShowPanelOverlay(false)
+                        setPanelInfoOpen(true)
                     } else {
                         setShowPanelOverlay(true)
+                        setPanelInfoOpen(false)
                     }
                 }
             })
@@ -70,7 +72,11 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             })}
             ref={sceneLayoutContainer}
         >
-            <div className="scene-layout__content">
+            <div
+                className={cn('scene-layout__content', {
+                    'scene-layout__content--collapsed': panelInfoActive && !panelInfoOpen && !showPanelOverlay,
+                })}
+            >
                 <div className="flex flex-col flex-1">
                     {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
 
@@ -86,8 +92,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 {panelInfoActive && (
                     <>
                         <div
-                            className={cn('scene-layout__content-panel order-2 bg-surface-primary flex flex-col', {
-                                hidden: !panelInfoOpen && showPanelOverlay,
+                            className={cn('scene-layout__content-panel order-2 bg-primary flex flex-col', {
+                                hidden: !panelInfoOpen,
                                 'right-0': mobileLayout,
                                 'right-[3rem]': !mobileLayout,
                             })}
@@ -111,32 +117,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             >
                                 <div ref={setFileActionsContainer} />
                             </ScrollableShadows>
-
-                            {/* <TabsPrimitive defaultValue="info">
-                            <div className="flex justify-between items-center border-b border-primary">
-                                <TabsPrimitiveList className="px-2">
-                                    <TabsPrimitiveTrigger value="info" asChild>
-                                        <ButtonPrimitive size="sm">
-                                            <IconInfo />
-                                            Info
-                                        </ButtonPrimitive>
-                                    </TabsPrimitiveTrigger>
-                                    <TabsPrimitiveTrigger value="settings" asChild>
-                                        <ButtonPrimitive size="sm">
-                                            <IconGear />
-                                            Settings
-                                        </ButtonPrimitive>
-                                    </TabsPrimitiveTrigger>
-                                </TabsPrimitiveList>
-                            </div>
-                            <TabsPrimitiveContent value="info" className="p-1">
-                                <div ref={setFileActionsContainer}/>
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="settings" className="p-1">
-    ettings
-                            </TabsPrimitiveContent>
-                        </TabsPrimitive> */}
                         </div>
+
                         {panelInfoOpen && showPanelOverlay && (
                             <div
                                 onClick={() => {

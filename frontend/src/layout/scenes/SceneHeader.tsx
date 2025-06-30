@@ -30,7 +30,7 @@ export function SceneHeader(): JSX.Element | null {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
-    const { panelInfoOpen, panelInfoActive, showPanelOverlay } = useValues(sceneLayoutLogic)
+    const { panelInfoOpen, panelInfoActive } = useValues(sceneLayoutLogic)
 
     return breadcrumbs.length || projectTreeRefEntry ? (
         <div
@@ -68,7 +68,7 @@ export function SceneHeader(): JSX.Element | null {
                     <div className="flex gap-2 items-center">
                         <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
 
-                        {panelInfoActive && showPanelOverlay && (
+                        {panelInfoActive && (
                             <ButtonPrimitive
                                 onClick={() => setPanelInfoOpen(!panelInfoOpen)}
                                 iconOnly
