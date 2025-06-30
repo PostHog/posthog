@@ -141,17 +141,17 @@ def format_label_date(date: datetime, query_date_range: QueryDateRange, week_sta
     :param week_start_day: The day that the week starts on (e.g., Sunday or Monday).
     :return: A formatted string representing the date label.
     """
-    interval = query_date_range.interval_name or "default"
+    interval = query_date_range.interval_name
 
     if interval == "week":
         return _format_week_label(date, query_date_range, week_start_day)
 
     date_formats = {
-        "default": "%-d-%b-%Y",
+        "day": "%-d-%b-%Y",
         "minute": "%-d-%b %H:%M",
         "hour": "%-d-%b %H:%M",
         "month": "%b %Y",
     }
-    labels_format = date_formats.get(interval, date_formats["default"])
+    labels_format = date_formats.get(interval, date_formats["day"])
 
     return date.strftime(labels_format)
