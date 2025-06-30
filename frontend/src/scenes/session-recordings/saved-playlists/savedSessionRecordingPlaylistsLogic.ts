@@ -103,7 +103,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         savedFilters: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadSavedFilters: async (_, breakpoint) => {
@@ -130,6 +130,10 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
+                if (props.tab && props.tab === ReplayTabs.Home) {
+                    return
+                }
+
                 if (values.playlists.filters !== null) {
                     await breakpoint(300)
                 }
@@ -334,7 +338,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
+        [urls.replay(ReplayTabs.Home)]: (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {
@@ -342,9 +346,13 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
+        //only call then on the Home tab
+        if (props.tab && props.tab === ReplayTabs.Home) {
+            actions.loadSavedFilters()
+            actions.checkForSavedFilterRedirect()
+        }
+
         actions.loadPlaylists()
-        actions.loadSavedFilters()
-        actions.checkForSavedFilterRedirect()
     }),
 ])
