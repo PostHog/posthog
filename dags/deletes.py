@@ -741,44 +741,31 @@ def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
     oldest_override_timestamp = get_oldest_person_override_timestamp()
-    deletions_table = create_pending_deletions_table(oldest_override_timestamp)
-    loaded_deletions_table = load_pending_deletions(deletions_table)
-
-    pending_deletes_dictionary = create_deletes_dict(loaded_deletions_table)
-    loaded_pending_deletes_dictionary = load_and_verify_deletes_dictionary(pending_deletes_dictionary)
-
-    adhoc_event_deletes_dictionary = create_adhoc_event_deletes_dict()
-    loaded_adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(
-        adhoc_event_deletes_dictionary
-    )
+    deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
+    pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
+    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
 
     # Delete all data requested
-    delete_mutations = delete_events(loaded_pending_deletes_dictionary, loaded_adhoc_event_deletes_dictionary)
+    delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     waited_mutation = wait_for_delete_mutations_in_shards(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(
-        loaded_pending_deletes_dictionary, waited_mutation
-    )
+    delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(pending_deletes_dictionary, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSONS_TABLE)(loaded_pending_deletes_dictionary, waited_mutation)
+    delete_mutations = delete_team_data_from(PERSONS_TABLE)(pending_deletes_dictionary, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from(GROUPS_TABLE)(loaded_pending_deletes_dictionary, waited_mutation)
+    delete_mutations = delete_team_data_from(GROUPS_TABLE)(pending_deletes_dictionary, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
     # delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
     # waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(
-        loaded_pending_deletes_dictionary, waited_mutation
-    )
+    delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(pending_deletes_dictionary, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PLUGIN_LOG_ENTRIES_TABLE)(
-        loaded_pending_deletes_dictionary, waited_mutation
-    )
+    delete_mutations = delete_team_data_from(PLUGIN_LOG_ENTRIES_TABLE)(pending_deletes_dictionary, waited_mutation)
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     # Clean up
