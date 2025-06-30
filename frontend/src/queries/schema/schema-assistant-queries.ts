@@ -97,9 +97,21 @@ export interface AssistantNumericValuePropertyFilter {
     value: number
 }
 
+export type AssistantBooleanValuePropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.IsNot
+    | PropertyOperator.IsSet
+    | PropertyOperator.IsNotSet
+
+export interface AssistantBooleanValuePropertyFilter {
+    operator: AssistantBooleanValuePropertyFilterOperator
+    value: 'true' | 'false'
+}
+
 export type AssistantStringNumberOrBooleanPropertyFilter =
     | AssistantStringValuePropertyFilter
     | AssistantNumericValuePropertyFilter
+    | AssistantBooleanValuePropertyFilter
     | AssistantArrayPropertyFilter
 
 export type AssistantDateTimePropertyFilterOperator =

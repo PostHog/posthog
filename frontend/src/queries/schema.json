@@ -814,6 +814,24 @@
                 }
             ]
         },
+        "AssistantBooleanValuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantBooleanValuePropertyFilterOperator"
+                },
+                "value": {
+                    "enum": ["true", "false"],
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantBooleanValuePropertyFilterOperator": {
+            "enum": ["exact", "is_not", "is_set", "is_not_set"],
+            "type": "string"
+        },
         "AssistantBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1308,6 +1326,47 @@
                             "type": "string"
                         },
                         "operator": {
+                            "$ref": "#/definitions/AssistantBooleanValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "value": {
+                            "enum": ["true", "false"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
                             "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
@@ -1501,6 +1560,32 @@
                         },
                         "value": {
                             "type": "number"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Index of the group type from the group mapping."
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantBooleanValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "enum": ["true", "false"],
+                            "type": "string"
                         }
                     },
                     "required": ["group_type_index", "key", "operator", "type", "value"],
@@ -1868,6 +1953,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantNumericValuePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBooleanValuePropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/AssistantArrayPropertyFilter"
