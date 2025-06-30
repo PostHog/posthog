@@ -66,7 +66,11 @@ LOG_RATE_LIMITER = Limiter(
 )
 
 # TODO ELI: this is a placeholder! Move to env-resolved value
-BASE_CAPTURE_RS_URL = "https://app.posthog.com"
+BASE_CAPTURE_RS_URL = "https://localhost:8000"
+
+# capture_internal must route session replay and std events to the right backend
+CAPTURE_EVENTS_PATH = "/i/v0/e/"
+CAPTURE_SESSION_RECORDINGS_PATH = "/s/"
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -929,7 +933,9 @@ class CaptureInternalError(Exception):
     pass
 
 
-def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any]) -> Response:
+def new_capture_internal(
+    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profiles: bool = False
+) -> Response:
     """
     new_capture_internal submits a single-event capture request payload to
     PostHog (capture-rs backend) rather than pushing directly to Kafka and
@@ -941,10 +947,10 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
 
     event_payload = prepare_capture_payload(token, distinct_id, raw_event)
 
-    # TODO ELI: determine if this is a recordings or events type, route to /s or /i/v0/e
-    resolved_capture_path = "/i/v0/e/"
+    # determine if this is a recordings or events type, route to correct capture endpoint
+    resolved_capture_path = CAPTURE_EVENTS_PATH
     if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_path = "/s/"
+        resolved_capture_path = CAPTURE_SESSION_RECORDINGS_PATH
 
     with Session() as s:
         s.mount(
@@ -958,7 +964,7 @@ def new_capture_internal(token: Optional[str], distinct_id: Optional[str], raw_e
         return s.post(
             f"{BASE_CAPTURE_RS_URL}{resolved_capture_path}",
             json=event_payload,
-            timeout=1,
+            timeout=2,
         )
 
 
@@ -1016,7 +1022,10 @@ def capture_internal(
     extra_headers: list[tuple[str, str]] | None = None,
 ):
     if to_capture_rs:
-        return new_capture_internal(token, distinct_id, event)
+        # respect old capture_internal API/behavior during the transition to
+        # new capture_internal, but ensure we don't process person profiles by default
+        process_person_profiles = event.get("properties", {}).get("$process_person_profiles", False)
+        return new_capture_internal(token, distinct_id, event, process_person_profiles)
 
     if event_uuid is None:
         event_uuid = UUIDT()
