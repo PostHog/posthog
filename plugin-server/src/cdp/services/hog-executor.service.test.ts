@@ -1236,7 +1236,7 @@ describe('Hog Executor', () => {
         })
 
         it('adds secret headers for certain endpoints', async () => {
-            jest.mocked(fetch).mockImplementation((url, options) => {
+            jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
                     body: 'Hello, world!',
