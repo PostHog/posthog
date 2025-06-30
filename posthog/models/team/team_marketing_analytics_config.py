@@ -5,6 +5,8 @@ from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 import logging
 
+from posthog.schema import NodeKind
+
 # Based on team_revenue_analytics_config.py
 
 logger = logging.getLogger(__name__)
@@ -44,24 +46,27 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             raise ValidationError(f"Conversion goal name must be a string, got {type(goal.get('name'))}")
         if goal.get("id") and not isinstance(goal.get("id"), str) and not isinstance(goal.get("id"), int):
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
-        if not isinstance(goal.get("type"), str):
-            raise ValidationError(f"Conversion goal type must be a string, got {type(goal.get('type'))}")
         if not isinstance(goal.get("schema"), dict):
             raise ValidationError(f"Conversion goal schema must be a dictionary, got {type(goal.get('schema'))}")
-        if goal.get("type") == "events":
+        if goal.get("kind") is None:
+            raise ValidationError("Conversion goal must have a 'kind' field")
+        if goal.get("kind") == NodeKind.EVENTS_NODE:
             if goal.get("id") and not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
-        # TODO: in the future we will allow actions to be selected as conversion goals
-        # elif goal.get("type") == "actions":
-        #     if goal.get("id") and not isinstance(goal.get("id"), int):
-        #         raise ValidationError(f"Conversion goal id must be an integer, got {type(goal.get('id'))}")
-        elif goal.get("type") == "data_warehouse":
+        elif goal.get("kind") == NodeKind.ACTIONS_NODE:
+            # we should try to convert the id to an integer
+            try:
+                goal["id"] = int(goal["id"])
+            except ValueError:
+                raise ValidationError(
+                    f"Conversion goal id must be convertible to an integer, got {type(goal.get('id'))}"
+                )
+        elif goal.get("kind") == NodeKind.DATA_WAREHOUSE_NODE:
             if not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
         else:
-            # raise ValidationError(f"Conversion goal type must be one of 'event', 'action', or 'data_warehouse', got {goal.get('type')}")
             raise ValidationError(
-                f"Conversion goal type must be one of 'event', or 'data_warehouse', got {goal.get('type')}"
+                f"Conversion goal kind must be one of {NodeKind.EVENTS_NODE}, {NodeKind.ACTIONS_NODE} or {NodeKind.DATA_WAREHOUSE_NODE}, got {goal.get('kind')}"
             )
 
 

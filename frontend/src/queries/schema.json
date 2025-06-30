@@ -15,72 +15,6 @@
             "required": ["actionId"],
             "type": "object"
         },
-        "ActionFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "days": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "math": {
-                    "type": "string"
-                },
-                "math_group_type_index": {
-                    "anyOf": [
-                        {
-                            "type": "integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "math_hogql": {
-                    "type": ["string", "null"]
-                },
-                "math_property": {
-                    "type": ["string", "null"]
-                },
-                "math_property_type": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TaxonomicFilterGroupType"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "order": {
-                    "type": "number"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["id", "type"],
-            "type": "object"
-        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -467,6 +401,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"
@@ -4109,6 +4046,92 @@
             ],
             "type": "object"
         },
+        "CachedMarketingAnalyticsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedNewExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -6287,79 +6310,260 @@
             "type": "object"
         },
         "ConversionGoalFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "conversion_goal_id": {
-                    "type": "string"
-                },
-                "conversion_goal_name": {
-                    "type": "string"
-                },
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "days": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "math": {
-                    "type": "string"
-                },
-                "math_group_type_index": {
-                    "anyOf": [
-                        {
-                            "type": "integer"
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "conversion_goal_id": {
+                            "type": "string"
                         },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "math_hogql": {
-                    "type": ["string", "null"]
-                },
-                "math_property": {
-                    "type": ["string", "null"]
-                },
-                "math_property_type": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TaxonomicFilterGroupType"
+                        "conversion_goal_name": {
+                            "type": "string"
                         },
-                        {
-                            "type": "null"
+                        "custom_name": {
+                            "type": "string"
+                        },
+                        "event": {
+                            "description": "The event or `null` for all events.",
+                            "type": ["string", "null"]
+                        },
+                        "fixedProperties": {
+                            "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "EventsNode",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "math": {
+                            "$ref": "#/definitions/MathType"
+                        },
+                        "math_group_type_index": {
+                            "enum": [0, 1, 2, 3, 4],
+                            "type": "number"
+                        },
+                        "math_hogql": {
+                            "type": "string"
+                        },
+                        "math_multiplier": {
+                            "type": "number"
+                        },
+                        "math_property": {
+                            "type": "string"
+                        },
+                        "math_property_revenue_currency": {
+                            "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                        },
+                        "math_property_type": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "orderBy": {
+                            "description": "Columns to order by",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "properties": {
+                            "description": "Properties configurable in the interface",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "response": {
+                            "type": "object"
+                        },
+                        "schema": {
+                            "$ref": "#/definitions/SchemaMap"
+                        },
+                        "version": {
+                            "description": "version of the node, used for schema migrations",
+                            "type": "number"
                         }
-                    ]
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "order": {
-                    "type": "number"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
                     },
-                    "type": "array"
+                    "required": ["conversion_goal_id", "conversion_goal_name", "kind", "schema"],
+                    "type": "object"
                 },
-                "schema": {
-                    "$ref": "#/definitions/SchemaMap"
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "conversion_goal_id": {
+                            "type": "string"
+                        },
+                        "conversion_goal_name": {
+                            "type": "string"
+                        },
+                        "custom_name": {
+                            "type": "string"
+                        },
+                        "fixedProperties": {
+                            "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "id": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "kind": {
+                            "const": "ActionsNode",
+                            "type": "string"
+                        },
+                        "math": {
+                            "$ref": "#/definitions/MathType"
+                        },
+                        "math_group_type_index": {
+                            "enum": [0, 1, 2, 3, 4],
+                            "type": "number"
+                        },
+                        "math_hogql": {
+                            "type": "string"
+                        },
+                        "math_multiplier": {
+                            "type": "number"
+                        },
+                        "math_property": {
+                            "type": "string"
+                        },
+                        "math_property_revenue_currency": {
+                            "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                        },
+                        "math_property_type": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "properties": {
+                            "description": "Properties configurable in the interface",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "response": {
+                            "type": "object"
+                        },
+                        "schema": {
+                            "$ref": "#/definitions/SchemaMap"
+                        },
+                        "version": {
+                            "description": "version of the node, used for schema migrations",
+                            "type": "number"
+                        }
+                    },
+                    "required": ["conversion_goal_id", "conversion_goal_name", "id", "kind", "schema"],
+                    "type": "object"
                 },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "conversion_goal_id": {
+                            "type": "string"
+                        },
+                        "conversion_goal_name": {
+                            "type": "string"
+                        },
+                        "custom_name": {
+                            "type": "string"
+                        },
+                        "distinct_id_field": {
+                            "type": "string"
+                        },
+                        "dw_source_type": {
+                            "type": "string"
+                        },
+                        "fixedProperties": {
+                            "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "id_field": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "DataWarehouseNode",
+                            "type": "string"
+                        },
+                        "math": {
+                            "$ref": "#/definitions/MathType"
+                        },
+                        "math_group_type_index": {
+                            "enum": [0, 1, 2, 3, 4],
+                            "type": "number"
+                        },
+                        "math_hogql": {
+                            "type": "string"
+                        },
+                        "math_multiplier": {
+                            "type": "number"
+                        },
+                        "math_property": {
+                            "type": "string"
+                        },
+                        "math_property_revenue_currency": {
+                            "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                        },
+                        "math_property_type": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "properties": {
+                            "description": "Properties configurable in the interface",
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        "response": {
+                            "type": "object"
+                        },
+                        "schema": {
+                            "$ref": "#/definitions/SchemaMap"
+                        },
+                        "table_name": {
+                            "type": "string"
+                        },
+                        "timestamp_field": {
+                            "type": "string"
+                        },
+                        "version": {
+                            "description": "version of the node, used for schema migrations",
+                            "type": "number"
+                        }
+                    },
+                    "required": [
+                        "conversion_goal_id",
+                        "conversion_goal_name",
+                        "distinct_id_field",
+                        "id",
+                        "id_field",
+                        "kind",
+                        "schema",
+                        "table_name",
+                        "timestamp_field"
+                    ],
+                    "type": "object"
                 }
-            },
-            "required": ["conversion_goal_id", "conversion_goal_name", "id", "schema", "type"],
-            "type": "object"
+            ]
         },
         "CountPerActorMathType": {
             "enum": [
@@ -7572,6 +7776,60 @@
                             "additionalProperties": false,
                             "properties": {
                                 "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
                                     "items": {
                                         "type": "string"
                                     },
@@ -7943,6 +8201,9 @@
                             "$ref": "#/definitions/RevenueExampleDataWarehouseTablesQuery"
                         },
                         {
+                            "$ref": "#/definitions/MarketingAnalyticsTableQuery"
+                        },
+                        {
                             "$ref": "#/definitions/ErrorTrackingQuery"
                         },
                         {
@@ -8018,6 +8279,9 @@
                     "type": "string"
                 },
                 "distinct_id_field": {
+                    "type": "string"
+                },
+                "dw_source_type": {
                     "type": "string"
                 },
                 "fixedProperties": {
@@ -8646,31 +8910,6 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
-            "type": "object"
-        },
-        "EntityFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "order": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["id"],
             "type": "object"
         },
         "EntityNode": {
@@ -13761,6 +14000,152 @@
             },
             "type": "object"
         },
+        "MarketingAnalyticsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
+                },
+                "orderBy": {
+                    "description": "Columns to order by - similar to EventsQuery format",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Will use default columns if empty.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "MarketingAnalyticsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "samplingRate": {
+                    "$ref": "#/definitions/SamplingRate"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "MatchedRecording": {
             "additionalProperties": false,
             "properties": {
@@ -14127,6 +14512,7 @@
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsRevenueQuery",
                 "RevenueAnalyticsTopCustomersQuery",
+                "MarketingAnalyticsTableQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
@@ -16165,6 +16551,60 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
                     "properties": {},
                     "type": "object"
                 },
@@ -16981,6 +17421,60 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -17921,6 +18415,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"

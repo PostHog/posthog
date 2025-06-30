@@ -33,6 +33,7 @@ import {
     DataTableNode,
     EventsNode,
     InsightVizNode,
+    MarketingAnalyticsTableQuery,
     NodeKind,
     QueryLogTags,
     QuerySchema,
@@ -411,6 +412,10 @@ export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.WEB_ANALYTICS,
 }
 
+export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.MARKETING_ANALYTICS,
+}
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -432,7 +437,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes', 'createDynamicCampaignQuery'],
+            ['loading', 'createMarketingDataWarehouseNodes'],
         ],
     })),
     actions({
@@ -2427,18 +2432,33 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.createDynamicCampaignQuery],
-            (loading: boolean, createDynamicCampaignQuery: string | null): DataTableNode | null => {
-                if (!createDynamicCampaignQuery || loading) {
+            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts],
+            (
+                loading: boolean,
+                dateFilter: any,
+                webAnalyticsFilters: any,
+                filterTestAccounts: boolean
+            ): DataTableNode | null => {
+                if (loading) {
                     return null
                 }
 
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.HogQLQuery,
-                        query: createDynamicCampaignQuery,
-                    },
+                        kind: NodeKind.MarketingAnalyticsTableQuery,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom,
+                            date_to: dateFilter.dateTo,
+                        },
+                        properties: webAnalyticsFilters || [],
+                        filterTestAccounts: filterTestAccounts,
+                        limit: 200,
+                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    } as MarketingAnalyticsTableQuery,
+                    full: true,
+                    embedded: false,
+                    showOpenEditorButton: false,
                 }
             },
         ],
