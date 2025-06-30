@@ -19,6 +19,7 @@ services:
             - capture
         extra_hosts:
             - 'web:host-gateway'
+            - 'host.docker.internal:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml
