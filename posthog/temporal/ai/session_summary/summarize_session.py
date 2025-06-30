@@ -3,6 +3,7 @@ from collections.abc import Generator
 from datetime import timedelta
 import json
 import time
+from typing import cast
 import uuid
 from redis import Redis
 import structlog
@@ -10,7 +11,7 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.redis import get_client
@@ -18,9 +19,9 @@ from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.shared import (
     SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SingleSessionSummaryInputs,
-    get_single_session_summary_llm_input_from_redis,
     fetch_session_data_activity,
 )
+from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, get_data_class_from_redis
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
@@ -42,8 +43,14 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         )
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client = get_client()
-    llm_input = get_single_session_summary_llm_input_from_redis(
-        redis_client=redis_client, redis_input_key=inputs.redis_input_key
+    llm_input = cast(
+        SingleSessionSummaryLlmInputs,
+        get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=inputs.redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        ),
     )
     last_summary_state = ""
     temporalio.activity.heartbeat()

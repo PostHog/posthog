@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
@@ -10,8 +10,8 @@ from ee.session_recordings.session_summary import ExceptionToRetry
 import temporalio
 from posthog.temporal.ai.session_summary.state import (
     compress_redis_data,
+    get_data_class_from_redis,
     get_redis_state_client,
-    get_single_session_summary_llm_input_from_redis,
     StateActivitiesEnum,
 )
 
@@ -28,8 +28,7 @@ class SingleSessionSummaryInputs:
     session_id: str
     user_id: int
     team_id: int
-    redis_input_key_base: str
-    redis_output_key_base: str
+    redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 
@@ -38,16 +37,18 @@ class SingleSessionSummaryInputs:
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     redis_client, redis_input_key, _ = get_redis_state_client(
-        input_key_base=inputs.redis_input_key_base,
+        key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         state_id=inputs.session_id,
     )
     try:
-        # Check if DB data is already in Redis. If it is - it's within TTL, so no need to re-fetch it from DB
+        # Check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
         # TODO: Think about edge-cases like still-running sessions (could be solved with checking statuses)
-        input_data = get_single_session_summary_llm_input_from_redis(
+        get_data_class_from_redis(
             redis_client=redis_client,
-            redis_input_key=redis_input_key,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
         )
     except ValueError:
         # If not yet, or TTL expired - fetch data from DB
