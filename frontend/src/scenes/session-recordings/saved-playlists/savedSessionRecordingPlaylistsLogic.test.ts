@@ -145,7 +145,7 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
         })
 
         it('reads filters from the URL', async () => {
-            router.actions.push(urls.replay(ReplayTabs.Playlists), {
+            router.actions.push(urls.replay(ReplayTabs.Home), {
                 order: 'last_modified_at',
                 search: 'blah',
                 createdBy: 1,

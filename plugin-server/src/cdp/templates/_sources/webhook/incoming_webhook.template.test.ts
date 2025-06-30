@@ -135,7 +135,6 @@ describe('incoming webhook template', () => {
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            'Executing function',
             `Incoming request:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])

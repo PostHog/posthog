@@ -8,33 +8,22 @@ import { delay, UUID, UUIDT } from '../utils/utils'
 import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
-import { FetchExecutorService } from './services/fetch-executor.service'
-import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogFunctionManagerService } from './services/hog-function-manager.service'
-import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
 import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
+import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobals,
-    HogFunctionQueueParametersFetchRequest,
-    HogFunctionType,
-    MinimalLogEntry,
-} from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
-import { createInvocationResult } from './utils/invocation-utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hogFlowManager: HogFlowManagerService
     private hogFlowExecutor: HogFlowExecutorService
-    private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -46,7 +35,6 @@ export class CdpApi {
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(hub)
-        this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -196,7 +184,6 @@ export class CdpApi {
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let lastResponse: CyclotronJobInvocationResult | null = null
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -233,65 +220,39 @@ export class CdpApi {
                     logs.push(log)
                 })
 
-                for (const _invocation of invocations) {
-                    let count = 0
-                    let invocation: CyclotronJobInvocation = _invocation
+                for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    while (!lastResponse || !lastResponse.finished) {
-                        if (count > MAX_ASYNC_STEPS * 2) {
-                            throw new Error('Too many iterations')
-                        }
-                        count += 1
+                    const options: HogExecutorExecuteOptions = {
+                        asyncFunctionsNames: mock_async_functions ? ['fetch'] : undefined,
+                        functions: mock_async_functions
+                            ? {
+                                  fetch: (...args: any[]) => {
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `Async function 'fetch' was mocked with arguments:`,
+                                      })
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                                      })
 
-                        let response: CyclotronJobInvocationResult
+                                      return {
+                                          status: 200,
+                                          body: {},
+                                      }
+                                  },
+                              }
+                            : undefined,
+                    }
 
-                        if (invocation.queue === 'fetch') {
-                            if (mock_async_functions) {
-                                // Add the state, simulating what executeAsyncResponse would do
-                                // Re-parse the fetch args for the logging
-                                const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
-                                    this.hogExecutor.redactFetchRequest(
-                                        invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-                                    )
+                    const response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
 
-                                response = createInvocationResult(
-                                    invocation,
-                                    {
-                                        queue: 'hog',
-                                        queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
-                                    },
-                                    {
-                                        finished: false,
-                                        logs: [
-                                            {
-                                                level: 'info',
-                                                timestamp: DateTime.now(),
-                                                message: `Async function 'fetch' was mocked with arguments:`,
-                                            },
-                                            {
-                                                level: 'info',
-                                                timestamp: DateTime.now(),
-                                                message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
-                                            },
-                                        ],
-                                    }
-                                )
-                            } else {
-                                response = await this.fetchExecutor.execute(invocation)
-                            }
-                        } else {
-                            response = await this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
-                        }
-
-                        logs = logs.concat(response.logs)
-                        lastResponse = response
-                        invocation = response.invocation
-                        if (response.error) {
-                            errors.push(response.error)
-                        }
-
-                        await this.hogFunctionMonitoringService.queueInvocationResults([response])
+                    logs = logs.concat(response.logs)
+                    if (response.error) {
+                        errors.push(response.error)
                     }
                 }
 

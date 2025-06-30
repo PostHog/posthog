@@ -26,12 +26,11 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'

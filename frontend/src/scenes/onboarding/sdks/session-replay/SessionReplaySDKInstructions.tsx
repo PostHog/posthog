@@ -2,10 +2,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { urls } from 'scenes/urls'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey, OnboardingStepKey } from '~/types'
 
 import {
     AndroidInstructions,

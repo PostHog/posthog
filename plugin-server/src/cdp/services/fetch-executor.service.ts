@@ -14,7 +14,7 @@ import {
 } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 
-const cdpHttpRequests = new Counter({
+export const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
     labelNames: ['status'],
@@ -133,6 +133,7 @@ export class FetchExecutorService {
             {
                 queue: params.return_queue,
                 queueParameters: {
+                    type: 'fetch-response',
                     response: response
                         ? {
                               status: response?.status,
@@ -191,6 +192,7 @@ export class FetchExecutorService {
             {
                 queue: params.return_queue,
                 queueParameters: {
+                    type: 'fetch-response',
                     response: {
                         status: fetchResponse?.status,
                         headers: fetchResponse?.headers,

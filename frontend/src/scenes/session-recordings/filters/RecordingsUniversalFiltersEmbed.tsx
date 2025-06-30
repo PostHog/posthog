@@ -219,7 +219,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
 

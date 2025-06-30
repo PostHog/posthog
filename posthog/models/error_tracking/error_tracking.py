@@ -4,10 +4,11 @@ from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.utils import UUIDModel
+from ee.models.rbac.role import Role
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_group import UserGroup
-from ee.models.rbac.role import Role
+from posthog.models.integration import Integration
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 from posthog.storage import object_storage
 
@@ -60,6 +61,26 @@ class ErrorTrackingIssue(UUIDModel):
                 )
 
         update_error_tracking_issue_fingerprint_overrides(team_id=self.team.pk, overrides=overrides)
+
+
+class ErrorTrackingExternalReference(UUIDModel):
+    class Provider(models.TextChoices):
+        LINEAR = "linear", "Linear"
+        GITHUB = "github", "GitHub"
+
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="external_issues",
+        related_query_name="external_issue",
+    )
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.CASCADE,
+    )
+    provider = models.TextField(choices=Provider.choices, null=False, blank=False)
+    external_id = models.TextField(null=False, blank=False)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):

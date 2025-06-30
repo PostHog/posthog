@@ -525,6 +525,7 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+              if: ${{ needs.changes.outputs.backend == 'true' }}
 
             - name: Install plugin_transpiler
               if: ${{ needs.changes.outputs.backend == 'true' }}

@@ -188,6 +188,8 @@ export type MinimalAppMetric = {
         | 'inputs_failed'
         | 'missing_addon'
         | 'fetch'
+        | 'event_triggered_destination'
+        | 'destination_invoked'
 
     count: number
 }
@@ -195,15 +197,6 @@ export type MinimalAppMetric = {
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
-}
-
-export type HogFunctionQueueParametersFetchRequest = {
-    url: string
-    method: string
-    body?: string
-    return_queue: CyclotronJobQueueKind
-    max_tries?: number
-    headers?: Record<string, string>
 }
 
 export type CyclotronFetchFailureKind =
@@ -229,7 +222,18 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
+export type HogFunctionQueueParametersFetchRequest = {
+    type: 'fetch'
+    url: string
+    method: string
+    body?: string
+    return_queue: CyclotronJobQueueKind
+    max_tries?: number
+    headers?: Record<string, string>
+}
+
 export type HogFunctionQueueParametersFetchResponse = {
+    type: 'fetch-response'
     /** An error message to indicate something went wrong and the invocation should be stopped */
     error?: any
     /** On success, the fetch worker returns only the successful response */
@@ -290,6 +294,7 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
         globals: HogFunctionInvocationGlobalsWithInputs
         vmState?: VMState
         timings: HogFunctionTiming[]
+        attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
     }
     hogFunction: HogFunctionType
 }

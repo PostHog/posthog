@@ -40,6 +40,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
 
+        if (invocation.queue === 'hog') {
+            // NOTE: For new jobs we can use the new hog executor flow which takes care of the below fully
+            return await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        }
+
+        // NOTE: The below is the old way of processing - once we have fully migrated to the new way we can completely remove the below...
+        // We need to keep it to handle the "fetch" queue until it is fully exhausted
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 

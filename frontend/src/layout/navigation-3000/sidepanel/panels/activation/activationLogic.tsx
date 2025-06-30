@@ -33,6 +33,7 @@ import {
     ProductKey,
     ReplayTabs,
     TeamBasicType,
+    OnboardingStepKey,
     type TeamPublicType,
     type TeamType,
 } from '~/types'
@@ -256,7 +257,7 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
