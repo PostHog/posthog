@@ -80,7 +80,7 @@ export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & 
 }
 
 export type VariantError = {
-    key: string | undefined
+    key: string
 }
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
