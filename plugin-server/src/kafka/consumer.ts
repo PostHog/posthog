@@ -335,24 +335,6 @@ export class KafkaConsumer {
         }
     }
 
-    private async consume(batchSize: number): Promise<Message[]> {
-        if (this.consumePromise) {
-            await this.consumePromise
-        }
-
-        const timeoutMs = this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS
-
-        // TRICKY: node-rdkafka has a bug where it wont respect the batchsize if it is 0 so we override it here
-        this.consumePromise = retryIfRetriable(() =>
-            promisifyCallback<Message[]>((cb) => (this.rdKafkaConsumer as any)['_consumeNum'](timeoutMs, batchSize, cb))
-        ).then((messages) => {
-            this.consumePromise = null
-            return messages
-        })
-
-        return this.consumePromise
-    }
-
     public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
@@ -392,8 +374,11 @@ export class KafkaConsumer {
                     }
                     lastConsumeTime = consumeStartTime
 
-                    const messages = await this.consume(this.fetchBatchSize)
-
+                    // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
+                    // error when consuming, hence the retryIfRetriable.
+                    const messages = await retryIfRetriable(() =>
+                        promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
+                    )
                     logger.debug('🔁', 'messages', { count: messages.length })
 
                     // After successfully pulling a batch, we can update our heartbeat time
