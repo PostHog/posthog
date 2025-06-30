@@ -1,7 +1,7 @@
 import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
-import { type ExperimentVariantResult } from '../shared/utils'
+import { type ExperimentVariantResult, isBayesianResult, formatChanceToWin } from '../shared/utils'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -113,9 +113,15 @@ export function VariantRow({
 
             {/* P-value column - show statistical significance */}
             <td className="w-20 border-b border-r border-border p-3 align-top text-left">
-                {testVariantResult && testVariantResult.p_value !== undefined ? (
+                {testVariantResult ? (
                     <div className="text-sm font-medium text-text-primary">
-                        {testVariantResult.p_value < 0.001 ? '<0.001' : testVariantResult.p_value.toFixed(3)}
+                        {isBayesianResult(testVariantResult)
+                            ? formatChanceToWin(testVariantResult.chance_to_win)
+                            : testVariantResult.p_value !== undefined
+                            ? testVariantResult.p_value < 0.001
+                                ? '<0.001'
+                                : testVariantResult.p_value.toFixed(3)
+                            : '—'}
                     </div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
