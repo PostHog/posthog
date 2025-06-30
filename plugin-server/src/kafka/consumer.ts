@@ -413,23 +413,31 @@ export class KafkaConsumer {
                     const backgroundTaskStart = performance.now()
 
                     const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).then(async () => {
-                        if (this.isStopping) {
-                            logger.info('🔁', 'background task ended whilst isStopping')
-                        }
+                        logger.info('🔁', 'background task completed')
 
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTasks.indexOf(backgroundTask)
                         void this.backgroundTasks.splice(index, 1)
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        await Promise.all(this.backgroundTasks.slice(0, index))
+                        const otherBackgroundTasks = this.backgroundTasks.slice(0, index)
+                        logger.info(
+                            '🔁',
+                            `waiting for other background tasks to finish: ${otherBackgroundTasks.length}`
+                        )
+                        await Promise.all(otherBackgroundTasks)
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            if (this.isStopping) {
-                                logger.info('🔁', 'committing offsets whilst isStopping')
-                            }
+                            logger.info(
+                                '🔁',
+                                `waiting for other background tasks to finish: ${otherBackgroundTasks.length}`
+                            )
                             this.storeOffsetsForMessages(messages)
                         }
+
+                        const duration = performance.now() - backgroundTaskStart
+
+                        logger.info('🔁', `waiting for other background tasks took ${duration}ms`)
 
                         if (result?.backgroundTask) {
                             // We only want to count the time spent in the background work if it was real
@@ -438,7 +446,7 @@ export class KafkaConsumer {
                                     topic: this.config.topic,
                                     groupId: this.config.groupId,
                                 })
-                                .observe(performance.now() - backgroundTaskStart)
+                                .observe(duration)
                         }
                     })
 
