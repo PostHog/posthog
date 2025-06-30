@@ -10,6 +10,7 @@ from functools import partial
 import uuid
 from django.utils import timezone
 from django.db.models import Q
+from more_itertools import chunked
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
@@ -386,39 +387,28 @@ def load_pending_deletions(
         pending_deletions = pending_deletions.filter(team_id=create_pending_deletions_table.team_id)
 
     # Process and insert in chunks
-    chunk_size = 10000
-    current_chunk = []
     total_rows = 0
-
-    for deletion in pending_deletions.iterator():
-        current_chunk.append(
-            {
-                "id": deletion.id,
-                "deletion_type": deletion.deletion_type,
-                "key": deletion.key,
-                "group_type_index": deletion.group_type_index,
-                "created_at": deletion.created_at,
-                "delete_verified_at": deletion.delete_verified_at,
-                "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
-                "team_id": deletion.team_id,
-            }
-        )
-
-        if len(current_chunk) >= chunk_size:
-            cluster.any_host_by_role(
-                Query(create_pending_deletions_table.populate_query, current_chunk),
-                NodeRole.DATA,
-            ).result()
-            total_rows += len(current_chunk)
-            current_chunk = []
-
-    # Insert any remaining records
-    if current_chunk:
+    for chunk in chunked(pending_deletions.iterator(), n=10000):
         cluster.any_host_by_role(
-            Query(create_pending_deletions_table.populate_query, current_chunk),
+            Query(
+                create_pending_deletions_table.populate_query,
+                [
+                    {
+                        "id": deletion.id,
+                        "deletion_type": deletion.deletion_type,
+                        "key": deletion.key,
+                        "group_type_index": deletion.group_type_index,
+                        "created_at": deletion.created_at,
+                        "delete_verified_at": deletion.delete_verified_at,
+                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "team_id": deletion.team_id,
+                    }
+                    for deletion in chunk
+                ],
+            ),
             NodeRole.DATA,
         ).result()
-        total_rows += len(current_chunk)
+        total_rows += len(chunk)
 
     context.add_output_metadata(
         {
