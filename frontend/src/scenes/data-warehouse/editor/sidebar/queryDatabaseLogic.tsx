@@ -51,7 +51,7 @@ const isManagedViewTable = (
     return 'type' in table && table.type === 'managed_view'
 }
 
-const isJoined = (field: DatabaseSchemaField): boolean => {
+export const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
@@ -75,6 +75,8 @@ const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearc
     record: {
         type: 'column',
         columnName: field.name,
+        field,
+        table: tableName,
     },
 })
 
@@ -536,6 +538,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     createTopLevelFolderNode('views', viewsChildren),
                 ]
+            },
+        ],
+        joinsByFieldName: [
+            (s) => [s.joins],
+            (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
+                return joins.reduce((acc, join) => {
+                    if (join.field_name) {
+                        acc[join.field_name] = join
+                    }
+                    return acc
+                }, {} as Record<string, DataWarehouseViewLink>)
             },
         ],
         sidebarOverlayTreeItems: [

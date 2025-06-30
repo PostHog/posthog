@@ -33,6 +33,7 @@ import {
     webAnalyticsLogic,
     WebAnalyticsTile,
     WebTileLayout,
+    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {
@@ -235,6 +236,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         ],
                         filterTestAccounts: shouldFilterTestAccounts,
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
                     hidePersonsModal: true,
@@ -313,6 +315,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
+                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     hidePersonsModal: true,
                     embedded: true,

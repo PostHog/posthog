@@ -96,6 +96,7 @@ describe('getQuery', () => {
         expect(query).toEqual(
             setLatestVersionsOnQuery({
                 kind: NodeKind.FunnelsQuery,
+                interval: 'day',
                 dateRange: {
                     date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
