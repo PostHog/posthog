@@ -20,8 +20,9 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
-    REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
 )
 
 DEFAULT_LIMIT = 100
@@ -58,6 +59,7 @@ def stripe_source(
             PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
             REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
             SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
         }
 
         resource = resources.get(endpoint, None)
@@ -152,6 +154,8 @@ def validate_credentials(api_key: str) -> bool:
         {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
         {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
         {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
+        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
+        {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
     ]
 
     missing_permissions = {}

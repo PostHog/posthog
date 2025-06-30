@@ -685,6 +685,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         ),
         "currency": StringDatabaseField(name="currency"),
         "description": StringDatabaseField(name="description"),
+        "destination_details": StringJSONDatabaseField(name="destination_details"),
         "failure_balance_transaction": StringDatabaseField(name="failure_balance_transaction"),
         "failure_reason": StringDatabaseField(name="failure_reason"),
         "instructions_email": StringDatabaseField(name="instructions_email"),

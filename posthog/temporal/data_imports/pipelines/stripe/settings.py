@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
 )
 
 ENDPOINTS = (
@@ -32,6 +33,7 @@ ENDPOINTS = (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
 )
 INCREMENTAL_ENDPOINTS = (
     ACCOUNT_RESOURCE_NAME,
@@ -46,6 +48,7 @@ INCREMENTAL_ENDPOINTS = (
     PRODUCT_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
 )
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
@@ -138,6 +141,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     REFUND_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    CREDIT_NOTE_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
