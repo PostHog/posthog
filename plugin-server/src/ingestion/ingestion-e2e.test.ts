@@ -1181,7 +1181,7 @@ describe('Event Pipeline E2E tests', () => {
                 })
                 .build(),
 
-            // Create alias for user3 -> user2
+            // Create alias for user2 -> user3
             new EventBuilder(team, user2DistinctId)
                 .withEvent('$create_alias')
                 .withProperties({
@@ -1276,7 +1276,7 @@ describe('Event Pipeline E2E tests', () => {
                 })
                 .build(),
 
-            // Create alias for user3 -> user2
+            // Create alias for user2 -> user3
             new EventBuilder(team, user2DistinctId)
                 .withEvent('$create_alias')
                 .withProperties({
@@ -1360,7 +1360,7 @@ describe('Event Pipeline E2E tests', () => {
                 })
                 .build(),
 
-            // Create alias for user3 -> user2
+            // Create alias for user2 -> user3
             new EventBuilder(team, user2DistinctId)
                 .withEvent('$create_alias')
                 .withProperties({
@@ -1467,7 +1467,7 @@ describe('Event Pipeline E2E tests', () => {
                     })
                     .build(),
 
-                // Create alias for user3 -> user2
+                // Create alias for user2 -> user3
                 new EventBuilder(team, user2DistinctId)
                     .withEvent('$create_alias')
                     .withProperties({
