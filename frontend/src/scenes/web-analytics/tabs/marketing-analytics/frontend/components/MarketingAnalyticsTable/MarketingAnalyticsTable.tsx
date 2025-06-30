@@ -107,6 +107,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             const goalName = goal.conversion_goal_name || `${MarketingAnalyticsHelperForColumnNames.Goal} ${index + 1}`
             const costPerGoalName = `${MarketingAnalyticsHelperForColumnNames.CostPer} ${goalName}`
 
+            // Each conversion goal creates 2 columns (goal count + cost per goal), hence index * 2
             const goalColumnIndex =
                 Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX
             const costColumnIndex =

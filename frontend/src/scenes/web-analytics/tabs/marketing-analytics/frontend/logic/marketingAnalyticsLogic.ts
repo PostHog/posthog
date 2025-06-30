@@ -95,7 +95,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         (column_name: MarketingAnalyticsColumnsSchemaNames) =>
                             MARKETING_ANALYTICS_SCHEMA[column_name].required
                     )
-                    .forEach((column_name: string) => {
+                    .forEach((column_name: MarketingAnalyticsColumnsSchemaNames) => {
                         Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
                             if (!fieldMapping[column_name]) {
                                 delete validSourcesMap[tableId]

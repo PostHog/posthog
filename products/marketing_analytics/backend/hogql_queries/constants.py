@@ -19,7 +19,7 @@ CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
 CONVERSION_GOAL_PREFIX = "conversion_"
 
-# Fields for the marketing analytics table aggregation selec
+# Fields for the marketing analytics table aggregation select
 TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
@@ -33,83 +33,83 @@ DEFAULT_MARKETING_ANALYTICS_COLUMNS = list(MarketingAnalyticsBaseColumns)
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
-        MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
-            expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN]),
+    MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN]),
+    ),
+    MarketingAnalyticsBaseColumns.SOURCE: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.SOURCE,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE]),
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_COST: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
         ),
-        MarketingAnalyticsBaseColumns.SOURCE: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.SOURCE, 
-            expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE])
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_CLICKS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
+        expr=ast.Call(
+            name="round",
+            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
         ),
-        MarketingAnalyticsBaseColumns.TOTAL_COST: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
-            expr=ast.Call(
-                name="round",
-                args=[
-                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
-                    ast.Constant(value=DECIMAL_PRECISION),
-                ],
-            ),
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
+        expr=ast.Call(
+            name="round",
+            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
         ),
-        MarketingAnalyticsBaseColumns.TOTAL_CLICKS: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
-            expr=ast.Call(
-                name="round",
-                args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
-            ),
+    ),
+    MarketingAnalyticsBaseColumns.COST_PER_CLICK: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
         ),
-        MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
-            expr=ast.Call(
-                name="round",
-                args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
-            ),
-        ),
-        MarketingAnalyticsBaseColumns.COST_PER_CLICK: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
-            expr=ast.Call(
-                name="round",
-                args=[
-                    ast.ArithmeticOperation(
-                        left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+    ),
+    MarketingAnalyticsBaseColumns.CTR: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CTR,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.ArithmeticOperation(
+                        left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
                         op=ast.ArithmeticOperationOp.Div,
                         right=ast.Call(
                             name="nullif",
                             args=[
-                                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
                                 ast.Constant(value=0),
                             ],
                         ),
                     ),
-                    ast.Constant(value=DECIMAL_PRECISION),
-                ],
-            ),
+                    op=ast.ArithmeticOperationOp.Mult,
+                    right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
         ),
-        MarketingAnalyticsBaseColumns.CTR: ast.Alias(
-            alias=MarketingAnalyticsBaseColumns.CTR,
-            expr=ast.Call(
-                name="round",
-                args=[
-                    ast.ArithmeticOperation(
-                        left=ast.ArithmeticOperation(
-                            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
-                            op=ast.ArithmeticOperationOp.Div,
-                            right=ast.Call(
-                                name="nullif",
-                                args=[
-                                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                        ),
-                        op=ast.ArithmeticOperationOp.Mult,
-                        right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
-                    ),
-                    ast.Constant(value=DECIMAL_PRECISION),
-                ],
-            ),
-        ),
-    }
+    ),
+}
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in DEFAULT_MARKETING_ANALYTICS_COLUMNS]
 
