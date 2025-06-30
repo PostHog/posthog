@@ -65,6 +65,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         "celery_broker",
     ],
     "decide": ["http"],
+    "query": ["http", "postgres", "cache"],
+    "report": ["http", "postgres"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy
