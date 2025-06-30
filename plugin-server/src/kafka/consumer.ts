@@ -409,11 +409,10 @@ export class KafkaConsumer {
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
-                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
 
                     const backgroundTaskStart = performance.now()
 
-                    void backgroundTask.finally(async () => {
+                    const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).finally(async () => {
                         if (this.isStopping) {
                             logger.info('🔁', 'background task finally triggered whilst isStopping')
                         }
