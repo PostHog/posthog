@@ -650,43 +650,6 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('async functions', () => {
-        it('adds secret headers for certain endpoints', async () => {
-            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
-
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                inputs: {
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
-                    url: {
-                        value: 'https://googleads.googleapis.com/1234',
-                        bytecode: ['_h', 32, 'https://googleads.googleapis.com/1234'],
-                    },
-                },
-            })
-
-            const invocation = createExampleInvocation(fn)
-            const result1 = await executor.execute(invocation)
-            expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                {
-                  "developer-token": "ADWORDS_TOKEN",
-                  "version": "v=1.2.3",
-                }
-            `)
-            // Check it doesn't do it for redirect
-            fn.inputs!.url!.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
-            const invocation2 = createExampleInvocation(fn)
-            const result2 = await executor.execute(invocation2)
-            expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                {
-                  "version": "v=1.2.3",
-                }
-            `)
-        })
-    })
-
     describe('slow functions', () => {
         it('limits the execution time and exits appropriately', async () => {
             jest.spyOn(Date, 'now').mockRestore()
@@ -1102,7 +1065,7 @@ describe('Hog Executor', () => {
         })
 
         it('adds secret headers for certain endpoints', async () => {
-            jest.mocked(fetch).mockImplementation((url, options) => {
+            jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
                     body: 'Hello, world!',
@@ -1117,7 +1080,6 @@ describe('Hog Executor', () => {
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
                 method: 'POST',
-                return_queue: 'hog',
                 headers: {
                     'X-Test': 'test',
                 },
@@ -1135,7 +1097,6 @@ describe('Hog Executor', () => {
             invocation = await createFetchInvocation({
                 url: 'https://nasty.com?redirect=https://googleads.googleapis.com/1234',
                 method: 'POST',
-                return_queue: 'hog',
                 headers: {
                     'X-Test': 'test',
                 },
