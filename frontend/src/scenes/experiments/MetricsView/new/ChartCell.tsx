@@ -40,14 +40,14 @@ export function ChartCell({ variantResult, chartRadius, metricIndex, isSecondary
 
     if (!hasEnoughData) {
         return (
-            <td className="w-1/3 min-w-[300px] border-b border-border p-2 align-top text-center">
+            <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
         )
     }
 
     return (
-        <td className="w-1/3 min-w-[300px] border-b border-border p-2 align-top text-center">
+        <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
             <svg
                 ref={svgRef}
                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
