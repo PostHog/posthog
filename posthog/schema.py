@@ -6023,7 +6023,7 @@ class ConversionGoalFilter1(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    schema_map: dict[str, Union[str, Any]]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -6105,7 +6105,7 @@ class ConversionGoalFilter2(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    schema_map: dict[str, Union[str, Any]]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -6190,7 +6190,7 @@ class ConversionGoalFilter3(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-    schema_: dict[str, Union[str, Any]] = Field(..., alias="schema")
+    schema_map: dict[str, Union[str, Any]]
     table_name: str
     timestamp_field: str
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -9831,7 +9831,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
-    dynamicConversionGoal: Any = Field(
+    dynamicConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
         default=None, description="Dynamic conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
