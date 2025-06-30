@@ -414,7 +414,7 @@ export class KafkaConsumer {
 
                     const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).then(async () => {
                         if (this.isStopping) {
-                            logger.info('🔁', 'background task finally triggered whilst isStopping')
+                            logger.info('🔁', 'background task ended whilst isStopping')
                         }
 
                         // First of all clear ourselves from the queue
@@ -426,7 +426,7 @@ export class KafkaConsumer {
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             if (this.isStopping) {
-                                logger.info('🔁', 'commiting offsets whilst isStopping')
+                                logger.info('🔁', 'committing offsets whilst isStopping')
                             }
                             this.storeOffsetsForMessages(messages)
                         }
