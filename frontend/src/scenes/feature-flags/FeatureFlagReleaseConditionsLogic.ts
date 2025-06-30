@@ -303,7 +303,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         // Get the appropriate groups based on isSuper
         filterGroups: [
             (s) => [s.filters, (_, props) => props.isSuper],
-            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups),
+            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups) || [],
         ],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
