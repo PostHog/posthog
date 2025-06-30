@@ -1,8 +1,8 @@
 import { createHash } from 'crypto'
 
-import { CdpRedis } from '../redis'
-import { CyclotronJobInvocationHogFunction } from '../types'
-import { execHog } from '../utils/hog-exec'
+import { CdpRedis } from '../../redis'
+import { CyclotronJobInvocationHogFunction } from '../../types'
+import { execHog } from '../../utils/hog-exec'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`

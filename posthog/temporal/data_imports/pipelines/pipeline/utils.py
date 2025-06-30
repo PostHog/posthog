@@ -525,7 +525,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
 def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
     for decimal_type in [
         pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
-        pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
+        pa.decimal256(76, DEFAULT_NUMERIC_SCALE),
     ]:
         try:
             return pa.array(values, type=decimal_type)

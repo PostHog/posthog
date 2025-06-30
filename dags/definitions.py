@@ -70,8 +70,6 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_bounces_daily_export,
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
-        web_preaggregated_daily.split_stats_export_by_team,
-        web_preaggregated_daily.split_bounces_export_by_team,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,
