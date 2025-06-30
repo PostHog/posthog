@@ -23,6 +23,9 @@ class SurveyCreatorTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
     thinking_message: str = "Creating your survey"
+    root_system_prompt_template: str = (
+        "Total surveys for this team: {existing_surveys_count}. Use the `create_survey` tool to create new surveys."
+    )
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
@@ -31,9 +34,15 @@ class SurveyCreatorTool(MaxTool):
         Generate survey configuration from natural language instructions.
         """
         try:
+            # Check if user_id is in context
+            if "user_id" not in self.context:
+                return "❌ Failed to create survey: User id not present on the context", {
+                    "error": "user_id_not_present"
+                }
+
             user = self._user
             if not user:
-                return "❌ Failed to create survey: User not present on the context", {"error": "user_not_present"}
+                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
 
             # Get team for context
             team = self._team
@@ -102,7 +111,10 @@ class SurveyCreatorTool(MaxTool):
                 }
 
         except Exception as e:
-            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            # Safely get team_id and user_id for exception capture
+            team_id = self._team.id if hasattr(self, "_team") and self._team else None
+            user_id = self._user.id if hasattr(self, "_user") and self._user else None
+            capture_exception(e, {"team_id": team_id, "user_id": user_id})
             return f"❌ Failed to create survey: {str(e)}", {"error": str(e)}
 
     def _get_team_survey_config(self, team: Team) -> dict[str, Any]:

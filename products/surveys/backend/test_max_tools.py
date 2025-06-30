@@ -9,7 +9,7 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.models import User, OrganizationMembership, Survey
+from posthog.models import User, OrganizationMembership, Survey, Team
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from .max_tools import SurveyCreatorTool, SurveyCreatorArgs
@@ -31,14 +31,16 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         os.environ["OPENAI_API_KEY"] = "test-api-key"
 
         # Create a test user for survey creation
-        self.test_user = User.objects.create_user(
+        self._user = User.objects.create_user(
             email="test@posthog.com", password="testpass", first_name="Test", last_name="User"
         )
 
         # Add user to the team's organization
         OrganizationMembership.objects.create(
-            organization=self.team.organization, user=self.test_user, level=OrganizationMembership.Level.ADMIN
+            organization=self.team.organization, user=self._user, level=OrganizationMembership.Level.ADMIN
         )
+
+        self._team = self.team
 
     def tearDown(self):
         super().tearDown()
@@ -64,15 +66,30 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         """Helper to create a SurveyCreatorTool instance"""
         tool = SurveyCreatorTool()
 
+        # Set up team
+        team = self.team if team_id is None else Team.objects.get(id=team_id)
+
+        # Set up user - get from context if user_id is provided
+        user = None
+        context = context or {}
+        if "user_id" in context:
+            try:
+                user = User.objects.get(uuid=context["user_id"])
+            except User.DoesNotExist:
+                pass  # user remains None for invalid user test cases
+
         # Mock the internal state required by MaxTool
-        tool._team_id = team_id or self.team.id
-        tool._context = context or {}
+        tool._team = team
+        tool._user = user
+        tool._context = context
         tool._config = {
             "configurable": {
                 "thread_id": "test-thread",
                 "trace_id": "test-trace",
                 "distinct_id": "test-distinct-id",
-                "team_id": team_id or self.team.id,
+                "team": team,
+                "user": user,
+                "contextual_tools": {"create_survey": context},
             }
         }
 
@@ -119,7 +136,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         mock_chain.invoke.return_value = mock_output
         mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create a customer satisfaction survey")
 
@@ -170,7 +187,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         mock_chain.invoke.return_value = mock_output
         mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create and launch an NPS survey")
 
@@ -216,7 +233,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         mock_chain = self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create a comprehensive product feedback survey")
 
@@ -243,18 +260,26 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
     @patch("langchain_core.prompts.ChatPromptTemplate.from_messages")
     def test_survey_creation_validation_error(self, mock_prompt, mock_openai):
         """Test handling of survey validation errors"""
-        # Create invalid output (missing required fields)
-        mock_output = SurveyCreationOutput(
-            name="",  # Invalid empty name
-            description="Test",
-            type=SurveyTypeEnum.POPOVER,
-            questions=[],  # No questions
-            should_launch=False,
-        )
+        # Mock the chain and model setup
+        mock_model = MagicMock()
+        mock_model.with_structured_output.return_value = mock_model
+        mock_model.with_retry.return_value = mock_model
+        mock_openai.return_value = mock_model
 
-        self._setup_mocks(mock_prompt, mock_openai, mock_output)
+        mock_chain = MagicMock()
+        # Mock the chain to return a raw object that will fail validation
+        mock_invalid_data = MagicMock()
+        mock_invalid_data.model_dump.return_value = {
+            "name": "",  # Invalid empty name
+            "description": "Test",
+            "type": "popover",
+            "questions": [],  # No questions - will fail min_items=1 validation
+            "should_launch": False,
+        }
+        mock_chain.invoke.return_value = mock_invalid_data
+        mock_prompt.return_value.__or__ = MagicMock(return_value=mock_chain)
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create an invalid survey")
 
@@ -279,7 +304,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         # Override to make it raise an exception
         mock_chain.invoke.side_effect = Exception("LLM API Error")
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create a survey")
 
@@ -295,18 +320,16 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
             name="Existing Survey 1",
             type="popover",
             questions=[],
-            created_by=self.test_user,
+            created_by=self._user,
             start_date=timezone.now(),
         )
-        Survey.objects.create(
-            team=self.team, name="Draft Survey 2", type="button", questions=[], created_by=self.test_user
-        )
+        Survey.objects.create(team=self.team, name="Draft Survey 2", type="button", questions=[], created_by=self._user)
         Survey.objects.create(
             team=self.team,
             name="Archived Survey",
             type="popover",
             questions=[],
-            created_by=self.test_user,
+            created_by=self._user,
             archived=True,
         )
 
@@ -492,7 +515,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         """Test that the tool properly uses context from existing surveys"""
         # Create existing surveys
         Survey.objects.create(
-            team=self.team, name="Existing NPS Survey", type="popover", questions=[], created_by=self.test_user
+            team=self.team, name="Existing NPS Survey", type="popover", questions=[], created_by=self._user
         )
 
         mock_output = SurveyCreationOutput(
@@ -505,7 +528,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         mock_chain = self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
-        tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+        tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
         content, artifact = tool._run_impl("Create a different survey")
 
@@ -530,14 +553,14 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
         # Set mock OpenAI API key for tests
         os.environ["OPENAI_API_KEY"] = "test-api-key"
 
-        self.test_user = User.objects.create_user(
+        self._user = User.objects.create_user(
             email="eval@posthog.com",
             password="testpass",
             first_name="Eval",  # Add required first_name
             last_name="User",  # Add required last_name
         )
         OrganizationMembership.objects.create(
-            organization=self.team.organization, user=self.test_user, level=OrganizationMembership.Level.ADMIN
+            organization=self.team.organization, user=self._user, level=OrganizationMembership.Level.ADMIN
         )
 
     def tearDown(self):
@@ -564,15 +587,30 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
         """Helper to create a SurveyCreatorTool instance"""
         tool = SurveyCreatorTool()
 
+        # Set up team
+        team = self.team if team_id is None else Team.objects.get(id=team_id)
+
+        # Set up user - get from context if user_id is provided
+        user = None
+        context = context or {}
+        if "user_id" in context:
+            try:
+                user = User.objects.get(uuid=context["user_id"])
+            except User.DoesNotExist:
+                pass  # user remains None for invalid user test cases
+
         # Mock the internal state required by MaxTool
-        tool._team_id = team_id or self.team.id
-        tool._context = context or {}
+        tool._team = team
+        tool._user = user
+        tool._context = context
         tool._config = {
             "configurable": {
                 "thread_id": "test-thread",
                 "trace_id": "test-trace",
                 "distinct_id": "test-distinct-id",
-                "team_id": team_id or self.team.id,
+                "team": team,
+                "user": user,
+                "contextual_tools": {"create_survey": context},
             }
         }
 
@@ -639,7 +677,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
                 self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
-                tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+                tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
                 content, artifact = tool._run_impl(case["input"])
 
@@ -675,7 +713,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
                 self._setup_mocks(mock_prompt, mock_openai, mock_output)
 
-                tool = self._create_tool(context={"user_id": str(self.test_user.uuid)})
+                tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
                 content, artifact = tool._run_impl(input_text)
 
