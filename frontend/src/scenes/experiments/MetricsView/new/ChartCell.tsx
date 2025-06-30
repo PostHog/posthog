@@ -1,5 +1,11 @@
 import { useChartColors } from '../shared/colors'
-import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, valueToXCoordinate } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    getVariantInterval,
+    isBayesianResult,
+    valueToXCoordinate,
+    getNiceTickValues,
+} from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
 import { SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
@@ -48,18 +54,20 @@ export function ChartCell({
                 preserveAspectRatio="none"
                 className="block w-full h-full absolute inset-0"
             >
-                {/* Zero line grid - spans full height */}
-                {showGridLines && (
-                    <line
-                        x1={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                        y1={0}
-                        x2={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                        y2={viewBoxHeight}
-                        stroke={colors.ZERO_LINE}
-                        strokeWidth={1}
-                        opacity={0.3}
-                    />
-                )}
+                {/* Grid lines for all ticks - spans full height */}
+                {showGridLines &&
+                    getNiceTickValues(chartRadius).map((value) => (
+                        <line
+                            key={value}
+                            x1={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                            y1={0}
+                            x2={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                            y2={viewBoxHeight}
+                            stroke={value === 0 ? colors.ZERO_LINE : colors.BOUNDARY_LINES}
+                            strokeWidth={value === 0 ? 1.5 : 0.75}
+                            opacity={value === 0 ? 0.6 : 0.5}
+                        />
+                    ))}
 
                 {/* Gradient definition */}
                 <defs>
