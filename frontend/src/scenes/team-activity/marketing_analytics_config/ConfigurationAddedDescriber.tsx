@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    ExternalTable,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 export const ConfigurationAddedDescriber = ({
     sourceKey,
@@ -14,7 +17,7 @@ export const ConfigurationAddedDescriber = ({
 }): JSX.Element => {
     const { externalTables } = useValues(marketingAnalyticsLogic)
 
-    const table = externalTables?.find((t: any) => t.source_map_id === sourceKey)
+    const table = externalTables.find((t: ExternalTable) => t.source_map_id === sourceKey)
 
     return (
         <>

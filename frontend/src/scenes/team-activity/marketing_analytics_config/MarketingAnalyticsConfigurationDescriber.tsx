@@ -1,4 +1,5 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
+import { objectsEqual } from 'lib/utils'
 
 import { MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
@@ -25,10 +26,8 @@ const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Elem
         return null
     }
 
-    const sourceMapBefore: Record<string, SourceMap> =
-        ((change.before ?? {}) as MarketingAnalyticsConfig).sources_map ?? {}
-    const sourceMapAfter: Record<string, SourceMap> =
-        ((change.after ?? {}) as MarketingAnalyticsConfig).sources_map ?? {}
+    const sourceMapBefore: Record<string, SourceMap> = (change.before as MarketingAnalyticsConfig)?.sources_map ?? {}
+    const sourceMapAfter: Record<string, SourceMap> = (change.after as MarketingAnalyticsConfig)?.sources_map ?? {}
 
     if (!Object.keys(sourceMapBefore).length && !Object.keys(sourceMapAfter).length) {
         return null
@@ -108,7 +107,7 @@ const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Elem
                 for (const col of afterColKeys) {
                     if (
                         beforeColKeys.includes(col) &&
-                        JSON.stringify(beforeCols[col]) !== JSON.stringify(afterCols[col]) &&
+                        !objectsEqual(beforeCols[col], afterCols[col]) &&
                         afterCols[col] &&
                         beforeCols[col]
                     ) {
