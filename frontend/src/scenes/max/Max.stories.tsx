@@ -26,6 +26,7 @@ import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -637,7 +638,7 @@ export const FloatingInputWithContextualTools: StoryFn = () => {
     useEffect(() => {
         // Register sample contextual tools
         registerTool({
-            name: 'create_insight',
+            name: 'create_insight' as AssistantContextualTool,
             displayName: 'Create insight',
             context: {
                 dashboard_id: 'test-dashboard',
@@ -650,7 +651,7 @@ export const FloatingInputWithContextualTools: StoryFn = () => {
         })
 
         registerTool({
-            name: 'analyze_funnel',
+            name: 'analyze_funnel' as AssistantContextualTool,
             displayName: 'Analyze funnel',
             context: {
                 existing_funnels: ['signup_funnel', 'checkout_funnel'],
@@ -662,7 +663,7 @@ export const FloatingInputWithContextualTools: StoryFn = () => {
         })
 
         registerTool({
-            name: 'export_data',
+            name: 'export_data' as AssistantContextualTool,
             displayName: 'Export data',
             context: {
                 available_formats: ['csv', 'json', 'parquet'],
@@ -683,7 +684,7 @@ export const FloatingInputWithCustomToolIntro: StoryFn = () => {
     useEffect(() => {
         // Register tool with intro override
         registerTool({
-            name: 'dashboard_assistant',
+            name: 'dashboard_assistant' as AssistantContextualTool,
             displayName: 'Dashboard Assistant',
             context: {
                 dashboard_name: 'Product Analytics Dashboard',
@@ -709,7 +710,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
     useEffect(() => {
         // Register various contextual tools for MaxInstance
         registerTool({
-            name: 'query_insights',
+            name: 'query_insights' as AssistantContextualTool,
             displayName: 'Query Insights',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
@@ -722,7 +723,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         })
 
         registerTool({
-            name: 'manage_cohorts',
+            name: 'manage_cohorts' as AssistantContextualTool,
             displayName: 'Manage Cohorts',
             context: {
                 existing_cohorts: [
@@ -737,7 +738,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         })
 
         registerTool({
-            name: 'feature_flags',
+            name: 'feature_flags' as AssistantContextualTool,
             displayName: 'Feature Flags',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
@@ -759,7 +760,7 @@ export const MaxInstanceWithPersonsContext: StoryFn = () => {
     useEffect(() => {
         // Register person-focused contextual tools
         registerTool({
-            name: 'person_lookup',
+            name: 'person_lookup' as AssistantContextualTool,
             displayName: 'Person Lookup',
             context: {
                 recent_persons: [
@@ -779,7 +780,7 @@ export const MaxInstanceWithPersonsContext: StoryFn = () => {
         })
 
         registerTool({
-            name: 'session_replay',
+            name: 'session_replay' as AssistantContextualTool,
             displayName: 'Session Replay',
             context: {
                 available_recordings: 1250,
@@ -804,7 +805,7 @@ export const MaxInstanceWithExperimentContext: StoryFn = () => {
     useEffect(() => {
         // Register experiment-focused contextual tools
         registerTool({
-            name: 'ab_testing',
+            name: 'ab_testing' as AssistantContextualTool,
             displayName: 'A/B Testing',
             context: {
                 running_experiments: [
