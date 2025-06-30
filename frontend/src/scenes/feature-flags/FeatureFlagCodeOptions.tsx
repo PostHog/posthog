@@ -57,7 +57,7 @@ export enum LibraryType {
 export const OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}libraries/js/features${FF_ANCHOR}${UTM_TAGS}`,
+        documentationLink: `${DOC_BASE_URL}libraries/js/features${UTM_TAGS}`,
         Snippet: JSSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
