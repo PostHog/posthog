@@ -872,8 +872,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: ^1.255.3
-        version: 1.255.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: ^1.256.0
+        version: 1.256.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 'catalog:'
         version: 3.6.0
@@ -14127,8 +14127,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.255.3:
-    resolution: {integrity: sha512-q38nrORiItiVslVQ4FZcr5/5+/J4xiUQD8A/aDJsYN2TEVESK3yFCo00AfbNmtwd1uUsE1PVZ0+IvKUr1uu7lA==}
+  posthog-js@1.256.0:
+    resolution: {integrity: sha512-LJSj4VcuLQGlsk4aQDOydx+oSj5+nlXHvHPDcAmzLucfoJEUi5CmluUU78V5+MwswoUHYZdGf5TPae3EXQk3FQ==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -32678,7 +32678,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.255.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.256.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
