@@ -3229,7 +3229,7 @@ export interface MarketingAnalyticsTableQuery
     /** Filter test accounts */
     filterTestAccounts?: boolean
     /** Dynamic conversion goal that can be set in the UI without saving */
-    dynamicConversionGoal?: any | null // If I don't use `any` it will throw `Extra inputs are not permitted` error
+    dynamicConversionGoal?: ConversionGoalFilter | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -3308,7 +3308,7 @@ export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode) & {
     conversion_goal_id: string
     conversion_goal_name: string
-    schema: SchemaMap
+    schema_map: SchemaMap
 }
 
 export interface MarketingAnalyticsConfig {
