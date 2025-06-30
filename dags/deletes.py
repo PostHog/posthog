@@ -682,55 +682,61 @@ def wait_for_delete_mutations_in_all_hosts(
     return pending_deletes_dict
 
 
+@dataclass
+class VerifiedDeletionResources:
+    pending_deletions_dictionary: PendingDeletesDictionary
+    adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
+
+
+@dagster.op
+def mark_deletions_verified(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    pending_deletions_dictionary: PendingDeletesDictionary,
+    adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
+) -> VerifiedDeletionResources:
+    # TODO: better keep in sync with load_pending_deletions
+    pending_deletions = AsyncDeletion.objects.filter(
+        Q(deletion_type=DeletionType.Person, created_at__lte=pending_deletions_dictionary.source.timestamp)
+        | Q(deletion_type=DeletionType.Team),
+        delete_verified_at__isnull=True,
+    )
+    if pending_deletions_dictionary.source.team_id:
+        pending_deletions = pending_deletions.filter(team_id=pending_deletions_dictionary.source.team_id)
+
+    pending_deletions.update(delete_verified_at=timezone.now())
+
+    # Mark adhoc event deletes as verified
+    def mark_adhoc_event_deletes_done(client: Client) -> None:
+        client.execute(f"""
+            INSERT INTO {adhoc_event_deletes_dictionary.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
+            SELECT team_id, uuid, created_at, now64(), 1
+            FROM {adhoc_event_deletes_dictionary.qualified_name}
+        """)
+
+    cluster.any_host(mark_adhoc_event_deletes_done).result()
+
+    return VerifiedDeletionResources(pending_deletions_dictionary, adhoc_event_deletes_dictionary)
+
+
 @dagster.op
 def cleanup_delete_assets(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: DeleteConfig,
-    create_pending_deletions_table: PendingDeletesTable,
-    create_deletes_dict: PendingDeletesDictionary,
-    create_adhoc_event_deletes_dict: AdhocEventDeletesDictionary,
+    resources: VerifiedDeletionResources,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
-
     if not config.cleanup:
         config.log.info("Skipping cleanup as cleanup is disabled")
         return True
 
-    # Mark deletions as verified in Django
-    if not create_pending_deletions_table.team_id:
-        AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            delete_verified_at__isnull=True,
-        ).update(delete_verified_at=timezone.now())
-    else:
-        AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            team_id=create_pending_deletions_table.team_id,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_deletions_table.timestamp,
-        ).update(delete_verified_at=timezone.now())
-
     # Must drop dict first
-    cluster.map_all_hosts(create_deletes_dict.drop).result()
-    cluster.map_all_hosts(create_pending_deletions_table.drop).result()
+    cluster.map_all_hosts(resources.pending_deletions_dictionary.drop).result()
+    cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
-    # Mark adhoc event deletes as verified
-    def mark_adhoc_event_deletes_done(client: Client) -> None:
-        # XXX: temporary fix to allow job to resume if the dictionary was deleted but subsequent steps failed; marking
-        # completion and dropping the dictionary should be split into separate ops to ensure both can complete safely
-        if create_adhoc_event_deletes_dict.exists(client):
-            client.execute(f"""
-                INSERT INTO {create_adhoc_event_deletes_dict.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
-                SELECT team_id, uuid, created_at, now64(), 1
-                FROM {create_adhoc_event_deletes_dict.qualified_name}
-            """)
+    cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
+    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
 
-    cluster.any_host(mark_adhoc_event_deletes_done).result()
-    cluster.map_all_hosts(create_adhoc_event_deletes_dict.drop).result()
-    cluster.any_host(create_adhoc_event_deletes_dict.source.optimize).result()
     return True
 
 
@@ -761,8 +767,10 @@ def deletes_job():
         delete_mutations = delete_team_data_from(table)(pending_deletes_dictionary)
         pending_deletes_dictionary = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
+    verified_deletion_resources = mark_deletions_verified(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
+
     # Clean up
-    cleanup_delete_assets(deletions_table, pending_deletes_dictionary, adhoc_event_deletes_dictionary)
+    cleanup_delete_assets(verified_deletion_resources)
 
 
 @dagster.run_status_sensor(
