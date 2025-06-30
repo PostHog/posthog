@@ -35,8 +35,6 @@ def get_export_finished_metric(status: str) -> MetricCounter:
 
 P = typing.ParamSpec("P")
 T = typing.TypeVar("T")
-SyncCallable = collections.abc.Callable[P, T]
-AsyncCallable = collections.abc.Callable[P, collections.abc.Awaitable[T]]
 
 Attributes = dict[str, str | int | float | bool]
 
@@ -49,7 +47,10 @@ def record_execution_time(
     log_message: str | None = None,
     log_name: str | None = None,
     log_attributes: Attributes | None = None,
-) -> typing.Callable[[SyncCallable | AsyncCallable], SyncCallable | AsyncCallable]:
+) -> collections.abc.Callable[
+    [collections.abc.Callable[P, T] | collections.abc.Callable[P, collections.abc.Awaitable[T]]],
+    collections.abc.Callable[P, T] | collections.abc.Callable[P, collections.abc.Awaitable[T]],
+]:
     """Decorate function to record execution time.
 
     Arguments:
@@ -66,13 +67,13 @@ def record_execution_time(
         Decorated function that records execution time
     """
 
-    def decorator(func: SyncCallable | AsyncCallable) -> SyncCallable | AsyncCallable:
+    def decorator(func):
         hist_name = histogram_name or func.__name__
 
         if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
-            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs):
                 with ExecutionTimeRecorder(
                     hist_name,
                     description=description,
@@ -89,7 +90,7 @@ def record_execution_time(
         else:
 
             @functools.wraps(func)
-            def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            def sync_wrapper(*args: P.args, **kwargs: P.kwargs):
                 with ExecutionTimeRecorder(
                     hist_name,
                     description=description,
