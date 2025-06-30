@@ -15,6 +15,7 @@ import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
 import { isTestEnv } from '~/utils/env-utils'
+import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
 import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
@@ -150,8 +151,9 @@ export class KafkaConsumer {
             'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
             log_level: 4, // WARN as the default
             'group.id': this.config.groupId,
-            'session.timeout.ms': 30_000,
-            'max.poll.interval.ms': 300_000,
+            'session.timeout.ms': 10_000, // How long to wait for a heartbeat before considering the consumer dead (we should never block the thread for longer than this essentially)
+            'heartbeat.interval.ms': 3_000, // The interval at which heartbeats are sent (default is 3 seconds)
+            'max.poll.interval.ms': 300_000, // The maximum time between consume commands (this is basically our non-sync timeout for a batch)
             'max.partition.fetch.bytes': 1_048_576,
             'fetch.error.backoff.ms': 100,
             'fetch.message.max.bytes': 10_485_760,
@@ -377,16 +379,6 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
-        this.heartbeatInterval = setInterval(async () => {
-            if (!this.isStopping && this.rdKafkaConsumer.isConnected() && !this.consumePromise) {
-                // TRICKY: We have to call consume to keep the hearbeat alive
-                const messages = await this.consume(0)
-                if (messages.length > 0) {
-                    throw new Error('Heartbeat received messages, but should not have')
-                }
-            }
-        }, 5000) // Heartbeat every 5 seconds
-
         const startConsuming = async () => {
             let lastConsumeTime = 0
             try {
@@ -422,11 +414,6 @@ export class KafkaConsumer {
 
                     const startProcessingTimeMs = new Date().valueOf()
                     const result = await eachBatch(messages)
-
-                    if (process.env.CONSUMER_ARTIFICIAL_DELAY_MS) {
-                        logger.warn('🔁', 'artificial delay', { delay: process.env.CONSUMER_ARTIFICIAL_DELAY_MS })
-                        await delay(parseInt(process.env.CONSUMER_ARTIFICIAL_DELAY_MS))
-                    }
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
