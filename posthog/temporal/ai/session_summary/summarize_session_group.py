@@ -4,6 +4,7 @@ from datetime import timedelta
 import hashlib
 import json
 import uuid
+from redis import Redis
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -40,6 +41,7 @@ from posthog.temporal.ai.session_summary.shared import (
     fetch_session_data_activity,
     get_single_session_summary_output_from_redis,
 )
+from posthog.temporal.ai.session_summary.state import generate_state_key, get_redis_state_client, StateActivitiesEnum
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError
@@ -80,19 +82,24 @@ async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> SessionGroupSummarySingleSessionOutput:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
-    redis_client = get_client()
+    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+        input_key_base=inputs.redis_input_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
+        output_key_base=inputs.redis_output_key_base,
+        output_label=StateActivitiesEnum.SESSION_SUMMARY,
+        state_id=inputs.session_id,
+    )
     try:
         # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
         # TODO: Think about edge-cases like failed summaries
         session_summary_str = get_single_session_summary_output_from_redis(
             redis_client=redis_client,
-            redis_output_key=inputs.redis_output_key,
+            redis_output_key=redis_output_key,
         )
     except ValueError:
         # If not yet, or TTL expired - generate the summary with LLM
         llm_input = get_single_session_summary_llm_input_from_redis(
-            redis_client=redis_client,
-            redis_input_key=inputs.redis_input_key,
+            redis_client=redis_client, redis_input_key=redis_input_key
         )
         # Get summary from LLM
         session_summary_str = await get_llm_single_session_summary(
@@ -115,7 +122,7 @@ async def get_llm_single_session_summary_activity(
         # Store the generated summary in Redis
         compressed_session_summary = compress_redis_data(session_summary_str)
         redis_client.setex(
-            inputs.redis_output_key,
+            redis_output_key,
             SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             compressed_session_summary,
         )
@@ -124,9 +131,9 @@ async def get_llm_single_session_summary_activity(
 
 
 def _get_session_group_single_session_summaries_inputs_from_redis(
+    redis_client: Redis,
     redis_input_keys: list[str],
 ) -> list[SingleSessionSummaryLlmInputs]:
-    redis_client = get_client()
     inputs = []
     for redis_input_key in redis_input_keys:
         llm_input = get_single_session_summary_llm_input_from_redis(
@@ -221,9 +228,15 @@ async def get_llm_session_group_summary_activity(inputs: SessionGroupSummaryOfSu
 
     # Single session summaries LLM inputs from Redis to be able to enrich the patterns collected
     single_session_summaries_llm_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
+        redis_client=redis_client,
         redis_input_keys=[
-            single_session_input.redis_input_key for single_session_input in inputs.single_session_summaries_inputs
-        ]
+            generate_state_key(
+                key_base=inputs.redis_input_key_base,
+                label=StateActivitiesEnum.SESSION_SUMMARY,
+                state_id=single_session_input.session_id,
+            )
+            for single_session_input in inputs.single_session_summaries_inputs
+        ],
     )
 
     # session_summaries_str
@@ -340,14 +353,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for session_id in inputs.session_ids:
-                redis_input_key = f"{inputs.redis_input_key_base}:{session_id}"
-                redis_output_key = f"{inputs.redis_output_key_base}:{session_id}"
                 single_session_input = SingleSessionSummaryInputs(
                     session_id=session_id,
                     user_id=inputs.user_id,
                     team_id=inputs.team_id,
-                    redis_input_key=redis_input_key,
-                    redis_output_key=redis_output_key,
+                    redis_input_key_base=inputs.redis_input_key_base,
+                    redis_output_key_base=inputs.redis_output_key_base,
                     extra_summary_context=inputs.extra_summary_context,
                     local_reads_prod=inputs.local_reads_prod,
                 )
