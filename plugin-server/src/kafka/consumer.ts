@@ -444,6 +444,9 @@ export class KafkaConsumer {
 
                         logger.info('🔁', `committing offsets took ${storeOffsetsDuration}ms`)
 
+                        const overallDuration = performance.now() - backgroundTaskStart
+                        logger.info('🔁', `overall background task took ${overallDuration}ms`)
+
                         if (result?.backgroundTask) {
                             // We only want to count the time spent in the background work if it was real
                             consumedBatchBackgroundDuration
@@ -451,7 +454,7 @@ export class KafkaConsumer {
                                     topic: this.config.topic,
                                     groupId: this.config.groupId,
                                 })
-                                .observe(performance.now() - backgroundTaskStart)
+                                .observe(overallDuration)
                         }
                     })
 
