@@ -225,7 +225,17 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: () => (logic.isMounted() ? logic.values.actionChanged : false),
+        enabled: () => {
+            if (!logic.isMounted() || !logic.values.actionChanged) {
+                return false
+            }
+
+            if (router.values.location.pathname.endsWith('/new')) {
+                return false
+            }
+
+            return true
+        },
         message: 'Leave action?\nChanges you made will be discarded.',
         onConfirm: () => {
             logic.actions.resetAction()
