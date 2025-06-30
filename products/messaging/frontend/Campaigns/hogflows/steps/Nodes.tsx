@@ -22,6 +22,7 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     function_email: HogFlowActionNode,
     function_sms: HogFlowActionNode,
     function_webhook: HogFlowActionNode,
+    function_slack: HogFlowActionNode,
     conditional_branch: HogFlowActionNode,
     delay: HogFlowActionNode,
     wait_until_condition: HogFlowActionNode,

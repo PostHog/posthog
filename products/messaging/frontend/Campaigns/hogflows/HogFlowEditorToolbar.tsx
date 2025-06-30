@@ -6,7 +6,12 @@ import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { HogFlowAction } from './types'
 
-export const ACTION_NODES_TO_SHOW: HogFlowAction['type'][] = ['function_email', 'function_sms', 'function_webhook']
+export const ACTION_NODES_TO_SHOW: HogFlowAction['type'][] = [
+    'function_email',
+    'function_sms',
+    'function_slack',
+    'function_webhook',
+]
 
 export const DELAY_NODES_TO_SHOW: HogFlowAction['type'][] = ['delay', 'wait_until_time_window', 'wait_until_condition']
 

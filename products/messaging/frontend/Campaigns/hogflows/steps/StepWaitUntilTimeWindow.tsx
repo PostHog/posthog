@@ -11,7 +11,7 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     type: 'wait_until_time_window',
-    name: 'Wait for time window',
+    name: 'Time window',
     description: 'Wait until a specific time window is reached.',
     icon: <IconDay />,
     renderNode: (props) => <StepWaitUntilTimeWindowNode {...props} />,
@@ -19,7 +19,7 @@ export const StepWaitUntilTimeWindow: HogFlowStep<'wait_until_time_window'> = {
     create: () => {
         return {
             action: {
-                name: 'Wait for time window',
+                name: 'Time window',
                 description: '',
                 type: 'wait_until_time_window',
                 on_error: 'continue',

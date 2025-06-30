@@ -3,6 +3,7 @@ import { StepConditionalBranch } from './StepConditionalBranch'
 import { StepDelay } from './StepDelay'
 import { StepExit } from './StepExit'
 import { StepFunctionEmail } from './StepFunctionEmail'
+import { StepFunctionSlack } from './StepFunctionSlack'
 import { StepFunctionSms } from './StepFunctionSms'
 import { StepFunctionWebhook } from './StepFunctionWebhook'
 import { StepRandomCohortBranch } from './StepRandomCohortBranch'
@@ -24,7 +25,7 @@ export const HogFlowSteps: Partial<{
     function_email: StepFunctionEmail,
     function_webhook: StepFunctionWebhook,
     function_sms: StepFunctionSms,
-
+    function_slack: StepFunctionSlack,
     // function: StepFunction,
 } as const
 
