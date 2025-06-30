@@ -80,10 +80,12 @@ def record_execution_time(
                 ):
                     return await func(*args, **kwargs)
 
+            return async_wrapper
+
         else:
 
             @functools.wraps(func)
-            def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
                 with ExecutionTimeRecorder(
                     hist_name,
                     description=description,
@@ -95,7 +97,7 @@ def record_execution_time(
                 ):
                     return func(*args, **kwargs)
 
-        return wrapper
+            return sync_wrapper
 
     return decorator
 
