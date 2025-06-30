@@ -31,39 +31,11 @@ export function Chart({
                     ref={chartSvgRef}
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                     preserveAspectRatio="xMidYMid meet"
-                    className="max-w-[1000px]"
+                    className="ml-12 max-w-[1000px]"
                 >
                     <g className="grid-lines-layer">
                         {/* Vertical grid lines */}
                         <GridLines tickValues={tickValues} chartRadius={chartRadius} chartHeight={chartHeight} />
-                    </g>
-                    <g className="variant-separators-layer">
-                        {/* Horizontal separator lines between variants */}
-                        {variantResults.map((_, index: number) => {
-                            if (index === variantResults.length - 1) {
-                                return null
-                            } // Don't render line after last variant
-
-                            const totalContentHeight = BAR_SPACING + variantResults.length * (BAR_HEIGHT + BAR_SPACING)
-                            const verticalOffset = Math.max(0, (chartHeight - totalContentHeight) / 2)
-                            const y =
-                                verticalOffset +
-                                BAR_SPACING +
-                                (BAR_HEIGHT + BAR_SPACING) * (index + 1) -
-                                BAR_SPACING / 2
-
-                            return (
-                                <line
-                                    key={`separator-${index}`}
-                                    x1={0}
-                                    y1={y}
-                                    x2={VIEW_BOX_WIDTH}
-                                    y2={y}
-                                    stroke="var(--border)"
-                                    strokeWidth={1}
-                                />
-                            )
-                        })}
                     </g>
                     <g className="variant-bars-layer">
                         {/* Variant bars */}
