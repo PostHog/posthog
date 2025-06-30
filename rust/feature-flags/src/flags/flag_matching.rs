@@ -441,7 +441,7 @@ impl FeatureFlagMatcher {
 
         if !flags_requiring_db_preparation.is_empty() {
             if let Err(e) = self
-                .prepare_flag_evaluation_state(&flags_requiring_db_preparation)
+                .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
                 .await
             {
                 errors_while_computing_flags = true;
@@ -1171,7 +1171,7 @@ impl FeatureFlagMatcher {
     /// during subsequent flag evaluations.
     pub async fn prepare_flag_evaluation_state(
         &mut self,
-        flags: &[FeatureFlag],
+        flags: &[&FeatureFlag],
     ) -> Result<(), FlagError> {
         // Get cohorts first since we need the IDs
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
@@ -1225,7 +1225,7 @@ impl FeatureFlagMatcher {
     /// - Mapping group names to group_type_index and group_keys
     fn prepare_group_data(
         &mut self,
-        flags: &[FeatureFlag],
+        flags: &[&FeatureFlag],
     ) -> Result<GroupEvaluationData, FlagError> {
         // Extract required group type indexes from flags
         let type_indexes: HashSet<GroupTypeIndex> = flags

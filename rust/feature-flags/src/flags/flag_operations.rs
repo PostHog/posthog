@@ -117,14 +117,13 @@ impl FeatureFlag {
 }
 
 /// Returns the set of flags that require DB preparation
-pub fn flags_require_db_preparation(
-    flags: &[FeatureFlag],
+pub fn flags_require_db_preparation<'a>(
+    flags: &'a [FeatureFlag],
     overrides: &HashMap<String, Value>,
-) -> Vec<FeatureFlag> {
+) -> Vec<&'a FeatureFlag> {
     flags
         .iter()
         .filter(|flag| flag.requires_db_preparation(overrides))
-        .cloned()
         .collect()
 }
 
