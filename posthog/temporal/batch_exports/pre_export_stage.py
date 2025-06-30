@@ -33,7 +33,6 @@ from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
 )
 from posthog.temporal.batch_exports.metrics import (
-    ExecutionTimeRecorder,
     get_export_finished_metric,
     get_export_started_metric,
 )
@@ -135,47 +134,33 @@ async def execute_batch_export_insert_activity_using_s3_stage(
     )
 
     try:
-        with ExecutionTimeRecorder(
-            "insert_into_s3_stage_activity_duration",
-            description="Total duration of the insert_into_s3_stage_activity activity",
-            histogram_attributes={"team_id": inputs.team_id},
-        ):
-            await workflow.execute_activity(
-                insert_into_s3_stage_activity,
-                BatchExportInsertIntoS3StageInputs(
-                    team_id=inputs.team_id,
-                    batch_export_id=inputs.batch_export_id,
-                    data_interval_start=inputs.data_interval_start,
-                    data_interval_end=inputs.data_interval_end,
-                    exclude_events=inputs.exclude_events,
-                    include_events=inputs.include_events,
-                    run_id=inputs.run_id,
-                    backfill_details=inputs.backfill_details,
-                    batch_export_model=inputs.batch_export_model,
-                    batch_export_schema=inputs.batch_export_schema,
-                    destination_default_fields=inputs.destination_default_fields,
-                ),
-                start_to_close_timeout=start_to_close_timeout,
-                heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds)
-                if heartbeat_timeout_seconds
-                else None,
-                retry_policy=retry_policy,
-            )
+        await workflow.execute_activity(
+            insert_into_s3_stage_activity,
+            BatchExportInsertIntoS3StageInputs(
+                team_id=inputs.team_id,
+                batch_export_id=inputs.batch_export_id,
+                data_interval_start=inputs.data_interval_start,
+                data_interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
+                run_id=inputs.run_id,
+                backfill_details=inputs.backfill_details,
+                batch_export_model=inputs.batch_export_model,
+                batch_export_schema=inputs.batch_export_schema,
+                destination_default_fields=inputs.destination_default_fields,
+            ),
+            start_to_close_timeout=start_to_close_timeout,
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
+            retry_policy=retry_policy,
+        )
 
-        with ExecutionTimeRecorder(
-            f"{activity.__name__}_duration",
-            description=f"Total duration of the {activity.__name__} activity",
-            histogram_attributes={"team_id": inputs.team_id},
-        ):
-            records_completed = await workflow.execute_activity(
-                activity,
-                inputs,
-                start_to_close_timeout=start_to_close_timeout,
-                heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds)
-                if heartbeat_timeout_seconds
-                else None,
-                retry_policy=retry_policy,
-            )
+        records_completed = await workflow.execute_activity(
+            activity,
+            inputs,
+            start_to_close_timeout=start_to_close_timeout,
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
+            retry_policy=retry_policy,
+        )
         finish_inputs.records_completed = records_completed
 
     except exceptions.ActivityError as e:

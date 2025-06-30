@@ -175,12 +175,8 @@ def get_activity_attributes() -> Attributes:
     info = activity.info()
 
     return {
-        "attempt": info.attempt,
         "workflow_namespace": info.workflow_namespace,
-        "workflow_id": info.workflow_id,
-        "workflow_run_id": info.workflow_run_id,
         "workflow_type": info.workflow_type,
-        "activity_id": info.activity_id,
         "activity_type": info.activity_type,
     }
 
@@ -190,10 +186,7 @@ def get_workflow_attributes() -> Attributes:
     info = workflow.info()
 
     return {
-        "attempt": info.attempt,
         "workflow_namespace": info.namespace,
-        "workflow_id": info.workflow_id,
-        "workflow_run_id": info.run_id,
         "workflow_type": info.workflow_type,
     }
 
