@@ -91,30 +91,39 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(session_ids),
     )
-    # Get session summaries from Redis
-    session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
-    # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
-    intermediate_session_summaries_str = [
-        remove_excessive_content_from_session_summary_for_llm(session_summary_str)
-        for session_summary_str in session_summaries_str
-    ]
-    patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
-        session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
-    )
-    # Extract patterns from session summaries through LLM
-    patterns_extraction = await get_llm_session_group_patterns_extraction(
-        prompt=patterns_extraction_prompt, user_id=inputs.user_id, session_ids=session_ids
-    )
-    patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
-    compressed_patterns_extraction = compress_redis_data(patterns_extraction_str)
+    try:
+        # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
+        get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            target_class=RawSessionGroupSummaryPatternsList,
+        )
+    except ValueError:
+        # Get session summaries from Redis
+        session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+        # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
+        intermediate_session_summaries_str = [
+            remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+            for session_summary_str in session_summaries_str
+        ]
+        patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
+            session_summaries_str=intermediate_session_summaries_str, extra_summary_context=inputs.extra_summary_context
+        )
+        # Extract patterns from session summaries through LLM
+        patterns_extraction = await get_llm_session_group_patterns_extraction(
+            prompt=patterns_extraction_prompt, user_id=inputs.user_id, session_ids=session_ids
+        )
+        patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
+        compressed_patterns_extraction = compress_redis_data(patterns_extraction_str)
 
-    # TODO: Remove after testing
-    with open("patterns_extraction.json", "w") as f:
-        f.write(patterns_extraction_str)
+        # TODO: Remove after testing
+        with open("patterns_extraction.json", "w") as f:
+            f.write(patterns_extraction_str)
 
-    # Store the extracted patterns in Redis
-    redis_client.setex(redis_output_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_patterns_extraction)
-    return None
+        # Store the extracted patterns in Redis
+        redis_client.setex(redis_output_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_patterns_extraction)
+        return None
 
 
 async def _generate_patterns_assignments_per_chunk(
@@ -223,7 +232,7 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
         redis_input_keys=[
             generate_state_key(
                 key_base=single_session_input.redis_key_base,
-                label=StateActivitiesEnum.SESSION_SUMMARY,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
                 state_id=single_session_input.session_id,
             )
             for single_session_input in inputs.single_session_summaries_inputs

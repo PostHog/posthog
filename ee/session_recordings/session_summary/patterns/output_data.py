@@ -4,11 +4,13 @@ from pydantic import BaseModel, Field, ValidationError, field_serializer
 from enum import Enum
 
 import yaml
-
+import structlog
 from ee.session_recordings.session_summary import SummaryValidationError
 from ee.session_recordings.session_summary.output_data import SessionSummarySerializer
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import strip_raw_llm_content, unpack_full_event_id
+
+logger = structlog.get_logger(__name__)
 
 
 class _SeverityLevel(str, Enum):
@@ -360,7 +362,7 @@ def combine_patterns_with_events_context(
         pattern_id = pattern.pattern_id
         pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
         if not pattern_events:
-            raise ValueError(
+            logger.warning(
                 f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
             )
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
