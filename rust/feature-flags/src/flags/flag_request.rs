@@ -71,10 +71,19 @@ impl FlagRequest {
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
-        let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            tracing::debug!("failed to decode body: {}", e);
-            FlagError::RequestDecodingError(String::from("invalid body encoding"))
-        })?;
+        // Handle UTF-8 conversion more gracefully, similar to form data handling
+        let payload = match String::from_utf8(bytes.to_vec()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::debug!(
+                    "Invalid UTF-8 in request body, using lossy conversion: {}",
+                    e
+                );
+                // Use lossy conversion as fallback - this handles Android clients that might
+                // send malformed UTF-8 sequences after decompression
+                String::from_utf8_lossy(&bytes).into_owned()
+            }
+        };
 
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
