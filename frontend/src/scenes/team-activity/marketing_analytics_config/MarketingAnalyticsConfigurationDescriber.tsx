@@ -91,10 +91,13 @@ const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Elem
 
                 // Added columns
                 for (const col of afterColKeys) {
-                    if (!beforeColKeys.includes(col) && afterCols[col]) {
-                        sourceMapDescriptions.push(
-                            <ColumnMappedDescriber sourceKey={key} columnKey={col} mappedField={afterCols[col]} />
-                        )
+                    if (!beforeColKeys.includes(col)) {
+                        const mappedField = afterCols[col]
+                        if (mappedField) {
+                            sourceMapDescriptions.push(
+                                <ColumnMappedDescriber sourceKey={key} columnKey={col} mappedField={mappedField} />
+                            )
+                        }
                     }
                 }
                 // Removed columns
@@ -105,20 +108,19 @@ const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Elem
                 }
                 // Changed columns
                 for (const col of afterColKeys) {
-                    if (
-                        beforeColKeys.includes(col) &&
-                        !objectsEqual(beforeCols[col], afterCols[col]) &&
-                        afterCols[col] &&
-                        beforeCols[col]
-                    ) {
-                        sourceMapDescriptions.push(
-                            <ColumnMappingChangedDescriber
-                                sourceKey={key}
-                                columnKey={col}
-                                oldMapping={beforeCols[col]}
-                                newMapping={afterCols[col]}
-                            />
-                        )
+                    if (beforeColKeys.includes(col) && !objectsEqual(beforeCols[col], afterCols[col])) {
+                        const oldMapping = beforeCols[col]
+                        const newMapping = afterCols[col]
+                        if (oldMapping && newMapping) {
+                            sourceMapDescriptions.push(
+                                <ColumnMappingChangedDescriber
+                                    sourceKey={key}
+                                    columnKey={col}
+                                    oldMapping={oldMapping}
+                                    newMapping={newMapping}
+                                />
+                            )
+                        }
                     }
                 }
             }
