@@ -117,11 +117,6 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Wait for Docker stack to be ready
-              run: |
-                  # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
-
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
@@ -517,13 +512,6 @@ jobs:
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
-            - name: Wait for Docker stack to be ready
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
-
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -758,11 +746,6 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Wait for Docker stack to be ready
-              run: |
-                  # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
