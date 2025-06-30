@@ -2,12 +2,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
 import { type ExperimentVariantResult } from '../shared/utils'
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery, ExperimentStatsBase } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 interface VariantRowProps {
     variantResult: ExperimentVariantResult // For chart rendering (current variant)
-    baselineResult: ExperimentVariantResult | null // Baseline data for baseline column
+    baselineResult: ExperimentStatsBase | null // Baseline data for baseline column
     testVariantResult: ExperimentVariantResult | null // Test variant data for variant column (null for baseline-only)
     isFirstRow: boolean
     metric?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -35,7 +35,7 @@ export function VariantRow({
     canDuplicateMetric,
 }: VariantRowProps): JSX.Element {
     // Helper function to format variant data
-    const formatVariantData = (variant: ExperimentVariantResult): { primaryValue: number; formattedValue: string } => {
+    const formatVariantData = (variant: ExperimentStatsBase): { primaryValue: number; formattedValue: string } => {
         const primaryValue = variant.sum / variant.number_of_samples
         const formattedValue =
             metric && 'metric_type' in metric && metric.metric_type === 'mean'

@@ -42,14 +42,6 @@ export function MetricsTable({
 
     const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
-    // Extract all unique variants across all metrics
-    const allVariants = Array.from(
-        new Set(
-            results.flatMap((result: NewExperimentQueryResponse) =>
-                (result?.variant_results || []).map((vr: ExperimentVariantResult) => vr.key)
-            )
-        )
-    )
 
     // Calculate shared chartRadius across all metrics
     const maxAbsValue = Math.max(
@@ -93,7 +85,7 @@ export function MetricsTable({
     return (
         <div className="metrics-table-container">
             <table className="metrics-table">
-                <TableHeader variants={allVariants} />
+                <TableHeader />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
@@ -134,7 +126,6 @@ export function MetricsTable({
                                 metricIndex={metricIndex}
                                 chartRadius={chartRadius}
                                 isSecondary={isSecondary}
-                                variants={allVariants}
                                 onDuplicateMetric={() => {
                                     duplicateMetric({ metricIndex, isSecondary })
                                     updateExperimentMetrics()
