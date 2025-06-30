@@ -70,7 +70,10 @@ export function VariantRow({
 
             {/* Baseline column - only render for first row with rowspan */}
             {isFirstRow && (
-                <td className="w-24 border-b border-r border-border p-3 align-top text-left" rowSpan={totalVariantRows}>
+                <td
+                    className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left"
+                    rowSpan={totalVariantRows}
+                >
                     {baselineResult ? (
                         <div className="text-sm">
                             <div className="font-semibold text-text-primary">
@@ -87,7 +90,7 @@ export function VariantRow({
             )}
 
             {/* Variant column - show only variant key */}
-            <td className="w-20 border-b border-r border-border p-3 align-top text-left">
+            <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
                 {testVariantResult ? (
                     <div className="text-sm font-semibold text-text-primary">{testVariantResult.key}</div>
                 ) : (
@@ -96,7 +99,7 @@ export function VariantRow({
             </td>
 
             {/* Value column - show conversion rate and raw counts */}
-            <td className="w-24 border-b border-r border-border p-3 align-top text-left">
+            <td className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left">
                 {testVariantResult ? (
                     <div className="text-sm">
                         <div className="font-semibold text-text-primary">
@@ -112,7 +115,7 @@ export function VariantRow({
             </td>
 
             {/* P-value column - show statistical significance */}
-            <td className="w-20 border-b border-r border-border p-3 align-top text-left">
+            <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
                 {testVariantResult ? (
                     <div className="text-sm font-medium text-text-primary">
                         {isBayesianResult(testVariantResult)
