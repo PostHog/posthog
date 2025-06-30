@@ -12,17 +12,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useEffect } from 'react'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
-
 import { ViewportChooser } from './HeatmapsBrowser'
 
-export function FixedReplayHeatmapBrowser({
+export function IframeHeatmapBrowser({
     iframeRef,
 }: {
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
-}): JSX.Element | null {
+}): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { replayIframeData, hasValidReplayIframeData, filterPanelCollapsed, widthOverride } = useValues(logic)
+    const { filterPanelCollapsed, widthOverride, browserUrl } = useValues(logic)
     const { onIframeLoad, setIframeWidth, toggleFilterPanelCollapsed } = useActions(logic)
 
     const {
@@ -77,7 +76,7 @@ export function FixedReplayHeatmapBrowser({
         setHtml(iframe)
     }
 
-    return hasValidReplayIframeData ? (
+    return (
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel {...fixedReplayFilterPanelProps} isEmpty={heatmapEmpty} />
             <div className="relative flex-1 w-full h-full mt-2">
@@ -101,21 +100,29 @@ export function FixedReplayHeatmapBrowser({
                 )}
                 <div className="flex justify-center h-full w-full">
                     <div
-                        className="relative h-full "
+                        className="relative h-full"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: widthOverride ?? '100%' }}
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
+                            id="heatmap-iframe"
                             ref={iframeRef}
-                            className="w-full h-full bg-white"
-                            srcDoc={replayIframeData?.html}
+                            className="h-full bg-white"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: widthOverride ?? '100%' }}
+                            src={browserUrl ?? ''}
                             onLoad={onIframeLoad}
+                            // these two sandbox values are necessary so that the site and toolbar can run
+                            // this is a very loose sandbox,
+                            // but we specify it so that at least other capabilities are denied
+                            sandbox="allow-scripts allow-same-origin"
+                            // we don't allow things such as camera access though
                             allow=""
                         />
                     </div>
                 </div>
             </div>
         </div>
-    ) : null
+    )
 }
