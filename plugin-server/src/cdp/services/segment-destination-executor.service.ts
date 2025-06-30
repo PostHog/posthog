@@ -112,6 +112,8 @@ export class SegmentDestinationExecutorService {
             queue: 'segment',
         })
 
+        // temporary logs // will be removed after testing
+        // https://github.com/PostHog/posthog/pull/34301
         result.logs.push({
             level: 'warn',
             timestamp: DateTime.now(),
