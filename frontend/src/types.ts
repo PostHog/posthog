@@ -2595,6 +2595,15 @@ export interface PathsFilterType extends FilterType {
 
 export interface PathsV2FilterType {}
 
+export enum ConversionWindowIntervalUnit {
+    Second = 'second',
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
 export interface CalendarHeatmapFilterType extends FilterType {
     // Reserved for future filter properties
     dummy?: string
