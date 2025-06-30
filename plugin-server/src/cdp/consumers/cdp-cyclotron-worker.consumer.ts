@@ -40,11 +40,18 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
 
+        if (invocation.queue === 'hog') {
+            // NOTE: For new jobs we can use the new hog executor flow which takes care of the below fully
+            return await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        }
+
+        // NOTE: The below is the old way of processing - once we have fully migrated to the new way we can completely remove the below...
+        // We need to keep it to handle the "fetch" queue until it is fully exhausted
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             if (nextInvocation.queue === 'hog') {
-                result = this.hogExecutor.execute(nextInvocation)
+                result = await this.hogExecutor.execute(nextInvocation)
                 // Heartbeat and free the event loop to handle health checks
                 this.heartbeat()
                 await new Promise((resolve) => process.nextTick(resolve))
@@ -172,9 +179,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async stop() {
-        await super.stop()
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {
