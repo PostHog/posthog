@@ -41,7 +41,7 @@ class ExecutionTimeRecorder:
         description: str | None = None,
         histogram_attributes: Attributes | None = None,
         log: bool = True,
-        log_message: str | None = None,
+        log_message: str = "Finished %(name)s with status '%(status)s' in %(delta).4fs",
         log_name: str | None = None,
         log_attributes: Attributes | None = None,
     ) -> None:
@@ -50,9 +50,7 @@ class ExecutionTimeRecorder:
         This can be used from within a workflow or an activity.
 
         Attributes:
-            human_readable_name: A human readable name for this tracker which
-                should consist of whole words separated with spaces. The metric
-                name will be derived by converting this to snake_case.
+            histogram_name: A name for the histogram metric.
             description: Description to use for the metric.
             histogram_attributes: Mapping of any attributes to add to meter.
                 This tracker already adds common attributes like 'workflow_id'
@@ -60,13 +58,18 @@ class ExecutionTimeRecorder:
                 indicate if an exception was raised within the block ('FAILED')
                 or not ('COMPLETED').
             log: Whether to additionally log the execution time.
+            log_message: Use a custom log message.
+            log_name: Provide an alternative name for the log line instead of
+                using the histogram name.
+            log_attributes: Mapping of additional attributes available to pass
+                to the logger.
         """
 
         self.histogram_name = histogram_name
         self.description = description
         self.histogram_attributes = histogram_attributes
         self.log = log
-        self.log_message = log_message or "Finished %(name)s with status '%(status)s' in %(delta).4fs"
+        self.log_message = log_message
         self.log_name = log_name
         self.log_attributes = log_attributes
         self.bytes_processed: None | int = None

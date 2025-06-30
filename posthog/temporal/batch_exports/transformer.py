@@ -380,7 +380,7 @@ class ParquetStreamTransformer:
                 description="Duration to transform a record batch into Parquet bytes.",
                 log_message=(
                     "Processed record batch with %(num_records)s records to parquet."
-                    " Record batch size: %(mb_processed)s, process time: "
+                    " Record batch size: %(mb_processed)s, process time:"
                     " %(duration_seconds)s, speed: %(mb_per_second)s MB/s"
                 ),
                 log_attributes={"num_records": record_batch.num_rows},

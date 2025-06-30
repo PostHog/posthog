@@ -1178,8 +1178,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                     "part_number": part_number,
                 },
             ) as recorder:
-                part_size_mb = len(data) // (1024 * 1024)
-                recorder.add_bytes_processed(part_size_mb)
+                recorder.add_bytes_processed(len(data))
 
                 while response is None:
                     try:
