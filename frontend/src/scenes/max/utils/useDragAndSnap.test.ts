@@ -1,22 +1,11 @@
 import { renderHook, act } from '@testing-library/react'
 import { useDragAndSnap } from './useDragAndSnap'
 
-// Mock DOM elements and methods
-const mockGetBoundingClientRect = jest.fn()
-
 describe('useDragAndSnap', () => {
     let mockOnPositionChange: jest.Mock
 
     beforeEach(() => {
         mockOnPositionChange = jest.fn()
-
-        // Mock DOM methods
-        mockGetBoundingClientRect.mockReturnValue({
-            left: 100,
-            top: 100,
-            width: 48,
-            height: 48,
-        })
 
         // Mock addEventListener and removeEventListener
         jest.spyOn(document, 'addEventListener')
@@ -147,14 +136,6 @@ describe('useDragAndSnap', () => {
 
         // Should have initial drag position (but not yet dragging, so no special styles)
         expect(result.current.isDragging).toBe(false)
-        expect(result.current.containerStyle).toEqual({})
-    })
-
-    it('should apply animation styles during animation', () => {
-        const { result } = renderHook(() => useDragAndSnap({ onPositionChange: mockOnPositionChange }))
-
-        // We can't easily test the full drag flow in this test environment,
-        // but we can verify that animation styles would be applied
         expect(result.current.containerStyle).toEqual({})
     })
 })
