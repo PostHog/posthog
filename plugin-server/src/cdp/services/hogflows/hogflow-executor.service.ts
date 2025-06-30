@@ -111,9 +111,7 @@ export class HogFlowExecutorService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(
             invocation,
-            {
-                queue: 'hogflow',
-            },
+            {},
             {
                 finished: false,
             }
@@ -217,9 +215,7 @@ export class HogFlowExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const finalResult = createInvocationResult<CyclotronJobInvocationHogFlow>(
             invocation,
-            {
-                queue: 'hogflow',
-            },
+            {},
             {
                 finished: false,
             }

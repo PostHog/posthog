@@ -8,4 +8,4 @@ export const CyclotronInputSchema = z.object({
     order: z.number().optional(),
 })
 
-export type CyclotronInputSchemaType = z.infer<typeof CyclotronInputSchema>
+export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>

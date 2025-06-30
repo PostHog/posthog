@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { CyclotronInputSchemaType } from '~/schema/cyclotron'
+import { CyclotronInputType } from '~/schema/cyclotron'
 
 import { HogFlow } from '../schema/hogflow'
 import {
@@ -199,24 +199,6 @@ export type AppMetricType = MinimalAppMetric & {
     app_source: MetricLogSource
 }
 
-export type CyclotronFetchFailureKind =
-    | 'timeout'
-    | 'timeoutgettingbody'
-    | 'missingparameters'
-    | 'invalidparameters'
-    | 'requesterror'
-    | 'failurestatus'
-    | 'invalidbody'
-    | 'responsetoolarge'
-
-export type CyclotronFetchFailureInfo = {
-    kind: CyclotronFetchFailureKind
-    message: string
-    headers?: Record<string, string>
-    status?: number
-    timestamp: DateTime
-}
-
 export interface HogFunctionTiming {
     kind: 'hog' | 'async_function'
     duration_ms: number
@@ -227,32 +209,13 @@ export type HogFunctionQueueParametersFetchRequest = {
     url: string
     method: string
     body?: string
-    return_queue: CyclotronJobQueueKind
     max_tries?: number
     headers?: Record<string, string>
 }
 
-export type HogFunctionQueueParametersFetchResponse = {
-    type: 'fetch-response'
-    /** An error message to indicate something went wrong and the invocation should be stopped */
-    error?: any
-    /** On success, the fetch worker returns only the successful response */
-    response?: {
-        status: number
-        headers: Record<string, string>
-    } | null
-    /** On failure, the fetch worker returns a list of info about the attempts made*/
-    trace?: CyclotronFetchFailureInfo[]
-    body?: string | null // Both results AND failures can have a body
-    timings?: HogFunctionTiming[]
-    logs?: MinimalLogEntry[]
-}
+export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
 
-export type CyclotronInvocationQueueParameters =
-    | HogFunctionQueueParametersFetchRequest
-    | HogFunctionQueueParametersFetchResponse
-
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -347,7 +310,7 @@ export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_d
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, CyclotronInputSchemaType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
 }
 
@@ -361,8 +324,8 @@ export type HogFunctionType = {
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, CyclotronInputSchemaType | null>
-    encrypted_inputs?: Record<string, CyclotronInputSchemaType>
+    inputs?: Record<string, CyclotronInputType | null>
+    encrypted_inputs?: Record<string, CyclotronInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null

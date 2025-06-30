@@ -9,7 +9,6 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
@@ -246,14 +245,6 @@ export class PluginServer {
                 await initPlugins()
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerPlugins(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronWorkerFetch) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerFetch(hub)
                     await worker.start()
                     return worker.service
                 })

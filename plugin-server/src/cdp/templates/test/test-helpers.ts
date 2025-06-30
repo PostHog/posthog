@@ -1,6 +1,7 @@
 import merge from 'deepmerge'
 
 import { defaultConfig } from '~/config/config'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
@@ -9,10 +10,8 @@ import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-e
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersFetchResponse,
     HogFunctionTemplate,
     HogFunctionTemplateCompiled,
     HogFunctionType,
@@ -118,13 +117,13 @@ export class TemplateTester {
         }
     }
 
-    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, HogFunctionInputType>> {
+    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, CyclotronInputType>> {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
                 acc[input.key] = input.default
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -145,7 +144,7 @@ export class TemplateTester {
                 bytecode: value,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
     }
 
     async invoke(
@@ -227,7 +226,7 @@ export class TemplateTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
@@ -252,11 +251,13 @@ export class TemplateTester {
 
     async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: Omit<HogFunctionQueueParametersFetchResponse, 'type'>
+        response: { status: number; body: Record<string, any> }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const modifiedInvocation = cloneInvocation(invocation, {
-            queue: 'hog' as const,
-            queueParameters: { type: 'fetch-response', ...response },
+        const modifiedInvocation = cloneInvocation(invocation)
+
+        modifiedInvocation.state.vmState!.stack.push({
+            status: response.status,
+            body: response.body,
         })
 
         return this.executor.execute(modifiedInvocation)
