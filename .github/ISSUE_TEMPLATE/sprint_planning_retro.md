@@ -20,6 +20,10 @@ For your team sprint planning copy this template into a comment below for each t
 
 **Support hero:** ___
 
+## Changelog
+Things @joethreepwood should add to the changelog. PR links appreciated. 
+- 
+
 ## OKR
 
 1. OKR, status (red/yellow/green) and action points if yellow/red
