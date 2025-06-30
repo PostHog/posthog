@@ -74,7 +74,7 @@ export class PluginServer {
 
         this.expressApp = express()
         this.expressApp.use(express.json())
-        this.nodeInstrumentation = new NodeInstrumentation()
+        this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
     async start(): Promise<void> {
