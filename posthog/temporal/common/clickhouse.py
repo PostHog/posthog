@@ -10,6 +10,7 @@ import uuid
 import decimal
 import ipaddress
 from urllib.parse import urljoin
+from pympler import asizeof
 
 import aiohttp
 import pyarrow as pa
@@ -712,7 +713,8 @@ class ClickHouseClient:
         *data,
         query_parameters: dict[str, typing.Any] | None = None,
         query_id: str | None = None,
-        batch_size: int = 5000,
+        batch_size: typing.Optional[int] = None,
+        batch_size_mb: typing.Optional[int] = None,
         line_separator: bytes = b"\n",
     ) -> typing.AsyncGenerator[tuple[list[dict[str, typing.Any]], pa.Schema], None]:
         """Stream typed rows from a ClickHouse query using FORMAT TabSeparatedWithNamesAndTypes.
@@ -723,16 +725,22 @@ class ClickHouseClient:
             query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
             query_parameters: Optional query parameters to interpolate.
             query_id: Optional ClickHouse query ID.
-            batch_size: The number of rows per batch to yield.
+            batch_size: The number of rows per batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
+            batch_size_mb: The max size of the batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
             line_separator: The line separator used in the response (default: newline).
 
         Yields:
             Batches of parsed rows, each row as a dict[str, Any].
         """
+        if batch_size is None and batch_size_mb is None:
+            raise Exception("astream_query_in_batches: both batch_size and batch_size_mb is None")
+
         buffer = b""
         headers: list[str] | None = None
         types: list[str] | None = None
         rows: list[dict[str, typing.Any]] = []
+        bytes_in_batch = 0
+        batch_size_bytes = batch_size_mb * 1000 * 1000 if batch_size_mb else None
         line_index = 0
 
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
@@ -760,11 +768,21 @@ class ClickHouseClient:
                             key: parse_clickhouse_value(value, ch_type)
                             for key, value, ch_type in zip(headers, raw_values, types)
                         }
+                        if batch_size_bytes:
+                            row_size = asizeof.asizeof(parsed)
+                            bytes_in_batch += row_size
+
                         rows.append(parsed)
 
-                        if len(rows) >= batch_size:
-                            yield (rows, pa_schema)
-                            rows = []
+                        if batch_size:
+                            if len(rows) >= batch_size:
+                                yield (rows, pa_schema)
+                                rows = []
+                        elif batch_size_bytes:
+                            if bytes_in_batch >= batch_size_bytes:
+                                yield (rows, pa_schema)
+                                rows = []
+                                bytes_in_batch = 0
 
                     line_index += 1
 

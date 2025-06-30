@@ -964,7 +964,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
+            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1212,7 +1212,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
 
             await self.logger.ainfo(
-                "Finished uploading file number %s part %s with upload id %s. File size: %sMB, upload time: %s, speed: %s MB/s",
+                "Finished uploading file number %s part %s with upload id %s. File size: %.2f MB, upload time: %.2fs, speed: %.2f MB/s",
                 self.current_file_index,
                 part_number,
                 self.upload_id,

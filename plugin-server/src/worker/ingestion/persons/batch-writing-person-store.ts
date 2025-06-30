@@ -499,6 +499,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return `${teamId}:${personUuid}`
     }
 
+    clearCacheByUuid(teamId: number, personUuid: string): void {
+        this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+    }
+
     clearCache(teamId: number, distinctId: string): void {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
         const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
@@ -508,7 +512,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         // Clear the person data if we have the UUID
         if (personUuid) {
-            this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+            this.clearCacheByUuid(teamId, personUuid)
         }
 
         // Clear the check cache
@@ -538,10 +542,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return result
     }
 
-    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
-        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
-        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
-
+    getCachedPersonForUpdateByUuid(teamId: number, personUuid: string | undefined): PersonUpdate | null | undefined {
         if (personUuid === undefined) {
             this.cacheMetrics.updateCacheMisses++
             return undefined
@@ -566,6 +567,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.cacheMetrics.updateCacheMisses++
             return undefined
         }
+    }
+
+    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
+
+        return this.getCachedPersonForUpdateByUuid(teamId, personUuid)
     }
 
     setCachedPersonForUpdate(teamId: number, distinctId: string, person: PersonUpdate | null): void {

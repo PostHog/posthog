@@ -652,6 +652,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,
+                kind: 'salesforce',
             },
         ],
         caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
@@ -831,9 +832,9 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         betaSource: true,
         caption: (
             <>
-                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                Ensure you have granted PostHog access to your Google Ads account, learn how to do this in{' '}
                 <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
-                    documentation
+                    the docs
                 </Link>
                 .
             </>
@@ -845,6 +846,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: '',
+            },
+            {
+                name: 'google_ads_integration_id',
+                label: 'Google Ads account',
+                type: 'oauth',
+                required: true,
+                kind: 'google-ads',
             },
         ],
     },
@@ -862,16 +870,32 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
         ],
     },
-    MetaAds: {
-        name: 'MetaAds',
-        label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
     GoogleSheets: {
         name: 'GoogleSheets',
         label: 'Google Sheets',
+        caption: (
+            <>
+                Ensure you have granted PostHog access to your Google Sheet as instructed in the
+                <Link to="https://posthog.com/docs/cdp/sources/google-sheets" target="_blank">
+                    documentation
+                </Link>
+                .
+            </>
+        ),
+        fields: [
+            {
+                name: 'spreadsheet_url',
+                label: 'Spreadsheet URL',
+                type: 'text',
+                required: true,
+                placeholder: '',
+            },
+        ],
+        betaSource: true,
+    },
+    MetaAds: {
+        name: 'MetaAds',
+        label: 'Meta Ads',
         caption: '',
         fields: [],
         unreleasedSource: true,
