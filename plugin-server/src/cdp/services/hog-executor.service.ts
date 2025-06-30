@@ -662,9 +662,15 @@ export class HogExecutorService {
 
         const start = performance.now()
         const method = params.method.toUpperCase()
+        const headers = params.headers ?? {}
+
+        if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
+            headers['developer-token'] = this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN
+        }
+
         const fetchParams: FetchOptions = {
             method,
-            headers: params.headers,
+            headers,
             timeoutMs: this.config.CDP_FETCH_TIMEOUT_MS,
         }
         if (!['GET', 'HEAD'].includes(method) && params.body) {

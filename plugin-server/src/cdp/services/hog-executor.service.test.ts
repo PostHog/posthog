@@ -1,9 +1,20 @@
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
+
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
+import { fetch } from '~/utils/request'
 
 import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import {
@@ -777,9 +788,7 @@ describe('Hog Executor', () => {
         let server: any
         let baseUrl: string
         let mockRequest = jest.fn()
-
         let timeoutHandle: NodeJS.Timeout | undefined
-
         let hogFunction: HogFunctionType
 
         beforeAll(async () => {
@@ -1088,6 +1097,53 @@ describe('Hog Executor', () => {
                 {
                   "body": "Hello, world!",
                   "status": 200,
+                }
+            `)
+        })
+
+        it('adds secret headers for certain endpoints', async () => {
+            jest.mocked(fetch).mockImplementation((url, options) => {
+                return Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                })
+            })
+
+            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+
+            let invocation = await createFetchInvocation({
+                url: 'https://googleads.googleapis.com/1234',
+                method: 'POST',
+                return_queue: 'hog',
+                headers: {
+                    'X-Test': 'test',
+                },
+            })
+
+            await executor.executeFetch(invocation)
+            expect((jest.mocked(fetch).mock.calls[0][1] as any).headers).toMatchInlineSnapshot(`
+                {
+                  "X-Test": "test",
+                  "developer-token": "ADWORDS_TOKEN",
+                }
+            `)
+
+            // Check it doesn't do it for redirect
+            invocation = await createFetchInvocation({
+                url: 'https://nasty.com?redirect=https://googleads.googleapis.com/1234',
+                method: 'POST',
+                return_queue: 'hog',
+                headers: {
+                    'X-Test': 'test',
+                },
+            })
+            await executor.executeFetch(invocation)
+            expect((jest.mocked(fetch).mock.calls[1][1] as any).headers).toMatchInlineSnapshot(`
+                {
+                  "X-Test": "test",
                 }
             `)
         })
