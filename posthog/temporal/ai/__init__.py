@@ -1,3 +1,7 @@
+from posthog.temporal.ai.session_summary.activities.patterns import (
+    assign_events_to_patterns_activity,
+    extract_session_group_patterns_activity,
+)
 from .sync_vectors import (
     SyncVectorsInputs,
     SyncVectorsWorkflow,
@@ -28,6 +32,8 @@ ACTIVITIES = [
     batch_embed_and_sync_actions,
     stream_llm_single_session_summary_activity,
     get_llm_single_session_summary_activity,
+    extract_session_group_patterns_activity,
+    assign_events_to_patterns_activity,
     fetch_session_data_activity,
 ]
 
