@@ -110,6 +110,14 @@ export class SegmentDestinationExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
+        // temporary logs // will be removed after testing
+        // https://github.com/PostHog/posthog/pull/34301
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: sanitizeLogMessage([JSON.stringify(invocation.queueMetadata)]),
+        })
+
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
         metadata.tries = metadata.tries + 1
@@ -260,13 +268,20 @@ export class SegmentDestinationExecutorService {
                                 metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                             )
                         ) {
+                            addLog(
+                                'warn',
+                                'disabling retries because of something',
+                                retriesPossible,
+                                isFetchResponseRetriable(fetchResponse, fetchError),
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
                             retriesPossible = false
                         }
                         addLog(
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${metadata.tries}/${
                                 this.serverConfig.CDP_FETCH_RETRIES
                             }`
                         )

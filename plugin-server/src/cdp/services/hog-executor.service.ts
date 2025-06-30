@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
+import { fetch, FetchOptions } from '~/utils/request'
+import { tryCatch } from '~/utils/try-catch'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -26,6 +28,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
+import { cdpHttpRequests, isFetchResponseRetriable } from './fetch-executor.service'
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',

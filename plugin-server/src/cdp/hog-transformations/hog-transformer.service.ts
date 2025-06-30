@@ -330,7 +330,10 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await buildGlobalsWithInputs(globals, {
+            ...hogFunction.inputs,
+            ...hogFunction.encrypted_inputs,
+        })
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 

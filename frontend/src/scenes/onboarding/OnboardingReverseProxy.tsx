@@ -2,8 +2,8 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 
-import { OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { OnboardingStepKey } from '~/types'
 
 const proxyDocs = [
     {
