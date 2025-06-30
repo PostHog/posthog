@@ -1,32 +1,21 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-
-jest.mock('../../../src/utils/posthog', () => {
+jest.mock('~/utils/posthog', () => {
     return {
         captureTeamEvent: jest.fn(),
     }
 })
 
-import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
-import {
-    BASE_REDIS_KEY,
-    CELERY_TASK_ID,
-    HogWatcherService,
-    HogWatcherState,
-} from '../../../src/cdp/services/hog-watcher.service'
-import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { delay } from '../../../src/utils/utils'
-import { createExampleInvocation } from '../_tests/fixtures'
-import { deleteKeysWithPrefix } from '../_tests/redis'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { createInvocationResult } from '../utils/invocation-utils'
+import { Hub } from '../../../types'
+import { closeHub, createHub } from '../../../utils/db/hub'
+import { delay } from '../../../utils/utils'
+import { createExampleInvocation } from '../../_tests/fixtures'
+import { deleteKeysWithPrefix } from '../../_tests/redis'
+import { CdpRedis, createCdpRedisPool } from '../../redis'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
+import { createInvocationResult } from '../../utils/invocation-utils'
+import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
-const mockCaptureTeamEvent: jest.Mock = require('../../../src/utils/posthog').captureTeamEvent as any
+const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
+const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
 
 const createResult = (options: {
     id: string

@@ -7,7 +7,7 @@ import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { generateUUID } from 'lib/utils/generateUUID'
+import { v4 as uuidv4 } from 'uuid'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
     applyAllCriteriaGroup,
@@ -101,7 +101,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 ...criteriaList.slice(0, criteriaIndex),
                                 {
                                     ...criteriaList[criteriaIndex],
-                                    sort_key: generateUUID(),
+                                    sort_key: uuidv4(),
                                 },
                                 ...criteriaList.slice(criteriaIndex),
                             ],
@@ -118,7 +118,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     if (groupIndex !== undefined) {
                         return applyAllNestedCriteria(
                             state,
-                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: generateUUID() }],
+                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: uuidv4() }],
                             groupIndex
                         )
                     }
