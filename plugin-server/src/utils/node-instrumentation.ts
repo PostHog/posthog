@@ -12,13 +12,15 @@ export class NodeInstrumentation {
     private threadPerformanceInterval?: NodeJS.Timeout
     private lastEventLoopUtilization?: EventLoopUtilization
 
-    constructor(private config: PluginsServerConfig) {
-        this.setupThreadPerformanceInterval()
-    }
+    constructor(private config: PluginsServerConfig) {}
 
     setupThreadPerformanceInterval(): void {
         if (!this.config.INSTRUMENT_THREAD_PERFORMANCE) {
             return
+        }
+
+        if (this.threadPerformanceInterval) {
+            clearInterval(this.threadPerformanceInterval)
         }
 
         this.threadPerformanceInterval = setInterval(() => {
