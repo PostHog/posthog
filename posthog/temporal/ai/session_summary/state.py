@@ -1,14 +1,10 @@
-from dataclasses import dataclass
 import gzip
 import json
-from typing import Any
 
 from prometheus_client import Enum
 from pydantic import BaseModel
 from redis import Redis
 
-from ee.session_recordings.session_summary.patterns.output_data import RawSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from posthog.redis import get_client
 
 
@@ -37,7 +33,7 @@ def get_redis_state_client(
 def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str | None = None) -> str:
     if not state_id:
         raise ValueError("state_id is required")
-    return f"{key_base}:{label.value}:{state_id}"
+    return f"{key_base}:{label}:{state_id}"
 
 
 def compress_redis_data(input_data: str) -> bytes:
@@ -51,22 +47,30 @@ def _decompress_redis_data(raw_redis_data: bytes) -> str:
         # Fallback for uncompressed data (if stored as string)
         return raw_redis_data
 
-def get_data_class_from_redis(redis_client: Redis, redis_key: str, label: StateActivitiesEnum, target_class: BaseModel | dataclass) -> BaseModel | dataclass:
+
+def get_data_class_from_redis(
+    redis_client: Redis, redis_key: str, label: StateActivitiesEnum, target_class: BaseModel
+) -> BaseModel:
     redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     try:
         return target_class(**json.loads(redis_data_str))
     except Exception as err:
-        raise ValueError(f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label.value}): {err}") from err
+        raise ValueError(
+            f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label}): {err}"
+        ) from err
+
 
 def get_data_str_from_redis(redis_client: Redis, redis_key: str, label: StateActivitiesEnum) -> str:
     raw_redis_data = redis_client.get(redis_key)
     if not raw_redis_data:
-        raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
+        raise ValueError(f"Output data not found in Redis for key {redis_key} ({label})")
     try:
         redis_data_str = _decompress_redis_data(raw_redis_data)
         return redis_data_str
     except Exception as err:
-        raise ValueError(f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}") from err
+        raise ValueError(
+            f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label}): {err}"
+        ) from err
 
 
 # def get_session_group_pattern_extraction_output_from_redis(redis_client: Redis, redis_output_key: str) -> RawSessionGroupSummaryPatternsList:
