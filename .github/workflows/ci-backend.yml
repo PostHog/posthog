@@ -120,7 +120,7 @@ jobs:
             - name: Wait for Docker stack to be ready
               run: |
                   # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait
+                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
@@ -522,7 +522,7 @@ jobs:
               shell: bash
               run: |
                   # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait
+                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
 
             - name: Install pnpm
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -762,7 +762,7 @@ jobs:
             - name: Wait for Docker stack to be ready
               run: |
                   # Wait for all services to be running/healthy
-                  docker compose -f docker-compose.dev.yml wait
+                  docker compose -f docker-compose.dev.yml wait clickhouse db feature-flags kafka livestream objectstorage redis temporal zookeeper
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
