@@ -354,7 +354,7 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
-        has_format_placeholders = re.search(r"(?<!{){[^{}]+}(?!})", query)
+        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})", query)
 
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         query = query % format_parameters
