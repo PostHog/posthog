@@ -1,5 +1,4 @@
 import { VariantRow } from './VariantRow'
-import { type ExperimentVariantResult } from '../shared/utils'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -15,7 +14,6 @@ interface MetricRowGroupProps {
     metricIndex: number
     chartRadius: number
     isSecondary: boolean
-    variants: string[]
     onDuplicateMetric?: () => void
     canDuplicateMetric?: boolean
 }
@@ -27,35 +25,21 @@ export function MetricRowGroup({
     metricIndex,
     chartRadius,
     isSecondary,
-    variants,
     onDuplicateMetric,
     canDuplicateMetric,
 }: MetricRowGroupProps): JSX.Element {
+    // Get baseline from result.baseline and variants from result.variant_results
+    const baselineResult = result?.baseline || null
     const variantResults = result?.variant_results || []
 
-    // Identify baseline and test variants
-    const baseline = variants.find((v) => v === 'control') || variants[0]
-    const testVariants = variants.filter((v) => v !== baseline)
+    // Create all rows: one for each variant (baseline column will span all rows)
+    const allVariantRows = variantResults.map((variantResult) => ({
+        variantKey: variantResult.key,
+        variantResult,
+        isBaseline: false
+    }))
 
-    // Get all variant results in order: baseline first, then test variants
-    const baselineResult = variantResults.find((vr: ExperimentVariantResult) => vr.key === baseline)
-    const testVariantResults = testVariants
-        .map((variantKey) => {
-            const variantResult = variantResults.find((vr: ExperimentVariantResult) => vr.key === variantKey)
-            return variantResult ? { variantKey, variantResult } : null
-        })
-        .filter(Boolean) as { variantKey: string; variantResult: ExperimentVariantResult }[]
-
-    // Create all rows: baseline + test variants
-    const allVariantRows = []
-    if (baselineResult) {
-        allVariantRows.push({ variantKey: baseline, variantResult: baselineResult, isBaseline: true })
-    }
-    testVariantResults.forEach(({ variantKey, variantResult }) => {
-        allVariantRows.push({ variantKey, variantResult, isBaseline: false })
-    })
-
-    const totalRows = allVariantRows.length
+    const totalRows = Math.max(1, allVariantRows.length)
 
     if (allVariantRows.length === 0) {
         return (
@@ -72,12 +56,12 @@ export function MetricRowGroup({
 
     return (
         <>
-            {allVariantRows.map(({ variantKey, variantResult, isBaseline }, index) => (
+            {allVariantRows.map(({ variantKey, variantResult }, index) => (
                 <VariantRow
                     key={`${metricIndex}-${variantKey}`}
                     variantResult={variantResult}
-                    baselineResult={baselineResult || null}
-                    testVariantResult={isBaseline ? null : variantResult}
+                    baselineResult={baselineResult}
+                    testVariantResult={variantResult}
                     isFirstRow={index === 0}
                     metric={index === 0 ? metric : undefined}
                     metricType={index === 0 ? metricType : undefined}
