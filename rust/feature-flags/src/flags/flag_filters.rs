@@ -12,12 +12,10 @@ impl FlagFilters {
                 .as_ref()
                 .map_or(false, |groups| !groups.is_empty())
             || any_group_requires_db_properties(Some(&self.groups), overrides)
-            || any_group_requires_db_properties(self.holdout_groups.as_ref(), overrides)
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
         any_group_requires_cohort_filters(Some(&self.groups))
-            || any_group_requires_cohort_filters(self.holdout_groups.as_ref())
     }
 }
 
@@ -146,6 +144,23 @@ mod tests {
     }
 
     #[test]
+    fn test_holdout_groups_do_not_require_cohorts() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.holdout_groups = Some(vec![FlagPropertyGroup {
+            // Illegal cohort filter, but we want to make sure our code is resilient.
+            properties: Some(vec![create_simple_property_filter(
+                "some_key",
+                PropertyType::Cohort,
+                OperatorType::Exact,
+            )]),
+            variant: Some("holdout-1".to_string()),
+            rollout_percentage: Some(10.0),
+        }]);
+
+        assert!(!filters.requires_cohort_filters());
+    }
+
+    #[test]
     fn test_requires_db_properties_when_aggregation_group_type_index_set() {
         let mut filters = create_simple_flag_filters(vec![]);
         filters.aggregation_group_type_index = Some(1);
@@ -181,6 +196,26 @@ mod tests {
         filters.super_groups = Some(vec![]);
 
         // Super groups always require DB properties. We don't let people override them.
+        assert!(!filters.requires_db_properties(&HashMap::new()));
+    }
+
+    #[test]
+    fn test_does_not_require_db_properties_when_holdout_groups_set() {
+        let mut filters = create_simple_flag_filters(vec![]);
+        filters.holdout_groups = Some(vec![FlagPropertyGroup {
+            properties: Some(vec![
+                // This is not valid for a holdout group, but we want to make sure our code is resilient.
+                create_simple_property_filter(
+                    "some_key",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+            ]),
+            variant: Some("holdout-1".to_string()),
+            rollout_percentage: Some(10.0),
+        }]);
+
+        // Holdout groups don't require DB properties.
         assert!(!filters.requires_db_properties(&HashMap::new()));
     }
 
