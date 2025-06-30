@@ -22,6 +22,7 @@ import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPla
 export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
+    type = 'filters',
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -34,6 +35,7 @@ export function SessionRecordingsPlaylist({
      * Eventually this will be removed and we'll only allow one or the other.
      */
     canMixFiltersAndPinned?: boolean
+    type?: 'filters' | 'collection'
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
@@ -58,7 +60,7 @@ export function SessionRecordingsPlaylist({
 
     const sections: PlaylistSection[] = []
 
-    if (pinnedRecordings.length) {
+    if (type === 'collection' || pinnedRecordings.length > 0) {
         sections.push({
             key: 'pinned',
             title: (
@@ -73,9 +75,7 @@ export function SessionRecordingsPlaylist({
             ),
             initiallyOpen: true,
         })
-    }
-
-    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
+    } else {
         sections.push({
             key: 'other',
             title: (
@@ -133,7 +133,7 @@ export function SessionRecordingsPlaylist({
                             maybeLoadSessionRecordings('older')
                         }
                     }}
-                    listEmptyState={<ListEmptyState />}
+                    listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
@@ -195,6 +195,29 @@ const ListEmptyState = (): JSX.Element => {
             ) : (
                 <div className="flex flex-col gap-2">
                     <SessionRecordingsPlaylistTroubleshooting />
+                </div>
+            )}
+        </div>
+    )
+}
+
+const CollectionEmptyState = (): JSX.Element => {
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+
+    return (
+        <div className="p-3 text-sm text-secondary">
+            {sessionRecordingsAPIErrored ? (
+                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            ) : unusableEventsInFilter.length ? (
+                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
+                    <p>
+                        To add recordings to this collection, go to the{' '}
+                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
+                        "+ Add to collection" and select this collection from the list.
+                    </p>
                 </div>
             )}
         </div>
