@@ -44,12 +44,13 @@ export function MetricRowGroup({
     if (allVariantRows.length === 0) {
         return (
             <tr className="hover:bg-bg-hover group">
-                <td className="w-1/4 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative">
+                <td className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative">
                     <div className="p-4 text-muted text-sm">No variant data available</div>
                 </td>
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="w-2/5 min-w-[300px] border-b border-border p-2 align-top text-center">—</td>
+                <td className="w-1/6 border-b border-r border-border p-3 align-top text-left">—</td>
+                <td className="w-1/6 border-b border-r border-border p-3 align-top text-left">—</td>
+                <td className="w-1/6 border-b border-r border-border p-3 align-top text-left">—</td>
+                <td className="w-1/3 min-w-[300px] border-b border-border p-2 align-top text-center">—</td>
             </tr>
         )
     }
