@@ -34,7 +34,7 @@ from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
@@ -65,6 +65,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         "celery_broker",
     ],
     "decide": ["http"],
+    "query": ["http", "postgres", "cache"],
+    "report": ["http", "kafka_connected"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy
