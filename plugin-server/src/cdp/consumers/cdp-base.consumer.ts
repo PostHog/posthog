@@ -3,14 +3,14 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
-import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
-import { HogFunctionManagerService } from '../services/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
-import { HogMaskerService } from '../services/hog-masker.service'
-import { HogWatcherService } from '../services/hog-watcher.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
+import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import { HogMaskerService } from '../services/monitoring/hog-masker.service'
+import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -65,16 +65,6 @@ export abstract class CdpConsumerBase {
         await new Promise((resolve) => process.nextTick(resolve))
 
         return res
-    }
-
-    protected async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
-        const results = []
-
-        for (const item of items) {
-            results.push(await this.runWithHeartbeat(() => func(item)))
-        }
-        return results
     }
 
     public async start(): Promise<void> {

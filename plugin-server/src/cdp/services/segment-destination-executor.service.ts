@@ -257,6 +257,13 @@ export class SegmentDestinationExecutorService {
                                 metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                             )
                         ) {
+                            addLog(
+                                'warn',
+                                'disabling retries because of something',
+                                retriesPossible,
+                                isFetchResponseRetriable(fetchResponse, fetchError),
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
                             retriesPossible = false
                         }
                         addLog(
