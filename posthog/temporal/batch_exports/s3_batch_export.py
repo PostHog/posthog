@@ -1168,8 +1168,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 "s3_batch_export_upload_part_duration",
                 description="Total duration of the upload of a part of a multi-part upload",
                 log_message=(
-                    "Finished uploading file number %(file_number)s part %(part_number)s"
-                    " with upload id %(upload_id)s with status '%(status)s'."
+                    "Finished uploading file number %(file_number)d part %(part_number)d"
+                    " with upload id '%(upload_id)s' with status '%(status)s'."
                     " File size: %(mb_processed).2f MB, upload time: %(duration_seconds)d"
                     " seconds, speed: %(mb_per_second).2f MB/s"
                 ),

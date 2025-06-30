@@ -205,16 +205,30 @@ def log_execution_time(
     """Log execution time."""
     logger = get_internal_logger()
 
-    mb_processed = bytes_processed / 1024 / 1024 if bytes_processed else None
+    duration_seconds = delta.total_seconds()
+
+    if bytes_processed is not None:
+        mb_processed = bytes_processed / 1024 / 1024
+
+        if duration_seconds > 0:
+            bytes_per_second = bytes_processed / duration_seconds
+            mb_per_second = mb_processed / duration_seconds
+        else:
+            bytes_per_second = float("inf")
+            mb_per_second = float("inf")
+    else:
+        mb_processed = None
+        bytes_per_second = None
+        mb_per_second = None
 
     arguments = {
         "name": name,
         "status": status,
-        "duration_seconds": delta.total_seconds(),
+        "duration_seconds": duration_seconds,
         "bytes_processed": bytes_processed,
         "mb_processed": mb_processed,
-        "bytes_per_second": bytes_processed / delta.total_seconds() if bytes_processed else None,
-        "mb_per_second": mb_processed / delta.total_seconds() if mb_processed else None,
+        "bytes_per_second": bytes_per_second,
+        "mb_per_second": mb_per_second,
     }
     if extra_arguments:
         arguments = {**arguments, **extra_arguments}
