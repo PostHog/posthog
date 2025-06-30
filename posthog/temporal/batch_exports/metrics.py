@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import functools
 import inspect
@@ -34,6 +35,9 @@ def get_export_finished_metric(status: str) -> MetricCounter:
 
 P = typing.ParamSpec("P")
 T = typing.TypeVar("T")
+SyncCallable = collections.abc.Callable[P, T]
+AsyncCallable = collections.abc.Callable[P, collections.abc.Awaitable[T]]
+
 Attributes = dict[str, str | int | float | bool]
 
 
@@ -45,7 +49,7 @@ def record_execution_time(
     log_message: str | None = None,
     log_name: str | None = None,
     log_attributes: Attributes | None = None,
-) -> typing.Callable[[typing.Callable[P, T]], typing.Callable[P, T]]:
+) -> typing.Callable[[SyncCallable | AsyncCallable], SyncCallable | AsyncCallable]:
     """Decorate function to record execution time.
 
     Arguments:
@@ -62,7 +66,7 @@ def record_execution_time(
         Decorated function that records execution time
     """
 
-    def decorator(func: typing.Callable[[P], T]) -> typing.Callable[[P], T]:
+    def decorator(func: SyncCallable | AsyncCallable) -> SyncCallable | AsyncCallable:
         hist_name = histogram_name or func.__name__
 
         if inspect.iscoroutinefunction(func):
@@ -123,7 +127,7 @@ class ExecutionTimeRecorder:
                 should consist of whole words separated with spaces. The metric
                 name will be derived by converting this to snake_case.
             description: Description to use for the metric.
-            additional_attributes: Mapping of any attributes to add to meter.
+            histogram_attributes: Mapping of any attributes to add to meter.
                 This tracker already adds common attributes like 'workflow_id'
                 or 'activity_type'. Moreover, a 'status' will be added to
                 indicate if an exception was raised within the block ('FAILED')
@@ -161,7 +165,7 @@ class ExecutionTimeRecorder:
         delta_milli_seconds = int((end_counter - start_counter) * 1000)
         delta = dt.timedelta(milliseconds=delta_milli_seconds)
 
-        attributes = get_attributes(self.additional_attributes)
+        attributes = get_attributes(self.histogram_attributes)
         if exc_value is not None:
             attributes["status"] = "FAILED"
             attributes["exception"] = str(exc_value)
