@@ -13,7 +13,6 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
-import './MetricsTable.scss'
 
 interface MetricsTableProps {
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
@@ -66,8 +65,8 @@ export function MetricsTable({
 
     if (metrics.length === 0) {
         return (
-            <div className="metrics-table-empty">
-                <div className="text-muted text-center py-8">
+            <div className="p-8 text-center border border-border rounded-md bg-bg-table">
+                <div className="text-muted">
                     No {isSecondary ? 'secondary' : 'primary'} metrics configured
                 </div>
             </div>
@@ -76,15 +75,15 @@ export function MetricsTable({
 
     if (resultsLoading) {
         return (
-            <div className="metrics-table-loading">
+            <div className="p-8 text-center border border-border rounded-md bg-bg-table">
                 <ChartLoadingState height={200} />
             </div>
         )
     }
 
     return (
-        <div className="metrics-table-container">
-            <table className="metrics-table">
+        <div className="w-full overflow-x-auto rounded-md border border-border bg-bg-table">
+            <table className="w-full border-collapse text-sm">
                 <TableHeader />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {

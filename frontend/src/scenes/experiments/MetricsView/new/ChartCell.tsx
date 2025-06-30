@@ -40,19 +40,19 @@ export function ChartCell({ variantResult, chartRadius, metricIndex, isSecondary
 
     if (!hasEnoughData) {
         return (
-            <td className="chart-cell">
+            <td className="w-2/5 min-w-[300px] border-b border-border p-2 align-top text-center">
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
         )
     }
 
     return (
-        <td className="chart-cell">
+        <td className="w-2/5 min-w-[300px] border-b border-border p-2 align-top text-center">
             <svg
                 ref={svgRef}
                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                 preserveAspectRatio="xMidYMid meet"
-                className="w-full"
+                className="block w-full max-w-full"
                 style={{ height: `${svgHeight}px` }}
             >
                 {/* Gradient definition */}

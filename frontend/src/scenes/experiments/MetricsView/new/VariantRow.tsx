@@ -45,10 +45,10 @@ export function VariantRow({
     }
 
     return (
-        <tr className="variant-row">
+        <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
-                <td className="metric-cell" rowSpan={totalVariantRows}>
+                <td className="w-1/4 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative" rowSpan={totalVariantRows}>
                     <MetricHeader
                         metricIndex={metricIndex}
                         metric={metric}
@@ -62,7 +62,7 @@ export function VariantRow({
 
             {/* Baseline column - only render for first row with rowspan */}
             {isFirstRow && (
-                <td className="baseline-cell" rowSpan={totalVariantRows}>
+                <td className="w-1/5 border-b border-r border-border p-3 align-top text-center" rowSpan={totalVariantRows}>
                     {baselineResult ? (
                         <div className="flex flex-col items-center space-y-1">
                             <span className="text-sm font-semibold text-text-primary">{baselineResult.key}</span>
@@ -78,7 +78,7 @@ export function VariantRow({
             )}
 
             {/* Variant column - show current test variant */}
-            <td className="variant-cell">
+            <td className="w-1/5 border-b border-r border-border p-3 align-top text-center">
                 {testVariantResult ? (
                     <div className="flex flex-col items-center space-y-1">
                         <span className="text-sm font-semibold text-text-primary">{testVariantResult.key}</span>
