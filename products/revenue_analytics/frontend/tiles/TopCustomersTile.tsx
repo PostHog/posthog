@@ -43,14 +43,7 @@ export const TopCustomersTile = (): JSX.Element => {
         return {
             name: { title: 'Name' },
             customer_id: {
-                title: (
-                    <span>
-                        Customer ID{' '}
-                        <Tooltip title="As seen in your Data Warehouse">
-                            <IconInfo />
-                        </Tooltip>
-                    </span>
-                ),
+                title: 'Customer ID',
             },
             month: { title: ' ', width: '0px', render: () => null }, // Hide month column by setting width to 0 and whitespace string
             amount: {

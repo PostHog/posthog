@@ -20,7 +20,6 @@ from posthog.hogql.database.models import (
 from .revenue_analytics_base_view import events_expr_for_team
 from posthog.schema import RevenueAnalyticsPersonsJoinMode
 from posthog.schema import (
-    RevenueAnalyticsPersonsJoinMode,
     HogQLQueryModifiers,
 )
 
@@ -86,10 +85,11 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="cohort", expr=get_cohort_expr("created_at")),
                     ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
                     ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=["id"])),
+                    ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])),
                 ],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["persons"]),
+                    alias="persons",
                     next_join=ast.JoinExpr(
                         table=events_query,
                         alias="events",
@@ -97,8 +97,8 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                         constraint=ast.JoinConstraint(
                             constraint_type="ON",
                             expr=ast.CompareOperation(
-                                left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=["events", "person_id"]),
+                                left=ast.Field(chain=["id"]),
+                                right=ast.Field(chain=["person_id"]),
                                 op=ast.CompareOperationOp.Eq,
                             ),
                         ),
@@ -271,7 +271,12 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def _schema_source_distinct_id_expr(cls, modifiers: HogQLQueryModifiers, chain: list[str] = []) -> ast.Expr:
+    def _schema_source_distinct_id_expr(
+        cls, modifiers: HogQLQueryModifiers, chain: list[str] | None = None
+    ) -> ast.Expr:
+        if chain is None:
+            chain = []
+
         if modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.ID:
             return ast.Field(chain=[*chain, "id"])
         elif modifiers.revenueAnalyticsPersonsJoinMode == RevenueAnalyticsPersonsJoinMode.EMAIL:

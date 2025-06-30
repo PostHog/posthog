@@ -51,9 +51,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
-from posthog.hogql.database.schema.revenue_analytics import (
-    RawRevenueAnalyticsTable,
-)
+from posthog.hogql.database.schema.revenue_analytics import RawRevenueAnalyticsTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -795,13 +793,6 @@ def create_hogql_database(
             except Exception as e:
                 capture_exception(e)
 
-    # with timings.measure("revenue_analytics_tables"):
-    #     database.persons.fields["pdi"] = LazyJoin(
-    #         from_field=["pdi", "distinct_id"],
-    #         join_table=database.raw_revenue_analytics,
-    #         join_function=join_with_revenue_analytics_table,
-    #     )
-
     with timings.measure("virtual_properties"):
         with timings.measure("initial_domain_type"):
             field_name = "$virt_initial_referring_domain_type"
@@ -824,22 +815,14 @@ def create_hogql_database(
             )
         with timings.measure("revenue"):
             field_name = "$virt_revenue"
-            database.persons.fields[field_name] = ast.ExpressionField(
-                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
-            )
-            poe.fields[field_name] = ast.ExpressionField(
-                name=field_name, expr=parse_expr("sum(pdi.revenue_analytics.revenue) OVER(PARTITION BY persons.id)")
-            )
+            database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+            poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
         with timings.measure("revenue_last_30_days"):
             field_name = "$virt_revenue_last_30_days"
-            database.persons.fields[field_name] = ast.ExpressionField(
-                name=field_name,
-                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
+            database.persons.fields[field_name] = ast.FieldTraverser(
+                chain=["revenue_analytics", "revenue_last_30_days"]
             )
-            poe.fields[field_name] = ast.ExpressionField(
-                name=field_name,
-                expr=parse_expr("sum(pdi.revenue_analytics.revenue_last_30_days) OVER(PARTITION BY persons.id)"),
-            )
+            poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
 
     return database
 

@@ -14,6 +14,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     FieldOrTable,
 )
+from posthog.schema import HogQLQueryModifiers
 
 SOURCE_VIEW_SUFFIX = "subscription_revenue_view"
 
@@ -39,11 +40,11 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
 
     # No subscription views for events, we only have that for schema sources
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: "Team", modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         return []
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(cls, source: ExternalDataSource, modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

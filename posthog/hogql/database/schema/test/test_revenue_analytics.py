@@ -51,17 +51,18 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
 
     def setup_events(self):
         self.person_id = "00000000-0000-0000-0000-000000000000"
+        self.distinct_id = "distinct_id"
 
         _create_person(
             uuid=self.person_id,
             team_id=self.team.pk,
-            distinct_ids=[self.person_id],
+            distinct_ids=[self.distinct_id],
         )
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.person_id,
+            distinct_id=self.distinct_id,
             timestamp=self.QUERY_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 10000},
         )
@@ -69,7 +70,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
             team=self.team,
-            distinct_id=self.person_id,
+            distinct_id=self.distinct_id,
             timestamp=self.QUERY_TIMESTAMP,
             properties={self.REVENUE_PROPERTY: 25042},
         )
@@ -133,18 +134,15 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            queries = [
-                "select pdi.revenue_analytics.revenue from persons where id = {person_id}",
-                "select $virt_revenue from persons where id = {person_id}",
-            ]
+            response = execute_hogql_query(
+                parse_select(
+                    "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
+                    placeholders={"id": ast.Constant(value=self.person_id)},
+                ),
+                self.team,
+            )
 
-            for query in queries:
-                response = execute_hogql_query(
-                    parse_select(query, placeholders={"person_id": ast.Constant(value=self.person_id)}),
-                    self.team,
-                )
-
-                assert response.results[0][0] == Decimal("350.42")
+            self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
 
     def test_get_revenue_for_schema_source_for_id_join(self):
         self.setup_schema_sources()
@@ -153,27 +151,32 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        for person_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+        distinct_id_to_person_id: dict[str, str] = {}
+        for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            distinct_id_to_person_id[distinct_id] = person.uuid
 
         with freeze_time(self.QUERY_TIMESTAMP):
             queries = [
-                "select pdi.distinct_id, pdi.revenue_analytics.revenue from persons order by id asc",
-                "select pdi.distinct_id, $virt_revenue from persons order by id asc",
+                "SELECT id, revenue_analytics.revenue from persons order by id asc",
+                "SELECT id, $virt_revenue from persons order by id asc",
             ]
 
             for query in queries:
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
 
-                assert response.results == [
-                    ("cus_1", Decimal("429.7424")),
-                    ("cus_2", Decimal("287.4779")),
-                    ("cus_3", Decimal("26182.78099")),
-                    ("cus_4", Decimal("254.12345")),
-                    ("cus_5", Decimal("626.83253")),
-                    ("cus_6", Decimal("17476.47254")),
-                    ("dummy", None),
-                ]
+                self.assertEqual(
+                    response.results,
+                    [
+                        (distinct_id_to_person_id["cus_1"], Decimal("429.7423999996")),
+                        (distinct_id_to_person_id["cus_2"], Decimal("287.4778999992")),
+                        (distinct_id_to_person_id["cus_3"], Decimal("26182.78099")),
+                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
+                        (distinct_id_to_person_id["cus_5"], Decimal("626.83253")),
+                        (distinct_id_to_person_id["cus_6"], Decimal("17476.47254")),
+                        (distinct_id_to_person_id["dummy"], None),
+                    ],
+                )
 
     def test_get_revenue_for_schema_source_for_email_join(self):
         self.setup_schema_sources()
@@ -182,7 +185,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        for person_id in [
+        distinct_id_to_person_id: dict[str, str] = {}
+        for distinct_id in [
             "john.doe@example.com",  # cus_1
             "jane.doe@example.com",  # cus_2
             "john.smith@example.com",  # cus_3
@@ -191,26 +195,44 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             "john.doejrjr@example.com",  # cus_6
             "zdummy",
         ]:
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            distinct_id_to_person_id[distinct_id] = person.uuid
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            queries = [
-                "select pdi.distinct_id, pdi.revenue_analytics.revenue from persons order by id asc",
-                "select pdi.distinct_id, $virt_revenue from persons order by id asc",
-            ]
+            response = execute_hogql_query(
+                parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
+                self.team,
+                modifiers=modifiers,
+            )
 
-            for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
-
-                assert response.results == [
-                    ("john.doe@example.com", Decimal("429.7424")),
-                    ("jane.doe@example.com", Decimal("287.4779")),
-                    ("john.smith@example.com", Decimal("26182.78099")),
-                    ("jane.smith@example.com", Decimal("254.12345")),
-                    ("john.doejr@example.com", Decimal("626.83253")),
-                    ("john.doejrjr@example.com", Decimal("17476.47254")),
-                    ("zdummy", None),
-                ]
+            self.assertEqual(
+                response.results,
+                [
+                    (
+                        distinct_id_to_person_id["john.doe@example.com"],
+                        Decimal("429.7423999996"),
+                        Decimal("429.7423999996"),
+                    ),
+                    (
+                        distinct_id_to_person_id["jane.doe@example.com"],
+                        Decimal("287.4778999992"),
+                        Decimal("287.4778999992"),
+                    ),
+                    (
+                        distinct_id_to_person_id["john.smith@example.com"],
+                        Decimal("26182.78099"),
+                        Decimal("26182.78099"),
+                    ),
+                    (distinct_id_to_person_id["jane.smith@example.com"], Decimal("254.12345"), Decimal("254.12345")),
+                    (distinct_id_to_person_id["john.doejr@example.com"], Decimal("626.83253"), Decimal("626.83253")),
+                    (
+                        distinct_id_to_person_id["john.doejrjr@example.com"],
+                        Decimal("17476.47254"),
+                        Decimal("17476.47254"),
+                    ),
+                    (distinct_id_to_person_id["zdummy"], None, None),
+                ],
+            )
 
     def test_get_revenue_for_schema_source_for_custom_join(self):
         self.setup_schema_sources()
@@ -222,7 +244,8 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         )
 
         # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        for person_id in [
+        distinct_id_to_person_id: dict[str, str] = {}
+        for distinct_id in [
             "cus_1_metadata",
             "cus_2_metadata",
             "cus_3_metadata",
@@ -231,26 +254,28 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             "cus_6_metadata",
             "dummy",
         ]:
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            distinct_id_to_person_id[distinct_id] = person.uuid
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            queries = [
-                "select pdi.distinct_id, pdi.revenue_analytics.revenue from persons order by id asc",
-                "select pdi.distinct_id, $virt_revenue from persons order by id asc",
-            ]
+            response = execute_hogql_query(
+                parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
+                self.team,
+                modifiers=modifiers,
+            )
 
-            for query in queries:
-                response = execute_hogql_query(parse_select(query), self.team, modifiers=modifiers)
-
-                assert response.results == [
-                    ("cus_1_metadata", Decimal("429.7424")),
-                    ("cus_2_metadata", Decimal("287.4779")),
-                    ("cus_3_metadata", Decimal("26182.78099")),
-                    ("cus_4_metadata", Decimal("254.12345")),
-                    ("cus_5_metadata", Decimal("626.83253")),
-                    ("cus_6_metadata", Decimal("17476.47254")),
-                    ("dummy", None),
-                ]
+            self.assertEqual(
+                response.results,
+                [
+                    (distinct_id_to_person_id["cus_1_metadata"], Decimal("429.7423999996"), Decimal("429.7423999996")),
+                    (distinct_id_to_person_id["cus_2_metadata"], Decimal("287.4778999992"), Decimal("287.4778999992")),
+                    (distinct_id_to_person_id["cus_3_metadata"], Decimal("26182.78099"), Decimal("26182.78099")),
+                    (distinct_id_to_person_id["cus_4_metadata"], Decimal("254.12345"), Decimal("254.12345")),
+                    (distinct_id_to_person_id["cus_5_metadata"], Decimal("626.83253"), Decimal("626.83253")),
+                    (distinct_id_to_person_id["cus_6_metadata"], Decimal("17476.47254"), Decimal("17476.47254")),
+                    (distinct_id_to_person_id["dummy"], None, None),
+                ],
+            )
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
         self.setup_schema_sources()
@@ -259,31 +284,32 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Person has several distinct IDs, but only one of them can be matched from the customer table
-        _create_person(team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"])
+        multiple_distinct_ids_person = _create_person(
+            team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"]
+        )
 
         # Dummy person without revenue
-        _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
+        dummy_person = _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
 
         with freeze_time(self.QUERY_TIMESTAMP):
             response = execute_hogql_query(
-                parse_select("SELECT DISTINCT pdi.distinct_id, $virt_revenue AS r FROM persons ORDER BY r ASC"),
+                parse_select("SELECT id, $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
                 modifiers=modifiers,
             )
 
-            assert response.results == [
-                (
-                    "distinct_1",
-                    Decimal("429.7424"),
-                ),  # This displays because it sums for everyone with the same person_id
-                ("john.doe@example.com", Decimal("429.7424")),
-                ("dummy", None),
-            ]
+            self.assertEqual(
+                response.results,
+                [
+                    (multiple_distinct_ids_person.uuid, Decimal("429.7423999996")),
+                    (dummy_person.uuid, None),
+                ],
+            )
 
             response = execute_hogql_query(
-                parse_select("SELECT DISTINCT $virt_revenue AS r FROM persons ORDER BY r ASC"),
+                parse_select("SELECT $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
                 modifiers=modifiers,
             )
 
-            assert response.results == [(Decimal("429.7424"),), (None,)]
+            self.assertEqual(response.results, [(Decimal("429.7423999996"),), (None,)])

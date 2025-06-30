@@ -17,7 +17,7 @@ from products.revenue_analytics.backend.views import (
 )
 
 REVENUE_ANALYTICS_FIELDS: dict[str, FieldOrTable] = {
-    "distinct_id": StringDatabaseField(name="distinct_id"),
+    "person_id": StringDatabaseField(name="person_id"),
     "revenue": DecimalDatabaseField(name="revenue", nullable=False),
     "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
 }
@@ -39,8 +39,8 @@ def join_with_revenue_analytics_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Call(name="toString", args=[ast.Field(chain=[join_to_add.from_table, "distinct_id"])]),
-            right=ast.Field(chain=[join_to_add.to_table, "distinct_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, "id"]),
+            right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
         ),
         constraint_type="ON",
     )
@@ -82,8 +82,8 @@ def select_from_revenue_analytics_table(
     return ast.SelectQuery(
         select=[
             ast.Alias(
-                alias="distinct_id",
-                expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "distinct_id"]),
+                alias="person_id",
+                expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "person_id"]),
             ),
             ast.Alias(
                 alias="revenue",
@@ -128,7 +128,7 @@ def select_from_revenue_analytics_table(
                 ),
             ),
         ),
-        group_by=[ast.Field(chain=["distinct_id"])],
+        group_by=[ast.Field(chain=["person_id"])],
     )
 
 

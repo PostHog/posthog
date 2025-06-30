@@ -9,13 +9,8 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
     LazyTableToAdd,
-    LazyJoin,
     LazyJoinToAdd,
     StringDatabaseField,
-)
-from posthog.hogql.database.schema.revenue_analytics import (
-    RawRevenueAnalyticsTable,
-    join_with_revenue_analytics_table,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.models.organization import Organization
@@ -24,11 +19,6 @@ FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "person_id": StringDatabaseField(name="person_id", nullable=False),
-    "revenue_analytics": LazyJoin(
-        from_field=["distinct_id"],
-        join_table=RawRevenueAnalyticsTable(),
-        join_function=join_with_revenue_analytics_table,
-    ),
 }
 
 
