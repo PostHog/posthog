@@ -144,7 +144,7 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(3) // NOT 4
 
             // At this point we have 3 background work items so we must be waiting for one of them
-            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTasks']).toEqual([p1.promise, p2.promise, p3.promise])
 
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
@@ -159,7 +159,7 @@ describe('consumer', () => {
             // Check the other background work releases has no effect on the consume call count
             expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(4)
 
-            expect(consumer['backgroundTask']).toEqual([])
+            expect(consumer['backgroundTasks']).toEqual([])
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
@@ -183,19 +183,19 @@ describe('consumer', () => {
 
             // At this point we have 3 background work items so we must be waiting for one of them
 
-            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(consumer['backgroundTasks']).toEqual([p1.promise, p2.promise, p3.promise])
             expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
 
             p1.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask']).toEqual([p2.promise, p3.promise])
+            expect(consumer['backgroundTasks']).toEqual([p2.promise, p3.promise])
             p3.resolve()
             await delay(1) // Let the promises callbacks trigger
-            expect(consumer['backgroundTask']).toEqual([p2.promise])
+            expect(consumer['backgroundTasks']).toEqual([p2.promise])
             p2.resolve()
             await delay(1) // Let the promises callbacks trigger
 
-            expect(consumer['backgroundTask']).toEqual([])
+            expect(consumer['backgroundTasks']).toEqual([])
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
                 [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
                 [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
