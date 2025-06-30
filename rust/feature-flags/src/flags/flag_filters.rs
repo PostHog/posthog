@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+use crate::flags::flag_models::FlagFilters;
 
 impl FlagFilters {
     pub fn requires_db_properties(&self, overrides: &HashMap<String, Value>) -> bool {
@@ -11,7 +11,10 @@ impl FlagFilters {
                 .super_groups
                 .as_ref()
                 .map_or(false, |groups| !groups.is_empty())
-            || any_group_requires_db_properties(Some(&self.groups), overrides)
+            || self
+                .groups
+                .iter()
+                .any(|group| group.requires_db_properties(overrides))
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
@@ -21,27 +24,17 @@ impl FlagFilters {
     }
 }
 
-fn any_group_requires_db_properties(
-    groups: Option<&Vec<FlagPropertyGroup>>,
-    overrides: &HashMap<String, Value>,
-) -> bool {
-    groups.map_or(false, |groups| {
-        groups
-            .iter()
-            .any(|group| group.requires_db_properties(overrides))
-    })
-}
-
-
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
     use crate::{
-        flags::test_helpers::{
-            create_simple_flag_filters, create_simple_flag_property_group,
-            create_simple_property_filter,
+        flags::{
+            flag_models::FlagPropertyGroup,
+            test_helpers::{
+                create_simple_flag_filters, create_simple_flag_property_group,
+                create_simple_property_filter,
+            },
         },
         properties::property_models::{OperatorType, PropertyType},
     };
@@ -219,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_requires_db_properties_when_not_enough_overrides_single_group() {
-        let groups = vec![create_simple_flag_property_group(
+        let filters = create_simple_flag_filters(vec![create_simple_flag_property_group(
             vec![
                 create_simple_property_filter(
                     "some_key",
@@ -233,13 +226,14 @@ mod tests {
                 ),
             ],
             100.0,
-        )];
+        )]);
 
         {
             let overrides =
                 HashMap::from([("some_key".to_string(), Value::String("value".to_string()))]);
-            assert!(any_group_requires_db_properties(Some(&groups), &overrides));
+            assert!(filters.requires_db_properties(&overrides));
         }
+
         {
             let overrides = HashMap::from([
                 ("some_key".to_string(), Value::String("value".to_string())),
@@ -252,13 +246,13 @@ mod tests {
                     Value::String("value".to_string()),
                 ),
             ]);
-            assert!(!any_group_requires_db_properties(Some(&groups), &overrides));
+            assert!(!filters.requires_db_properties(&overrides));
         }
     }
 
     #[test]
     fn test_requires_db_properties_when_overrides_not_enough_for_multiple_groups() {
-        let groups = vec![
+        let filters = create_simple_flag_filters(vec![
             create_simple_flag_property_group(
                 vec![
                     create_simple_property_filter(
@@ -282,7 +276,7 @@ mod tests {
                 )],
                 100.0,
             ),
-        ];
+        ]);
 
         {
             // Not enough overrides to evaluate locally
@@ -294,7 +288,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(any_group_requires_db_properties(Some(&groups), &overrides));
+            assert!(filters.requires_db_properties(&overrides));
         }
 
         {
@@ -311,7 +305,7 @@ mod tests {
                 ),
             ]);
 
-            assert!(!any_group_requires_db_properties(Some(&groups), &overrides));
+            assert!(!filters.requires_db_properties(&overrides));
         }
     }
 }
