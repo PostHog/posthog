@@ -182,7 +182,7 @@ async def _generate_patterns_assignments(
     for chunk_index, task in tasks.items():
         res = task.result()
         if isinstance(res, Exception):
-            temporalio.workflow.logger.warning(
+            logger.warning(
                 f"Patterns assignments generation failed for chunk from sessions ({session_ids}) for user {user_id}: {res}"
             )
             continue
