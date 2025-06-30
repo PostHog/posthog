@@ -684,16 +684,16 @@ def mark_deletions_verified(
     pending_deletions_dictionary: PendingDeletesDictionary,
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
 ) -> VerifiedDeletionResources:
-    # TODO: better keep in sync with load_pending_deletions
-    pending_deletions = AsyncDeletion.objects.filter(
-        Q(deletion_type=DeletionType.Person, created_at__lte=pending_deletions_dictionary.source.timestamp)
-        | Q(deletion_type=DeletionType.Team),
-        delete_verified_at__isnull=True,
-    )
-    if pending_deletions_dictionary.source.team_id:
-        pending_deletions = pending_deletions.filter(team_id=pending_deletions_dictionary.source.team_id)
+    now = timezone.now()
 
-    pending_deletions.update(delete_verified_at=timezone.now())
+    deletion_ids = [
+        id
+        for (id,) in cluster.any_host_by_role(
+            Query(f"SELECT id FROM {pending_deletions_dictionary.source.qualified_name}"), node_role=NodeRole.DATA
+        ).result()
+    ]
+    for chunk in chunked(deletion_ids, n=10000):
+        AsyncDeletion.objects.filter(id__in=chunk).update(delete_verified_at=now)
 
     # Mark adhoc event deletes as verified
     def mark_adhoc_event_deletes_done(client: Client) -> None:
