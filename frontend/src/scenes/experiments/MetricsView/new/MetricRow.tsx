@@ -94,9 +94,14 @@ export function MetricRow({
                         style={{ height: `${panelHeight}px` }}
                     >
                         {result && hasMinimumExposureForResults && variantResults.length > 0 ? (
-                            <div className="px-3 py-2 h-full flex flex-col justify-center space-y-2">
-                                {variantResults.map((variantResult: any) => (
-                                    <div key={variantResult.key} className="flex justify-between items-center">
+                            <div className="h-full flex flex-col justify-center">
+                                {variantResults.map((variantResult: any, index: number) => (
+                                    <div
+                                        key={variantResult.key}
+                                        className={`flex justify-between items-center px-3 py-2 ${
+                                            index < variantResults.length - 1 ? 'border-b border-border' : ''
+                                        }`}
+                                    >
                                         <span className="text-sm font-semibold text-text-primary">
                                             {variantResult.key}
                                         </span>
