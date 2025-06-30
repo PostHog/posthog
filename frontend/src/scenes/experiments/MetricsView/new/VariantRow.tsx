@@ -48,7 +48,7 @@ export function VariantRow({
         <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
-                <td className="w-1/4 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative" rowSpan={totalVariantRows}>
+                <td className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative" rowSpan={totalVariantRows}>
                     <MetricHeader
                         metricIndex={metricIndex}
                         metric={metric}
@@ -62,7 +62,7 @@ export function VariantRow({
 
             {/* Baseline column - only render for first row with rowspan */}
             {isFirstRow && (
-                <td className="w-1/5 border-b border-r border-border p-3 align-top text-left" rowSpan={totalVariantRows}>
+                <td className="w-1/6 border-b border-r border-border p-3 align-top text-left" rowSpan={totalVariantRows}>
                     {baselineResult ? (
                         <div className="text-sm">
                             <div className="font-semibold text-text-primary">
@@ -78,12 +78,23 @@ export function VariantRow({
                 </td>
             )}
 
-            {/* Variant column - show current test variant */}
-            <td className="w-1/5 border-b border-r border-border p-3 align-top text-left">
+            {/* Variant column - show only variant key */}
+            <td className="w-1/6 border-b border-r border-border p-3 align-top text-left">
+                {testVariantResult ? (
+                    <div className="text-sm font-semibold text-text-primary">
+                        {testVariantResult.key}
+                    </div>
+                ) : (
+                    <div className="text-xs text-muted">—</div>
+                )}
+            </td>
+
+            {/* Value column - show conversion rate and raw counts */}
+            <td className="w-1/6 border-b border-r border-border p-3 align-top text-left">
                 {testVariantResult ? (
                     <div className="text-sm">
                         <div className="font-semibold text-text-primary">
-                            {testVariantResult.key}: {formatVariantData(testVariantResult).formattedValue}
+                            {formatVariantData(testVariantResult).formattedValue}
                         </div>
                         <div className="text-xs text-muted">
                             {testVariantResult.sum}/{humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
