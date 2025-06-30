@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta, MO, SU
 from django.utils import timezone
 from typing import Union
@@ -69,11 +69,11 @@ def get_earliest_timestamp_from_series(
     return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
-def _get_week_boundaries(date: datetime, week_start_day: WeekStartDay) -> tuple[datetime, datetime]:
+def _get_week_boundaries(input_date: date, week_start_day: WeekStartDay) -> tuple[date, date]:
     """
     Get the start and end dates of the week for a given date, considering the week start day.
 
-    :param date: The date for which to find the week boundaries.
+    :param input_date: The date for which to find the week boundaries.
     :param week_start_day: The day that the week starts on (e.g., Sunday or Monday).
     :return: A tuple containing the start and end dates of the week.
     """
@@ -82,13 +82,13 @@ def _get_week_boundaries(date: datetime, week_start_day: WeekStartDay) -> tuple[
     else:
         week_start = SU
 
-    start_date = date + relativedelta(weekday=week_start(-1))
+    start_date = input_date + relativedelta(weekday=week_start(-1))
     end_date = start_date + timedelta(days=6)
 
     return start_date, end_date
 
 
-def _format_date_range(start_date: datetime, end_date: datetime) -> str:
+def _format_date_range(start_date: date, end_date: date) -> str:
     """
     Format the date range based on the start and end dates, considering the query date range.
 
@@ -107,20 +107,16 @@ def _format_date_range(start_date: datetime, end_date: datetime) -> str:
     return f"{start_date.strftime('%-d')}–{end_date.strftime('%-d %b')}"
 
 
-def _format_week_label(date: datetime, query_date_range: QueryDateRange, week_start_day: WeekStartDay) -> str:
+def _format_week_label(input_date: date, query_date_range: QueryDateRange, week_start_day: WeekStartDay) -> str:
     """
     Format a date to be used as a label for a week.
 
-    :param date: The date in the week to format.
+    :param input_date: The date in the week to format.
     :param query_date_range: The query date range containing the date_from and date_to.
     :param week_start_day: The day that the week starts on (e.g., Sunday or Monday).
     :return: A formatted string representing the week label.
     """
-    date = date.date() if isinstance(date, datetime) else date
-    start_date, end_date = _get_week_boundaries(date, week_start_day)
-
-    start_date = start_date.date() if isinstance(start_date, datetime) else start_date
-    end_date = end_date.date() if isinstance(end_date, datetime) else end_date
+    start_date, end_date = _get_week_boundaries(input_date, week_start_day)
 
     # Ensure the start and end dates are within the query date range
     start_date = max(start_date, query_date_range.date_from().date())
@@ -132,11 +128,13 @@ def _format_week_label(date: datetime, query_date_range: QueryDateRange, week_st
     return _format_date_range(start_date, end_date)
 
 
-def format_label_date(date: datetime, query_date_range: QueryDateRange, week_start_day=WeekStartDay.SUNDAY) -> str:
+def format_label_date(
+    input_date: datetime, query_date_range: QueryDateRange, week_start_day=WeekStartDay.SUNDAY
+) -> str:
     """
     Format a date to be used as a label.
 
-    :param date: The date to format.
+    :param input_date: The date to format.
     :param query_date_range: The query date range containing the date_from and date_to.
     :param week_start_day: The day that the week starts on (e.g., Sunday or Monday).
     :return: A formatted string representing the date label.
@@ -144,7 +142,9 @@ def format_label_date(date: datetime, query_date_range: QueryDateRange, week_sta
     interval = query_date_range.interval_name
 
     if interval == "week":
-        return _format_week_label(date, query_date_range, week_start_day)
+        return _format_week_label(
+            input_date.date() if isinstance(input_date, datetime) else input_date, query_date_range, week_start_day
+        )
 
     date_formats = {
         "day": "%-d-%b-%Y",
@@ -154,4 +154,4 @@ def format_label_date(date: datetime, query_date_range: QueryDateRange, week_sta
     }
     labels_format = date_formats.get(interval, date_formats["day"])
 
-    return date.strftime(labels_format)
+    return input_date.strftime(labels_format)
