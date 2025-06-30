@@ -338,8 +338,11 @@ export class KafkaConsumer {
             await this.consumePromise
         }
 
+        const timeoutMs = this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS
+
+        // TRICKY: node-rdkafka has a bug where it wont respect the batchsize if it is 0 so we override it here
         this.consumePromise = retryIfRetriable(() =>
-            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(batchSize, cb))
+            promisifyCallback<Message[]>((cb) => (this.rdKafkaConsumer as any)['_consumeNum'](timeoutMs, batchSize, cb))
         ).finally(() => {
             this.consumePromise = null
         })
