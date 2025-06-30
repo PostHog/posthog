@@ -5,14 +5,54 @@
 # These endpoints are converted into ExternalDataSchema objects when a source is linked.
 
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
+)
 
-
-ENDPOINTS = ("BalanceTransaction", "Subscription", "Customer", "Product", "Price", "Invoice", "Charge")
-
-INCREMENTAL_ENDPOINTS = ("BalanceTransaction", "Subscription", "Customer", "Product", "Price", "Invoice", "Charge")
+ENDPOINTS = (
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
+)
+INCREMENTAL_ENDPOINTS = (
+    ACCOUNT_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
+)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    "Account": [
+    ACCOUNT_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -20,7 +60,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "BalanceTransaction": [
+    BALANCE_TRANSACTION_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -28,7 +68,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Subscription": [
+    SUBSCRIPTION_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -36,7 +76,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Customer": [
+    CUSTOMER_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -44,7 +84,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Product": [
+    PRODUCT_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -52,7 +92,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Price": [
+    PRICE_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -60,7 +100,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Invoice": [
+    INVOICE_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,
@@ -68,7 +108,47 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
-    "Charge": [
+    CHARGE_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    DISPUTE_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    INVOICE_ITEM_RESOURCE_NAME: [
+        {
+            "label": "date",
+            "type": IncrementalFieldType.DateTime,
+            "field": "date",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    PAYOUT_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    REFUND_RESOURCE_NAME: [
+        {
+            "label": "created_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "created",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ],
+    CREDIT_NOTE_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,

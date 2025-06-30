@@ -39,7 +39,8 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "error_message": error,
                     }
                 },
-                "team_id": self.team_id,
+                "team": self.team,
+                "user": user,
                 "trace_id": trace_id,
                 "distinct_id": user.distinct_id,
             },
@@ -50,7 +51,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         }
 
-        result = HogQLQueryFixerTool(_team_id=self.team_id, _context={}).invoke({}, config)
+        result = HogQLQueryFixerTool().invoke({}, config)  # type: ignore
 
         if result is None or (isinstance(result, str) and len(result) == 0):
             return Response({"trace_id": trace_id, "error": "Could not fix the query"}, status=400)

@@ -114,6 +114,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     )
 
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
+    size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
     __repr__ = sane_repr("name")
 
@@ -185,7 +186,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
                 result = sync_execute(
                     f"""DESCRIBE TABLE (
@@ -262,7 +263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",

@@ -60,7 +60,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -126,7 +127,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelStrictStepsBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
@@ -190,7 +192,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -261,7 +264,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -332,7 +336,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group
@@ -410,7 +415,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
@@ -479,7 +485,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
@@ -548,7 +555,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
@@ -617,7 +625,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
@@ -686,6 +695,7 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

@@ -24,6 +24,9 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from django.db import transaction
+from posthog.warehouse.models import DataWarehouseModelPath
+import logging
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
@@ -103,3 +106,25 @@ def saved_query_workflow_exists(id: str) -> bool:
 def trigger_saved_query_schedule(saved_query: "DataWarehouseSavedQuery"):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(saved_query.id))
+
+
+def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
+    """
+    Recreate model paths for a saved query after materialization.
+    After a query has been reverted and then re-materialized, we need to ensure
+    the model paths exist for the temporal workflow to properly build the DAG.
+    """
+
+    try:
+        with transaction.atomic():
+            if not DataWarehouseModelPath.objects.filter(
+                team=saved_query.team, path__contains=[saved_query.id.hex]
+            ).exists():
+                DataWarehouseModelPath.objects.update_or_create(team=saved_query.team, path=[saved_query.id.hex])
+                for table_name in saved_query.s3_tables:
+                    DataWarehouseModelPath.objects.update_or_create(
+                        team=saved_query.team, path=[table_name, saved_query.id.hex]
+                    )
+    except Exception as e:
+        logging.exception(f"Failed to recreate model paths for {saved_query.id}: {str(e)}")
+        raise

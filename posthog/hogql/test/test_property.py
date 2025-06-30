@@ -314,35 +314,41 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": "ReferenceError",
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("arrayExists(v -> toString(v) ilike '%ReferenceError%', properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": ["ReferenceError", "TypeError"],
                     "operator": "exact",
                 }
             ),
-            self._parse_expr("arrayExists(v -> v in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": ["ReferenceError", "TypeError"],
                     "operator": "is_not",
                 }
             ),
-            self._parse_expr("arrayExists(v -> v not in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+            self._parse_expr(
+                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -350,11 +356,11 @@ class TestProperty(BaseTest):
                     "key": "$exception_types",
                     "value": "ValidationError",
                     "operator": "not_regex",
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), properties.$exception_types)"
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
 
@@ -928,3 +934,13 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event_metadata' property filter does not work in 'person' scope",
         )
+
+    def test_virtual_person_properties_on_person_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
+        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
+
+    def test_virtual_person_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
+        ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")

@@ -19,7 +19,7 @@ from products.revenue_analytics.backend.hogql_queries.revenue_example_data_wareh
     RevenueExampleDataWarehouseTablesQueryRunner,
 )
 from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+    STRIPE_CHARGE_RESOURCE_NAME,
 )
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
@@ -52,16 +52,17 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,
             last_synced_at="2024-01-01",
         )
 
-        self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
+        self.team.save()
 
     def tearDown(self):
         self.cleanUpFilesystem()

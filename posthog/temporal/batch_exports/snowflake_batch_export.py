@@ -805,13 +805,13 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails)
-        if details is None:
+        if details is None or str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS:
             details = SnowflakeHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
         model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
         )
 
         data_interval_start = (

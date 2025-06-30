@@ -44,12 +44,14 @@ pub struct FlagFilters {
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
 }
 
+pub type FeatureFlagId = i32;
+
 // TODO: see if you can combine these two structs, like we do with cohort models
 // this will require not deserializing on read and instead doing it lazily, on-demand
 // (which, tbh, is probably a better idea)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeatureFlag {
-    pub id: i32,
+    pub id: FeatureFlagId,
     pub team_id: i32,
     pub name: Option<String>,
     pub key: String,

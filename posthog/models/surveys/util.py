@@ -15,6 +15,7 @@ class SurveyEventProperties(StrEnum):
     SURVEY_SUBMISSION_ID = "$survey_submission_id"
     SURVEY_RESPONDED = "$survey_responded"
     SURVEY_DISMISSED = "$survey_dismissed"
+    SURVEY_COMPLETED = "$survey_completed"
 
 
 class SurveyFeatureFlags(StrEnum):
@@ -75,7 +76,7 @@ def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str
 def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
     """
     Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax().
+    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id).
 
     This handles two scenarios for identifying relevant 'survey sent' events:
     1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
@@ -115,7 +116,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
 
 def get_unique_survey_event_uuids_sql_subquery(
     base_conditions_sql: list[str],
-    group_by_prefix_expressions: list[str],
+    group_by_prefix_expressions: list[str] | None = None,
 ) -> str:
     """
     Generates a SQL subquery string that returns unique event UUIDs for 'survey sent' events,
@@ -140,7 +141,20 @@ def get_unique_survey_event_uuids_sql_subquery(
     if not base_conditions_sql:
         raise ValueError("base_conditions_sql cannot be empty. Provide at least one condition.")
 
-    where_clause = " AND ".join(base_conditions_sql)
+    if group_by_prefix_expressions is None:
+        group_by_prefix_expressions = []
+
+    # Ensure the event filter is present in the base conditions
+    if base_conditions_sql.count(f"event = '{SurveyEventName.SENT}'") == 0:
+        sql_conditions = [*base_conditions_sql, f"event = '{SurveyEventName.SENT}'"]
+    else:
+        sql_conditions = base_conditions_sql
+
+    # Always include the survey_id in the group by
+    if group_by_prefix_expressions.count(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')") == 0:
+        group_by_prefix_expressions.append(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')")
+
+    where_clause = " AND ".join(sql_conditions)
 
     submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID}')"
     deduplication_group_by_key = (

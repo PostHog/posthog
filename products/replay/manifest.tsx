@@ -25,22 +25,26 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         session_recording_playlist: {
+            name: 'Replay playlist',
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
+            iconColor: ['var(--product-session-replay-light)', 'var(--product-session-replay-dark)'],
+            filterKey: 'session_recording_playlist',
         },
     },
     treeItemsNew: [
         {
             path: `Replay playlist`,
             type: 'session_recording_playlist',
-            href: () => urls.replayPlaylist('new'),
+            href: urls.replayPlaylist('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Session replay',
-            href: () => urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
+            category: 'Behavior',
+            href: urls.replay(ReplayTabs.Home),
+            type: 'session_recording_playlist',
         },
     ],
 }

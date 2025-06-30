@@ -7,3 +7,6 @@ pub mod flag_models;
 pub mod flag_operations;
 pub mod flag_request;
 pub mod flag_service;
+
+#[cfg(test)]
+mod test_flag_matching;

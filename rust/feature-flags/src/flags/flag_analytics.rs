@@ -53,10 +53,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_increment_request_count() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
 
         let team_id = 789;
         let count = 5;
+
+        let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
+        let local_eval_key = get_team_request_key(team_id, FlagRequestType::LocalEvaluation);
+
+        // Clean up Redis before the test to ensure no leftover data
+        redis_client.del(decide_key.clone()).await.unwrap();
+        redis_client.del(local_eval_key.clone()).await.unwrap();
 
         // Test for Decide request type
         increment_request_count(
@@ -77,9 +84,6 @@ mod tests {
         )
         .await
         .unwrap();
-
-        let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
-        let local_eval_key = get_team_request_key(team_id, FlagRequestType::LocalEvaluation);
 
         // Get the current time bucket
         let time_bucket = SystemTime::now()

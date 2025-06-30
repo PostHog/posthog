@@ -1,4 +1,4 @@
-import { IconHandMoney, IconPiggyBank } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -23,13 +23,27 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Revenue analytics',
-            icon: <IconPiggyBank />,
-            href: () => urls.revenueAnalytics(),
+            category: 'Analytics',
+            iconType: 'piggyBank',
+            href: urls.revenueAnalytics(),
+            tags: ['beta'],
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
+    ],
+    treeItemsMetadata: [
         {
             path: 'Revenue settings',
-            icon: <IconHandMoney />,
-            href: () => urls.revenueSettings(),
+            category: 'Definitions',
+            iconType: 'handMoney',
+            href: urls.revenueSettings(),
+            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+        },
+        {
+            path: 'Marketing settings',
+            category: 'Definitions',
+            iconType: 'definitions',
+            href: urls.marketingAnalytics(),
+            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         },
     ],
 }

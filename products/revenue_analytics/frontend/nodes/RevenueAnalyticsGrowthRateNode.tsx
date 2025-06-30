@@ -14,6 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 let uniqueNode = 0
 export function RevenueAnalyticsGrowthRateNode(props: {
@@ -21,6 +22,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
+    const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrowthRate.${uniqueNode++}`)
     const logic = dataNodeLogic({
@@ -51,20 +53,20 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     const labels: string[] = Array.from(new Set(results.map((result) => result[0]))).sort() as string[]
     const datasets: (GraphDataset & { colorIndex: number })[] = [
         {
-            id: 1,
+            id: 0,
             label: 'Growth Rate',
             data: results.map((result) => result[3] * 100),
             colorIndex: 0,
         },
         {
-            id: 2,
-            label: '3 Month Growth Rate',
+            id: 1,
+            label: '3 Month Avg. Growth Rate',
             data: results.map((result) => result[4] * 100),
             colorIndex: 1,
         },
         {
-            id: 3,
-            label: '6 Month Growth Rate',
+            id: 2,
+            label: '6 Month Avg. Growth Rate',
             data: results.map((result) => result[5] * 100),
             colorIndex: 2,
         },
@@ -80,6 +82,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
                             type={GraphType.Line}
                             datasets={datasets}
                             labels={labels}
+                            isInProgress={!dateFilter.dateTo}
                             trendsFilter={{ aggregationAxisFormat: 'percentage' }}
                             labelGroupType="none"
                         />

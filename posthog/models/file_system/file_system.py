@@ -4,6 +4,8 @@ from django.utils import timezone
 from django.db import models
 from django.db.models import Q
 from typing import Optional
+
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -16,7 +18,6 @@ class FileSystem(models.Model):
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)
@@ -27,6 +28,9 @@ class FileSystem(models.Model):
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    # DEPRECATED/UNUSED. It's all based on just the team_id.
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
 
     class Meta:
         indexes = [
@@ -69,7 +73,18 @@ def create_or_update_file(
             existing.created_by_id = created_by_id
         existing.save()
 
-    if not has_existing:
+    if has_existing:
+        path = escape_path(name)
+        shortcuts = (
+            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref)
+            .filter(~(Q(path=path) & Q(href=href)))
+            .all()
+        )
+        for shortcut in shortcuts:
+            shortcut.path = path
+            shortcut.href = href
+            shortcut.save()
+    else:
         full_path = f"{base_folder}/{escape_path(name)}"
         FileSystem.objects.create(
             team=team,
@@ -86,7 +101,9 @@ def create_or_update_file(
 
 
 def delete_file(*, team: Team, file_type: str, ref: str):
-    FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    count, _ = FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    if count > 0:
+        FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref).delete()
 
 
 def split_path(path: str) -> list[str]:
