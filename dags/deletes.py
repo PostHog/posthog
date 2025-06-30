@@ -90,7 +90,6 @@ class PendingDeletesTable(Table):
 
     timestamp: datetime
     team_id: int | None = None
-    is_reporting: bool = False
 
     @property
     def timestamp_isoformat(self) -> str:
@@ -102,10 +101,7 @@ class PendingDeletesTable(Table):
 
     @property
     def table_name(self) -> str:
-        if self.is_reporting:
-            return "pending_deletes_reporting"
-        else:
-            return f"pending_deletes_{self.clickhouse_timestamp}"
+        return f"pending_deletes_{self.clickhouse_timestamp}"
 
     @property
     def qualified_name(self):
@@ -374,41 +370,20 @@ def create_pending_deletions_table(
 
 
 @dagster.op
-def create_reporting_pending_deletions_table(
-    config: DeleteConfig,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> PendingDeletesTable:
-    """Create a merge tree table in ClickHouse to store pending deletes."""
-    table = PendingDeletesTable(
-        timestamp=config.parsed_timestamp,
-        is_reporting=True,
-    )
-    cluster.map_all_hosts(table.create).result()
-    cluster.map_all_hosts(table.truncate).result()
-    return table
-
-
-@dagster.op
 def load_pending_deletions(
     context: dagster.OpExecutionContext,
     create_pending_deletions_table: PendingDeletesTable,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    cleanup_delete_assets: bool | None = None,
 ) -> PendingDeletesTable:
     """Query postgres using django ORM to get pending deletions and insert directly into ClickHouse."""
 
-    pending_deletions = AsyncDeletion.objects.all()
-
-    if not create_pending_deletions_table.is_reporting:
-        pending_deletions = pending_deletions.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            delete_verified_at__isnull=True,
-        )
-        if create_pending_deletions_table.team_id:
-            pending_deletions = pending_deletions.filter(
-                team_id=create_pending_deletions_table.team_id,
-            )
+    pending_deletions = AsyncDeletion.objects.filter(
+        Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+        | Q(deletion_type=DeletionType.Team),
+        delete_verified_at__isnull=True,
+    )
+    if create_pending_deletions_table.team_id:
+        pending_deletions = pending_deletions.filter(team_id=create_pending_deletions_table.team_id)
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -766,7 +741,6 @@ def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
     oldest_override_timestamp = get_oldest_person_override_timestamp()
-    report_deletions_table = create_reporting_pending_deletions_table()
     deletions_table = create_pending_deletions_table(oldest_override_timestamp)
     loaded_deletions_table = load_pending_deletions(deletions_table)
     create_deletes_dict_op = create_deletes_dict(loaded_deletions_table)
@@ -799,10 +773,7 @@ def deletes_job():
     waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     # Clean up
-    cleaned = cleanup_delete_assets(
-        deletions_table, create_deletes_dict_op, create_adhoc_event_deletes_dict_op, waited_mutation
-    )
-    load_pending_deletions(report_deletions_table, cleaned)
+    cleanup_delete_assets(deletions_table, create_deletes_dict_op, create_adhoc_event_deletes_dict_op, waited_mutation)
 
 
 @dagster.run_status_sensor(
