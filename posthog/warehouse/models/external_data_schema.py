@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     MySQLSourceConfig,
     get_schemas as get_mysql_schemas,
 )
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
@@ -277,7 +278,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             self.save()
 
 
-def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
 
@@ -289,6 +290,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.Date:
         return parser.parse(value).date()
+
+    if field_type == IncrementalFieldType.ObjectID:
+        return str(value)
 
 
 @database_sync_to_async
