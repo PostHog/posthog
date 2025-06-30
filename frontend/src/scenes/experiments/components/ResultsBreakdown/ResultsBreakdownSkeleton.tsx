@@ -1,13 +1,6 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
-export const ResultsBreakdownSkeleton = (): JSX.Element | null => {
-    const isEnabled = useFeatureFlag('EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN')
-
-    if (!isEnabled) {
-        return null
-    }
-
+export const ResultsBreakdownSkeleton = (): JSX.Element => {
     /**
      * this is matching the styles of ChartLoadingState.tsx. Why not reuse that component?
      * it takes a height prop, but we don't need it here.

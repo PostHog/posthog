@@ -1,23 +1,43 @@
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
+
+import { createServer } from 'http'
 import { DateTime } from 'luxon'
+import { AddressInfo } from 'net'
 
 import { truth } from '~/tests/helpers/truth'
+import { logger } from '~/utils/logger'
+import { fetch } from '~/utils/request'
 
 import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionQueueParametersFetchRequest,
+    HogFunctionQueueParametersFetchResponse,
+    HogFunctionType,
+} from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { logger } from '../../../src/utils/logger'
 import { parseJSON } from '../../utils/json-parse'
+import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
 
 const setupFetchResponse = (
     invocation: CyclotronJobInvocationHogFunction,
-    options?: Partial<CyclotronJobInvocationHogFunction['queueParameters']>
+    options?: Partial<HogFunctionQueueParametersFetchResponse>
 ): void => {
     invocation.queue = 'hog'
     invocation.queueParameters = {
+        type: 'fetch-response',
         timings: [
             {
                 kind: 'async_function',
@@ -146,6 +166,7 @@ describe('Hog Executor', () => {
                             },
                         ],
                         vmState: expect.any(Object),
+                        attempts: 0,
                     },
                     id: expect.any(String),
                     teamId: 1,
@@ -203,6 +224,7 @@ describe('Hog Executor', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
             `)
@@ -242,6 +264,7 @@ describe('Hog Executor', () => {
                   },
                   "method": "POST",
                   "return_queue": "hog",
+                  "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
             `)
@@ -249,24 +272,7 @@ describe('Hog Executor', () => {
             expect(result.error).toBeUndefined()
         })
 
-        it('collects logs from the function', async () => {
-            const invocation = createExampleInvocation(hogFunction)
-            const result = await executor.execute(invocation)
-            expect(result.logs).toMatchObject([
-                {
-                    timestamp: expect.any(DateTime),
-                    level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    timestamp: expect.any(DateTime),
-                    level: 'debug',
-                    message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                },
-            ])
-        })
-
-        it('redacts secret values from the logs', async () => {
+        it('collects and redacts secret values from the logs', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.input_printer,
                 ...HOG_INPUTS_EXAMPLES.secret_inputs,
@@ -276,7 +282,6 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(result.logs.map((x) => x.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "test",
                   "{"nested":{"foo":"***REDACTED***","null":null,"bool":false}}",
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
@@ -342,9 +347,6 @@ describe('Hog Executor', () => {
             expect(secondResult.error).toBeUndefined()
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                  "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -361,9 +363,6 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
-                  "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -392,11 +391,8 @@ describe('Hog Executor', () => {
 
             expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
-                  "Resuming function",
                   "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -777,7 +773,6 @@ describe('Hog Executor', () => {
             expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
-                'Resuming function',
                 'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })
@@ -832,7 +827,6 @@ describe('Hog Executor', () => {
             expect(result.error).toContain('Execution timed out after 0.55 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
-                'Executing function',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
@@ -906,9 +900,386 @@ describe('Hog Executor', () => {
             } as any)
             const result = await executor.execute(createExampleInvocation(fn, globals))
             expect(result?.capturedPostHogEvents).toEqual([])
-            expect(result?.logs[1].message).toMatchInlineSnapshot(
-                `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
+            expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toMatchInlineSnapshot(`
+                [
+                  "postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.",
+                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 104 bytes. Ops: 15. Event: 'http://localhost:8000/events/1'",
+                ]
+            `)
+        })
+    })
+
+    describe('executeFetch', () => {
+        jest.setTimeout(10000)
+        let server: any
+        let baseUrl: string
+        let mockRequest = jest.fn()
+        let timeoutHandle: NodeJS.Timeout | undefined
+        let hogFunction: HogFunctionType
+
+        beforeAll(async () => {
+            server = createServer((req, res) => {
+                mockRequest(req, res)
+            })
+
+            await promisifyCallback<void>((cb) => {
+                server.listen(0, () => {
+                    logger.info('Server listening')
+                    cb(null, server)
+                })
+            })
+            const address = server.address() as AddressInfo
+            baseUrl = `http://localhost:${address.port}`
+
+            hogFunction = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        })
+
+        afterEach(() => {
+            clearTimeout(timeoutHandle)
+        })
+
+        afterAll(async () => {
+            logger.info('Closing server')
+            await promisifyCallback<void>((cb) => {
+                logger.info('Closed server')
+                server.close(cb)
+            })
+        })
+
+        beforeEach(() => {
+            jest.spyOn(Math, 'random').mockReturnValue(0.5)
+
+            mockRequest = jest.fn((req, res) => {
+                res.writeHead(200, { 'Content-Type': 'text/plain' })
+                res.end('Hello, world!')
+            })
+        })
+
+        const createFetchInvocation = async (
+            params: Omit<HogFunctionQueueParametersFetchRequest, 'type'>
+        ): Promise<CyclotronJobInvocationHogFunction> => {
+            const invocation = createExampleInvocation(hogFunction)
+
+            // Execute just to have an expecting stack
+            const res = await executor.execute(invocation)
+            expect(res.invocation.queueParameters?.type).toBe('fetch')
+
+            // Simulate what the callback does
+            invocation.queue = 'hog'
+            invocation.queueParameters = {
+                type: 'fetch',
+                ...params,
+            } as any
+            return invocation
+        }
+
+        it('completes successful fetch', async () => {
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                body: 'test body',
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            expect(mockRequest).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'GET',
+                    url: '/test',
+                }),
+                expect.any(Object)
             )
+
+            // General check for clearance of the invocation
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueParameters).toBeUndefined()
+            expect(result.invocation.queueMetadata).toBeUndefined()
+            expect(result.invocation.queuePriority).toEqual(0)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+
+            // State checks
+            expect(result.invocation.state.attempts).toBe(0)
+            expect(result.invocation.state.timings.slice(-1)).toEqual([
+                expect.objectContaining({
+                    kind: 'async_function',
+                    duration_ms: expect.any(Number),
+                }),
+            ])
+
+            expect(result.invocation.state.vmState!.stack.slice(-1)).toEqual([
+                {
+                    status: 200,
+                    body: 'Hello, world!',
+                },
+            ])
+        })
+
+        it('handles failure status and retries', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(500, { 'Content-Type': 'text/plain' })
+                res.end('test server error body')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                return_queue: 'hog',
+                max_tries: 2,
+            })
+
+            const vmStateStackLength = invocation.state.vmState!.stack.length
+
+            let result = await executor.executeFetch(invocation)
+
+            // Should be scheduled for retry
+            expect(result.invocation.state.attempts).toBe(1)
+            expect(result.logs.map((log) => log.message)).toEqual([
+                'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1500ms.',
+            ])
+            expect(result.invocation.queuePriority).toBe(1) // Priority decreased
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
+            expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength)
+
+            // Execute the retry
+            result = await executor.executeFetch(result.invocation)
+            expect(result.invocation.state.attempts).toBe(2)
+            expect(result.logs.map((log) => log.message)).toEqual([
+                'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2500ms.',
+            ])
+            expect(result.invocation.queuePriority).toBe(2) // Priority decreased
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
+            expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength)
+            // Execute the final retry
+            result = await executor.executeFetch(result.invocation)
+            expect(result.logs.map((log) => log.message)).toEqual([
+                'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+            ])
+            // All values reset due to no longer retrying
+            expect(result.invocation.state.attempts).toBe(0)
+            expect(result.invocation.queuePriority).toBe(0) // Priority reset as we are no longer retrying
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            // Should now be complete with failure response
+            expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength + 1)
+            const response = result.invocation.state.vmState!.stack.slice(-1)[0]
+            expect(response).toMatchInlineSnapshot(`
+                {
+                  "body": "test server error body",
+                  "status": 500,
+                }
+            `)
+            expect(result.invocation.queue).toBe('hog')
+        })
+
+        it('handles request errors', async () => {
+            const invocation = await createFetchInvocation({
+                url: 'http://non-existent-host-name',
+                method: 'GET',
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            // Should be scheduled for retry
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying in 1500ms.",
+                ]
+            `)
+        })
+
+        it('handles security errors', async () => {
+            process.env.NODE_ENV = 'production' // Make sure the security features are enabled
+
+            const invocation = await createFetchInvocation({
+                url: 'http://localhost',
+                method: 'GET',
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            // Should be scheduled for retry
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Hostname is not allowed.",
+                ]
+            `)
+
+            process.env.NODE_ENV = 'test'
+        })
+
+        it('handles timeouts', async () => {
+            mockRequest.mockImplementation((_req: any, res: any) => {
+                // Never send response
+                clearTimeout(timeoutHandle)
+                timeoutHandle = setTimeout(() => res.end(), 10000)
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                return_queue: 'hog',
+            })
+
+            // Set a very short timeout
+            hub.CDP_FETCH_TIMEOUT_MS = 100
+
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
+                ]
+            `)
+        })
+
+        it('completes fetch with headers', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                if (req.headers['x-test'] === 'test') {
+                    res.writeHead(200)
+                } else {
+                    res.writeHead(400)
+                }
+                res.end('Hello, world!')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                headers: {
+                    'X-Test': 'test',
+                },
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+            const response = result.invocation.state.vmState!.stack.slice(-1)[0]
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(response).toMatchInlineSnapshot(`
+                {
+                  "body": "Hello, world!",
+                  "status": 200,
+                }
+            `)
+        })
+
+        it('completes fetch with body', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                let body = ''
+                req.on('data', (chunk: any) => {
+                    body += chunk
+                })
+                req.on('end', () => {
+                    expect(body).toBe('test body')
+                    res.writeHead(200)
+                    res.end('Hello, world!')
+                })
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'POST',
+                body: 'test body',
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+            const response = result.invocation.state.vmState!.stack.slice(-1)[0]
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(response).toMatchInlineSnapshot(`
+                {
+                  "body": "Hello, world!",
+                  "status": 200,
+                }
+            `)
+        })
+
+        it('handles minimum parameters', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                expect(req.method).toBe('GET')
+                res.writeHead(200)
+                res.end('Hello, world!')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                return_queue: 'hog',
+            })
+
+            const result = await executor.executeFetch(invocation)
+            const response = result.invocation.state.vmState!.stack.slice(-1)[0]
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(response).toMatchInlineSnapshot(`
+                {
+                  "body": "Hello, world!",
+                  "status": 200,
+                }
+            `)
+        })
+
+        it('adds secret headers for certain endpoints', async () => {
+            jest.mocked(fetch).mockImplementation(() => {
+                return Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                })
+            })
+
+            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+
+            let invocation = await createFetchInvocation({
+                url: 'https://googleads.googleapis.com/1234',
+                method: 'POST',
+                return_queue: 'hog',
+                headers: {
+                    'X-Test': 'test',
+                },
+            })
+
+            await executor.executeFetch(invocation)
+            expect((jest.mocked(fetch).mock.calls[0][1] as any).headers).toMatchInlineSnapshot(`
+                {
+                  "X-Test": "test",
+                  "developer-token": "ADWORDS_TOKEN",
+                }
+            `)
+
+            // Check it doesn't do it for redirect
+            invocation = await createFetchInvocation({
+                url: 'https://nasty.com?redirect=https://googleads.googleapis.com/1234',
+                method: 'POST',
+                return_queue: 'hog',
+                headers: {
+                    'X-Test': 'test',
+                },
+            })
+            await executor.executeFetch(invocation)
+            expect((jest.mocked(fetch).mock.calls[1][1] as any).headers).toMatchInlineSnapshot(`
+                {
+                  "X-Test": "test",
+                }
+            `)
         })
     })
 })

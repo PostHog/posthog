@@ -445,8 +445,10 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             // Skip entries that only have fetchForUpdate operations (read-only, no modifications)
             if (mainUpdate && mainUpdate.operations.length > 0) {
                 const hasNonFetchOperations = mainUpdate.operations.some((op) => op.type !== 'fetchForUpdate')
-                if (!hasNonFetchOperations) {
-                    continue // Skip this entry as it's only fetch operations
+                const lastOperationIsFetch =
+                    mainUpdate.operations[mainUpdate.operations.length - 1].type === 'fetchForUpdate'
+                if (!hasNonFetchOperations || lastOperationIsFetch) {
+                    continue // Skip this entry as it's only fetch operations or last operation overwrote
                 }
             }
 
