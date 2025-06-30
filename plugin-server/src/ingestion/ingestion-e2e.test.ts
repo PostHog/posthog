@@ -331,110 +331,7 @@ describe('Event Pipeline E2E tests', () => {
     )
 
     testWithTeamIngester(
-        'can set and update group properties with $groupidentify events, when batch processing',
-        async (ingester, hub, team) => {
-            const groupKey = 'group_key'
-            const distinctId = new UUIDT().toString()
-
-            const events = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { foo: 'bar' })
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForKafkaMessages(hub)
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { foo: 'bar' },
-                        group_key: groupKey,
-                        version: 1,
-                    })
-                )
-            })
-
-            const updateEvents = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { prop: 'value' })
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
-
-            await waitForKafkaMessages(hub)
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { foo: 'bar', prop: 'value' },
-                        group_key: groupKey,
-                        version: 2,
-                    })
-                )
-            })
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(2)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties.$group_set).toEqual({ foo: 'bar' })
-                expect(events[1].event).toEqual('$groupidentify')
-                expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
-            })
-
-            // Should have fetched the group 4 times:
-            // 1 for each event and 2 in test check
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(4)
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
-        }
-    )
-
-    testWithTeamIngester('can handle high amount of $groupidentify in same batch', async (ingester, hub, team) => {
-        const n = 150
-        const distinctId = new UUIDT().toString()
-        const events = []
-        for (let i = 0; i < n; i++) {
-            const m: Record<string, number> = {}
-            m[i.toString()] = i
-            events.push(
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', 'group_key', m)
-                    .build()
-            )
-        }
-
-        await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-        await waitForKafkaMessages(hub)
-
-        await waitForExpect(async () => {
-            const events = await fetchEvents(hub, team.id)
-            expect(events.length).toEqual(n)
-        })
-
-        // Should have fetched the group for each event
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(150)
-        expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-        expect(hub.db.updateGroup).toHaveBeenCalledTimes(149)
-        expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
-    })
-
-    testWithTeamIngester(
-        'can handle high amount of $groupidentify in same batch, when batch processing',
+        'can handle high amount of $groupidentify in same batch',
         async (ingester, hub, team) => {
             const n = 150
             const distinctId = new UUIDT().toString()
@@ -508,81 +405,23 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
         })
 
+        // Should have fetched the group once
+        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+
         await waitForExpect(async () => {
             const group = await hub.db.fetchGroup(team.id, 0, groupKey)
             expect(group).toEqual(
                 expect.objectContaining({
                     team_id: team.id,
                     group_type_index: 0,
-                    // Missing k3: v2 as we do not read the group properties before making a write
                     group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
                     group_key: groupKey,
-                    version: 3,
+                    // Just one write after the creation of the group
+                    version: 2,
                 })
             )
         })
     })
-
-    testWithTeamIngester(
-        'can handle multiple $groupidentify in same batch, when batch processing',
-        async (ingester, hub, team) => {
-            const timestamp = DateTime.now().toMillis()
-            const distinctId = new UUIDT().toString()
-            const groupKey = 'group_key'
-            const events = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k1: 'v1' })
-                    .withTimestamp(timestamp)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k2: 'v2', k3: 'v2' })
-                    .withTimestamp(timestamp + 1)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k2: 'v3', k4: 'v3' })
-                    .withTimestamp(timestamp + 2)
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForKafkaMessages(hub)
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(3)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties.$group_set).toEqual({ k1: 'v1' })
-                expect(events[1].event).toEqual('$groupidentify')
-                expect(events[1].properties.$group_set).toEqual({ k2: 'v2', k3: 'v2' })
-                expect(events[2].event).toEqual('$groupidentify')
-                expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
-            })
-
-            // Should have fetched the group once
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
-                        group_key: groupKey,
-                        // Just one write after the creation of the group
-                        version: 2,
-                    })
-                )
-            })
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
-        }
-    )
 
     testWithTeamIngester('can handle $groupidentify with no properties', async (ingester, hub, team) => {
         const events = [new EventBuilder(team).withEvent('$groupidentify').withProperties({}).build()]
@@ -598,27 +437,6 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[0].properties).toEqual({})
         })
     })
-
-    testWithTeamIngester(
-        'can handle $groupidentify with no properties, when batch processing',
-        async (ingester, hub, team) => {
-            const events = [new EventBuilder(team).withEvent('$groupidentify').withProperties({}).build()]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForKafkaMessages(hub)
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(1)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties).toEqual({})
-            })
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
-        }
-    )
 
     testWithTeamIngester(
         'can handle multiple $groupidentify for different distinct ids',
@@ -672,7 +490,7 @@ describe('Event Pipeline E2E tests', () => {
     )
 
     testWithTeamIngester(
-        'can handle multiple $groupidentify for different distinct ids, when batch processing',
+        'can handle multiple $groupidentify for different distinct ids',
         async (ingester, hub, team) => {
             const n = 50
             const distinctIds = []
@@ -719,9 +537,6 @@ describe('Event Pipeline E2E tests', () => {
                     )
                 })
             }
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
         }
     )
 

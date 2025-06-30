@@ -21,8 +21,7 @@ export interface GroupStoreForBatch extends BatchWritingStore {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        timestamp: DateTime,
-        forUpdate: boolean
+        timestamp: DateTime
     ): Promise<void>
 
     getCacheMetrics(): CacheMetrics
