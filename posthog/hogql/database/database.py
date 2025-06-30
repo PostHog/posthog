@@ -373,6 +373,38 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+def _use_virtual_person_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
+    poe = cast(VirtualTable, database.events.fields["poe"])
+
+    with timings.measure("initial_domain_type"):
+        field_name = "$virt_initial_referring_domain_type"
+        database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+        poe.fields[field_name] = create_initial_domain_type(
+            name=field_name,
+            timings=timings,
+            properties_path=["poe", "properties"],
+        )
+    with timings.measure("initial_channel_type"):
+        field_name = "$virt_initial_channel_type"
+        database.persons.fields[field_name] = create_initial_channel_type(
+            name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        poe.fields[field_name] = create_initial_channel_type(
+            name=field_name,
+            custom_rules=modifiers.customChannelTypeRules,
+            timings=timings,
+            properties_path=["poe", "properties"],
+        )
+    with timings.measure("revenue"):
+        field_name = "$virt_revenue"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+    with timings.measure("revenue_last_30_days"):
+        field_name = "$virt_revenue_last_30_days"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+
+
 TableStore = dict[str, Table | TableGroup]
 
 
@@ -794,35 +826,7 @@ def create_hogql_database(
                 capture_exception(e)
 
     with timings.measure("virtual_properties"):
-        with timings.measure("initial_domain_type"):
-            field_name = "$virt_initial_referring_domain_type"
-            database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
-            poe.fields[field_name] = create_initial_domain_type(
-                name=field_name,
-                timings=timings,
-                properties_path=["poe", "properties"],
-            )
-        with timings.measure("initial_channel_type"):
-            field_name = "$virt_initial_channel_type"
-            database.persons.fields[field_name] = create_initial_channel_type(
-                name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
-            )
-            poe.fields[field_name] = create_initial_channel_type(
-                name=field_name,
-                custom_rules=modifiers.customChannelTypeRules,
-                timings=timings,
-                properties_path=["poe", "properties"],
-            )
-        with timings.measure("revenue"):
-            field_name = "$virt_revenue"
-            database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-            poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        with timings.measure("revenue_last_30_days"):
-            field_name = "$virt_revenue_last_30_days"
-            database.persons.fields[field_name] = ast.FieldTraverser(
-                chain=["revenue_analytics", "revenue_last_30_days"]
-            )
-            poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+        _use_virtual_person_fields(database, modifiers, timings)
 
     return database
 
