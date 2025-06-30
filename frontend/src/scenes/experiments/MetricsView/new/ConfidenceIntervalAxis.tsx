@@ -27,14 +27,20 @@ export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number })
                     style={{ height: `${ticksSvgHeight}px` }}
                 />
             </div>
-            {/* Right column - tick marks and percentage labels */}
-            <div className="w-4/5 min-w-[780px]">
-                <div className="flex justify-center">
+            {/* Right column - variation header and tick marks */}
+            <div className="w-4/5 min-w-[780px] flex">
+                {/* Variation Header */}
+                <div className="w-48 border-r border-primary flex-shrink-0 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-text-primary">Variation</span>
+                </div>
+
+                {/* Chart Axis */}
+                <div className="flex-1 flex justify-center">
                     <svg
                         ref={ticksSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                         preserveAspectRatio="xMidYMid meet"
-                        className="ml-12 max-w-[1000px]"
+                        className="max-w-[1000px]"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ minHeight: `${TICK_PANEL_HEIGHT}px` }}
                     >
