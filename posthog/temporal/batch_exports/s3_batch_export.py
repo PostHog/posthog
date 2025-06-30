@@ -1226,19 +1226,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             # Store completed part info
             self.completed_parts[part_number] = part_info
 
-            # Calculate transfer speed
-            part_size_mb = len(data) / (1024 * 1024)
-            upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
-
-            await self.logger.ainfo(
-                "Finished uploading file number %s part %s with upload id %s. File size: %.2f MB, upload time: %.2fs, speed: %.2f MB/s",
-                self.current_file_index,
-                part_number,
-                self.upload_id,
-                part_size_mb,
-                upload_time,
-                upload_speed_mbps,
-            )
             return part_info
 
         except Exception:
