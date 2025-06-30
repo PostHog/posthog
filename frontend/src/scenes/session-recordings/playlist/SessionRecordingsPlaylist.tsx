@@ -133,7 +133,7 @@ export function SessionRecordingsPlaylist({
                             maybeLoadSessionRecordings('older')
                         }
                     }}
-                    listEmptyState={<ListEmptyState />}
+                    listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
@@ -195,6 +195,29 @@ const ListEmptyState = (): JSX.Element => {
             ) : (
                 <div className="flex flex-col gap-2">
                     <SessionRecordingsPlaylistTroubleshooting />
+                </div>
+            )}
+        </div>
+    )
+}
+
+const CollectionEmptyState = (): JSX.Element => {
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+
+    return (
+        <div className="p-3 text-sm text-secondary">
+            {sessionRecordingsAPIErrored ? (
+                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            ) : unusableEventsInFilter.length ? (
+                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
+                    <p>
+                        To add recordings to this collection, go to the{' '}
+                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
+                        "+ Add to collection" and select this collection from the list.
+                    </p>
                 </div>
             )}
         </div>
