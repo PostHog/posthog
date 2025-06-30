@@ -644,7 +644,6 @@ def delete_team_data_from(
         context: dagster.OpExecutionContext,
         cluster: dagster.ResourceParam[ClickhouseCluster],
         load_and_verify_deletes_dictionary: PendingDeletesDictionary,
-        previous_mutations: PendingDeletesDictionary,
     ) -> tuple[PendingDeletesDictionary, MutationWaiter | None]:
         return delete_team_data(
             context,
@@ -690,7 +689,6 @@ def cleanup_delete_assets(
     create_pending_deletions_table: PendingDeletesTable,
     create_deletes_dict: PendingDeletesDictionary,
     create_adhoc_event_deletes_dict: AdhocEventDeletesDictionary,
-    waited_mutation: PendingDeletesDictionary,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
@@ -747,29 +745,24 @@ def deletes_job():
 
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
-    waited_mutation = wait_for_delete_mutations_in_shards(delete_mutations)
+    pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(pending_deletes_dictionary, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(PERSONS_TABLE)(pending_deletes_dictionary, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(GROUPS_TABLE)(pending_deletes_dictionary, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
-    # delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
-    # waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(pending_deletes_dictionary, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(PLUGIN_LOG_ENTRIES_TABLE)(pending_deletes_dictionary, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+    for table in [
+        PERSON_DISTINCT_ID2_TABLE,
+        PERSONS_TABLE,
+        GROUPS_TABLE,
+        # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
+        # "cohortpeople",
+        PERSON_STATIC_COHORT_TABLE,
+        PLUGIN_LOG_ENTRIES_TABLE,
+    ]:
+        # NOTE: the reassignment of `pending_deletes_dictionary` below causes these ops to be run serially, since the
+        # input to each step is the output of the previous step
+        delete_mutations = delete_team_data_from(table)(pending_deletes_dictionary)
+        pending_deletes_dictionary = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
     # Clean up
-    cleanup_delete_assets(deletions_table, pending_deletes_dictionary, adhoc_event_deletes_dictionary, waited_mutation)
+    cleanup_delete_assets(deletions_table, pending_deletes_dictionary, adhoc_event_deletes_dictionary)
 
 
 @dagster.run_status_sensor(
