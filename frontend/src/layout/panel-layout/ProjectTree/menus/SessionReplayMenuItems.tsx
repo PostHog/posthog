@@ -23,7 +23,7 @@ export function SessionReplayMenuItems({
     MenuSubContent = DropdownMenuSubContent,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading } = useValues(
+    const { savedFilters, savedFiltersLoading, playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     )
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
@@ -79,6 +79,49 @@ export function SessionReplayMenuItems({
                 </MenuSub>
             ) : null}
 
+            {playlistsLoading ? (
+                <MenuItem disabled>
+                    <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
+                </MenuItem>
+            ) : playlists.count > 0 ? (
+                <MenuSub>
+                    <MenuSubTrigger asChild>
+                        <Link
+                            to="/"
+                            buttonProps={{
+                                menuItem: true,
+                            }}
+                        >
+                            Collections
+                            <IconChevronRight className="ml-auto size-3" />
+                        </Link>
+                    </MenuSubTrigger>
+
+                    <MenuSubContent>
+                        {playlists.results.map((playlist) => (
+                            <MenuItem asChild key={playlist.short_id}>
+                                <Link
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                    to={urls.absolute(
+                                        combineUrl(urls.replay(ReplayTabs.Home), {
+                                            playlistId: playlist.short_id,
+                                        }).url
+                                    )}
+                                    onKeyDown={handleKeyDown}
+                                    onClick={() => onLinkClick?.(false)}
+                                >
+                                    <span className="truncate">
+                                        {playlist.name || playlist.derived_name || 'Unnamed'}
+                                    </span>
+                                </Link>
+                            </MenuItem>
+                        ))}
+                    </MenuSubContent>
+                </MenuSub>
+            ) : null}
+
             <MenuItem asChild>
                 <Link
                     buttonProps={{
@@ -89,19 +132,6 @@ export function SessionReplayMenuItems({
                     onClick={() => onLinkClick?.(false)}
                 >
                     All recordings
-                </Link>
-            </MenuItem>
-
-            <MenuItem asChild>
-                <Link
-                    buttonProps={{
-                        menuItem: true,
-                    }}
-                    to={urls.replay(ReplayTabs.Playlists)}
-                    onKeyDown={handleKeyDown}
-                    onClick={() => onLinkClick?.(false)}
-                >
-                    Collections
                 </Link>
             </MenuItem>
         </>
