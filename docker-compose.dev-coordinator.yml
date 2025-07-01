@@ -220,17 +220,6 @@ services:
             db:
                 condition: service_healthy
 
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
-            db:
-                condition: service_healthy
-
     cyclotron-janitor:
         extends:
             file: docker-compose.base.yml

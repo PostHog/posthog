@@ -17,7 +17,7 @@ import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual, range } from 'lib/utils'
-import { generateUUID } from 'lib/utils/generateUUID'
+import { v4 as uuidv4 } from 'uuid'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -57,7 +57,7 @@ function ensureSortKeys(filters: FeatureFlagFilters): FeatureFlagFilters {
         ...filters,
         groups: filters.groups.map((group: FeatureFlagGroupType) => ({
             ...group,
-            sort_key: group.sort_key ?? generateUUID(),
+            sort_key: group.sort_key ?? uuidv4(),
         })),
     }
 }
@@ -108,7 +108,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     }
                     return {
                         ...group,
-                        sort_key: generateUUID(),
+                        sort_key: uuidv4(),
                     }
                 })
 
@@ -130,7 +130,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             properties: [],
                             rollout_percentage: originalRolloutPercentage,
                             variant: null,
-                            sort_key: generateUUID(),
+                            sort_key: uuidv4(),
                         },
                     ],
                 }
@@ -141,7 +141,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
                 const groups = [
                     ...(state?.groups || []),
-                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: generateUUID() },
+                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: uuidv4() },
                 ]
                 return { ...state, groups }
             },
@@ -180,7 +180,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 const groups = state.groups.concat([
                     {
                         ...state.groups[index],
-                        sort_key: generateUUID(),
+                        sort_key: uuidv4(),
                     },
                 ])
                 return { ...state, groups }

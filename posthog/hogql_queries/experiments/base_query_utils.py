@@ -88,11 +88,15 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
             # If an action doesn't exist, we want to return no events
             event_filter = ast.Constant(value=False)
     else:
-        event_filter = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=entity_node.event),
-        )
+        # If event is None, we want to match all events (no event name filter)
+        if entity_node.event is None:
+            event_filter = ast.Constant(value=True)
+        else:
+            event_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=entity_node.event),
+            )
 
     if entity_node.properties:
         event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])

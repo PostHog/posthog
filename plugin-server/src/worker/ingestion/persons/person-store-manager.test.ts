@@ -779,6 +779,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     type: 'addDistinctId',
                     timestamp: expect.any(Number),
                     distinctId: distinctId,
+                    version: existingPerson.version,
                 },
             ])
 
@@ -869,6 +870,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                     type: 'moveDistinctIds',
                     timestamp: expect.any(Number),
                     distinctId: distinctId,
+                    version: targetPerson.version,
                 },
             ])
 
