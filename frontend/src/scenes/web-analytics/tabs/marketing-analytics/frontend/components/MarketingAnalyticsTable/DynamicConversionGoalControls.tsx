@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
@@ -11,12 +11,26 @@ import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 import { defaultConversionGoalFilter } from '../settings/constants'
 import { LemonInput } from '@posthog/lemon-ui'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { generateUniqueName } from '../../logic/utils'
 
 export const DynamicConversionGoalControls = (): JSX.Element => {
-    const { setDynamicConversionGoal, clearDynamicConversionGoal } = useActions(marketingAnalyticsLogic)
+    const { setDynamicConversionGoal } = useActions(marketingAnalyticsLogic)
     const { dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
     const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const [uniqueName, setUniqueName] = useState<string>('')
+    const [localConversionGoalName, setLocalConversionGoalName] = useState<string>('')
+
+    useEffect(() => {
+        if (localConversionGoalName) {
+            setUniqueName(
+                generateUniqueName(
+                    localConversionGoalName,
+                    conversion_goals.map((goal) => goal.conversion_goal_name)
+                )
+            )
+        }
+    }, [localConversionGoalName, conversion_goals])
 
     const conversionGoalIdRef = useRef<string>()
     if (!conversionGoalIdRef.current) {
@@ -28,7 +42,6 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
         conversion_goal_id: conversionGoalIdRef.current,
         conversion_goal_name: '',
     })
-    const [localConversionGoalName, setLocalConversionGoalName] = useState<string>('')
     const [isExpanded, setIsExpanded] = useState<boolean>(false)
 
     // Dynamic conversion goal handlers
@@ -44,12 +57,9 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     )
 
     const handleApplyConversionGoal = useCallback((): void => {
-        setDynamicConversionGoal(localConversionGoal)
-    }, [localConversionGoal, setDynamicConversionGoal])
-
-    const handleSaveConversionGoal = useCallback((): void => {
-        addOrUpdateConversionGoal(localConversionGoal)
-    }, [localConversionGoal, addOrUpdateConversionGoal])
+        setDynamicConversionGoal({ ...localConversionGoal, conversion_goal_name: uniqueName })
+        setLocalConversionGoalName(uniqueName)
+    }, [localConversionGoal, setDynamicConversionGoal, setLocalConversionGoalName, uniqueName])
 
     const handleClearConversionGoal = useCallback((): void => {
         conversionGoalIdRef.current = uuid()
@@ -58,14 +68,21 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
             conversion_goal_id: conversionGoalIdRef.current,
             conversion_goal_name: '',
         })
-        clearDynamicConversionGoal()
-    }, [clearDynamicConversionGoal])
+        setLocalConversionGoalName('')
+        setDynamicConversionGoal(null)
+    }, [setLocalConversionGoalName, setDynamicConversionGoal])
+
+    const handleSaveConversionGoal = useCallback((): void => {
+        addOrUpdateConversionGoal({ ...localConversionGoal, conversion_goal_name: uniqueName })
+        handleClearConversionGoal()
+    }, [localConversionGoal, addOrUpdateConversionGoal, handleClearConversionGoal])
 
     // Check if there are changes to apply
     const hasEvent = localConversionGoal.name !== defaultConversionGoalFilter.name
-    const hasChanges = !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent
-    const canSave =
-        !conversion_goals.some((goal) => goal.conversion_goal_id === localConversionGoal.conversion_goal_id) && hasEvent
+    const hasChanges =
+        !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent && localConversionGoalName !== uniqueName
+    const hasAppliedGoal = !!dynamicConversionGoal
+
     const hasActiveGoal = !!dynamicConversionGoal
 
     return (
@@ -109,7 +126,9 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                                 type="primary"
                                 size="small"
                                 onClick={handleSaveConversionGoal}
-                                disabledReason={!canSave ? 'Goal already exists' : undefined}
+                                disabledReason={
+                                    !hasAppliedGoal ? 'You need to apply a conversion goal first' : undefined
+                                }
                             >
                                 Save
                             </LemonButton>

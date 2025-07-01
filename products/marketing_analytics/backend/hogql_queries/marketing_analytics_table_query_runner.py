@@ -16,6 +16,7 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
 )
+from typing import cast, Literal
 from .conversion_goal_processor import ConversionGoalProcessor
 
 from .constants import (
@@ -160,7 +161,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         results = response.results or []
         requested_limit = self.query.limit or DEFAULT_LIMIT
-        columns = [column.alias for column in query.select]
+        columns = (
+            [column.alias if isinstance(column, ast.Alias) else column for column in query.select]
+            if isinstance(query, ast.SelectQuery)
+            else []
+        )
 
         # Check if there are more results
         has_more = len(results) > requested_limit
@@ -269,7 +274,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 order_index_float, order_by = order_expr_str
                 order_index = int(order_index_float)
                 column_name = ast.Constant(value=order_index)
-                order_by_exprs.append(ast.OrderExpr(expr=column_name, order=order_by))
+                order_by_exprs.append(
+                    ast.OrderExpr(expr=column_name, order=cast(Literal["ASC", "DESC"], str(order_by)))
+                )
         else:
             # Build default order by: campaign_costs.total_cost DESC
             default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])

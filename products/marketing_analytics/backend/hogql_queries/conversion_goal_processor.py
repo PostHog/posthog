@@ -15,7 +15,6 @@ from posthog.schema import (
     PropertyMathType,
 )
 from .adapters.base import MarketingSourceAdapter
-from .utils import sanitize_conversion_goal_name
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
@@ -38,9 +37,7 @@ class ConversionGoalProcessor:
 
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""
-        goal_name = self.goal.conversion_goal_name
-        sanitized_name = sanitize_conversion_goal_name(goal_name)
-        return f"{CONVERSION_GOAL_PREFIX_ABBREVIATION}{self.index}_{sanitized_name}"
+        return self.goal.conversion_goal_id
 
     def get_table_name(self):
         """Get table name for conversion goal"""

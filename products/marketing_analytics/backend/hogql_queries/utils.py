@@ -90,8 +90,3 @@ def map_url_to_provider(url_pattern: str) -> str:
         return "cloudflare-r2"
 
     return "BlushingHog"
-
-
-def sanitize_conversion_goal_name(name: str) -> str:
-    """Sanitize conversion goal name to be a valid SQL identifier"""
-    return "".join(c if c.isalnum() else "_" for c in name)

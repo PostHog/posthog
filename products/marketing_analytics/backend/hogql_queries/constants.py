@@ -111,7 +111,7 @@ BASE_COLUMN_MAPPING = {
     ),
 }
 
-BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in DEFAULT_MARKETING_ANALYTICS_COLUMNS]
+BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {

@@ -5,6 +5,8 @@ import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-ge
 
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
 
+import { generateUniqueName } from './utils'
+
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
@@ -58,14 +60,25 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         (goal) => goal.conversion_goal_id === conversionGoal.conversion_goal_id
                     )
 
+                    let updatedConversionGoal = { ...conversionGoal }
+
+                    // Check for name conflicts with other goals (excluding the current goal if updating)
+                    const otherGoals =
+                        existingIndex >= 0 ? existingGoals.filter((_, index) => index !== existingIndex) : existingGoals
+
+                    const existingNames = otherGoals.map((goal) => goal.conversion_goal_name)
+                    const uniqueName = generateUniqueName(conversionGoal.conversion_goal_name, existingNames)
+
+                    updatedConversionGoal.conversion_goal_name = uniqueName
+
                     let updatedGoals: ConversionGoalFilter[]
                     if (existingIndex >= 0) {
                         // Update existing goal
                         updatedGoals = [...existingGoals]
-                        updatedGoals[existingIndex] = conversionGoal
+                        updatedGoals[existingIndex] = updatedConversionGoal
                     } else {
                         // Add new goal
-                        updatedGoals = [...existingGoals, conversionGoal]
+                        updatedGoals = [...existingGoals, updatedConversionGoal]
                     }
 
                     return { ...state, conversion_goals: updatedGoals }

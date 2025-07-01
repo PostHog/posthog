@@ -4,6 +4,8 @@ from posthog.hogql import ast
 from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
+    UNKNOWN_CAMPAIGN,
+    UNKNOWN_SOURCE,
 )
 
 
@@ -73,10 +75,16 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
         return errors, warnings
 
     def _get_campaign_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.campaign])])
+        if self.config.source_map.campaign:
+            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.campaign])])
+        else:
+            return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
     def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.source])])
+        if self.config.source_map.source:
+            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.source])])
+        else:
+            return ast.Constant(value=UNKNOWN_SOURCE)
 
     def _get_impressions_field(self) -> ast.Expr:
         impressions_field = self.config.source_map.impressions

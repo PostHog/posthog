@@ -46,8 +46,8 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             raise ValidationError(f"Conversion goal name must be a string, got {type(goal.get('name'))}")
         if goal.get("id") and not isinstance(goal.get("id"), str) and not isinstance(goal.get("id"), int):
             raise ValidationError(f"Conversion goal id must be a string or integer, got {type(goal.get('id'))}")
-        if not isinstance(goal.get("schema"), dict):
-            raise ValidationError(f"Conversion goal schema must be a dictionary, got {type(goal.get('schema'))}")
+        if not isinstance(goal.get("schema_map"), dict):
+            raise ValidationError(f"Conversion goal schema_map must be a string, got {type(goal.get('schema_map'))}")
         if goal.get("kind") is None:
             raise ValidationError("Conversion goal must have a 'kind' field")
         if goal.get("kind") == NodeKind.EVENTS_NODE:
@@ -98,7 +98,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
                 response[source_id] = SourceMap(**field_mapping)
         return response
 
-    @sources_map.setter
+    @sources_map.setter  # type: ignore[no-redef, attr-defined]
     def sources_map(self, value: dict) -> None:
         value = value or {}
         try:
@@ -117,7 +117,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources[source_id] = field_mapping
 
         # Validate and set the updated sources_map
-        self.sources_map = current_sources
+        self.sources_map = current_sources  # type: ignore[misc]
 
     def update_source_field_mapping(self, source_id: str, field_mappings: dict) -> None:
         """Update specific field mappings for a source while preserving other fields."""
@@ -133,7 +133,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources[source_id].update(field_mappings)
 
         # Validate and set the updated sources_map
-        self.sources_map = current_sources
+        self.sources_map = current_sources  # type: ignore[misc]
 
     def remove_source_mapping(self, source_id: str) -> None:
         """Remove a source mapping entirely."""
@@ -141,7 +141,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources = self.sources_map.copy()
         if source_id in current_sources:
             del current_sources[source_id]
-            self.sources_map = current_sources
+            self.sources_map = current_sources  # type: ignore[misc]
 
     @property
     def conversion_goals(self) -> list:
@@ -154,7 +154,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_conversion_goals(value)
             self._conversion_goals = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid conversion goals schema: {str(e)}")
+            raise ValidationError(f"Invalid conversion goals: {str(e)}")
 
 
 # This is best effort, we always attempt to create the config manually
