@@ -12,6 +12,7 @@ from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.exceptions import ExperimentError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
@@ -206,7 +207,7 @@ def execute_process_query(
         raise
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | ExperimentError) or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
