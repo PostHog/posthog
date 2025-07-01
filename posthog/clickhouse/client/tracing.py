@@ -1,6 +1,7 @@
 import logging
 from functools import wraps
 from time import perf_counter
+import re
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -36,28 +37,27 @@ def trace_clickhouse_query_decorator(func):
         if len(args) > 1:
             args_param = args[1]
 
-        # The keyword-only arguments (after *) must be passed as kwargs
-        # So we only extract from kwargs for these parameters
-
         tracer = trace.get_tracer(__name__)
 
         with tracer.start_as_current_span("clickhouse.query") as span:
+            # Ensure team_id is extracted before any attributes are set
+            if team_id is None and isinstance(query, str) and span.is_recording():
+                match = re.search(r"team_id\s*=\s*(\d+)", query)
+                if match:
+                    team_id = match.group(1)
+                else:
+                    param_match = re.search(r"team_id\s*=\s*%\(team_id\)s", query)
+                    if param_match and args_param and isinstance(args_param, dict) and "team_id" in args_param:
+                        team_id = args_param["team_id"]
+
             # Set standard database attributes
             span.set_attribute("db.system", "clickhouse")
             span.set_attribute("db.name", CLICKHOUSE_DATABASE)
             span.set_attribute("db.user", ch_user.value)
             span.set_attribute("db.statement", query)
-
-            # Set network attributes
             span.set_attribute("net.peer.name", CLICKHOUSE_HOST)
             span.set_attribute("net.peer.port", 9000)  # Default ClickHouse port
-
-            # Set span kind
             span.set_attribute("span.kind", "client")
-
-            # Add custom attributes for PostHog-specific context
-            # Note: This captures the initial workload value. The workload can change
-            # during function execution based on various conditions.
             span.set_attribute("clickhouse.initial_workload", initial_workload.value)
             span.set_attribute("clickhouse.team_id", str(team_id or ""))
             span.set_attribute("clickhouse.readonly", readonly)
