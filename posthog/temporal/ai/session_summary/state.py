@@ -1,7 +1,7 @@
 import gzip
 import json
 
-from prometheus_client import Enum
+from enum import Enum
 from pydantic import BaseModel
 from redis import Redis
 
@@ -35,7 +35,7 @@ def get_redis_state_client(
 def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str | None = None) -> str:
     if not state_id:
         raise ValueError("state_id is required")
-    return f"{key_base}:{label}:{state_id}"
+    return f"{key_base}:{label.value}:{state_id}"
 
 
 def _compress_redis_data(input_data: str) -> bytes:
@@ -62,26 +62,26 @@ def get_data_class_from_redis(
     redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: BaseModel
 ) -> BaseModel:
     if not redis_key:
-        raise ValueError(f"Redis key is required for {label} to extract data from Redis ({target_class})")
+        raise ValueError(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
     redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     try:
         return target_class(**json.loads(redis_data_str))  # type: ignore[operator]
     except Exception as err:
         raise ValueError(
-            f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label}): {err}"
+            f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label.value}): {err}"
         ) from err
 
 
 def get_data_str_from_redis(redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum) -> str:
     if not redis_key:
-        raise ValueError(f"Redis key is required to get data from Redis ({label})")
+        raise ValueError(f"Redis key is required to get data from Redis ({label.value})")
     raw_redis_data = redis_client.get(redis_key)
     if not raw_redis_data:
-        raise ValueError(f"Output data not found in Redis for key {redis_key} ({label})")
+        raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
     try:
         redis_data_str = _decompress_redis_data(raw_redis_data)
         return redis_data_str
     except Exception as err:
         raise ValueError(
-            f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label}): {err}"
+            f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label.value}): {err}"
         ) from err
