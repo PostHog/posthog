@@ -166,7 +166,12 @@ class MigrationConflictResolver:
             current_only = set(current_migrations.keys()) - set(master_migrations.keys())
             master_only = set(master_migrations.keys()) - set(current_migrations.keys())
 
-            if current_only and master_only:
+            # Also check for same migration numbers with different filenames (the real conflict case)
+            conflicting_numbers = []
+            for num in set(current_migrations.keys()) & set(master_migrations.keys()):
+                if current_migrations[num] != master_migrations[num]:
+                    conflicting_numbers.append(num)
+            if current_only and master_only or conflicting_numbers:
                 # There's a conflict - we have migrations in both branches with different numbers
                 max_master = max(master_migrations.keys()) if master_migrations else 0
                 max_current = max(current_migrations.keys()) if current_migrations else 0
@@ -186,6 +191,10 @@ class MigrationConflictResolver:
                 print(f"  Master has migrations up to: {max_master}")
                 print(f"  Current branch has migrations: {sorted(current_only)}")
                 print(f"  Master has new migrations: {sorted(master_only)}")
+                if conflicting_numbers:
+                    print(
+                        f"  🔥 Conflicting migration numbers: {sorted(conflicting_numbers)} (same number, different names)"
+                    )
             else:
                 print(f"  ✅ No conflicts detected")
 
