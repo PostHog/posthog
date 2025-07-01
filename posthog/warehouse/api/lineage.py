@@ -163,8 +163,10 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         name = component
                     elif saved_query:
                         name = saved_query.name
-                    else:
+                    elif table:
                         name = table.name
+                    else:
+                        name = component
                 except ValueError:
                     name = component
                 node_data[node_id] = {
