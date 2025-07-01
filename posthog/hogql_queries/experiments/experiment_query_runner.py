@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.exceptions import ExperimentValidationError
+from posthog.exceptions import ExperimentDataError, ExperimentValidationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -96,7 +96,11 @@ class ExperimentQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ExperimentValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        except Experiment.DoesNotExist:
+            raise ExperimentDataError(f"Experiment with id {self.query.experiment_id} does not exist")
+
         self.feature_flag = self.experiment.feature_flag
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
