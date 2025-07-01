@@ -335,10 +335,41 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.secondaryStore.clearCacheByPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
-        this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        // Check if we already have cached data for the target person that includes merged properties
+        const existingTargetCache = this.secondaryStore.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            // We have existing cached data with merged properties - preserve it
+            // Create a new PersonUpdate for this distinctId that preserves the merged data
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate)
+            this.updateFinalState(
+                target.team_id,
+                distinctId,
+                target.id,
+                mergedPersonUpdate,
+                false,
+                'moveDistinctIds',
+                mergedPersonUpdate.version
+            )
+        } else {
+            // No existing cache, create fresh cache from target person
+            this.secondaryStore.setCachedPersonForUpdate(
+                target.team_id,
+                distinctId,
+                fromInternalPerson(target, distinctId)
+            )
+            this.updateFinalState(
+                target.team_id,
+                distinctId,
+                target.id,
+                target,
+                false,
+                'moveDistinctIds',
+                target.version
+            )
+        }
 
         this.updateFinalState(source.team_id, distinctId, source.id, null, false, 'moveDistinctIds', source.version)
-        this.updateFinalState(target.team_id, distinctId, target.id, target, false, 'moveDistinctIds', target.version)
 
         return mainResult
     }

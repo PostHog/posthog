@@ -879,7 +879,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(metrics.sameOutcomeSameBatch).toBe(2)
         })
 
-        it('should handle fetchForUpdate → updatePersonForMerge → moveDistinctIds sequence', async () => {
+        it('should handle fetchForUpdate → updatePersonForMerge → moveDistinctIds sequence (source person)', async () => {
             // Create a person with some properties
             const sourcePerson: InternalPerson = {
                 ...person,
@@ -956,10 +956,131 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 })
             )
 
-            // Check for any logic errors that might indicate the bug
+            expect(metrics.logicErrors).toHaveLength(0)
+        })
+
+        it('should handle fetchForUpdate → updatePersonForMerge → moveDistinctIds sequence (target person)', async () => {
+            // Create target person that we will be tracking throughout the process
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                properties: {
+                    target_prop: 'target_value',
+                    existing_target_prop: 'existing_target_value',
+                },
+                version: 5,
+                is_identified: false,
+            }
+
+            const sourcePerson: InternalPerson = {
+                ...person,
+                id: 'source-id',
+                properties: {
+                    source_prop: 'source_value',
+                    rich_property: 'rich_value',
+                },
+                version: 4,
+                is_identified: true,
+            }
+
+            // Mock DB to return the target person for fetchForUpdate
+            db.fetchPerson = jest.fn().mockResolvedValue(targetPerson)
+
+            // Mock updatePerson to simulate merge operation on target
+            db.updatePerson = jest.fn().mockImplementation((person, update) => {
+                const updatedPerson = {
+                    ...person,
+                    ...update,
+                    properties: { ...person.properties, ...update.properties },
+                    version: person.version + 1,
+                }
+                return Promise.resolve([updatedPerson, [], false])
+            })
+
+            // Step 1: fetchForUpdate on target person
+            const fetchedPerson = await shadowManager.fetchForUpdate(teamId, 'target-distinct')
+            expect(fetchedPerson).toEqual(targetPerson)
+
+            // Step 2: updatePersonForMerge - merge properties from source into target
+            const mergeUpdate = {
+                properties: {
+                    // Properties being merged from source person
+                    source_prop: 'source_value',
+                    rich_property: 'rich_value',
+                    merged_from_source: 'merged_value',
+                },
+                is_identified: true,
+            }
+            const [mergedPerson] = await shadowManager.updatePersonForMerge(
+                targetPerson,
+                mergeUpdate,
+                'target-distinct'
+            )
+
+            // Verify the merge worked on target
+            expect(mergedPerson.properties.source_prop).toBe('source_value')
+            expect(mergedPerson.properties.target_prop).toBe('target_value') // Original target props preserved
+            expect(mergedPerson.properties.rich_property).toBe('rich_value')
+            expect(mergedPerson.is_identified).toBe(true)
+
+            // Step 3: moveDistinctIds - simulate moving distinct IDs FROM source TO target
+            // After this, the target should receive all the data and properties
+            await shadowManager.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Step 4: Flush and check final states
+            await shadowManager.flush()
+
+            const metrics = shadowManager.getShadowMetrics()
+            const finalStates = shadowManager.getFinalStates()
+
+            // Verify final state tracking
+            const sourceState = finalStates.get(`${teamId}:${sourcePerson.id}`)
+            const targetState = finalStates.get(`${teamId}:${targetPerson.id}`)
+
+            // After moveDistinctIds, source should be null, target should still have the merged data
+            expect(sourceState).toBeNull()
+            // Verify the target contains the merged properties
+            expect(targetState?.person?.properties).toEqual(mergedPerson.properties)
+            expect(targetState?.person?.is_identified).toBe(mergedPerson.is_identified)
+            expect(targetState?.person?.id).toBe(mergedPerson.id)
+            expect(targetState?.operations).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'fetchForUpdate',
+                        distinctId: 'target-distinct',
+                    }),
+                    expect.objectContaining({
+                        type: 'updatePersonForMerge',
+                        distinctId: 'target-distinct',
+                    }),
+                    expect.objectContaining({
+                        type: 'moveDistinctIds',
+                        distinctId: 'target-distinct',
+                    }),
+                ])
+            )
+
+            // Check for any logic errors - this is where the bug might manifest
+            // The bug would be that properties from the merge are missing in the measuring store
             if (metrics.logicErrors.length > 0) {
                 const logicError = metrics.logicErrors[0]
-                console.log('Detected logic error:', logicError.differences)
+                console.log('Detected target person logic error:', logicError.differences)
+
+                // Check if we're missing properties that should have been merged
+                const missingProperties = logicError.differences.filter(
+                    (diff) =>
+                        diff.includes('missing in measuring store') &&
+                        (diff.includes('source_prop') ||
+                            diff.includes('rich_property') ||
+                            diff.includes('merged_from_source'))
+                )
+
+                if (missingProperties.length > 0) {
+                    console.log(
+                        'Bug reproduced! Properties lost in target person after moveDistinctIds:',
+                        missingProperties
+                    )
+                }
             }
         })
     })

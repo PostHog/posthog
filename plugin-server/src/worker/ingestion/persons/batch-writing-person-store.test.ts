@@ -83,6 +83,9 @@ describe('BatchWritingPersonStore', () => {
             deletePerson: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
+            moveDistinctIds: jest.fn().mockImplementation(() => {
+                return Promise.resolve([])
+            }),
         } as unknown as DB
 
         personStore = new BatchWritingPersonsStore(db)
@@ -850,5 +853,233 @@ describe('BatchWritingPersonStore', () => {
             undefined,
             'updatePersonNoAssert'
         )
+    })
+
+    describe('moveDistinctIds', () => {
+        it('should preserve cached merged properties when moving distinct IDs', async () => {
+            const personStoreForBatch = getBatchStoreForBatch()
+
+            // Create target person with some initial properties
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                properties: {
+                    target_prop: 'target_value',
+                    existing_target_prop: 'existing_target_value',
+                },
+                version: 5,
+                is_identified: false,
+            }
+
+            const sourcePerson: InternalPerson = {
+                ...person,
+                id: 'source-id',
+                properties: {
+                    source_prop: 'source_value',
+                },
+                version: 4,
+                is_identified: true,
+            }
+
+            // Step 1: Cache the target person (simulating fetchForUpdate)
+            personStoreForBatch.setCachedPersonForUpdate(
+                teamId,
+                'target-distinct',
+                fromInternalPerson(targetPerson, 'target-distinct')
+            )
+
+            // Step 2: Update target person with merged properties (simulating updatePersonForMerge)
+            const mergeUpdate = {
+                properties: {
+                    source_prop: 'source_value',
+                    rich_property: 'rich_value',
+                    merged_from_source: 'merged_value',
+                },
+                is_identified: true,
+            }
+            await personStoreForBatch.updatePersonForMerge(targetPerson, mergeUpdate, 'target-distinct')
+
+            // Verify the merge worked
+            const cacheAfterMerge = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            expect(cacheAfterMerge?.properties).toEqual({
+                target_prop: 'target_value',
+                existing_target_prop: 'existing_target_value',
+                source_prop: 'source_value',
+                rich_property: 'rich_value',
+                merged_from_source: 'merged_value',
+            })
+            expect(cacheAfterMerge?.is_identified).toBe(true)
+
+            // Step 3: moveDistinctIds - this should preserve the merged cache
+            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Step 4: Verify that cached merged properties are preserved
+            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            expect(cacheAfterMove?.properties).toEqual({
+                target_prop: 'target_value',
+                existing_target_prop: 'existing_target_value',
+                source_prop: 'source_value',
+                rich_property: 'rich_value',
+                merged_from_source: 'merged_value',
+            })
+            expect(cacheAfterMove?.is_identified).toBe(true)
+            expect(cacheAfterMove?.distinct_id).toBe('target-distinct')
+
+            // Verify the source cache is cleared
+            const sourceCacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)
+            expect(sourceCacheAfterMove).toBeUndefined()
+        })
+
+        it('should create fresh cache when no existing cache exists', async () => {
+            const personStoreForBatch = getBatchStoreForBatch()
+
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                properties: {
+                    target_prop: 'target_value',
+                },
+                version: 5,
+            }
+
+            const sourcePerson: InternalPerson = {
+                ...person,
+                id: 'source-id',
+                properties: {
+                    source_prop: 'source_value',
+                },
+                version: 4,
+            }
+
+            // No existing cache for target person
+            expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, targetPerson.id)).toBeUndefined()
+
+            // Move distinct IDs
+            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Should create fresh cache from target person
+            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            expect(cacheAfterMove?.properties).toEqual({
+                target_prop: 'target_value',
+            })
+            expect(cacheAfterMove?.id).toBe(targetPerson.id)
+            expect(cacheAfterMove?.distinct_id).toBe('target-distinct')
+        })
+
+        it('should clear source person cache', async () => {
+            const personStoreForBatch = getBatchStoreForBatch()
+
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                properties: { target_prop: 'target_value' },
+                version: 5,
+            }
+
+            const sourcePerson: InternalPerson = {
+                ...person,
+                id: 'source-id',
+                properties: { source_prop: 'source_value' },
+                version: 4,
+            }
+
+            // Set up cache for source person
+            personStoreForBatch.setCachedPersonForUpdate(
+                teamId,
+                'source-distinct',
+                fromInternalPerson(sourcePerson, 'source-distinct')
+            )
+
+            // Verify source cache exists
+            expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeDefined()
+
+            // Move distinct IDs
+            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Verify source cache is cleared
+            expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
+        })
+
+        it('should handle complex merge scenario with multiple properties', async () => {
+            const personStoreForBatch = getBatchStoreForBatch()
+
+            const targetPerson: InternalPerson = {
+                ...person,
+                id: 'target-id',
+                properties: {
+                    target_prop: 'target_value',
+                    shared_prop: 'original_value',
+                    target_only: 'target_only_value',
+                },
+                version: 5,
+                is_identified: false,
+            }
+
+            const sourcePerson: InternalPerson = {
+                ...person,
+                id: 'source-id',
+                properties: {
+                    source_prop: 'source_value',
+                    shared_prop: 'updated_value',
+                    source_only: 'source_only_value',
+                },
+                version: 4,
+                is_identified: true,
+            }
+
+            // Step 1: Cache target person
+            personStoreForBatch.setCachedPersonForUpdate(
+                teamId,
+                'target-distinct',
+                fromInternalPerson(targetPerson, 'target-distinct')
+            )
+
+            // Step 2: Multiple merge operations
+            await personStoreForBatch.updatePersonForMerge(
+                targetPerson,
+                {
+                    properties: {
+                        source_prop: 'source_value',
+                        shared_prop: 'updated_value', // This should override
+                    },
+                    is_identified: true,
+                },
+                'target-distinct'
+            )
+
+            await personStoreForBatch.updatePersonForMerge(
+                targetPerson,
+                {
+                    properties: {
+                        additional_prop: 'additional_value',
+                        source_only: 'source_only_value',
+                    },
+                },
+                'target-distinct'
+            )
+
+            // Step 3: moveDistinctIds
+            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+
+            // Step 4: Verify all merged properties are preserved
+            const finalCache = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            expect(finalCache?.properties).toEqual({
+                target_prop: 'target_value',
+                shared_prop: 'updated_value',
+                target_only: 'target_only_value',
+                source_prop: 'source_value',
+                source_only: 'source_only_value',
+                additional_prop: 'additional_value',
+            })
+            expect(finalCache?.is_identified).toBe(true)
+            expect(finalCache?.property_changeset).toEqual({
+                source_prop: 'source_value',
+                shared_prop: 'updated_value',
+                additional_prop: 'additional_value',
+                source_only: 'source_only_value',
+                target_only: 'target_only_value',
+                target_prop: 'target_value',
+            })
+        })
     })
 })

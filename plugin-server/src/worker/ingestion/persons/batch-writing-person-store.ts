@@ -432,7 +432,17 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.clearCacheByPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
-        this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        // Check if we already have cached data for the target person that includes merged properties
+        const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            // We have existing cached data with merged properties - preserve it
+            // Create a new PersonUpdate for this distinctId that preserves the merged data
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate)
+        } else {
+            // No existing cache, create fresh cache from target person
+            this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        }
 
         return response
     }
