@@ -443,8 +443,6 @@ export class HogFlowExecutorService {
             // TODO: Add person info
         }
 
-        // TODO: Load the state information out of the hog flow invocation
-        // to be passed in potentially
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
