@@ -744,7 +744,7 @@ class ExperimentQueryRunner(QueryRunner):
         }
 
         if not variants:
-            raise ExperimentValidationError(code="no-results", detail=json.dumps(errors))
+            raise ExperimentValidationError(detail=json.dumps(errors))
 
         errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
