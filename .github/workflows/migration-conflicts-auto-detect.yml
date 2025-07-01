@@ -1,0 +1,237 @@
+name: Migration Conflicts - Auto Detect
+
+on:
+    push:
+        branches:
+            - '**'
+            - '!master'
+            - '!main'
+        paths:
+            - '**/migrations/**'
+            - '**/max_migration.txt'
+    repository_dispatch:
+        types: [test-auto-detect]
+
+jobs:
+    auto-detect-migration-conflicts:
+        runs-on: ubuntu-latest
+
+        # Only run on PRs or if this push is associated with a PR, or via repository_dispatch
+        if: |
+            (github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main') ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'test-auto-detect')
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  # For repository_dispatch, checkout the specified branch
+                  ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.branch || github.ref }}
+
+            - name: Set up Python
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              with:
+                  python-version: '3.11'
+
+            - name: Fetch master branch
+              run: |
+                  git fetch origin master:master
+
+            - name: Check for max_migration.txt conflicts
+              id: check_conflicts
+              run: |
+                  echo "🔍 Checking for migration conflicts..."
+
+                  CONFLICTS_FOUND=false
+                  APPS=("posthog" "ee" "products/early_access_features" "products/user_interviews")
+
+                  for app in "${APPS[@]}"; do
+                    MAX_FILE="$app/migrations/max_migration.txt"
+                    
+                    if [ -f "$MAX_FILE" ]; then
+                      echo "Checking $MAX_FILE..."
+                      
+                      CURRENT_MAX=$(cat "$MAX_FILE" 2>/dev/null || echo "")
+                      MASTER_MAX=$(git show origin/master:"$MAX_FILE" 2>/dev/null || echo "")
+                      
+                      if [ -n "$CURRENT_MAX" ] && [ -n "$MASTER_MAX" ] && [ "$CURRENT_MAX" != "$MASTER_MAX" ]; then
+                        echo "📋 Potential conflict in $app:"
+                        echo "  Current branch: $CURRENT_MAX"
+                        echo "  Master branch: $MASTER_MAX"
+                        
+                        # Check if migration numbers indicate a real conflict
+                        CURRENT_NUM=$(echo "$CURRENT_MAX" | grep -o '^[0-9]\+' || echo "0")
+                        MASTER_NUM=$(echo "$MASTER_MAX" | grep -o '^[0-9]\+' || echo "0")
+                        
+                        if [ "$CURRENT_NUM" -le "$MASTER_NUM" ]; then
+                          echo "🚨 Real conflict detected - current migration number $CURRENT_NUM conflicts with master $MASTER_NUM"
+                          CONFLICTS_FOUND=true
+                        fi
+                      fi
+                    fi
+                  done
+
+                  echo "conflicts_found=$CONFLICTS_FOUND" >> $GITHUB_OUTPUT
+
+                  if [ "$CONFLICTS_FOUND" = "true" ]; then
+                    echo "⚠️ Migration conflicts detected!"
+                  else
+                    echo "✅ No migration conflicts found"
+                  fi
+
+            - name: Run detailed conflict analysis
+              if: steps.check_conflicts.outputs.conflicts_found == 'true'
+              id: detailed_analysis
+              run: |
+                  echo "🔧 Running detailed migration conflict analysis..."
+
+                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview 2>&1)
+                  echo "$OUTPUT"
+                  echo "$OUTPUT" > migration_analysis.txt
+
+                  if echo "$OUTPUT" | grep -q "CONFLICT DETECTED"; then
+                    echo "script_found_conflicts=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "script_found_conflicts=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Find associated PR
+              id: find_pr
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      let branch;
+                      if (context.eventName === 'repository_dispatch') {
+                        branch = context.payload.client_payload.branch || 'yasen/feat/migrations-conflict-resolution-in-ci';
+                      } else {
+                        branch = context.ref.replace('refs/heads/', '');
+                      }
+
+                      const { data: pulls } = await github.rest.pulls.list({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        head: `${context.repo.owner}:${branch}`,
+                        state: 'open'
+                      });
+
+                      console.log(`Looking for PR with head: ${context.repo.owner}:${branch}`);
+                      console.log(`Found ${pulls.length} PRs`);
+
+                      if (pulls.length > 0) {
+                        const pr = pulls[0];
+                        console.log(`Found PR #${pr.number} for branch ${branch}`);
+                        core.setOutput('pr_number', pr.number);
+                        core.setOutput('pr_found', 'true');
+                      } else {
+                        console.log(`No open PR found for branch ${branch}`);
+                        core.setOutput('pr_found', 'false');
+                      }
+
+            - name: Post auto-detection comment to PR
+              if: steps.find_pr.outputs.pr_found == 'true' && steps.detailed_analysis.outputs.script_found_conflicts == 'true'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const analysisOutput = fs.readFileSync('migration_analysis.txt', 'utf8');
+                      const prNumber = ${{ steps.find_pr.outputs.pr_number }};
+
+                      let branch;
+                      if (context.eventName === 'repository_dispatch') {
+                        branch = context.payload.client_payload.branch || 'yasen/feat/migrations-conflict-resolution-in-ci';
+                      } else {
+                        branch = context.ref.replace('refs/heads/', '');
+                      }
+
+                      const comment = `## 🤖 Auto-Detected Migration Conflicts
+
+                      I automatically detected migration conflicts in your latest push to \`${branch}\`.
+
+                      <details>
+                      <summary><strong>📋 Click to see detailed analysis</strong></summary>
+
+                      \`\`\`
+                      ${analysisOutput}
+                      \`\`\`
+                      </details>
+
+                      ## ✅ One-Click Resolution Available
+
+                      **🚀 Quick fix:** Comment \`/fix-migrations\` below to automatically apply the fixes to your PR.
+
+                      **🔍 Preview first:** Comment \`/preview-migrations\` to see what changes would be made.
+
+                      ### Alternative Manual Options:
+                      - **Apply fixes manually:** [Actions Tab](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml) → "Migration Conflicts - Apply Fixes"
+                      - **Preview manually:** [Actions Tab](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-preview.yml) → "Migration Conflicts - Preview"
+
+                      ---
+                      <sub>🤖 Auto-detected by migration-conflicts-auto-detect.yml ${context.eventName === 'repository_dispatch' ? 'via API test' : `on push to ${context.sha.substring(0, 7)}`}</sub>`;
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber,
+                      });
+
+                      const existingComment = comments.find(comment => 
+                        comment.user.login === 'github-actions[bot]' && 
+                        comment.body.includes('Auto-Detected Migration Conflicts')
+                      );
+
+                      if (existingComment) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existingComment.id,
+                          body: comment
+                        });
+                        console.log(`Updated existing auto-detection comment`);
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: comment
+                        });
+                        console.log(`Created new auto-detection comment`);
+                      }
+
+            - name: Post "no conflicts" update
+              if: steps.find_pr.outputs.pr_found == 'true' && steps.check_conflicts.outputs.conflicts_found == 'false'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      const prNumber = ${{ steps.find_pr.outputs.pr_number }};
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber,
+                      });
+
+                      const existingComment = comments.find(comment => 
+                        comment.user.login === 'github-actions[bot]' && 
+                        comment.body.includes('🤖 Auto-Detected Migration')
+                      );
+
+                      if (existingComment) {
+                        await github.rest.issues.deleteComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existingComment.id
+                        });
+                        console.log(`Removed old conflict comment - no conflicts detected`);
+                      }
+
+            - name: Always complete successfully
+              if: always()
+              run: |
+                  echo "🔍 Auto-detection workflow completed:"
+                  echo "  Conflicts found: ${{ steps.check_conflicts.outputs.conflicts_found || 'false' }}"
+                  echo "  Script confirmed: ${{ steps.detailed_analysis.outputs.script_found_conflicts || 'N/A' }}"
+                  echo "  PR found: ${{ steps.find_pr.outputs.pr_found || 'N/A' }}"
+                  echo "  PR number: ${{ steps.find_pr.outputs.pr_number || 'N/A' }}"
+                  echo "✅ Migration conflict detection completed successfully"
