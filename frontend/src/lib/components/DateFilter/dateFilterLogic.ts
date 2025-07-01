@@ -151,8 +151,23 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 isFixedDateMode,
                 placeholder,
                 dateFromHasTimePrecision
-            ) =>
-                isFixedRange
+            ) => {
+                // Handle mixed format case: relative dateFrom with absolute dateTo
+                if (dateFrom && dateTo && !dayjs(dateFrom).isValid() && dayjs(dateTo).isValid()) {
+                    const relativeText = dateFilterToText(
+                        dateFrom,
+                        null,
+                        NO_OVERRIDE_RANGE_PLACEHOLDER,
+                        dateOptions,
+                        false
+                    )
+                    // Check if dateTo has time precision
+                    const dateToHasTime = dayjs(dateTo).format('HH:mm:ss') !== '00:00:00'
+                    const absoluteDateTo = dateToHasTime ? formatDateTime(dayjs(dateTo)) : formatDate(dayjs(dateTo))
+                    return `${relativeText} until ${absoluteDateTo}`
+                }
+
+                return isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
                     ? `${
@@ -168,7 +183,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                               : NO_OVERRIDE_RANGE_PLACEHOLDER,
                           dateOptions,
                           false
-                      ),
+                      )
+            },
         ],
     }),
     listeners(({ actions, values, props }) => ({

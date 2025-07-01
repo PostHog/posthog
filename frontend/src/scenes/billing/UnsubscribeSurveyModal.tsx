@@ -17,7 +17,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useState } from 'react'
 
-import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, SurveyEventProperties } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
@@ -50,7 +50,7 @@ export const UnsubscribeSurveyModal = ({
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
-    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const includesPipelinesAddon =
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
@@ -217,9 +217,9 @@ export const UnsubscribeSurveyModal = ({
                             <LemonTextArea
                                 data-attr="unsubscribe-reason-survey-textarea"
                                 placeholder={unsubscribeReasonQuestions}
-                                value={surveyResponse['$survey_response']}
+                                value={surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]}
                                 onChange={(value) => {
-                                    setSurveyResponse('$survey_response', value)
+                                    setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
                                 }}
                             />
                         )}
