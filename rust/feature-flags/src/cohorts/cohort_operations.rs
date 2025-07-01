@@ -234,7 +234,15 @@ fn evaluate_cohort_values(
                     }
                 } else {
                     // Handle regular property check
-                    if match_property(filter, target_properties, false).unwrap_or(false) {
+                    let property_result =
+                        match_property(filter, target_properties, false).unwrap_or(false);
+                    // handle any property negation
+                    let final_result = if filter.negation.unwrap_or(false) {
+                        !property_result
+                    } else {
+                        property_result
+                    };
+                    if final_result {
                         return Ok(true);
                     }
                 }
@@ -250,7 +258,15 @@ fn evaluate_cohort_values(
                     }
                 } else {
                     // Handle regular property check
-                    if !match_property(filter, target_properties, false).unwrap_or(false) {
+                    let property_result =
+                        match_property(filter, target_properties, false).unwrap_or(false);
+                    // handle any property negation
+                    let final_result = if filter.negation.unwrap_or(false) {
+                        !property_result
+                    } else {
+                        property_result
+                    };
+                    if !final_result {
                         return Ok(false);
                     }
                 }
@@ -686,6 +702,93 @@ mod tests {
         assert!(
             !result,
             "Static cohorts should return false from evaluate_dynamic_cohorts"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_negation_filters() {
+        // Create a cohort with filters that include negation
+        // This cohort should match people with emails ending in @example.com
+        // BUT exclude those containing "excluded.user"
+        let cohort_with_negation = Cohort {
+            id: 1,
+            name: Some("Cohort with Negation".to_string()),
+            description: None,
+            team_id: 1,
+            deleted: false,
+            filters: Some(json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "^.*@example.com$",
+                                "negation": false,
+                                "operator": "regex"
+                            },
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "excluded.user",
+                                "negation": true,  // This should be inverted
+                                "operator": "icontains"
+                            }
+                        ]
+                    }]
+                }
+            })),
+            query: None,
+            version: None,
+            pending_version: None,
+            count: None,
+            is_calculating: false,
+            is_static: false,
+            errors_calculating: 0,
+            groups: json!({}),
+            created_by_id: None,
+        };
+
+        let cohorts = vec![cohort_with_negation];
+
+        // Test case 1: User with @example.com email but NOT excluded
+        // Should match because: regex matches AND (icontains doesn't match -> negated to true)
+        let mut target_properties = HashMap::new();
+        target_properties.insert("email".to_string(), json!("test.user@example.com"));
+
+        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        assert!(
+            result,
+            "User with @example.com email should match when not excluded"
+        );
+
+        // Test case 2: User with @example.com email but IS excluded
+        // Should NOT match because: regex matches BUT (icontains matches -> negated to false)
+        target_properties.insert("email".to_string(), json!("excluded.user@example.com"));
+
+        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        assert!(
+            !result,
+            "User with @example.com email should NOT match when excluded"
+        );
+
+        // Test case 3: User without @example.com email
+        // Should NOT match because: regex doesn't match (regardless of negation)
+        target_properties.insert("email".to_string(), json!("test.user@other.com"));
+
+        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        assert!(!result, "User without @example.com email should NOT match");
+
+        // Test case 4: User with excluded term but wrong domain
+        // Should NOT match because: regex doesn't match (regardless of negation)
+        target_properties.insert("email".to_string(), json!("excluded.user@other.com"));
+
+        let result = evaluate_dynamic_cohorts(1, &target_properties, &cohorts).unwrap();
+        assert!(
+            !result,
+            "User with wrong domain should NOT match regardless of exclusion"
         );
     }
 }
