@@ -18,7 +18,6 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models.experiment import Experiment
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     ExperimentExposureQuery,
@@ -42,14 +41,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag_key = self.query.feature_flag.get("key")
         if not self.feature_flag_key:
             raise ValidationError("feature_flag key is required")
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
+        self.exposure_criteria = self.query.exposure_criteria
 
         # Determine how to handle entities exposed to multiple variants
-        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.exposure_criteria)
 
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
@@ -95,7 +94,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if not self.feature_flag_key:
             raise ValidationError("feature_flag key is required")
         event, feature_flag_variant_property = get_exposure_event_and_property(
-            self.feature_flag_key, self.experiment.exposure_criteria
+            self.feature_flag_key, self.exposure_criteria
         )
 
         # Build common exposure conditions using shared logic
@@ -105,7 +104,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             variants=self.variants,
             date_range_query=self.date_range_query,
             team=self.team,
-            exposure_criteria=self.experiment.exposure_criteria,
+            exposure_criteria=self.exposure_criteria,
             feature_flag_key=self.feature_flag_key,
         )
 
