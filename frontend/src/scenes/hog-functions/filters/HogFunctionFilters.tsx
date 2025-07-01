@@ -1,4 +1,5 @@
-import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -260,31 +261,37 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 <div>
                                     {filtersContent}
                                     {oldFilters && newFilters && (
-                                        <div className="flex gap-2 mt-4 p-3 bg-surface-secondary rounded border border-dashed">
-                                            <div className="flex-1">
-                                                <span className="text-sm font-medium">Suggested filters by Max</span>
+                                        <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                            <div className="flex-1 text-center">
+                                                <span className="text-sm font-medium">Suggested by Max</span>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button
-                                                    className="px-3 py-1 bg-success text-white rounded text-sm hover:bg-success-dark"
-                                                    onClick={() => {
-                                                        onChange(newFilters)
-                                                        reportAIFiltersAccepted()
-                                                        clearFiltersDiff()
-                                                    }}
-                                                >
-                                                    Accept
-                                                </button>
-                                                <button
-                                                    className="px-3 py-1 bg-danger text-white rounded text-sm hover:bg-danger-dark"
+                                                <LemonButton
+                                                    status="danger"
+                                                    icon={<IconX />}
                                                     onClick={() => {
                                                         onChange(oldFilters)
                                                         reportAIFiltersRejected()
                                                         clearFiltersDiff()
                                                     }}
+                                                    tooltipPlacement="top"
+                                                    size="small"
                                                 >
                                                     Reject
-                                                </button>
+                                                </LemonButton>
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    icon={<IconCheck color="var(--success)" />}
+                                                    onClick={() => {
+                                                        onChange(newFilters)
+                                                        reportAIFiltersAccepted()
+                                                        clearFiltersDiff()
+                                                    }}
+                                                    tooltipPlacement="top"
+                                                    size="small"
+                                                >
+                                                    Accept
+                                                </LemonButton>
                                             </div>
                                         </div>
                                     )}
