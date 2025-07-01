@@ -8140,7 +8140,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
   "description": "Send event data to Canny",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=canny.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=canny.io",
   "id": "segment-actions-canny",
   "inputs_schema": [
     {
