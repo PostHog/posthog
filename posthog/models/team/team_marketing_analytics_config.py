@@ -85,6 +85,15 @@ class TeamMarketingAnalyticsConfig(models.Model):
     def sources_map(self) -> dict:
         return self._sources_map or {}
 
+    @sources_map.setter
+    def sources_map(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_sources_map(value)
+            self._sources_map = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid sources map schema: {str(e)}")
+
     @property
     def sources_map_casted(self) -> dict[str, SourceMap]:
         """Return sources_map as dict of source_id -> SourceMap objects"""
@@ -98,15 +107,6 @@ class TeamMarketingAnalyticsConfig(models.Model):
                 response[source_id] = SourceMap(**field_mapping)
         return response
 
-    @sources_map.setter  # type: ignore[no-redef, attr-defined]
-    def sources_map(self, value: dict) -> None:
-        value = value or {}
-        try:
-            validate_sources_map(value)
-            self._sources_map = value
-        except ValidationError as e:
-            raise ValidationError(f"Invalid sources map schema: {str(e)}")
-
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
@@ -117,7 +117,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources[source_id] = field_mapping
 
         # Validate and set the updated sources_map
-        self.sources_map = current_sources  # type: ignore[misc]
+        self.sources_map = current_sources
 
     def update_source_field_mapping(self, source_id: str, field_mappings: dict) -> None:
         """Update specific field mappings for a source while preserving other fields."""
@@ -133,7 +133,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources[source_id].update(field_mappings)
 
         # Validate and set the updated sources_map
-        self.sources_map = current_sources  # type: ignore[misc]
+        self.sources_map = current_sources
 
     def remove_source_mapping(self, source_id: str) -> None:
         """Remove a source mapping entirely."""
@@ -141,7 +141,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
         current_sources = self.sources_map.copy()
         if source_id in current_sources:
             del current_sources[source_id]
-            self.sources_map = current_sources  # type: ignore[misc]
+            self.sources_map = current_sources
 
     @property
     def conversion_goals(self) -> list:
