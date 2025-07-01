@@ -958,7 +958,6 @@ class ErrorTrackingIssueAggregations(BaseModel):
 
 
 class Type2(StrEnum):
-    USER_GROUP = "user_group"
     USER = "user"
     ROLE = "role"
 
