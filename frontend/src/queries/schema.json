@@ -15149,10 +15149,12 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
-                    "type": ["string", "null"]
+                    "format": "date-time",
+                    "type": "string"
                 },
                 "date_to": {
-                    "type": ["string", "null"]
+                    "format": "date-time",
+                    "type": "string"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType"

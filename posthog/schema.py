@@ -1742,8 +1742,8 @@ class QueryDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
     interval: Optional[IntervalType] = None
 
 

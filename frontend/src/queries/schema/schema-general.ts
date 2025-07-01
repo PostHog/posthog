@@ -2733,8 +2733,10 @@ export interface DateRange {
 }
 
 export interface QueryDateRangeResponse {
-    date_from?: string | null
-    date_to?: string | null
+    /**  @format date-time */
+    date_from?: string
+    /**  @format date-time */
+    date_to?: string
     interval?: IntervalType
 }
 
