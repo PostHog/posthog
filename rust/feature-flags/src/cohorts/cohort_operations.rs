@@ -233,16 +233,8 @@ fn evaluate_cohort_values(
                         return Ok(true);
                     }
                 } else {
-                    // Handle regular property check
-                    let property_result =
-                        match_property(filter, target_properties, false).unwrap_or(false);
-                    // handle any property negation; cohort filters use negation (as compared to flag filters, which use NotIContains)
-                    let final_result = if filter.negation.unwrap_or(false) {
-                        !property_result
-                    } else {
-                        property_result
-                    };
-                    if final_result {
+                    // Handle regular property check with negation
+                    if evaluate_property_with_negation(filter, target_properties) {
                         return Ok(true);
                     }
                 }
@@ -257,16 +249,8 @@ fn evaluate_cohort_values(
                         return Ok(false);
                     }
                 } else {
-                    // Handle regular property check
-                    let property_result =
-                        match_property(filter, target_properties, false).unwrap_or(false);
-                    // handle any property negation; cohort filters use negation (as compared to flag filters, which use NotIContains)
-                    let final_result = if filter.negation.unwrap_or(false) {
-                        !property_result
-                    } else {
-                        property_result
-                    };
-                    if !final_result {
+                    // Handle regular property check with negation
+                    if !evaluate_property_with_negation(filter, target_properties) {
                         return Ok(false);
                     }
                 }
@@ -274,6 +258,24 @@ fn evaluate_cohort_values(
             Ok(true)
         }
         _ => Err(FlagError::CohortFiltersParsingError),
+    }
+}
+
+/// Evaluates a property filter against target properties, applying negation if specified.
+///
+/// Cohort filters use the `negation` field to invert results, unlike flag filters
+/// which use specific operators like `NotIContains`.
+fn evaluate_property_with_negation(
+    filter: &PropertyFilter,
+    target_properties: &HashMap<String, Value>,
+) -> bool {
+    let property_result = match_property(filter, target_properties, false).unwrap_or(false);
+
+    // Apply negation if specified
+    if filter.negation.unwrap_or(false) {
+        !property_result
+    } else {
+        property_result
     }
 }
 
