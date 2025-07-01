@@ -41,14 +41,15 @@ def trace_clickhouse_query_decorator(func):
 
         with tracer.start_as_current_span("clickhouse.query") as span:
             # Ensure team_id is extracted before any attributes are set
-            if team_id is None and isinstance(query, str) and span.is_recording():
-                match = re.search(r"team_id\s*=\s*(\d+)", query)
-                if match:
-                    team_id = match.group(1)
+            if span.is_recording() and team_id is None and isinstance(query, str):
+                # If team_id is not provided directly, check if it's in the args dict
+                if args_param and isinstance(args_param, dict) and "team_id" in args_param:
+                    team_id = args_param["team_id"]
                 else:
-                    param_match = re.search(r"team_id\s*=\s*%\(team_id\)s", query)
-                    if param_match and args_param and isinstance(args_param, dict) and "team_id" in args_param:
-                        team_id = args_param["team_id"]
+                    # Fallback: try to extract team_id from literal in query string
+                    match = re.search(r"team_id\s*=\s*(\d+)", query)
+                    if match:
+                        team_id = match.group(1)
 
             # Set standard database attributes
             span.set_attribute("db.system", "clickhouse")
