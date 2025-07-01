@@ -1,6 +1,7 @@
 from typing import Optional
 from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from products.data_warehouse.backend.prompts import SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.context import HogQLContext
@@ -58,6 +59,7 @@ class HogQLGeneratorTool(MaxTool):
                     + SCHEMA_MESSAGE.format(schema_description=schema_description)
                     + "\n\n<current_query>\n{{{current_query}}}\n</current_query>",
                 ),
+                ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                 ("user", "Write a new HogQL query or tweak the current one to satisfy this request: " + instructions),
             ],
             template_format="mustache",

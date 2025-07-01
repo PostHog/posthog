@@ -396,7 +396,9 @@ class Assistant:
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                    content=ToolClass(user=self._user, team=self._team).thinking_message
+                    if ToolClass
+                    else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
                 ui_context = find_last_ui_context(input.messages)

@@ -9,6 +9,8 @@ from langchain_core.messages import (
     BaseMessage,
 )
 from langchain_core.runnables import RunnableConfig
+
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 from ..root.nodes import RootNode
 from ee.hogai.utils.state import PartialAssistantState
@@ -22,9 +24,9 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
-        prompt = ChatPromptTemplate(self._construct_messages(state))
+        prompt = ChatPromptTemplate(self._construct_messages(state), template_format="mustache")
         chain = prompt | self._get_model()
-        message: LangchainAIMessage = chain.invoke({}, config)
+        message: LangchainAIMessage = chain.invoke(self.project_org_user_variables, config)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
@@ -37,7 +39,10 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        messages: list[BaseMessage] = [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)]
+        messages: list[BaseMessage] = [
+            LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT),
+            LangchainSystemMessage(content=PROJECT_ORG_USER_CONTEXT_PROMPT),
+        ]
         for message in super()._construct_messages(state):
             if message.content:
                 messages.append(message)

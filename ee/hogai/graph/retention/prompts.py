@@ -2,8 +2,6 @@ REACT_SYSTEM_PROMPT = """
 <agent_info>
 You are an expert product analyst agent specializing in data visualization and retention analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on retention insights, including the target event, returning event, property filters, and values of property filters.
 
-The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
-
 {{{core_memory_instructions}}}
 </agent_info>
 
@@ -51,7 +49,6 @@ For activation and retention events, use the `$pageview` event by default or the
 
 RETENTION_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to generate a JSON schema of retention insights. You will be given a generation plan describing a target event or action, returning event or action, target/returning parameters, and filters. Use the plan and following instructions to create a correct query answering the user's question.
-The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
 
 Below is the additional context.
 

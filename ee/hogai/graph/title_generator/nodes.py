@@ -4,6 +4,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.title_generator.prompts import TITLE_GENERATION_PROMPT
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -21,12 +22,19 @@ class TitleGeneratorNode(AssistantNode):
             return None
 
         runnable = (
-            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", human_message.content)])
+            ChatPromptTemplate.from_messages(
+                [
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
+                    ("system", TITLE_GENERATION_PROMPT),
+                    ("user", human_message.content),
+                ],
+                template_format="mustache",
+            )
             | self._model
             | StrOutputParser()
         )
 
-        title = runnable.invoke({}, config=config)
+        title = runnable.invoke(self.project_org_user_variables, config=config)
 
         conversation.title = title
         conversation.save()

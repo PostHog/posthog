@@ -42,6 +42,7 @@ from .prompts import (
 from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
 from ee.hogai.utils.helpers import remove_line_breaks
 from ..base import AssistantNode
+from ..shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -69,7 +70,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             prompt
             + ChatPromptTemplate.from_messages(
                 [
-                    ("user", REACT_DEFINITIONS_PROMPT),
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT)("user", REACT_DEFINITIONS_PROMPT),
                 ],
                 template_format="mustache",
             )
@@ -102,11 +103,9 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "events": self._format_events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
-                        "project_datetime": self.project_now,
-                        "project_timezone": self.project_timezone,
-                        "project_name": self._team.name,
                         "actions": state.rag_context,
                         "actions_prompt": REACT_ACTIONS_PROMPT,
+                        **self.project_org_user_variables,
                     },
                     config,
                 ),

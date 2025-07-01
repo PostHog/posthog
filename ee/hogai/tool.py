@@ -2,8 +2,9 @@ import json
 from abc import abstractmethod
 import importlib
 import pkgutil
+from ee.hogai.graph.base import AssistantVariablesMixin
 import products
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -66,7 +67,7 @@ def _get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
-class MaxTool(BaseTool):
+class MaxTool(AssistantVariablesMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -83,8 +84,6 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team: Optional["Team"]
-    _user: Optional["User"]
     _config: RunnableConfig
     _state: AssistantState
 
@@ -93,8 +92,8 @@ class MaxTool(BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         pass
 
-    def __init__(self, state: AssistantState | None = None):
-        super().__init__()
+    def __init__(self, *, state: AssistantState | None = None, team: "Team", user: "User"):
+        super().__init__(team=team, user=user)
         self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):
@@ -132,7 +131,7 @@ class MaxTool(BaseTool):
     def context(self) -> dict:
         if not hasattr(self, "_context"):
             raise AttributeError("Tool has not been run yet")
-        return self._context
+        return self._context | self.project_org_user_variables
 
     def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {

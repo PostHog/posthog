@@ -17,32 +17,14 @@ from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 
-class AssistantNode(ABC):
+class AssistantVariablesMixin(ABC):
     _team: Team
     _user: User
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, **kwargs):
+        super().__init__(**kwargs)
         self._team = team
         self._user = user
-
-    def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        """
-        Run the assistant node and handle cancelled conversation before the node is run.
-        """
-        thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and self._is_conversation_cancelled(thread_id):
-            raise GenerationCanceled
-        return self.run(state, config)
-
-    @abstractmethod
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        raise NotImplementedError
-
-    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return Conversation.objects.get(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
 
     @property
     def core_memory(self) -> CoreMemory | None:
@@ -81,6 +63,38 @@ class AssistantNode(ABC):
         Returns the timezone of the project, e.g. "PST" or "UTC".
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
+
+    @property
+    def project_org_user_variables(self) -> dict[str, Any]:
+        return {
+            "project_datetime": self.project_now,
+            "project_timezone": self.project_timezone,
+            "project_name": self._team.name,
+            "organization_name": self._team.organization.name,
+            "user_full_name": self._user.get_full_name(),
+            "user_email": self._user.email,
+        }
+
+
+class AssistantNode(AssistantVariablesMixin, ABC):
+    def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        """
+        Run the assistant node and handle cancelled conversation before the node is run.
+        """
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        if thread_id and self._is_conversation_cancelled(thread_id):
+            raise GenerationCanceled
+        return self.run(state, config)
+
+    @abstractmethod
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        raise NotImplementedError
+
+    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
+        try:
+            return Conversation.objects.get(team=self._team, id=conversation_id)
+        except Conversation.DoesNotExist:
+            return None
 
     def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = self._get_conversation(conversation_id)
