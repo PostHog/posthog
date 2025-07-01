@@ -3,8 +3,8 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { findActionById, findActionByType } from '../hogflow-utils'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
-import { findActionById, findActionByType } from './utils'
 
 describe('HogFlowActionRunnerRandomCohortBranch', () => {
     let runner: HogFlowActionRunnerRandomCohortBranch

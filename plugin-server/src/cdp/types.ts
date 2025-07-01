@@ -273,13 +273,13 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
+    actionStepCount: number
+    // variables: Record<string, any> // NOTE: not used yet but
     personId?: string
-    variables?: Record<string, any>
     currentAction?: {
         id: string
         startedAtTimestamp: number
     }
-    actionStepCount?: number
 }
 
 // Mostly copied from frontend types

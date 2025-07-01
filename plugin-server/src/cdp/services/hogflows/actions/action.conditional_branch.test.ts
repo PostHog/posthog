@@ -6,8 +6,8 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { findActionById, findActionByType } from '../hogflow-utils'
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
-import { findActionById, findActionByType } from './utils'
 
 describe('HogFlowActionRunnerCondition', () => {
     let runner: HogFlowActionRunnerConditionalBranch

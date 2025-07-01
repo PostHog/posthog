@@ -9,8 +9,8 @@ import { Hub } from '~/types'
 
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { findActionById } from '../hogflow-utils'
 import { HogFlowActionRunner } from './hogflow-action-runner'
-import { findActionById } from './utils'
 
 describe('HogFlowActionRunner', () => {
     let runner: HogFlowActionRunner

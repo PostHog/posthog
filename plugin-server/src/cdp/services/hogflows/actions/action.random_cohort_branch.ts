@@ -1,8 +1,8 @@
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { findNextAction } from '../hogflow-utils'
 import { HogFlowActionResult } from './types'
-import { findNextAction } from './utils'
 
 type Action = Extract<HogFlowAction, { type: 'random_cohort_branch' }>
 

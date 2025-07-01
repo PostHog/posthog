@@ -1,20 +1,16 @@
-import { DateTime } from 'luxon'
-
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { ensureCurrentAction, findContinueAction, shouldSkipAction } from '../hogflow-utils'
 import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
 import { HogFlowActionRunnerDelay } from './action.delay'
 import { HogFlowActionRunnerFunction } from './action.function'
 import { HogFlowActionRunnerRandomCohortBranch } from './action.random_cohort_branch'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
 import { HogFlowActionResult, HogFlowActionRunnerResult } from './types'
-import { findActionById, findNextAction } from './utils'
 
 export class HogFlowActionRunner {
     private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
@@ -39,70 +35,9 @@ export class HogFlowActionRunner {
         )
     }
 
-    private findContinueAction(invocation: CyclotronJobInvocationHogFlow): HogFlowAction {
-        const currentActionId = invocation.state.currentAction?.id
-        if (!currentActionId) {
-            throw new Error('Cannot find continue action without a current action')
-        }
-
-        const nextAction = findNextAction(invocation.hogFlow, currentActionId)
-        if (!nextAction) {
-            throw new Error(`Next action with id '${currentActionId}' not found`)
-        }
-
-        return nextAction
-    }
-
-    private async shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): Promise<boolean> {
-        if (!action.filters) {
-            return false
-        }
-
-        // TODO: Make filterGlobals, person and groups something we load lazily onto the main invocation object to be re-used anywhere
-        // this function isn't super cheap to run
-        const filterGlobals = convertToHogFunctionFilterGlobal({
-            event: invocation.state.event, // TODO: Fix typing
-            // TODO: Add person and groups!
-            groups: {},
-        })
-
-        const filterResults = await filterFunctionInstrumented({
-            fn: invocation.hogFlow,
-            filters: action.filters,
-            filterGlobals,
-            eventUuid: invocation.state.event.uuid,
-        })
-
-        return filterResults.match
-    }
-
     // NOTE: Keeping as a promise response for now as we will be adding async work later
     async runCurrentAction(invocation: CyclotronJobInvocationHogFlow): Promise<HogFlowActionRunnerResult> {
-        if (!invocation.state.currentAction) {
-            const triggerAction = invocation.hogFlow.actions.find((action) => action.type === 'trigger')
-            if (!triggerAction) {
-                throw new Error('No trigger action found')
-            }
-
-            // Set the current action to the trigger action
-            invocation.state.currentAction = {
-                id: triggerAction.id,
-                startedAtTimestamp: DateTime.now().toMillis(),
-            }
-
-            const nextAction = this.findContinueAction(invocation)
-            if (!nextAction) {
-                throw new Error('No next action found')
-            }
-
-            invocation.state.currentAction = {
-                id: nextAction.id,
-                startedAtTimestamp: DateTime.now().toMillis(),
-            }
-        }
-
-        const currentActionId = invocation.state.currentAction?.id
-        const action = findActionById(invocation.hogFlow, currentActionId)
+        const action = ensureCurrentAction(invocation)
 
         if (action.type === 'exit') {
             return {
@@ -111,12 +46,12 @@ export class HogFlowActionRunner {
             }
         }
 
-        if (await this.shouldSkipAction(invocation, action)) {
+        if (await shouldSkipAction(invocation, action)) {
             // Before we do anything check for filter conditions on the user
             return {
                 action,
                 exited: false,
-                goToAction: this.findContinueAction(invocation),
+                goToAction: findContinueAction(invocation),
             }
         }
 
@@ -182,7 +117,7 @@ export class HogFlowActionRunner {
             }
 
             // If we aren't moving forward, or pausing then we are just continuing to the next action
-            const nextAction = this.findContinueAction(invocation)
+            const nextAction = findContinueAction(invocation)
 
             return {
                 action,

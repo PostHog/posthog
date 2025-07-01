@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { findActionByType } from '../hogflow-utils'
 import { HogFlowActionRunnerWaitUntilTimeWindow } from './action.wait_until_time_window'
-import { findActionByType } from './utils'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let runner: HogFlowActionRunnerWaitUntilTimeWindow

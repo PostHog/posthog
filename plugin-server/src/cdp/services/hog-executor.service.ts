@@ -372,14 +372,11 @@ export class HogExecutorService {
                 result = await this.execute(nextInvocation, options)
             }
 
-            // NOTE: this is a short term hack until we have removed the old fetch queue method
-            result.invocation.queue = 'hog'
-
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
             // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt || asyncFunctionCount > maxAsyncFunctions) {
+            if (result.finished || result.invocation.queueScheduledAt) {
                 break
             }
         }
