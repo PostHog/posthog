@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'stable',
+    status: 'hidden',
     type: 'destination',
     id: 'template-hogflow-send-sms-twilio',
     name: 'Twilio SMS',
