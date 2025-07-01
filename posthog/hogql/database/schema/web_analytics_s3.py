@@ -9,6 +9,7 @@ from django.conf import settings
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_REGION,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
@@ -28,7 +29,7 @@ def get_s3_url(table_name: str, team_id: int) -> str:
         key = f"{table_name}/{team_id}/data.native"
         return f"{s3_endpoint}/{bucket}/{key}"
 
-    base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.amazonaws.com"
+    base_url = f"https://{OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET}.s3.{OBJECT_STORAGE_REGION}.amazonaws.com"
 
     return f"{base_url}/{table_name}/{team_id}/data.native"
 
