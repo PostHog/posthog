@@ -44,6 +44,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag_key = self.query.feature_flag.get("key")
+        if not self.feature_flag_key:
+            raise ValidationError("feature_flag key is required")
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
 
         # Determine how to handle entities exposed to multiple variants
@@ -90,6 +92,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def _get_exposure_query(self) -> ast.SelectQuery:
         # Get the exposure event and feature flag variant property
+        if not self.feature_flag_key:
+            raise ValidationError("feature_flag key is required")
         event, feature_flag_variant_property = get_exposure_event_and_property(
             self.feature_flag_key, self.experiment.exposure_criteria
         )
