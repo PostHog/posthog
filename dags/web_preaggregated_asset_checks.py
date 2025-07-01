@@ -12,7 +12,7 @@ from dagster import (
     asset_check,
 )
 from dags.common import JobOwners
-from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS, TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
@@ -36,11 +36,6 @@ MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
 WEB_DATA_QUALITY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        list,
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to validate data quality for",
-    ),
     "tolerance_pct": Field(
         float,
         default_value=DEFAULT_TOLERANCE_PCT,
@@ -442,7 +437,6 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
                         "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
                         "days_back": DEFAULT_DAYS_BACK,
                     }
