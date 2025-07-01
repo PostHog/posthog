@@ -9,6 +9,7 @@ import {
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
     SourceMap,
+    ConversionGoalFilter,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
@@ -50,6 +51,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     actions({
         setMarketingAnalyticsOrderBy: (orderBy: string, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
+        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        clearDynamicConversionGoal: () => true,
     }),
     reducers({
         marketingAnalyticsOrderBy: [
@@ -57,6 +60,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             {
                 setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
                 clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+        dynamicConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDynamicConversionGoal: (_, { goal }) => goal,
+                clearDynamicConversionGoal: () => null,
             },
         ],
     }),

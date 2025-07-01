@@ -12,10 +12,10 @@ import {
     PipelineTab,
     ProductKey,
     SDKKey,
+    OnboardingStepKey,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
-import type { OnboardingStepKey } from './onboarding/onboardingLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**

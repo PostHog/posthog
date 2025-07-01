@@ -644,7 +644,7 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
+                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
                         <div>
                             <SideBar />
@@ -667,7 +667,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
         : responseError
 
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail

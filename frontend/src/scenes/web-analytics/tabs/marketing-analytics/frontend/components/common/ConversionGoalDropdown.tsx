@@ -78,8 +78,8 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     ...value,
                     ...firstSerie,
                     // Preserve the existing schema to keep UTM mappings
-                    schema: {
-                        ...value.schema,
+                    schema_map: {
+                        ...value.schema_map,
                         ...(firstSerie as any).schema,
                     },
                 }
@@ -93,7 +93,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         timestamp_field: schema[TIMESTAMP_FIELD_SCHEMA_FIELD],
                         distinct_id_field: schema[DISTINCT_ID_FIELD_SCHEMA_FIELD],
                     }
-                    newFilter.schema = overrideSchema
+                    newFilter.schema_map = overrideSchema
                 }
                 onChange(newFilter)
             }}

@@ -1,12 +1,12 @@
-import { Hub, Team } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
-import { parseJSON } from '../../utils/json-parse'
-import { LazyLoader } from '../../utils/lazy-loader'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
-import { PubSub } from '../../utils/pubsub'
-import { HOG_FUNCTION_TEMPLATES } from '../templates'
-import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
+import { Hub, Team } from '../../../types'
+import { PostgresUse } from '../../../utils/db/postgres'
+import { parseJSON } from '../../../utils/json-parse'
+import { LazyLoader } from '../../../utils/lazy-loader'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
+import { PubSub } from '../../../utils/pubsub'
+import { HOG_FUNCTION_TEMPLATES } from '../../templates'
+import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../../types'
 
 const HOG_FUNCTION_FIELDS = [
     'id',
