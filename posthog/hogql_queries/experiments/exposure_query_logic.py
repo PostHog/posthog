@@ -70,8 +70,12 @@ def get_test_accounts_filter(team: Team, exposure_criteria: Optional[dict] = Non
     """
     filter_test_accounts = False
 
-    if exposure_criteria and exposure_criteria.get("filterTestAccounts"):
-        filter_test_accounts = True
+    if exposure_criteria:
+        # Handle both dict and object-like access patterns
+        if hasattr(exposure_criteria, "filterTestAccounts"):
+            filter_test_accounts = bool(exposure_criteria.filterTestAccounts)
+        elif isinstance(exposure_criteria, dict) and exposure_criteria.get("filterTestAccounts"):
+            filter_test_accounts = True
 
     if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
         return [property_to_expr(property, team) for property in team.test_account_filters]
@@ -89,11 +93,23 @@ def get_exposure_event_and_property(feature_flag_key: str, exposure_criteria: Op
     Returns:
         Tuple of (event_name, feature_flag_variant_property)
     """
-    exposure_config = exposure_criteria.get("exposure_config") if exposure_criteria else None
+    exposure_config = None
+    if exposure_criteria:
+        # Handle both dict and object-like access patterns
+        if hasattr(exposure_criteria, "exposure_config"):
+            exposure_config = exposure_criteria.exposure_config
+        elif isinstance(exposure_criteria, dict):
+            exposure_config = exposure_criteria.get("exposure_config")
 
-    if exposure_config and exposure_config.get("event") != "$feature_flag_called":
+    if exposure_config and hasattr(exposure_config, "event") and exposure_config.event != "$feature_flag_called":
         # For custom exposure events, we extract the event name from the exposure config
         # and get the variant from the $feature/<key> property
+        feature_flag_variant_property = f"$feature/{feature_flag_key}"
+        event = exposure_config.event
+    elif (
+        exposure_config and isinstance(exposure_config, dict) and exposure_config.get("event") != "$feature_flag_called"
+    ):
+        # Handle dict-based exposure config
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = exposure_config.get("event")
     else:
@@ -150,15 +166,35 @@ def build_common_exposure_conditions(
     ]
 
     # Add custom exposure property filters if present
-    exposure_config = exposure_criteria.get("exposure_config") if exposure_criteria else None
-    if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-        exposure_property_filters: list[ast.Expr] = []
+    exposure_config = None
+    if exposure_criteria:
+        # Handle both dict and object-like access patterns
+        if hasattr(exposure_criteria, "exposure_config"):
+            exposure_config = exposure_criteria.exposure_config
+        elif isinstance(exposure_criteria, dict):
+            exposure_config = exposure_criteria.get("exposure_config")
 
-        if exposure_config.get("properties"):
-            for property in exposure_config.get("properties"):
-                exposure_property_filters.append(property_to_expr(property, team))
-        if exposure_property_filters:
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+    if exposure_config:
+        # Check if this is an ExperimentEventExposureConfig
+        is_event_exposure_config = (
+            hasattr(exposure_config, "kind") and exposure_config.kind == "ExperimentEventExposureConfig"
+        ) or (isinstance(exposure_config, dict) and exposure_config.get("kind") == "ExperimentEventExposureConfig")
+
+        if is_event_exposure_config:
+            exposure_property_filters: list[ast.Expr] = []
+
+            # Get properties from either object or dict
+            properties = None
+            if hasattr(exposure_config, "properties"):
+                properties = exposure_config.properties
+            elif isinstance(exposure_config, dict):
+                properties = exposure_config.get("properties")
+
+            if properties:
+                for property in properties:
+                    exposure_property_filters.append(property_to_expr(property, team))
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
 
     # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
     if event == "$feature_flag_called" and feature_flag_key:
