@@ -241,7 +241,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
-        posthoganalytics.tag("feature", Feature.COHORT)
+        posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
         cohort: Cohort = Cohort.objects.get(pk=cohort_id)
