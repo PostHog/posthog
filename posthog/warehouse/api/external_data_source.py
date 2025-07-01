@@ -39,11 +39,6 @@ from posthog.temporal.data_imports.pipelines.google_ads import (
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
-from posthog.temporal.data_imports.pipelines.meta_ads.source import (
-    MetaAdsSourceConfig,
-    get_incremental_fields as get_meta_ads_incremental_fields,
-    get_schemas as get_meta_ads_schemas,
-)
 from posthog.temporal.data_imports.pipelines.google_sheets.source import (
     GoogleSheetsServiceAccountSourceConfig,
     get_schemas as get_google_sheets_schemas,
@@ -508,7 +503,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.META_ADS:
-            new_source_model, meta_ads_schemas = self._handle_meta_ads_source(request, *args, **kwargs)
+            new_source_model = self._handle_meta_ads_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.TEMPORALIO:
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.DOIT:
@@ -536,8 +531,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             default_schemas = bigquery_schemas
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             default_schemas = google_ads_schemas
-        elif source_type == ExternalDataSource.Type.META_ADS:
-            default_schemas = meta_ads_schemas
         elif source_type == ExternalDataSource.Type.DOIT:
             default_schemas = doit_schemas
         elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
@@ -1030,9 +1023,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return new_source_model, list(schemas.keys())
 
-    def _handle_meta_ads_source(
-        self, request: Request, *args: Any, **kwargs: Any
-    ) -> tuple[ExternalDataSource, list[Any]]:
+    def _handle_meta_ads_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -1052,10 +1043,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
-        config = MetaAdsSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
-        schemas = get_meta_ads_schemas(config, self.team_id)
-
-        return new_source_model, list(schemas.keys())
+        return new_source_model
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -1292,49 +1280,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "sync_type": None,
                 }
                 for name, _ in google_ads_schemas.items()
-            ]
-
-            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
-        elif source_type == ExternalDataSource.Type.META_ADS:
-            account_id = request.data.get("account_id")
-            resource_name = request.data.get("resource_name", "")
-            meta_ads_integration_id = request.data.get("meta_ads_integration_id", "")
-
-            if not account_id:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Missing required input: 'account_id'"},
-                )
-
-            meta_ads_config = MetaAdsSourceConfig(
-                account_id=account_id,
-                meta_ads_integration_id=meta_ads_integration_id,
-                resource_name=resource_name,
-            )
-
-            meta_ads_schemas = get_meta_ads_schemas(
-                meta_ads_config,
-                self.team_id,
-            )
-
-            meta_ads_incremental_fields = get_meta_ads_incremental_fields()
-
-            result_mapped_to_options = [
-                {
-                    "table": name,
-                    "should_sync": False,
-                    "incremental_fields": [
-                        {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
-                        for column_name, column_type in meta_ads_incremental_fields.get(name, [])
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "incremental_field": meta_ads_incremental_fields[name][0][0]
-                    if len(meta_ads_incremental_fields.get(name, [])) > 0
-                    else None,
-                    "sync_type": None,
-                }
-                for name, _ in meta_ads_schemas.items()
             ]
 
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
