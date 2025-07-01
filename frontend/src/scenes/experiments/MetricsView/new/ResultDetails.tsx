@@ -43,17 +43,17 @@ export function ResultDetails({
             render: (_, item) => <div className="font-semibold">{item.key}</div>,
         },
         {
+            key: 'total-users',
+            title: 'Total users',
+            render: (_, item) => humanFriendlyNumber(item.number_of_samples),
+        },
+        {
             key: 'value',
             title: metric.metric_type === 'mean' ? 'Mean' : 'Conversion rate',
             render: (_, item) => {
                 const value = item.sum / item.number_of_samples
                 return metric.metric_type === 'mean' ? value.toFixed(2) : `${(value * 100).toFixed(2)}%`
             },
-        },
-        {
-            key: 'samples',
-            title: 'Samples',
-            render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
             key: 'statistical_measure',
