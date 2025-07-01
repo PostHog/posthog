@@ -52,7 +52,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
+import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
@@ -1504,7 +1504,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         )
 
         if (cache.consoleDebounceTimers) {
-            Object.values(cache.consoleDebounceTimers).forEach((timer) => {
+            Object.values(cache.consoleDebounceTimers as BuiltLogging['timers']).forEach((timer) => {
                 if (timer) {
                     clearTimeout(timer)
                 }
