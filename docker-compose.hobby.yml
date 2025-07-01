@@ -226,21 +226,6 @@ services:
             - objectstorage
             - temporal
 
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        build:
-            context: ./posthog/rust
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     cyclotron-janitor:
         extends:
             file: docker-compose.base.yml
@@ -287,6 +272,16 @@ services:
             - '8666:8080'
         volumes:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
+
+    feature-flags:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - db
+            - redis
 
 volumes:
     zookeeper-data:

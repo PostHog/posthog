@@ -16,6 +16,7 @@ import React, {
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 interface ComboboxContextType {
     searchValue: string
@@ -131,7 +132,6 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 onChange={(e) => context.setSearchValue(e.target.value)}
                 className={className}
                 placeholder={placeholder}
-                size="sm"
                 autoFocus={autoFocus}
                 role="combobox"
                 aria-controls="combobox-listbox"
@@ -197,7 +197,17 @@ interface ContentProps {
 }
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
-    return <div className={cn('flex flex-col gap-px px-1 pb-1 overflow-y-auto', className)}>{children}</div>
+    return (
+        <div className={cn('primitive-menu-content max-h-[300px] max-w-none border-transparent', className)}>
+            <ScrollableShadows
+                direction="vertical"
+                styledScrollbars
+                innerClassName="primitive-menu-content-inner flex flex-col gap-px"
+            >
+                {children}
+            </ScrollableShadows>
+        </div>
+    )
 }
 
 /** Compound type augmentation */

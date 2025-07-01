@@ -9,13 +9,14 @@ import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
     HogFunctionTypeType,
+    MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -51,8 +52,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
 
         const invocationsToBeQueued = [
-            ...(await this.runWithHeartbeat(() => this.createHogFunctionInvocations(invocationGlobals))),
-            ...(await this.runWithHeartbeat(() => this.createHogFlowInvocations(invocationGlobals))),
+            ...(await this.createHogFunctionInvocations(invocationGlobals)),
+            ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
         return {
@@ -86,19 +87,22 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             ])
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                await Promise.all(
+                    invocationGlobals.map(async (globals) => {
+                        const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
-                        teamHogFunctions,
-                        globals
-                    )
+                        const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
+                            teamHogFunctions,
+                            globals
+                        )
 
-                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
-                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
+                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
+                        this.heartbeat()
 
-                    return invocations
-                })
+                        return invocations
+                    })
+                )
             ).flat()
 
             const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
@@ -167,6 +171,60 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 'hog_function'
             )
 
+            const eventsTriggeredDestinationById: Record<string, { team_id: number; event_uuid: string }> = {}
+            const uniqueDestinationsById: Record<
+                string,
+                { team_id: number; template_id: string; invocation_id: string }
+            > = {}
+
+            notMaskedInvocations.forEach(({ state, hogFunction, id }) => {
+                const eventKey = `${state.globals.project.id}:${state.globals.event.uuid}`
+                if (!eventsTriggeredDestinationById[eventKey] && hogFunction.type === 'destination') {
+                    eventsTriggeredDestinationById[eventKey] = {
+                        team_id: state.globals.project.id,
+                        event_uuid: state.globals.event.uuid,
+                    }
+                }
+
+                const destinationKey = `${state.globals.project.id}:${id}`
+                if (!uniqueDestinationsById[destinationKey] && hogFunction.type === 'destination') {
+                    uniqueDestinationsById[destinationKey] = {
+                        team_id: state.globals.project.id,
+                        template_id: hogFunction.template_id ?? 'custom',
+                        invocation_id: id,
+                    }
+                }
+            })
+
+            const uniqueEventMetrics: MinimalAppMetric[] = Object.values(eventsTriggeredDestinationById).map(
+                ({ team_id, event_uuid }) => {
+                    return {
+                        app_source: 'cdp_destination',
+                        metric_kind: 'success',
+                        metric_name: 'event_triggered_destination',
+                        team_id,
+                        app_source_id: event_uuid,
+                        count: 1,
+                    }
+                }
+            )
+            this.hogFunctionMonitoringService.queueAppMetrics(uniqueEventMetrics, 'hog_function')
+
+            const uniqueDestinationMetrics: MinimalAppMetric[] = Object.values(uniqueDestinationsById).map(
+                ({ team_id, template_id, invocation_id }) => {
+                    return {
+                        app_source: 'cdp_destination',
+                        metric_kind: 'success',
+                        metric_name: 'destination_invoked',
+                        team_id,
+                        app_source_id: template_id,
+                        instance_id: invocation_id,
+                        count: 1,
+                    }
+                }
+            )
+            this.hogFunctionMonitoringService.queueAppMetrics(uniqueDestinationMetrics, 'hog_function')
+
             return notMaskedInvocations
         })
     }
@@ -186,19 +244,22 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
             const possibleInvocations = (
-                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                    const teamHogFlows = hogFlowsByTeam[globals.project.id]
+                await Promise.all(
+                    invocationGlobals.map(async (globals) => {
+                        const teamHogFlows = hogFlowsByTeam[globals.project.id]
 
-                    const { invocations, metrics, logs } = this.hogFlowExecutor.buildHogFlowInvocations(
-                        teamHogFlows,
-                        globals
-                    )
+                        const { invocations, metrics, logs } = await this.hogFlowExecutor.buildHogFlowInvocations(
+                            teamHogFlows,
+                            globals
+                        )
 
-                    this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-                    this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                        this.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.heartbeat()
 
-                    return invocations
-                })
+                        return invocations
+                    })
+                )
             ).flat()
 
             const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFlow.id))
@@ -305,6 +366,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         logger.info('💤', 'Stopping cyclotron job queue...')
         await this.cyclotronJobQueue.stop()
         logger.info('💤', 'Stopping consumer...')
+        // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
     }

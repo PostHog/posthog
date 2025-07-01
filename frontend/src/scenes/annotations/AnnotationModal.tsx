@@ -4,14 +4,13 @@ import {
     LemonModal,
     LemonModalProps,
     LemonSelect,
-    LemonSelectOption,
     LemonSelectOptions,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -19,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
@@ -95,19 +95,14 @@ export function AnnotationModal({
             value: AnnotationScope.Organization,
             label: annotationScopeToName[AnnotationScope.Organization],
         },
-    ]
-
-    const recordingScopeEnabled = useFeatureFlag('ANNOTATIONS_RECORDING_SCOPE')
-    if (recordingScopeEnabled) {
-        const recordingScopeOption: LemonSelectOption<AnnotationType['scope'] | null> = {
+        {
             value: AnnotationScope.Recording,
             label: annotationScopeToName[AnnotationScope.Recording],
             disabledReason: annotationModal.recordingId
                 ? undefined
                 : 'To select this scope, open this annotation on the target recording',
-        }
-        scopeOptions.push(recordingScopeOption)
-    }
+        },
+    ]
 
     return (
         <LemonModal
@@ -116,7 +111,7 @@ export function AnnotationModal({
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to add context to insights and dashboards."
+            description="Use annotations to comment on insights, dashboards, and recordings."
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -188,6 +183,19 @@ export function AnnotationModal({
                         maxLength={400}
                     />
                 </LemonField>
+                {!!existingModalAnnotation &&
+                existingModalAnnotation.scope === AnnotationScope.Recording &&
+                !!existingModalAnnotation.recording_id &&
+                !!existingModalAnnotation.date_marker ? (
+                    <div className="flex flex-row justify-end">
+                        <ViewRecordingButton
+                            sessionId={existingModalAnnotation.recording_id}
+                            timestamp={existingModalAnnotation.date_marker}
+                            inModal={true}
+                            type="secondary"
+                        />
+                    </div>
+                ) : null}
             </Form>
         </LemonModal>
     )

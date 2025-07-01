@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -12,9 +13,11 @@ use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
+use rand::Rng;
+use rand::{rngs::ThreadRng, thread_rng};
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, instrument, warn, Span};
+use tracing::{debug, error, info, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
@@ -30,6 +33,11 @@ use crate::{
     },
     v0_request::{EventFormData, EventQuery},
 };
+
+// TEMPORARY: used to trigger sampling of chatty log line
+thread_local! {
+    static RNG: RefCell<ThreadRng> = RefCell::new(thread_rng());
+}
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
@@ -209,6 +217,13 @@ async fn handle_legacy(
         }
     };
     Span::current().record("token", &token);
+
+    // TEMPORARY: conditionally sample targeted event submissions
+    let roll = RNG.with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
+    if compression == Compression::Base64 && roll < state.base64_detect_percent {
+        // API token, req path etc. should be logged here by tracing lib
+        info!("handle_legacy: candidate team for base64 issue")
+    }
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 

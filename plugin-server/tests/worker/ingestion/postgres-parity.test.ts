@@ -419,7 +419,7 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
+        await hub.db.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })

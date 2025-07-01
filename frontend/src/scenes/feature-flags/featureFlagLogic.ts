@@ -257,15 +257,18 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
         ...cleanedFlag,
         filters: {
             ...cleanedFlag.filters,
-            groups: cleanFilterGroups(cleanedFlag.filters?.groups || []),
-            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups || []),
+            groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
+            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups),
         },
     }
 }
 
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
-function cleanFilterGroups(groups: FeatureFlagGroupType[]): FeatureFlagGroupType[] {
+function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
+    if (groups === undefined) {
+        return undefined
+    }
     return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
