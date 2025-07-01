@@ -11,23 +11,58 @@ on:
                 description: 'Type "YES" to confirm you want to apply the fixes'
                 required: true
                 type: string
+    issue_comment:
+        types: [created]
 
 jobs:
     apply-migration-fixes:
         runs-on: ubuntu-latest
+        # Only run on manual dispatch or PR comments with the trigger
+        if: |
+            (github.event_name == 'workflow_dispatch') ||
+            (github.event_name == 'issue_comment' && 
+             github.event.issue.pull_request && 
+             contains(github.event.comment.body, '/fix-migrations'))
 
         steps:
+            - name: Extract app filter from comment
+              if: github.event_name == 'issue_comment'
+              id: extract_params
+              run: |
+                  COMMENT="${{ github.event.comment.body }}"
+                  # Extract app filter if provided (e.g., "/fix-migrations --app posthog")
+                  if echo "$COMMENT" | grep -q '\-\-app'; then
+                    APP_FILTER=$(echo "$COMMENT" | grep -o '\-\-app [^[:space:]]*' | cut -d' ' -f2)
+                    echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
+                  else
+                    echo "app_filter=" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: React to comment
+              if: github.event_name == 'issue_comment'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: context.payload.comment.id,
+                        content: 'rocket'
+                      });
+
             - name: Validate confirmation
-              if: inputs.confirm != 'YES'
+              if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'YES'
               run: |
                   echo "❌ Confirmation required. Please type 'YES' in the confirm field to apply fixes."
                   exit 1
 
-            - name: Checkout code
+            - name: Checkout PR code
               uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:
                   fetch-depth: 0
                   token: ${{ secrets.GITHUB_TOKEN }}
+                  # For issue comments, checkout the PR branch
+                  ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || github.ref }}
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
@@ -48,8 +83,16 @@ jobs:
               run: |
                   echo "🔧 Applying migration conflict fixes..."
 
+                  # Determine app filter
+                  APP_FILTER=""
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    APP_FILTER="${{ inputs.app_filter }}"
+                  else
+                    APP_FILTER="${{ steps.extract_params.outputs.app_filter }}"
+                  fi
+
                   # Run the fix (with automatic yes to confirmation)
-                  OUTPUT=$(echo "y" | python bin/fix-migration-conflicts.py --fix ${{ inputs.app_filter && format('--app {0}', inputs.app_filter) || '' }} 2>&1)
+                  OUTPUT=$(echo "y" | python bin/fix-migration-conflicts.py --fix ${APP_FILTER:+--app "$APP_FILTER"} 2>&1)
 
                   echo "$OUTPUT"
                   echo "$OUTPUT" > ../apply_output.txt
@@ -60,6 +103,8 @@ jobs:
                   else
                     echo "changes_made=true" >> $GITHUB_OUTPUT
                   fi
+
+                  echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
 
             - name: Show changes made
               if: steps.apply_fixes.outputs.changes_made == 'true'
@@ -113,8 +158,11 @@ jobs:
                         changedFiles = 'Unable to get file list';
                       }
 
-                      const appFilter = '${{ inputs.app_filter }}';
+                      const appFilter = '${{ steps.apply_fixes.outputs.app_filter }}';
                       const appText = appFilter ? ` for app "${appFilter}"` : '';
+
+                      // Determine issue number  
+                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
 
                       const comment = `## ✅ Migration Conflicts Fixed Successfully!
 
@@ -146,7 +194,7 @@ jobs:
                       await github.rest.issues.createComment({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        issue_number: context.issue.number,
+                        issue_number: issueNumber,
                         body: comment
                       });
 
@@ -155,6 +203,9 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
+                      // Determine issue number
+                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+
                       const comment = `## ℹ️ No Migration Conflicts to Fix
 
                       I ran the migration conflict resolver, but no conflicts were found that needed fixing.
@@ -172,6 +223,6 @@ jobs:
                       await github.rest.issues.createComment({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        issue_number: context.issue.number,
+                        issue_number: issueNumber,
                         body: comment
                       });

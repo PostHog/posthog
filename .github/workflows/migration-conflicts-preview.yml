@@ -7,17 +7,52 @@ on:
                 description: 'Specific app to check (optional, e.g., "posthog", "billing")'
                 required: false
                 type: string
+    issue_comment:
+        types: [created]
 
 jobs:
     preview-migration-fixes:
         runs-on: ubuntu-latest
+        # Only run on PR comments with the trigger
+        if: |
+            (github.event_name == 'workflow_dispatch') ||
+            (github.event_name == 'issue_comment' && 
+             github.event.issue.pull_request && 
+             contains(github.event.comment.body, '/preview-migrations'))
 
         steps:
-            - name: Checkout code
+            - name: Extract app filter from comment
+              if: github.event_name == 'issue_comment'
+              id: extract_params
+              run: |
+                  COMMENT="${{ github.event.comment.body }}"
+                  # Extract app filter if provided (e.g., "/preview-migrations --app posthog")
+                  if echo "$COMMENT" | grep -q '\-\-app'; then
+                    APP_FILTER=$(echo "$COMMENT" | grep -o '\-\-app [^[:space:]]*' | cut -d' ' -f2)
+                    echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
+                  else
+                    echo "app_filter=" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: React to comment
+              if: github.event_name == 'issue_comment'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: context.payload.comment.id,
+                        content: 'eyes'
+                      });
+
+            - name: Checkout PR code
               uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:
                   fetch-depth: 0
                   token: ${{ secrets.GITHUB_TOKEN }}
+                  # For issue comments, checkout the PR branch
+                  ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || github.ref }}
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
@@ -31,8 +66,16 @@ jobs:
             - name: Run migration conflict detection and preview
               id: preview
               run: |
+                  # Determine app filter
+                  APP_FILTER=""
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    APP_FILTER="${{ inputs.app_filter }}"
+                  else
+                    APP_FILTER="${{ steps.extract_params.outputs.app_filter }}"
+                  fi
+
                   # Capture the output of the preview
-                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview ${{ inputs.app_filter && format('--app {0}', inputs.app_filter) || '' }} 2>&1)
+                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview ${APP_FILTER:+--app "$APP_FILTER"} 2>&1)
 
                   # Save output to file for later use
                   echo "$OUTPUT" > ../migration_preview.txt
@@ -49,6 +92,8 @@ jobs:
                     echo "has_changes=false" >> $GITHUB_OUTPUT
                   fi
 
+                  echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
+
             - name: Create PR comment with preview and approval buttons
               if: steps.preview.outputs.conflicts_found == 'true'
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
@@ -57,12 +102,15 @@ jobs:
                       const fs = require('fs');
                       const previewOutput = fs.readFileSync('../migration_preview.txt', 'utf8');
 
-                      const appFilter = '${{ inputs.app_filter }}';
+                      const appFilter = '${{ steps.preview.outputs.app_filter }}';
                       const appText = appFilter ? ` --app ${appFilter}` : '';
 
-                      const comment = `## 🔧 Migration Conflicts Detected
+                      // Determine issue number
+                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
 
-                      I found migration conflicts that need to be resolved. Here's what I would do to fix them:
+                      const comment = `## 🔧 Migration Conflicts Preview
+
+                      Here's what I would do to fix the migration conflicts:
 
                       <details>
                       <summary><strong>📋 Click to see detailed preview</strong></summary>
@@ -74,31 +122,23 @@ jobs:
 
                       ## ✅ Ready to Apply These Fixes?
 
-                      If the changes above look good to you, click the button below to automatically apply them:
+                      **One-click fix:** Comment \`/fix-migrations${appText}\` below to automatically apply these changes to your PR.
 
-                      **[▶️ Apply Migration Fixes](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml)**
-
-                      > 1. Click the link above
-                      > 2. Click "Run workflow" 
-                      > 3. Select your branch: \`${context.ref.replace('refs/heads/', '')}\`
-                      > 4. Set parameters the same as this preview${appText ? ` (app_filter: ${appFilter})` : ''}
-                      > 5. Click "Run workflow" to apply the fixes
-
-                      The fixes will be automatically committed to this PR branch.
+                      Alternatively, you can run the Apply workflow manually from the [Actions tab](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml).
 
                       ---
-                      <sub>💡 This is an automated preview. The actual changes will only be made when you run the Apply workflow.</sub>`;
+                      <sub>💡 This is a preview. Comment \`/fix-migrations${appText}\` to apply the actual fixes.</sub>`;
 
                       // Find existing comment to update or create new one
                       const comments = await github.rest.issues.listComments({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        issue_number: context.issue.number,
+                        issue_number: issueNumber,
                       });
 
                       const botComment = comments.data.find(comment => 
                         comment.user.type === 'Bot' && 
-                        comment.body.includes('Migration Conflicts Detected')
+                        (comment.body.includes('Migration Conflicts Preview') || comment.body.includes('Migration Conflicts Detected'))
                       );
 
                       if (botComment) {
@@ -114,7 +154,7 @@ jobs:
                         await github.rest.issues.createComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
-                          issue_number: context.issue.number,
+                          issue_number: issueNumber,
                           body: comment
                         });
                       }
@@ -124,8 +164,11 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
-                      const appFilter = '${{ inputs.app_filter }}';
+                      const appFilter = '${{ steps.preview.outputs.app_filter }}';
                       const appText = appFilter ? ` for app "${appFilter}"` : '';
+
+                      // Determine issue number
+                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
 
                       const comment = `## ✅ No Migration Conflicts Found
 
@@ -134,11 +177,23 @@ jobs:
                       Your migrations should merge cleanly! 🎉
 
                       ---
-                      <sub>💡 If you believe this is incorrect, try running the check again or contact your team.</sub>`;
+                      <sub>💡 If you believe this is incorrect, try running \`/preview-migrations${appFilter ? ` --app ${appFilter}` : ''}\` again.</sub>`;
 
                       await github.rest.issues.createComment({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        issue_number: context.issue.number,
+                        issue_number: issueNumber,
                         body: comment
+                      });
+
+            - name: Add success reaction
+              if: github.event_name == 'issue_comment'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: context.payload.comment.id,
+                        content: 'rocket'
                       });
