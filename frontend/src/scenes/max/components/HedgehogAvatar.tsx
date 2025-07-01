@@ -36,6 +36,7 @@ export function HedgehogAvatar({
     const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, avatarButtonRef } = useDragAndSnap({
         onPositionChange,
         disabled: false,
+        currentSide: fixedDirection,
     })
 
     // Notify parent of drag state changes

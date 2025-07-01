@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { calculateSnapPosition, getFloatingMaxDimensions, Position, PositionWithSide } from './floatingMaxPositioning'
 
 const DRAG_THRESHOLD = 5 // pixels
+const SNAP_THRESHOLD = 100 // pixels - threshold for snapping to opposite side
 const ANIMATION_DURATION = 300 // milliseconds
 const CACHED_BOTTOM_OFFSET_DEFAULT = 6 // pixels
 const MIN_SCREEN_WIDTH_FOR_DRAG = 640 // sm breakpoint in pixels
@@ -9,6 +10,7 @@ const MIN_SCREEN_WIDTH_FOR_DRAG = 640 // sm breakpoint in pixels
 interface UseDragAndSnapProps {
     onPositionChange?: (position: PositionWithSide) => void
     disabled?: boolean
+    currentSide?: 'left' | 'right'
 }
 
 interface UseDragAndSnapReturn {
@@ -26,7 +28,11 @@ type MousePosition = Position
  * Custom hook for drag and snap behavior of floating Max AI avatar
  * Handles mouse interactions, drag detection, and snapping to panel sides
  */
-export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAndSnapProps): UseDragAndSnapReturn {
+export function useDragAndSnap({
+    onPositionChange,
+    disabled = false,
+    currentSide,
+}: UseDragAndSnapProps): UseDragAndSnapReturn {
     const [isDragging, setIsDragging] = useState(false)
     const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 })
     const [hasDragged, setHasDragged] = useState(false)
@@ -94,7 +100,14 @@ export function useDragAndSnap({ onPositionChange, disabled = false }: UseDragAn
                 setIsAnimating(true)
 
                 const { width: avatarWidth } = getFloatingMaxDimensions()
-                const snapPosition = calculateSnapPosition(e.clientX, cachedBottomOffset, avatarWidth)
+                const snapPosition = calculateSnapPosition(
+                    e.clientX,
+                    cachedBottomOffset,
+                    avatarWidth,
+                    mouseDownPosition?.x,
+                    currentSide,
+                    SNAP_THRESHOLD
+                )
 
                 // Animate to final position
                 setDragPosition({ x: snapPosition.x, y: snapPosition.y })

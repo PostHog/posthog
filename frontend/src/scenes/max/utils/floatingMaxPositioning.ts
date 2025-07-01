@@ -110,10 +110,32 @@ export function getFloatingMaxDimensions(): { width: number; height: number } {
 /**
  * Calculate the absolute snap position for draggable elements
  */
-export function calculateSnapPosition(mouseX: number, bottomOffset: number, avatarWidth: number = 0): PositionWithSide {
+export function calculateSnapPosition(
+    mouseX: number,
+    bottomOffset: number,
+    avatarWidth: number = 0,
+    dragStartX?: number,
+    currentSide?: 'left' | 'right',
+    snapThreshold?: number
+): PositionWithSide {
     const windowWidth = window.innerWidth
     const windowHeight = window.innerHeight
-    const isRightSide = mouseX > windowWidth / 2
+
+    let isRightSide = mouseX > windowWidth / 2
+
+    // If we have drag start position and current side, check if we should snap to opposite side
+    if (dragStartX !== undefined && currentSide !== undefined && snapThreshold !== undefined) {
+        const dragDistanceX = mouseX - dragStartX
+        const shouldSnapToOpposite = Math.abs(dragDistanceX) > snapThreshold
+
+        if (shouldSnapToOpposite) {
+            // Snap to opposite side if drag distance exceeds threshold
+            isRightSide = currentSide === 'left' ? true : false
+        } else {
+            // Stay on current side if drag distance is below threshold
+            isRightSide = currentSide === 'right'
+        }
+    }
 
     const { sidePanelWidth, projectPanelWidth, xPadding } = getPanelDimensions()
 
