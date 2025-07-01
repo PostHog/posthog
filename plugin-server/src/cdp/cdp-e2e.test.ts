@@ -3,7 +3,6 @@ import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -26,8 +25,8 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
     describe('e2e fetch call', () => {
         let eventsConsumer: CdpEventsConsumer
-        let cyclotronWorker: CdpCyclotronWorker | undefined
-        let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
+        let cyclotronWorkerKafka: CdpCyclotronWorker | undefined
+        let cyclotronWorkerPostgres: CdpCyclotronWorker | undefined
 
         let hub: Hub
         let team: Team
@@ -58,8 +57,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
             hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+
+            // If hybrid we enable the scheduling to PG which ensures we test that routing there happens
+            hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = mode === 'hybrid'
             hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING =
-                mode === 'hybrid' ? '*:kafka,fetch:postgres' : mode === 'postgres' ? '*:postgres' : '*:kafka'
+                mode === 'hybrid' || mode === 'kafka' ? '*:kafka' : '*:postgres'
 
             const exampleHog = `
                     let res := fetch(inputs.url, {
@@ -112,16 +114,17 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             })
             await eventsConsumer.start()
 
-            cyclotronWorker = new CdpCyclotronWorker({
+            cyclotronWorkerKafka = new CdpCyclotronWorker({
                 ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode, // hybrid mode we do hog on kafka
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
             })
-            await cyclotronWorker.start()
-            cyclotronFetchWorker = new CdpCyclotronWorkerFetch({
+            await cyclotronWorkerKafka.start()
+
+            cyclotronWorkerPostgres = new CdpCyclotronWorker({
                 ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'postgres' : mode, // hybrid mode we do fetch on postgres
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
             })
-            await cyclotronFetchWorker.start()
+            await cyclotronWorkerPostgres.start()
 
             globals = createHogExecutionGlobals({
                 project: {
@@ -151,8 +154,8 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         afterEach(async () => {
             const stoppers = [
                 eventsConsumer?.stop().then(() => console.log('Stopped eventsConsumer')),
-                cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
-                cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
+                cyclotronWorkerKafka?.stop().then(() => console.log('Stopped cyclotronWorkerKafka')),
+                cyclotronWorkerPostgres?.stop().then(() => console.log('Stopped cyclotronWorkerPostgres')),
             ]
 
             await Promise.all(stoppers)
@@ -174,7 +177,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             try {
                 await waitForExpect(() => {
-                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(5)
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(2)
                 }, 5000)
             } catch (e) {
                 logger.warn('[TESTS] Failed to wait for log messages', {
@@ -206,6 +209,28 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 {
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
+                        app_source: 'cdp_destination',
+                        app_source_id: expect.any(String),
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'event_triggered_destination',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'cdp_destination',
+                        app_source_id: 'custom',
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'destination_invoked',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
                         app_source: 'hog_function',
                         app_source_id: fnFetchNoFilters.id.toString(),
                         count: 1,
@@ -228,38 +253,6 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             ])
 
             expect(logMessages).toMatchObject([
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: 'Executing function',
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: expect.stringContaining(
-                            "Suspending function due to async function call 'fetch'. Payload:"
-                        ),
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: 'Resuming function',
-                        team_id: 2,
-                    },
-                },
                 {
                     topic: 'log_entries_test',
                     value: {
@@ -298,7 +291,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(9)
+                expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(3)
             }, 5000).catch((e) => {
                 logger.warn('[TESTS] Failed to wait for log messages', {
                     messages: mockProducerObserver.getProducedKafkaMessages(),
@@ -312,19 +305,15 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             expect(
                 forSnapshot(
                     logMessages
-                        .slice(0, -1)
                         .map((m) => m.value.message)
                         // Sorted compare as the messages can get logged in different orders
                         .sort()
                 )
             ).toEqual([
-                'Executing function',
-                'Fetch failed after 2 attempts',
-                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
-                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
                 'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
-                'Resuming function',
-                "Suspending function due to async function call 'fetch'. Payload: 1862 bytes. Event: <REPLACED-UUID-0>",
+                expect.stringContaining('Function completed in '),
+                expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying in '),
+                expect.stringContaining('HTTP fetch failed on attempt 2 with status code 500. Retrying in '),
             ])
         })
     })

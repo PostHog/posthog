@@ -75,7 +75,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
-    cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -359,8 +358,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
-
-    DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -422,7 +419,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
-    cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     mmdb?: boolean

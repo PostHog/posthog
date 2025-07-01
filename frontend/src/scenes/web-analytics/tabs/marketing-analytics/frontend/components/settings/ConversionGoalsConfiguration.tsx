@@ -4,12 +4,13 @@ import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
 import { useState } from 'react'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { defaultConversionGoalFilter } from './constants'
-import { ConversionGoalDropdown } from './ConversionGoalDropdown'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter
@@ -29,10 +30,14 @@ export function ConversionGoalsConfiguration(): JSX.Element {
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
 
     const handleAddConversionGoal = (): void => {
+        let conversionGoalName = formState.name.trim()
+        if (conversionGoalName === '') {
+            conversionGoalName = formState.filter.custom_name || formState.filter.name || 'No name'
+        }
         const newGoal: ConversionGoalFilter = {
             ...formState.filter,
             conversion_goal_id: formState.filter.conversion_goal_id || uuid(),
-            conversion_goal_name: formState.name.trim(),
+            conversion_goal_name: conversionGoalName,
         }
 
         addOrUpdateConversionGoal(newGoal)
@@ -61,7 +66,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
         removeConversionGoal(goalId)
     }
 
-    const isFormValid = formState.name.trim() !== '' && formState.filter.name
+    const isFormValid = defaultConversionGoalFilter.name !== formState.filter.name
 
     return (
         <div className="space-y-6">
@@ -91,12 +96,13 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         <label className="block text-sm font-medium mb-1">Select Event or Data Warehouse Table</label>
                         <ConversionGoalDropdown
                             value={formState.filter}
-                            onChange={(filter: ConversionGoalFilter, uuid?: string) =>
+                            typeKey="conversion-goal"
+                            onChange={(newFilter) =>
                                 setFormState((prev) => ({
                                     ...prev,
                                     filter: {
-                                        ...filter,
-                                        conversion_goal_id: uuid || filter.conversion_goal_id,
+                                        ...newFilter,
+                                        conversion_goal_id: newFilter.conversion_goal_id || uuid(),
                                     },
                                 }))
                             }
@@ -144,7 +150,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         {
                             key: 'type',
                             title: 'Type',
-                            render: (_, goal: ConversionGoalFilter) => goal.type,
+                            render: (_, goal: ConversionGoalFilter) => QUERY_TYPES_METADATA[goal.kind]?.name,
                         },
                         {
                             key: 'event',
@@ -154,11 +160,12 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                                     return (
                                         <ConversionGoalDropdown
                                             value={editingGoal}
-                                            onChange={(filter: ConversionGoalFilter) => setEditingGoal(filter)}
+                                            typeKey="conversion-goal-edit"
+                                            onChange={setEditingGoal}
                                         />
                                     )
                                 }
-                                return goal.name || goal.id
+                                return goal.custom_name || goal.name || 'No name'
                             },
                         },
                         {
@@ -166,8 +173,14 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                             title: 'Schema Mapping',
                             render: (_, goal: ConversionGoalFilter) => (
                                 <div className="text-xs text-muted">
-                                    <div>Campaign: {goal.schema.utm_campaign_name}</div>
-                                    <div>Source: {goal.schema.utm_source_name}</div>
+                                    <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
+                                    <div>Source: {goal.schema_map.utm_source_name}</div>
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
+                                        <div>Timestamp: {goal.schema_map.timestamp_field}</div>
+                                    )}
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
+                                        <div>Distinct ID: {goal.schema_map.distinct_id_field}</div>
+                                    )}
                                 </div>
                             ),
                         },
