@@ -272,6 +272,33 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             : humanFriendlyNumber(rows_materialized),
                                 },
                                 {
+                                    title: 'Progress',
+                                    render: (_, job: DataModelingJob) => {
+                                        if (job.status === 'Running' && job.progress_percentage > 0) {
+                                            return (
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-16 bg-gray-200 rounded-full h-2">
+                                                        <div
+                                                            className="bg-primary h-2 rounded-full transition-all duration-300"
+                                                            style={{ width: `${job.progress_percentage}%` }}
+                                                        />
+                                                    </div>
+                                                    <span className="text-xs text-muted">
+                                                        {job.progress_percentage.toFixed(1)}%
+                                                    </span>
+                                                </div>
+                                            )
+                                        }
+                                        if (job.status === 'Completed') {
+                                            return <span className="text-success">Complete</span>
+                                        }
+                                        if (job.status === 'Failed') {
+                                            return <span className="text-danger">Failed</span>
+                                        }
+                                        return <span className="text-muted">-</span>
+                                    },
+                                },
+                                {
                                     title: 'Updated',
                                     dataIndex: 'last_run_at',
                                     render: (_, { last_run_at }: DataModelingJob) =>

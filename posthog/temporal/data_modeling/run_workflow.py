@@ -469,6 +469,9 @@ async def materialize_model(
 
             row_count = row_count + batch.num_rows
 
+            # Update progress after each batch
+            await update_job_progress(job=job, rows_materialized=row_count, batches_processed=index + 1, logger=logger)
+
             shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
@@ -567,6 +570,44 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
+
+
+async def update_job_progress(
+    job: DataModelingJob,
+    rows_materialized: int,
+    batches_processed: int,
+    total_rows_expected: int | None = None,
+    logger: FilteringBoundLogger | None = None,
+) -> None:
+    """
+    Update the progress of a DataModelingJob during materialization.
+    Args:
+        job: The DataModelingJob to update
+        rows_materialized: Total rows materialized so far
+        batches_processed: Number of batches processed
+        total_rows_expected: Optional total rows expected (for percentage calculation)
+        logger: Optional logger for progress logging
+    """
+    job.rows_materialized = rows_materialized
+    job.batches_processed = batches_processed
+
+    if total_rows_expected is not None:
+        job.total_rows_expected = total_rows_expected
+        if total_rows_expected > 0:
+            job.progress_percentage = min(100.0, (rows_materialized / total_rows_expected) * 100.0)
+        else:
+            job.progress_percentage = 100.0 if rows_materialized > 0 else 0.0
+    else:
+        # If we don't know total expected, use batches as a proxy for progress
+        # This is a rough estimate - we assume each batch represents roughly equal progress
+        job.progress_percentage = min(100.0, batches_processed * 10.0)  # 10% per batch as rough estimate
+
+    await database_sync_to_async(job.save)()
+
+    if logger:
+        await logger.adebug(
+            f"Progress update: {rows_materialized} rows, {batches_processed} batches, {job.progress_percentage:.1f}% complete"
+        )
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
