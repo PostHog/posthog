@@ -67,8 +67,6 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
             ]
         )
 
-
-
         # Pattern stats
         stats = pattern["stats"]
         sessions_affected = stats["sessions_affected"]
@@ -77,33 +75,37 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         success_count = int(stats["segments_success_ratio"] * stats["occurences"])
 
         markdown_lines.extend(
-            [   
+            [
                 f"**How severe it is:** {pattern['severity'][0].upper()}{pattern['severity'][1:]}",
                 "",
                 f"**How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})",
                 "",
                 f"**How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats['occurences']})",
-                ""
+                "",
             ]
         )
 
         # Right after pattern description
-        markdown_lines.extend([
-            "🔍 **How we detect this:**",
-        ])
+        markdown_lines.extend(
+            [
+                "🔍 **How we detect this:**",
+            ]
+        )
         for indicator in pattern.get("indicators", []):
             markdown_lines.append(f"- {indicator}")
         markdown_lines.append("")
 
-        markdown_lines.extend([
-            "### Examples",
-            "",
-        ])
+        markdown_lines.extend(
+            [
+                "### Examples",
+                "",
+            ]
+        )
 
         # Events examples
         events_to_show = pattern["events"][:3]  # Limit to 3 examples
         total_events = len(pattern["events"])
-        
+
         for event_data in events_to_show:
             session_id = event_data["target_event"]["session_id"]
 
@@ -146,7 +148,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
                     "",
                 ]
             )
-        
+
         # Add note about remaining examples if there are more than 3
         if total_events > 3:
             remaining_examples = total_events - 3
@@ -158,21 +160,23 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
                     "",
                 ]
             )
-        
+
         # Add extra spacing between patterns (except for the last pattern)
         if pattern != patterns[-1]:
             markdown_lines.extend(
                 [
                     "",
                     "&nbsp;",
-                     "",
+                    "",
                 ]
             )
 
     return "\n".join(markdown_lines)
 
 
-def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, domain: str, output_file_path: str = None) -> str:
+def save_patterns_to_markdown(
+    json_file_path: str, session_ids_file_path: str, domain: str, output_file_path: str | None = None
+) -> str:
     """
     Load JSON patterns file and save as markdown.
 
@@ -195,7 +199,7 @@ def save_patterns_to_markdown(json_file_path: str, session_ids_file_path: str, d
     # Determine output path
     if output_file_path is None:
         json_path = Path(json_file_path)
-        output_file_path = json_path.with_suffix(".md")
+        output_file_path = str(json_path.with_suffix(".md"))
 
     # Save markdown file
     with open(output_file_path, "w") as f:
