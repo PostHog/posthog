@@ -6,16 +6,54 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { IntegrationType } from '~/types'
+
+type Integration = {
+    name: 'Linear' | 'GitHub'
+    kind: 'linear' | 'github'
+    integrations: IntegrationType[]
+    description: string
+}
 
 export function ErrorTrackingIntegrations(): JSX.Element {
     const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
+
+    const integrations: Integration[] = [
+        {
+            name: 'Linear',
+            kind: 'linear',
+            integrations: linearIntegrations,
+            description:
+                'Linear is a project management tool that helps you track your work and collaborate with your team.',
+        },
+        {
+            name: 'GitHub',
+            kind: 'github',
+            integrations: githubIntegrations,
+            description: 'GitHub is a code hosting platform for version control and collaboration.',
+        },
+    ]
+
+    return (
+        <div className="flex flex-col gap-y-6">
+            {integrations.map((integration) => (
+                <Integration integration={integration} />
+            ))}
+        </div>
+    )
+}
+
+const Integration = ({
+    integration: { name, kind, integrations, description },
+}: {
+    integration: Integration
+}): JSX.Element => {
     const { deleteIntegration } = useActions(integrationsLogic)
 
     const onDeleteClick = (id: number): void => {
         LemonDialog.open({
-            title: 'Do you want to disconnect from Linear?',
-            description:
-                'This cannot be undone. PostHog resources configured to use this Linear workspace will remain but will stop working.',
+            title: `Do you want to disconnect from ${name}?`,
+            description: `This cannot be undone. PostHog resources configured to use this ${name} workspace will remain but will stop working.`,
             primaryButton: {
                 children: 'Yes, disconnect',
                 status: 'danger',
@@ -28,8 +66,10 @@ export function ErrorTrackingIntegrations(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-y-2">
-            {linearIntegrations?.map((integration) => (
+        <div className="flex flex-col">
+            <h3>{name}</h3>
+            <p>{description}</p>
+            {integrations?.map((integration) => (
                 <IntegrationView
                     key={integration.id}
                     integration={integration}
@@ -45,45 +85,16 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     }
                 />
             ))}
-            {githubIntegrations?.map((integration) => (
-                <IntegrationView
-                    key={integration.id}
-                    integration={integration}
-                    suffix={
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            onClick={() => onDeleteClick(integration.id)}
-                            icon={<IconTrash />}
-                        >
-                            Disconnect
-                        </LemonButton>
-                    }
-                />
-            ))}
-
             <div className="flex">
                 <LemonButton
                     type="secondary"
                     to={api.integrations.authorizeUrl({
-                        kind: 'linear',
+                        kind,
                         next: router.values.currentLocation.pathname,
                     })}
                     disableClientSideRouting
                 >
-                    Connect <>{linearIntegrations?.length > 0 ? 'another' : 'a'}</> Linear workspace
-                </LemonButton>
-            </div>
-            <div className="flex">
-                <LemonButton
-                    type="secondary"
-                    to={api.integrations.authorizeUrl({
-                        kind: 'github',
-                        next: router.values.currentLocation.pathname,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect <>{githubIntegrations?.length > 0 ? 'another' : 'a'}</> GitHub organization
+                    Connect <>{integrations?.length > 0 ? 'another' : 'a'}</> {name} workspace
                 </LemonButton>
             </div>
         </div>
