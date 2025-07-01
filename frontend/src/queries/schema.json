@@ -14222,9 +14222,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "action",
+                    "type": "string"
                 }
             },
-            "required": ["id", "name"],
+            "required": ["type", "id", "name"],
             "type": "object"
         },
         "MaxContextShape": {
@@ -14286,9 +14290,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "dashboard",
+                    "type": "string"
                 }
             },
-            "required": ["id", "insights", "filters"],
+            "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
         "MaxEventContext": {
@@ -14302,9 +14310,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "event",
+                    "type": "string"
                 }
             },
-            "required": ["id"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -14337,9 +14349,13 @@
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
+                },
+                "type": {
+                    "const": "insight",
+                    "type": "string"
                 }
             },
-            "required": ["id", "query"],
+            "required": ["type", "id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
