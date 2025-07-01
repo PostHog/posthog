@@ -3,7 +3,15 @@ import re
 import json
 from ee.hogai.tool import MaxTool
 from posthog.cdp.validation import compile_hog
-from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
+from posthog.hogql.ai import (
+    HOG_EXAMPLE_MESSAGE,
+    HOG_GRAMMAR_MESSAGE,
+    IDENTITY_MESSAGE_HOG,
+    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
+    EVENT_TAXONOMY_MESSAGE,
+    EVENT_PROPERTY_TAXONOMY_MESSAGE,
+    PERSON_TAXONOMY_MESSAGE,
+)
 from products.cdp.backend.prompts import (
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
@@ -108,62 +116,28 @@ class CreateHogFunctionFiltersTool(MaxTool):
     description: str = (
         "Create or edit filters for hog functions to specify which events and properties trigger the function"
     )
-    thinking_message: str = "Setting up filters for your hog function"
+    thinking_message: str = "Setting up filters"
     args_schema: type[BaseModel] = CreateHogFunctionFiltersArgs
     root_system_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self, instructions: str) -> tuple[str, str]:
         current_filters = self.context.get("current_filters", "{}")
         function_type = self.context.get("function_type", "destination")
-        is_transformation = self.context.get("is_transformation", False)
 
-        system_content = f"""You are an expert at creating filters for PostHog hog functions.
-
-Current filters: {current_filters}
-Function type: {function_type}
-Is transformation: {is_transformation}
-
-Create filters based on the user's instructions. Return the filters as a JSON object with the following structure:
-{{
-    "events": [
-        {{
-            "id": "event_name",
-            "name": "Event Name",
-            "type": "events",
-            "order": 0,
-            "properties": []
-        }}
-    ],
-    "actions": [],
-    "properties": [
-        {{
-            "key": "property_key",
-            "value": "property_value",
-            "operator": "exact",
-            "type": "event"
-        }}
-    ],
-    "filter_test_accounts": false
-}}
-
-Common event names:
-- $pageview (for page views)
-- $identify (for user identification)
-- $set (for setting user properties)
-- Custom events like "button_clicked", "form_submitted", etc.
-
-Property types can be:
-- "event" for event properties
-- "person" for person properties
-- "group" for group properties
-
-Common operators:
-- "exact" for exact matches
-- "icontains" for contains
-- "regex" for regex patterns
-- "gt", "lt", "gte", "lte" for numeric comparisons
-
-Return ONLY the JSON object inside <filters> tags. Do not add any other text or explanation."""
+        system_content = (
+            HOG_FUNCTION_FILTERS_SYSTEM_PROMPT
+            + f"\n\nCurrent filters: {current_filters}"
+            + f"\nFunction type: {function_type}"
+            + "\n\n<event_taxonomy>\n"
+            + EVENT_TAXONOMY_MESSAGE
+            + "\n</event_taxonomy>\n\n"
+            + "\n\n<event_property_taxonomy>\n"
+            + EVENT_PROPERTY_TAXONOMY_MESSAGE
+            + "\n</event_property_taxonomy>\n\n"
+            + "\n\n<person_property_taxonomy>\n"
+            + PERSON_TAXONOMY_MESSAGE
+            + "\n</person_property_taxonomy>"
+        )
 
         user_content = f"Create filters for this hog function: {instructions}"
 

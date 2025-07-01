@@ -238,7 +238,6 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 context={{
                                     current_filters: JSON.stringify(filters),
                                     function_type: type,
-                                    is_transformation: isTransformation,
                                 }}
                                 callback={(toolOutput: string) => {
                                     try {
