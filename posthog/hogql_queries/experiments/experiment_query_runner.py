@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.exceptions import ExperimentDataError, ExperimentValidationError
+from posthog.exceptions import ExperimentCalculationError, ExperimentDataError, ExperimentValidationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -585,14 +585,17 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
-        response = execute_hogql_query(
-            query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=180),
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="ExperimentQuery",
+                query=self._get_experiment_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=create_default_modifiers_for_team(self.team),
+                settings=HogQLGlobalSettings(max_execution_time=180),
+            )
+        except Exception as e:
+            raise ExperimentCalculationError(f"Failed to execute experiment query: {str(e)}") from e
 
         # Remove the $multiple variant only when using exclude handling
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
@@ -616,11 +619,14 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
 
-            return get_bayesian_experiment_result_new_format(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
-            )
+            try:
+                return get_bayesian_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+            except Exception as e:
+                raise ExperimentCalculationError(f"Failed to calculate Bayesian experiment results: {str(e)}") from e
 
         elif self.stats_method == "frequentist":
             frequentist_variants = get_new_variant_results(sorted_results)
@@ -629,11 +635,14 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
 
-            return get_frequentist_experiment_result_new_format(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
-            )
+            try:
+                return get_frequentist_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+            except Exception as e:
+                raise ExperimentCalculationError(f"Failed to calculate frequentist experiment results: {str(e)}") from e
 
         # Legacy stats methods
         else:
