@@ -110,14 +110,6 @@ export class SegmentDestinationExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
-        // temporary logs // will be removed after testing
-        // https://github.com/PostHog/posthog/pull/34301
-        result.logs.push({
-            level: 'warn',
-            timestamp: DateTime.now(),
-            message: sanitizeLogMessage([JSON.stringify(invocation.queueMetadata)]),
-        })
-
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
         metadata.tries = metadata.tries + 1
@@ -164,11 +156,6 @@ export class SegmentDestinationExecutorService {
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
-                    // temporary code
-                    // just for testing why fetch fails are being retried twice in prod but three times locally
-                    // this will break all segment destinations
-                    // https://posthog.slack.com/archives/C06GG249PR6/p1751026775685259
-                    endpoint = 'https://httpstatuses.maor.io/429'
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -268,25 +255,16 @@ export class SegmentDestinationExecutorService {
                                 metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
                             )
                         ) {
-                            addLog(
-                                'warn',
-                                'disabling retries because of something',
-                                retriesPossible,
-                                isFetchResponseRetriable(fetchResponse, fetchError),
-                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
-                            )
                             retriesPossible = false
                         }
                         addLog(
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${metadata.tries}/${
-                                this.serverConfig.CDP_FETCH_RETRIES
-                            }`
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
-                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${

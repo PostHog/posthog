@@ -390,10 +390,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
-        const response = await this.db.deletePerson(person, tx)
+        const personToDelete = this.getCachedPersonForUpdateByUuid(person.team_id, person.uuid) || person
+
+        const response = await this.db.deletePerson(personToDelete, tx)
         observeLatencyByVersion(person, start, 'deletePerson')
-        // Clear cache for the person
-        this.clearCache(person.team_id, distinctId)
+
+        // Clear ALL caches related to this person UUID
+        this.clearAllCachesForPersonUuid(person.team_id, person.uuid)
+
         return response
     }
 
@@ -408,7 +412,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
         const response = await this.db.addDistinctId(person, distinctId, version, tx)
         observeLatencyByVersion(person, start, 'addDistinctId')
-        this.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
+        this.setDistinctIdToPersonUuid(person.team_id, distinctId, person.uuid)
         return response
     }
 
@@ -423,7 +427,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
         const response = await this.db.moveDistinctIds(source, target, tx)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
+
+        // Clear the cache for the source person UUID to ensure deleted person isn't cached
+        this.clearCacheByUuid(source.team_id, source.uuid)
+
+        // Update cache for the target person for the current distinct ID
         this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+
         return response
     }
 
@@ -501,6 +511,25 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     clearCacheByUuid(teamId: number, personUuid: string): void {
         this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+    }
+
+    clearAllCachesForPersonUuid(teamId: number, personUuid: string): void {
+        // Clear the person UUID cache
+        this.clearCacheByUuid(teamId, personUuid)
+
+        // Find and clear all distinct ID mappings that point to this person UUID
+        const distinctIdsToRemove: string[] = []
+        for (const [distinctCacheKey, mappedPersonUuid] of this.distinctIdToPersonUuid.entries()) {
+            if (mappedPersonUuid === personUuid && distinctCacheKey.startsWith(`${teamId}:`)) {
+                distinctIdsToRemove.push(distinctCacheKey)
+            }
+        }
+
+        // Remove all distinct ID mappings and their check cache entries
+        for (const distinctCacheKey of distinctIdsToRemove) {
+            this.distinctIdToPersonUuid.delete(distinctCacheKey)
+            this.personCheckCache.delete(distinctCacheKey)
+        }
     }
 
     clearCache(teamId: number, distinctId: string): void {

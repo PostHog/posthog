@@ -6,6 +6,10 @@ on:
             - master
             - main
 
+concurrency:
+    group: foss-sync
+    cancel-in-progress: false
+
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog

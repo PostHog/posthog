@@ -16,6 +16,7 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        INSTRUMENT_THREAD_PERFORMANCE: false,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -267,8 +268,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
-
-        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 

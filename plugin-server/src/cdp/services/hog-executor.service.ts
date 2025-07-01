@@ -3,8 +3,6 @@ import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
-import { fetch, FetchOptions } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -28,7 +26,43 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
-import { cdpHttpRequests, isFetchResponseRetriable } from './fetch-executor.service'
+
+const cdpHttpRequests = new Counter({
+    name: 'cdp_http_requests',
+    help: 'HTTP requests and their outcomes',
+    labelNames: ['status'],
+})
+
+export const RETRIABLE_STATUS_CODES = [
+    408, // Request Timeout
+    429, // Too Many Requests (rate limiting)
+    500, // Internal Server Error
+    502, // Bad Gateway
+    503, // Service Unavailable
+    504, // Gateway Timeout
+]
+
+export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
+    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
+    if (error) {
+        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+            canRetry = false
+        } else {
+            canRetry = true // Only retry on general errors, not security or validation errors
+        }
+    }
+
+    return canRetry
+}
+
+export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
+    const backoffMs = Math.min(
+        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
+        config.CDP_FETCH_BACKOFF_MAX_MS
+    )
+    return DateTime.utc().plus({ milliseconds: backoffMs })
+}
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -636,11 +670,6 @@ export class HogExecutorService {
         } catch (err) {
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            logger.error(
-                '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.state.globals.event?.url}'`,
-                err
-            )
         }
 
         return result
