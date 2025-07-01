@@ -27,11 +27,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="feature_flag.key", read_only=True)
 
-    class Meta:
-        model = WebExperiment
-        fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
-
-
     variants = serializers.JSONField(
         help_text="""Variants for the web experiment. Example:
 
@@ -49,6 +44,10 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             },
         }""",
     )
+
+    class Meta:
+        model = WebExperiment
+        fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
 
     # Validates that the `variants` property in the request follows this known object format.
     # {
