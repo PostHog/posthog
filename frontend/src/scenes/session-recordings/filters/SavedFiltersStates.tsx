@@ -6,7 +6,7 @@ import { ReplayTabs } from '~/types'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 export function SavedFiltersEmptyState(): JSX.Element {
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { loadPlaylistsFailed } = useValues(playlistsLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load saved filters.</LemonBanner>
@@ -23,7 +23,7 @@ export function SavedFiltersEmptyState(): JSX.Element {
 }
 
 export function SavedFiltersLoadingState(): JSX.Element {
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { loadPlaylistsFailed } = useValues(playlistsLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load saved filters.</LemonBanner>

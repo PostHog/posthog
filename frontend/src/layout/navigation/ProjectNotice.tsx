@@ -8,14 +8,13 @@ import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 

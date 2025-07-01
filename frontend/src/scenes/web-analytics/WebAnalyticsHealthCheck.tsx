@@ -7,6 +7,10 @@ import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     const { statusCheck, conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
 
+    if (productTab === ProductTab.MARKETING) {
+        return null
+    }
+
     if (conversionGoalWarning) {
         switch (conversionGoalWarning) {
             case ConversionGoalWarning.CustomEventWithNoSessionId:

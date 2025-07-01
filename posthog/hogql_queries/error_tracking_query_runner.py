@@ -330,6 +330,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     "$exception_values",
                     "$exception_sources",
                     "$exception_functions",
+                    "email",
                 ]
                 for prop in props_to_search:
                     or_exprs.append(

@@ -136,7 +136,6 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true, onChan
                 }}
                 className={className}
                 placeholder={placeholder}
-                size="sm"
                 autoFocus={autoFocus}
                 role="combobox"
                 aria-controls="combobox-listbox"
@@ -203,7 +202,7 @@ interface ContentProps {
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
-        <div className={cn('primitive-menu-content max-h-[300px] max-w-none', className)}>
+        <div className={cn('primitive-menu-content max-h-[300px] max-w-none border-transparent', className)}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

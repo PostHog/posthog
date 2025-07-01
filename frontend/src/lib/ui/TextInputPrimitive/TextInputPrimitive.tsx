@@ -7,7 +7,7 @@ export const textInputVariants = cva({
     base: 'w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-tertiary',
+            default: 'border-primary bg-surface-primary hover:border-secondary',
         },
         size: {
             default: 'text-input-primitive--height-base',
