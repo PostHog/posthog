@@ -179,4 +179,14 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         label: 'UTM Source Name',
         type: 'string',
     },
+    {
+        key: 'timestamp_field',
+        label: 'Timestamp Field',
+        allowHogQL: true,
+    },
+    {
+        key: 'distinct_id_field',
+        label: 'Distinct ID Field',
+        allowHogQL: true,
+    },
 ]

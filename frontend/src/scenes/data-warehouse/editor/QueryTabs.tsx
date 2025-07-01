@@ -36,7 +36,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
         <>
             <div
                 // height is hardcoded to match implicit height from tree view nav bar
-                className="flex flex-row overflow-scroll hide-scrollbar h-[39px]"
+                className="flex flex-row overflow-auto hide-scrollbar h-[39px]"
                 ref={containerRef}
             >
                 {models.map((model: QueryTab) => (

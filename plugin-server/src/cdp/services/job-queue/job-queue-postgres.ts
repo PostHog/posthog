@@ -68,7 +68,7 @@ export class CyclotronJobQueuePostgres {
             },
             queueName: this.queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: this.config.CDP_CYCLOTRON_BATCH_SIZE,
+            batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
             shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
@@ -144,11 +144,6 @@ export class CyclotronJobQueuePostgres {
                     logger.debug('⚡️', 'Updating job to available', id)
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
-
-                    if (this.queue === 'fetch') {
-                        // When updating fetch jobs, we don't want to include the vm state
-                        updates.vmState = undefined
-                    }
 
                     worker.updateJob(id, 'available', updates)
                 }
