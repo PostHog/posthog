@@ -18,9 +18,9 @@ impl FlagFilters {
     }
 
     pub fn requires_cohort_filters(&self) -> bool {
-        Some(&self.groups).map_or(false, |groups| {
-            groups.iter().any(|group| group.requires_cohort_filters())
-        })
+        self.groups
+            .iter()
+            .any(|group| group.requires_cohort_filters())
     }
 }
 
