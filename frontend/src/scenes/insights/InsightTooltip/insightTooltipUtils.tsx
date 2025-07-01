@@ -104,24 +104,29 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
 function getWeekBoundaries(
     referenceDate: dayjs.Dayjs,
     dateRange?: DateRange | null,
-    timezone?: string
+    timezone?: string,
+    weekStartDay: number = 0 // 0 for Sunday, 1 for Monday
 ): { weekStart: dayjs.Dayjs; weekEnd: dayjs.Dayjs } {
-    // Adjust the reference date to the start of the week based on the provided day
+    dayjs.updateLocale('en', {
+        weekStart: weekStartDay,
+    })
+
     const weekStart = referenceDate.startOf('week')
     const weekEnd = referenceDate.endOf('week')
 
     if (dateRange && dayjs(dateRange?.date_from).isValid() && dayjs(dateRange?.date_to).isValid()) {
-        const dateFrom = dayjs.tz(dateRange.date_from, timezone)
-        const dateTo = dayjs.tz(dateRange.date_to, timezone)
+        let dateFrom = dayjs.tz(dateRange.date_from, timezone)
+        let dateTo = dayjs.tz(dateRange.date_to, timezone)
+
         return {
-            weekStart: dateFrom.isAfter(weekStart) ? dateFrom : weekStart,
-            weekEnd: dateTo.isBefore(weekEnd) ? dateTo : weekEnd,
+            weekStart: dateFrom.isAfter(weekStart) && dateFrom.isBefore(weekEnd) ? dateFrom : weekStart,
+            weekEnd: dateTo.isBefore(weekEnd) && dateTo.isAfter(weekStart) ? dateTo : weekEnd,
         }
     }
 
     return {
         weekStart,
-        weekEnd,
+        weekEnd: weekEnd.isBefore(weekStart) ? weekStart : weekEnd, // Ensure weekEnd is not before weekStart
     }
 }
 
@@ -163,11 +168,7 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
 
     // Handle week interval separately
     if (interval === 'week') {
-        dayjs.updateLocale('en', {
-            weekStart: weekStartDay,
-        })
-
-        const { weekStart, weekEnd } = getWeekBoundaries(day, dateRange, timezone)
+        const { weekStart, weekEnd } = getWeekBoundaries(day, dateRange, timezone, weekStartDay)
         return formatDateRange(weekStart, weekEnd)
     }
 
