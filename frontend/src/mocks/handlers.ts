@@ -109,6 +109,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
+        '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
@@ -204,7 +205,6 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/:team_id/user_groups': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,

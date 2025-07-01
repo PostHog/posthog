@@ -13,7 +13,6 @@ from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
-from .person_admin import PersonAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin

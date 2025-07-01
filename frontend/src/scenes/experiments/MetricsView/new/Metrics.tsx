@@ -5,9 +5,10 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { MAX_PRIMARY_METRICS } from '../shared/const'
+import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
 import { ResultDetails } from './ResultDetails'
@@ -49,8 +50,8 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const maxAbsValue = Math.max(
         ...results.flatMap((result: NewExperimentQueryResponse) => {
             const variantResults = result?.variant_results || []
-            return variantResults.flatMap((variant: any) => {
-                const interval = variant.confidence_interval
+            return variantResults.flatMap((variant: ExperimentVariantResult) => {
+                const interval = getVariantInterval(variant)
                 return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
             })
         })
@@ -112,18 +113,23 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                 chartRadius={chartRadius}
                                                 error={errors[metricIndex]}
                                             />
-                                            {metrics.length === 1 && result && hasMinimumExposureForResults && (
-                                                <div className="mt-2">
-                                                    <ResultDetails
-                                                        metric={metric as ExperimentMetric}
-                                                        result={{
-                                                            ...results[metricIndex],
-                                                            metric: metric as ExperimentMetric,
-                                                        }}
-                                                        experiment={experiment}
-                                                    />
-                                                </div>
-                                            )}
+                                            {metrics.length === 1 &&
+                                                result &&
+                                                hasMinimumExposureForResults &&
+                                                !isSecondary && (
+                                                    <div className="mt-2">
+                                                        <ResultDetails
+                                                            metric={metric as ExperimentMetric}
+                                                            result={{
+                                                                ...results[metricIndex],
+                                                                metric: metric as ExperimentMetric,
+                                                            }}
+                                                            experiment={experiment}
+                                                            metricIndex={metricIndex}
+                                                            isSecondary={!!isSecondary}
+                                                        />
+                                                    </div>
+                                                )}
                                         </div>
                                     )
                                 })}
@@ -137,8 +143,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to {MAX_PRIMARY_METRICS} <span>{isSecondary ? 'secondary' : 'primary'}</span>{' '}
-                                metrics.
+                                Add up to&nbsp;
+                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
+                                <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
                             </p>
                             <p>
                                 {isSecondary

@@ -8,29 +8,22 @@ import { delay, UUID, UUIDT } from '../utils/utils'
 import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
-import { FetchExecutorService } from './services/fetch-executor.service'
-import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogFunctionManagerService } from './services/hog-function-manager.service'
-import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
+import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
+import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFunction,
-    CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobals,
-    HogFunctionQueueParametersFetchRequest,
-    HogFunctionType,
-    MinimalLogEntry,
-} from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
-import { createInvocationResult } from './utils/invocation-utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
-    private fetchExecutor: FetchExecutorService
+    private hogFlowManager: HogFlowManagerService
+    private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -39,8 +32,9 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.fetchExecutor = new FetchExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -79,6 +73,7 @@ export class CdpApi {
                 fn(req, res).catch(next)
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
@@ -115,11 +110,17 @@ export class CdpApi {
             }
 
             const summary = await this.hogWatcher.getState(id)
+            const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
+
+            if (!hogFunction) {
+                res.status(404).json({ error: 'Hog function not found' })
+                return
+            }
 
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(id, state)
+                await this.hogWatcher.forceStateChange(hogFunction, state)
             }
 
             // Hacky - wait for a little to give a chance for the state to change
@@ -176,14 +177,13 @@ export class CdpApi {
 
             // We use the provided config if given, otherwise the function's config
             const compoundConfiguration: HogFunctionType = {
-                ...(hogFunction ?? {}),
-                ...(configuration ?? {}),
+                ...hogFunction,
+                ...configuration,
                 team_id: team.id,
             }
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
 
-            let lastResponse: CyclotronJobInvocationResult | null = null
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -203,7 +203,7 @@ export class CdpApi {
                     invocations,
                     logs: filterLogs,
                     metrics: filterMetrics,
-                } = this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
+                } = await this.hogExecutor.buildHogFunctionInvocations([compoundConfiguration], triggerGlobals)
 
                 // Add metrics to the logs
                 filterMetrics.forEach((metric) => {
@@ -220,65 +220,39 @@ export class CdpApi {
                     logs.push(log)
                 })
 
-                for (const _invocation of invocations) {
-                    let count = 0
-                    let invocation: CyclotronJobInvocation = _invocation
+                for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    while (!lastResponse || !lastResponse.finished) {
-                        if (count > MAX_ASYNC_STEPS * 2) {
-                            throw new Error('Too many iterations')
-                        }
-                        count += 1
+                    const options: HogExecutorExecuteOptions = {
+                        asyncFunctionsNames: mock_async_functions ? ['fetch'] : undefined,
+                        functions: mock_async_functions
+                            ? {
+                                  fetch: (...args: any[]) => {
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `Async function 'fetch' was mocked with arguments:`,
+                                      })
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
+                                      })
 
-                        let response: CyclotronJobInvocationResult
+                                      return {
+                                          status: 200,
+                                          body: {},
+                                      }
+                                  },
+                              }
+                            : undefined,
+                    }
 
-                        if (invocation.queue === 'fetch') {
-                            if (mock_async_functions) {
-                                // Add the state, simulating what executeAsyncResponse would do
-                                // Re-parse the fetch args for the logging
-                                const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
-                                    this.hogExecutor.redactFetchRequest(
-                                        invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-                                    )
+                    const response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
 
-                                response = createInvocationResult(
-                                    invocation,
-                                    {
-                                        queue: 'hog',
-                                        queueParameters: { response: { status: 200, headers: {} }, body: '{}' },
-                                    },
-                                    {
-                                        finished: false,
-                                        logs: [
-                                            {
-                                                level: 'info',
-                                                timestamp: DateTime.now(),
-                                                message: `Async function 'fetch' was mocked with arguments:`,
-                                            },
-                                            {
-                                                level: 'info',
-                                                timestamp: DateTime.now(),
-                                                message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
-                                            },
-                                        ],
-                                    }
-                                )
-                            } else {
-                                response = await this.fetchExecutor.execute(invocation)
-                            }
-                        } else {
-                            response = this.hogExecutor.execute(invocation as CyclotronJobInvocationHogFunction)
-                        }
-
-                        logs = logs.concat(response.logs)
-                        lastResponse = response
-                        invocation = response.invocation
-                        if (response.error) {
-                            errors.push(response.error)
-                        }
-
-                        await this.hogFunctionMonitoringService.queueInvocationResults([response])
+                    logs = logs.concat(response.logs)
+                    if (response.error) {
+                        errors.push(response.error)
                     }
                 }
 
@@ -333,6 +307,79 @@ export class CdpApi {
             res.status(500).json({ errors: [e.message] })
         } finally {
             await this.hogFunctionMonitoringService.produceQueuedMessages()
+        }
+    }
+
+    private postHogflowInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { clickhouse_event, configuration, invocation_id } = req.body
+
+            logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
+
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
+                return
+            }
+
+            const isNewHogFlow = req.params.id === 'new'
+            const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // NOTE: We allow the hog flow to be null if it is a "new" hog flow
+            // The real security happens at the django layer so this is more of a sanity check
+            if (!isNewHogFlow && (!hogFlow || hogFlow.team_id !== team.id)) {
+                return res.status(404).json({ error: 'Hog flow not found' })
+            }
+
+            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : req.body.globals
+
+            if (!globals || !globals.event) {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+
+            // We use the provided config if given, otherwise the flow's config
+            const compoundConfiguration = {
+                ...hogFlow,
+                ...configuration,
+                team_id: team.id,
+            }
+
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                ...globals,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+            }
+
+            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const response = await this.hogFlowExecutor.executeTest(invocation)
+
+            res.json({
+                result: null, // HogFlows don't have a result property like HogFunctions
+                status: response.error ? 'error' : 'success',
+                errors: response.error ? [response.error] : [],
+                logs: response.logs,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ error: [e.message] })
         }
     }
 

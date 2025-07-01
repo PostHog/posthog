@@ -285,7 +285,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             not_stuck_cohort = Cohort.objects.create(
                 team_id=self.team.pk,
                 name="not_stuck_cohort",
-                last_calculation=now - relativedelta(hours=1),  # Recent calculation
+                last_calculation=now - relativedelta(minutes=10),  # Recent calculation
                 deleted=False,
                 is_calculating=True,
                 errors_calculating=0,

@@ -108,6 +108,7 @@ import {
     NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
+    type OAuthApplicationPublicMetadata,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -147,7 +148,6 @@ import {
     SurveyStatsResponse,
     TeamType,
     UserBasicType,
-    UserGroup,
     UserInterviewType,
     UserType,
 } from '~/types'
@@ -1079,23 +1079,6 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
 
-    // # UserGroups
-    public userGroups(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('user_groups')
-    }
-
-    public userGroup(id: UserGroup['id']): ApiRequest {
-        return this.userGroups().addPathComponent(id)
-    }
-
-    public userGroupAddMember(id: UserGroup['id']): ApiRequest {
-        return this.userGroup(id).addPathComponent('add')
-    }
-
-    public userGroupRemoveMember(id: UserGroup['id']): ApiRequest {
-        return this.userGroup(id).addPathComponent('remove')
-    }
-
     // # Alerts
     public alerts(alertId?: AlertType['id'], insightId?: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         if (alertId) {
@@ -1304,6 +1287,10 @@ export class ApiRequest {
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
+    }
+
+    public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
+        return this.addPathComponent('oauth_application').addPathComponent('metadata').addPathComponent(clientId)
     }
 
     public hogFlows(): ApiRequest {
@@ -2574,28 +2561,6 @@ const api = {
         },
     },
 
-    userGroups: {
-        async list(): Promise<{ results: UserGroup[] }> {
-            return await new ApiRequest().userGroups().get()
-        },
-
-        async delete(id: UserGroup['id']): Promise<void> {
-            return await new ApiRequest().userGroup(id).delete()
-        },
-
-        async create(name: UserGroup['name']): Promise<UserGroup> {
-            return await new ApiRequest().userGroups().create({ data: { name } })
-        },
-
-        async addMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
-            return await new ApiRequest().userGroupAddMember(id).create({ data: { userId } })
-        },
-
-        async removeMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
-            return await new ApiRequest().userGroupRemoveMember(id).create({ data: { userId } })
-        },
-    },
-
     recordings: {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
@@ -3453,6 +3418,11 @@ const api = {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
+    oauthApplication: {
+        async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
+            return await new ApiRequest().oauthApplicationPublicMetadata(clientId).get()
+        },
+    },
     hogFlows: {
         async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
             return await new ApiRequest().hogFlows().get()
@@ -3468,6 +3438,18 @@ const api = {
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
+        },
+        async createTestInvocation(
+            hogFlowId: HogFlow['id'],
+            data: {
+                configuration: Record<string, any>
+                mock_async_functions: boolean
+                globals?: any
+                clickhouse_event?: any
+                invocation_id?: string
+            }
+        ): Promise<any> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
     },
 

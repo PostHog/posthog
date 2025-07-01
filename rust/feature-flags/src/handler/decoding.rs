@@ -28,7 +28,7 @@ pub fn decode_request(
 
     match base_content_type {
         "application/json" | "text/plain" => {
-            let decoded_body = decode_body(body, query.compression)?;
+            let decoded_body = decode_body(body, query.compression, headers)?;
             FlagRequest::from_bytes(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
@@ -38,21 +38,56 @@ pub fn decode_request(
     }
 }
 
-fn decode_body(body: Bytes, compression: Option<Compression>) -> Result<Bytes, FlagError> {
-    match compression {
-        Some(Compression::Gzip) => decompress_gzip(body),
-        Some(Compression::Base64) => decode_base64(body),
-        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
-            "Unsupported compression type".to_string(),
-        )),
-        None => Ok(body),
+fn decode_body(
+    body: Bytes,
+    compression: Option<Compression>,
+    headers: &HeaderMap,
+) -> Result<Bytes, FlagError> {
+    // First try explicit compression parameter; Android doesn't send this but other clients do.
+    if let Some(compression) = compression {
+        return match compression {
+            Compression::Gzip => decompress_gzip(body),
+            Compression::Base64 => decode_base64(body),
+            Compression::Unsupported => Err(FlagError::RequestDecodingError(
+                "Unsupported compression type".to_string(),
+            )),
+        };
     }
+
+    // Check Content-Encoding header (Android uses this primarily)
+    if let Some(encoding) = headers.get("content-encoding") {
+        if let Ok(encoding_str) = encoding.to_str() {
+            if encoding_str.contains("gzip") {
+                tracing::debug!(
+                    "Detected gzip from Content-Encoding header: {}",
+                    encoding_str
+                );
+                return decompress_gzip(body);
+            }
+        }
+    }
+
+    // Fallback: Auto-detect gzip by checking magic bytes (0x1f, 0x8b)
+    // This handles cases where clients send gzipped data without proper headers
+    if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+        tracing::debug!("Auto-detected gzip compression from magic bytes");
+        inc(
+            FLAG_REQUEST_KLUDGE_COUNTER,
+            &[("type".to_string(), "auto_detected_gzip".to_string())],
+            1,
+        );
+        return decompress_gzip(body);
+    }
+
+    // No compression detected
+    Ok(body)
 }
 
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     let mut decoder = GzDecoder::new(&compressed[..]);
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed).map_err(|e| {
+        tracing::debug!("gzip decompression failed: {}", e);
         FlagError::RequestDecodingError(format!("gzip decompression failed: {}", e))
     })?;
     Ok(Bytes::from(decompressed))
@@ -147,4 +182,94 @@ pub fn decode_form_data(
         tracing::debug!("failed to parse JSON: {}", e);
         FlagError::RequestDecodingError("invalid JSON structure".into())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::types::{Compression, FlagsQueryParams};
+    use axum::http::HeaderMap;
+    use flate2::write::GzEncoder;
+    use flate2::Compression as FlateCompression;
+    use std::io::Write;
+
+    fn create_gzipped_json(json_data: &str) -> Bytes {
+        let mut encoder = GzEncoder::new(Vec::new(), FlateCompression::default());
+        encoder.write_all(json_data.as_bytes()).unwrap();
+        let compressed = encoder.finish().unwrap();
+        Bytes::from(compressed)
+    }
+
+    #[test]
+    fn test_gzip_auto_detection_from_magic_bytes() {
+        let json_data = r#"{"distinct_id": "test", "token": "test_token"}"#;
+        let gzipped_body = create_gzipped_json(json_data);
+
+        // Verify magic bytes are present
+        assert_eq!(gzipped_body[0], 0x1f);
+        assert_eq!(gzipped_body[1], 0x8b);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams::default(); // No compression specified
+
+        let result = decode_request(&headers, gzipped_body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("test".to_string()));
+        assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_gzip_detection_from_content_encoding_header() {
+        let json_data = r#"{"distinct_id": "test", "token": "test_token"}"#;
+        let gzipped_body = create_gzipped_json(json_data);
+
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", "gzip".parse().unwrap());
+
+        let query = FlagsQueryParams::default(); // No compression specified
+
+        let result = decode_request(&headers, gzipped_body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("test".to_string()));
+        assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_explicit_gzip_compression_parameter() {
+        let json_data = r#"{"distinct_id": "test", "token": "test_token"}"#;
+        let gzipped_body = create_gzipped_json(json_data);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams {
+            compression: Some(Compression::Gzip),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, gzipped_body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("test".to_string()));
+        assert_eq!(request.token, Some("test_token".to_string()));
+    }
+
+    #[test]
+    fn test_uncompressed_json_still_works() {
+        let json_data = r#"{"distinct_id": "test", "token": "test_token"}"#;
+        let body = Bytes::from(json_data);
+
+        let headers = HeaderMap::new();
+        let query = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &query);
+        assert!(result.is_ok());
+
+        let request = result.unwrap();
+        assert_eq!(request.distinct_id, Some("test".to_string()));
+        assert_eq!(request.token, Some("test_token".to_string()));
+    }
 }

@@ -15,6 +15,7 @@ import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
+import pyarrow as pa
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -931,3 +932,139 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
     assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
+
+
+async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
+    """Test that materialize_model successfully transforms Decimal256 types to float since decimal128 is not precise enough."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        high_precision_decimal_type = pa.decimal256(76, 32)
+        problematic_data = pa.array(
+            [Decimal("12345678901234567890123456789012345678901234.12345678901234567890123456789012")],
+            type=high_precision_decimal_type,
+        )
+
+        table = pa.table({"high_precision_decimal": problematic_data, "regular_column": pa.array([1], type=pa.int64())})
+
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "high_precision_decimal" in table.column_names
+        assert "regular_column" in table.column_names
+
+        high_precision_column = table.column("high_precision_decimal")
+        # Should be Decimal128 with reduced precision, not float64
+        assert pa.types.is_decimal(high_precision_column.type)
+        assert isinstance(high_precision_column.type, pa.Decimal128Type)
+        assert high_precision_column.type.precision == 38
+        assert high_precision_column.type.scale == 37
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, bucket_name, minio_client):
+    """Test that materialize_model successfully downscales Decimal256 to Decimal128 when the value fits."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_downscale_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        high_precision_decimal_type = pa.decimal256(50, 10)
+        manageable_data = pa.array(
+            [Decimal("1234567890123456789012345678.1234567890")],
+            type=high_precision_decimal_type,
+        )
+
+        table = pa.table({"manageable_decimal": manageable_data, "regular_column": pa.array([1], type=pa.int64())})
+
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "manageable_decimal" in table.column_names
+        assert "regular_column" in table.column_names
+
+        manageable_decimal_column = table.column("manageable_decimal")
+        # Should be Decimal128, not float64
+        assert pa.types.is_decimal(manageable_decimal_column.type)
+        assert isinstance(manageable_decimal_column.type, pa.Decimal128Type)
+        assert manageable_decimal_column.type.precision == 38
+        assert manageable_decimal_column.type.scale == 10
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
