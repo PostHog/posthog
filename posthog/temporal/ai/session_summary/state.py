@@ -50,7 +50,9 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
     raise ValueError(f"Invalid Redis data type: {type(raw_redis_data)}")
 
 
-def store_data_in_redis(redis_client: Redis, redis_key: str, data: str) -> None:
+def store_data_in_redis(redis_client: Redis, redis_key: str | None, data: str) -> None:
+    if not redis_key:
+        raise ValueError(f"Redis key is required to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
     redis_client.setex(redis_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_data)
     return None
@@ -70,7 +72,9 @@ def get_data_class_from_redis(
         ) from err
 
 
-def get_data_str_from_redis(redis_client: Redis, redis_key: str, label: StateActivitiesEnum) -> str:
+def get_data_str_from_redis(redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum) -> str:
+    if not redis_key:
+        raise ValueError(f"Redis key is required to get data from Redis ({label})")
     raw_redis_data = redis_client.get(redis_key)
     if not raw_redis_data:
         raise ValueError(f"Output data not found in Redis for key {redis_key} ({label})")
