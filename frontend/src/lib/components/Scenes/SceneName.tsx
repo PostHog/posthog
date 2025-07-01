@@ -1,8 +1,10 @@
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { useValues } from 'kea'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimtive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 type SceneNameProps = {
     defaultValue: string
@@ -11,7 +13,10 @@ type SceneNameProps = {
 }
 
 export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): JSX.Element {
-    const [localValue, setLocalValue] = useState(defaultValue)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
+    const value = typeof lastBreadcrumb?.name === 'string' ? (lastBreadcrumb.name as string) : defaultValue
+    const [localValue, setLocalValue] = useState(value)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
 
@@ -57,7 +62,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     type="button"
                     variant="outline"
                     onClick={() => {
-                        setLocalValue(defaultValue)
+                        setLocalValue(value)
                         setLocalIsEditing(false)
                     }}
                     tooltip="Cancel"
@@ -70,7 +75,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
         <div className="gap-0">
             <Label intent="menu">Name</Label>
             <p className="m-0 hyphens-auto flex gap-1" lang="en">
-                {defaultValue || <span className="text-tertiary font-normal">No name</span>}
+                {value || <span className="text-tertiary font-normal">No name</span>}
                 <ButtonPrimitive
                     iconOnly
                     onClick={() => setLocalIsEditing(true)}
