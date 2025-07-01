@@ -6,7 +6,7 @@ exports[`segment templates template segment-actions-absmartly matches expected r
   "description": "Send event data to ABsmartly",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=absmartly.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=absmartly.com",
   "id": "segment-actions-absmartly",
   "inputs_schema": [
     {
@@ -360,7 +360,7 @@ exports[`segment templates template segment-actions-accoil-analytics matches exp
   "description": "Send event data to Accoil Analytics",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=accoil.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=accoil.com",
   "id": "segment-actions-accoil-analytics",
   "inputs_schema": [
     {
@@ -806,7 +806,7 @@ exports[`segment templates template segment-actions-acoustic matches expected re
   "description": "Send event data to Acoustic",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=acoustic.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=acoustic.com",
   "id": "segment-actions-acoustic",
   "inputs_schema": [
     {
@@ -1099,7 +1099,7 @@ exports[`segment templates template segment-actions-acoustic-campaign matches ex
   "description": "Send event data to Acoustic Campaign",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=acoustic.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=acoustic.com",
   "id": "segment-actions-acoustic-campaign",
   "inputs_schema": [
     {
@@ -1435,7 +1435,7 @@ exports[`segment templates template segment-actions-airship matches expected res
   "description": "Send event data to Airship",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=airship.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=airship.com",
   "id": "segment-actions-airship",
   "inputs_schema": [
     {
@@ -1652,7 +1652,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
   "description": "Send event data to Algolia Insights",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=algolia.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=algolia.com",
   "id": "segment-actions-algolia-insights",
   "inputs_schema": [
     {
@@ -2383,7 +2383,7 @@ exports[`segment templates template segment-actions-amazon-amc matches expected 
   "description": "Send event data to Amazon Ads DSP and AMC",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=amazon.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=amazon.com",
   "id": "segment-actions-amazon-amc",
   "inputs_schema": [
     {
@@ -2430,7 +2430,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
   "description": "Send event data to Amplitude",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=amplitude.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=amplitude.com",
   "id": "segment-actions-amplitude",
   "inputs_schema": [
     {
@@ -4616,7 +4616,7 @@ exports[`segment templates template segment-actions-angler-ai matches expected r
   "description": "Send event data to Angler AI",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=getangler.ai",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=getangler.ai",
   "id": "segment-actions-angler-ai",
   "inputs_schema": [
     {
@@ -7952,7 +7952,7 @@ exports[`segment templates template segment-actions-attentive matches expected r
   "description": "Send event data to Attentive",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=attentive.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=attentive.com",
   "id": "segment-actions-attentive",
   "inputs_schema": [
     {
@@ -8070,7 +8070,7 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
   "description": "Send event data to Blend Ai",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=blend.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=blend.com",
   "id": "segment-actions-blend-ai",
   "inputs_schema": [
     {
@@ -8187,7 +8187,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
   "description": "Send event data to Canny",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=canny.io",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=canny.com",
   "id": "segment-actions-canny",
   "inputs_schema": [
     {
@@ -8359,7 +8359,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
   "description": "Send event data to Canvas",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=supernova.ai",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=supernova.ai",
   "id": "segment-actions-canvas",
   "inputs_schema": [
     {
@@ -8974,7 +8974,7 @@ exports[`segment templates template segment-actions-clevertap matches expected r
   "description": "Send event data to CleverTap",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=clevertap.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=clevertap.com",
   "id": "segment-actions-clevertap",
   "inputs_schema": [
     {
@@ -9152,7 +9152,7 @@ exports[`segment templates template segment-actions-cloud-gwen matches expected 
   "description": "Send event data to GWEN",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=gwenplatform.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gwenplatform.com",
   "id": "segment-actions-cloud-gwen",
   "inputs_schema": [
     {
@@ -9308,7 +9308,7 @@ exports[`segment templates template segment-actions-drip matches expected result
   "description": "Send event data to Drip",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=drip.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=drip.com",
   "id": "segment-actions-drip",
   "inputs_schema": [
     {
@@ -9529,7 +9529,7 @@ exports[`segment templates template segment-actions-fullstory-cloud matches expe
   "description": "Send event data to Fullstory Cloud Mode",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=fullstory.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=fullstory.com",
   "id": "segment-actions-fullstory-cloud",
   "inputs_schema": [
     {
@@ -9732,7 +9732,7 @@ exports[`segment templates template segment-actions-gameball matches expected re
   "description": "Send event data to Gameball",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=gameball.co",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=gameball.co",
   "id": "segment-actions-gameball",
   "inputs_schema": [
     {
@@ -10330,7 +10330,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
   "description": "Send event data to Hilo",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=hilo.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hilo.com",
   "id": "segment-actions-hilo",
   "inputs_schema": [
     {
@@ -10755,7 +10755,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
   "description": "Send event data to Hyperengage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=hyperengage.io",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=hyperengage.io",
   "id": "segment-actions-hyperengage",
   "inputs_schema": [
     {
@@ -11491,7 +11491,7 @@ exports[`segment templates template segment-actions-insider-cloud matches expect
   "description": "Send event data to Insider Cloud Mode",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=insider.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=insider.com",
   "id": "segment-actions-insider-cloud",
   "inputs_schema": [
     {
@@ -11756,7 +11756,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
   "description": "Send event data to Iterable",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=iterable.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=iterable.com",
   "id": "segment-actions-iterable",
   "inputs_schema": [
     {
@@ -12166,7 +12166,7 @@ exports[`segment templates template segment-actions-iterable-lists matches expec
   "description": "Send event data to Iterable Lists",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=iterable.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=iterable.com",
   "id": "segment-actions-iterable-lists",
   "inputs_schema": [
     {
@@ -12199,7 +12199,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
   "description": "Send event data to Kameleoon",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=kameleoon.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=kameleoon.com",
   "id": "segment-actions-kameleoon",
   "inputs_schema": [
     {
@@ -12681,7 +12681,7 @@ exports[`segment templates template segment-actions-koala-cloud matches expected
   "description": "Send event data to Koala (Cloud)",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=koala.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=koala.com",
   "id": "segment-actions-koala-cloud",
   "inputs_schema": [
     {
@@ -12917,7 +12917,7 @@ exports[`segment templates template segment-actions-launchdarkly matches expecte
   "description": "Send event data to LaunchDarkly",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=launchdarkly.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=launchdarkly.com",
   "id": "segment-actions-launchdarkly",
   "inputs_schema": [
     {
@@ -13118,7 +13118,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
   "description": "Send event data to Launchpad",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=launchpad.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=launchpad.com",
   "id": "segment-actions-launchpad",
   "inputs_schema": [
     {
@@ -13685,7 +13685,7 @@ exports[`segment templates template segment-actions-livelike-cloud matches expec
   "description": "Send event data to LiveLike",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=livelike.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=livelike.com",
   "id": "segment-actions-livelike-cloud",
   "inputs_schema": [
     {
@@ -14049,7 +14049,7 @@ exports[`segment templates template segment-actions-m3ter matches expected resul
   "description": "Send event data to m3ter",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=m3ter.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=m3ter.com",
   "id": "segment-actions-m3ter",
   "inputs_schema": [
     {
@@ -14251,7 +14251,7 @@ exports[`segment templates template segment-actions-marketo-static-lists matches
   "description": "Send event data to Marketo Static Lists",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=marketo.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=marketo.com",
   "id": "segment-actions-marketo-static-lists",
   "inputs_schema": [
     {
@@ -14311,7 +14311,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
   "description": "Send event data to Mixpanel",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=mixpanel.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=mixpanel.com",
   "id": "segment-actions-mixpanel",
   "inputs_schema": [
     {
@@ -16348,7 +16348,7 @@ exports[`segment templates template segment-actions-moloco-rmp matches expected 
   "description": "Send event data to Moloco MCM",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=moloco.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=moloco.com",
   "id": "segment-actions-moloco-rmp",
   "inputs_schema": [
     {
@@ -18259,7 +18259,7 @@ exports[`segment templates template segment-actions-optimizely-data-platform mat
   "description": "Send event data to Optimizely Data Platform",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=optimizely.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=optimizely.com",
   "id": "segment-actions-optimizely-data-platform",
   "inputs_schema": [
     {
@@ -19198,7 +19198,7 @@ exports[`segment templates template segment-actions-pinterest-conversions-api ma
   "description": "Send event data to Pinterest Conversions API",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=pinterest.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=pinterest.com",
   "id": "segment-actions-pinterest-conversions-api",
   "inputs_schema": [
     {
@@ -21457,7 +21457,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
   "description": "Send event data to Pipedrive",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=pipedrive.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=pipedrive.com",
   "id": "segment-actions-pipedrive",
   "inputs_schema": [
     {
@@ -21923,7 +21923,7 @@ exports[`segment templates template segment-actions-playerzero-cloud matches exp
   "description": "Send event data to PlayerZero Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=playerzero.ai",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=playerzero.ai",
   "id": "segment-actions-playerzero-cloud",
   "inputs_schema": [
     {
@@ -22023,7 +22023,7 @@ exports[`segment templates template segment-actions-podscribe matches expected r
   "description": "Send event data to Podscribe",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=podscribe.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=podscribe.com",
   "id": "segment-actions-podscribe",
   "inputs_schema": [
     {
@@ -22430,7 +22430,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
   "description": "Send event data to Prodeology",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=prodeology.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=prodeology.com",
   "id": "segment-actions-prodeology",
   "inputs_schema": [
     {
@@ -22833,7 +22833,7 @@ exports[`segment templates template segment-actions-pushwoosh matches expected r
   "description": "Send event data to Pushwoosh",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=pushwoosh.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=pushwoosh.com",
   "id": "segment-actions-pushwoosh",
   "inputs_schema": [
     {
@@ -23138,7 +23138,7 @@ exports[`segment templates template segment-actions-recombee matches expected re
   "description": "Send event data to Recombee",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=recombee.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=recombee.com",
   "id": "segment-actions-recombee",
   "inputs_schema": [
     {
@@ -24359,7 +24359,7 @@ exports[`segment templates template segment-actions-revx matches expected result
   "description": "Send event data to RevX Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=revx.io",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=revx.io",
   "id": "segment-actions-revx",
   "inputs_schema": [
     {
@@ -24659,7 +24659,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
   "description": "Send event data to Ripe Cloud Mode",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=ripe.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=ripe.com",
   "id": "segment-actions-ripe-cloud",
   "inputs_schema": [
     {
@@ -25138,7 +25138,7 @@ exports[`segment templates template segment-actions-s3-csv matches expected resu
   "description": "Send event data to AWS S3 CSV",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=s3.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=s3.com",
   "id": "segment-actions-s3-csv",
   "inputs_schema": [
     {
@@ -25198,7 +25198,7 @@ exports[`segment templates template segment-actions-saleswings matches expected 
   "description": "Send event data to Saleswings",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=saleswingsapp.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=saleswingsapp.com",
   "id": "segment-actions-saleswings",
   "inputs_schema": [
     {
@@ -25713,7 +25713,7 @@ exports[`segment templates template segment-actions-schematic matches expected r
   "description": "Send event data to Schematic",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=schematichq.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=schematichq.com",
   "id": "segment-actions-schematic",
   "inputs_schema": [
     {
@@ -25923,7 +25923,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
   "description": "Send event data to Sprig Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=sprig.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=sprig.com",
   "id": "segment-actions-sprig",
   "inputs_schema": [
     {
@@ -26130,7 +26130,7 @@ exports[`segment templates template segment-actions-stackadapt-cloud matches exp
   "description": "Send event data to StackAdapt",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=stackadapt.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=stackadapt.com",
   "id": "segment-actions-stackadapt-cloud",
   "inputs_schema": [
     {
@@ -26340,7 +26340,7 @@ exports[`segment templates template segment-actions-taboola-actions matches expe
   "description": "Send event data to Taboola",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=taboola.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=taboola.com",
   "id": "segment-actions-taboola-actions",
   "inputs_schema": [
     {
@@ -26401,7 +26401,7 @@ exports[`segment templates template segment-actions-topsort matches expected res
   "description": "Send event data to Topsort",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=topsort.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=topsort.com",
   "id": "segment-actions-topsort",
   "inputs_schema": [
     {
@@ -26824,7 +26824,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
   "description": "Send event data to Usermaven",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=usermaven.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=usermaven.com",
   "id": "segment-actions-usermaven",
   "inputs_schema": [
     {
@@ -27765,7 +27765,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
   "description": "Send event data to UserMotion",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=usermotion.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=usermotion.com",
   "id": "segment-actions-usermotion",
   "inputs_schema": [
     {
@@ -28023,7 +28023,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
   "description": "Send event data to Userpilot Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=userpilot.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=userpilot.com",
   "id": "segment-actions-userpilot-cloud",
   "inputs_schema": [
     {
@@ -28252,7 +28252,7 @@ exports[`segment templates template segment-actions-voyage matches expected resu
   "description": "Send event data to Voyage",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=voyagesms.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voyagesms.com",
   "id": "segment-actions-voyage",
   "inputs_schema": [
     {
@@ -28472,7 +28472,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
   "description": "Send event data to VWO Cloud Mode",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=vwo.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=vwo.com",
   "id": "segment-actions-vwo-cloud",
   "inputs_schema": [
     {
@@ -28887,7 +28887,7 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
   "description": "Send event data to Xtremepush",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=xtremepush.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=xtremepush.com",
   "id": "segment-actions-xtremepush",
   "inputs_schema": [
     {
@@ -29109,7 +29109,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
   "description": "Send event data to Calliper Cloud",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=cloud.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=cloud.com",
   "id": "segment-calliper-cloud-actions",
   "inputs_schema": [
     {
@@ -29626,7 +29626,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
   "description": "Send event data to Encharge",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=encharge.io",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=encharge.io",
   "id": "segment-encharge-cloud-actions",
   "inputs_schema": [
     {
@@ -30353,7 +30353,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
   "description": "Send event data to Inleads AI",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=inleads.ai",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=inleads.ai",
   "id": "segment-inleads-ai",
   "inputs_schema": [
     {
@@ -31031,7 +31031,7 @@ exports[`segment templates template segment-metronome-actions matches expected r
   "description": "Send event data to Metronome",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=metronome.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=metronome.com",
   "id": "segment-metronome-actions",
   "inputs_schema": [
     {
@@ -31145,7 +31145,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
   "description": "Send event data to Outfunnel",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=outfunnel.com",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=outfunnel.com",
   "id": "segment-outfunnel",
   "inputs_schema": [
     {
@@ -31515,7 +31515,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
   "description": "Send event data to Voucherify",
   "free": false,
   "hog": "return event",
-  "icon_url": "/api/public_hog_function_icons/icon/?id=voucherify.io",
+  "icon_url": "/api/environments/@current/hog_functions/icon/?id=voucherify.io",
   "id": "segment-voucherify-actions",
   "inputs_schema": [
     {
