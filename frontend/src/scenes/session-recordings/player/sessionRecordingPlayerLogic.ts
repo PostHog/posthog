@@ -24,7 +24,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
-import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -53,7 +52,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin } from './rrweb'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { deleteRecording } from './utils/playerUtils'
@@ -155,6 +154,7 @@ const ACTIVE_SOURCES = [
     IncrementalSource.MediaInteraction,
     IncrementalSource.Drag,
 ]
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -893,6 +893,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 onError: (error) => {
                     actions.playerErrorSeen(error)
                 },
+                logger:
+                    props.mode === SessionRecordingPlayerMode.Standard
+                        ? makeLogger(actions.incrementWarningCount)
+                        : makeNoOpLogger(),
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
@@ -1469,7 +1473,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.pausedMediaElements = []
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
-        cache.unmountConsoleWarns?.()
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1490,6 +1493,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
         )
+
+        if (cache.consoleWarnDebounceTimer) {
+            clearTimeout(cache.consoleWarnDebounceTimer)
+        }
+        ;(window as any)[`__posthog_player_logs`] = undefined
+        ;(window as any)[`__posthog_player_warnings`] = undefined
     }),
 
     afterMount(({ props, actions, cache }) => {
@@ -1509,8 +1518,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.openTime = performance.now()
-
-        cache.unmountConsoleWarns = manageConsoleWarns(cache, actions.incrementWarningCount)
     }),
 ])
 
@@ -1518,49 +1525,4 @@ export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProp
     // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
     const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
     return Math.floor(playerTime / 1000)
-}
-
-export const manageConsoleWarns = (cache: any, onIncrement: (count: number) => void): (() => void) => {
-    // NOTE: RRWeb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
-    // We also don't log the warnings directly. Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
-    ;(window as any).__posthog_player_warnings = []
-    const warnings: any[][] = (window as any).__posthog_player_warnings
-
-    let counter = 0
-
-    let consoleWarnDebounceTimer: NodeJS.Timeout | null = null
-
-    const actualConsoleWarn = console.warn
-
-    const debouncedCounter = (args: any[]): void => {
-        warnings.push(args)
-        counter += 1
-
-        if (!consoleWarnDebounceTimer) {
-            consoleWarnDebounceTimer = setTimeout(() => {
-                consoleWarnDebounceTimer = null
-                onIncrement(warnings.length)
-
-                actualConsoleWarn(
-                    `[PostHog Replayer] ${counter} warnings (window.__posthog_player_warnings to safely log them)`
-                )
-                counter = 0
-            }, 5000)
-        }
-    }
-
-    const resetConsoleWarn = wrapConsole('warn', (args) => {
-        if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
-            debouncedCounter(args)
-            // WARNING: Logging these out can cause the browser to completely crash, so we want to delay it and
-            return false
-        }
-
-        return true
-    })
-
-    return () => {
-        resetConsoleWarn()
-        clearTimeout(cache.consoleWarnDebounceTimer)
-    }
 }

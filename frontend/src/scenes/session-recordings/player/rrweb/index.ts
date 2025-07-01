@@ -167,6 +167,54 @@ const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 
+export const makeNoOpLogger = (): playerConfig['logger'] => {
+    return {
+        log: () => {},
+        warn: () => {},
+    }
+}
+
+export const makeLogger = (onIncrement: (count: number) => void): playerConfig['logger'] => {
+    const counter = {
+        log: 0,
+        warning: 0,
+    }
+    const logger = (type: 'log' | 'warning'): ((message?: any, ...optionalParams: any[]) => void) => {
+        // NOTE: RRWeb can log _alot_ of warnings,
+        // so we debounce the count otherwise we just end up making the performance worse
+        // We also don't log the messages directly.
+        // Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
+        ;(window as any)[`__posthog_player_${type}s`] = (window as any)[`__posthog_player_${type}s`] || []
+
+        let consoleWarnDebounceTimer: NodeJS.Timeout | null = null
+
+        const debouncedLogger = (args: any[]): void => {
+            ;(window as any)[`__posthog_player_${type}s`].push(args)
+            counter[type] += 1
+
+            if (!consoleWarnDebounceTimer) {
+                consoleWarnDebounceTimer = setTimeout(() => {
+                    consoleWarnDebounceTimer = null
+                    if (type === 'warning') {
+                        onIncrement((window as any)[`__posthog_player_${type}s`].length)
+                    }
+
+                    console.warn(
+                        `[PostHog Replayer] ${counter} ${type}s (window.__posthog_player_${type}s to safely log them)`
+                    )
+                    counter[type] = 0
+                }, 5000)
+            }
+        }
+        return debouncedLogger
+    }
+
+    return {
+        log: logger('log'),
+        warn: logger('warning'),
+    }
+}
+
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
     insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
