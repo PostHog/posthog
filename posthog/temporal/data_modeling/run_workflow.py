@@ -648,7 +648,7 @@ async def update_table_row_count(
 
 
 async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogger) -> int:
-    """Get the total row count for a HogQL query."""
+    """Get the total row count for a HogQL query. Differs in extraction with std query since it's a count query."""
     count_query = f"SELECT count() FROM ({query})"
 
     query_node = parse_select(count_query)
@@ -677,7 +677,6 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     async with get_client() as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
-        await logger.adebug(f"Count query result: {count}")
         return count
 
 
