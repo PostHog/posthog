@@ -6,6 +6,7 @@ import {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    DropdownMenuSeparator,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
@@ -23,9 +24,13 @@ export function SessionReplayMenuItems({
     MenuSubContent = DropdownMenuSubContent,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { savedFilters, savedFiltersLoading, playlists, playlistsLoading } = useValues(
+    const { savedFilters, savedFiltersLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     )
+    const { playlists, playlistsLoading } = useValues(
+        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    )
+
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
         if (e.key === 'Enter' || e.key === ' ') {
             // small delay to fight dropdown menu from taking focus
@@ -70,6 +75,23 @@ export function SessionReplayMenuItems({
                                 </Link>
                             </MenuItem>
                         ))}
+                        {savedFilters.next ? (
+                            <>
+                                <DropdownMenuSeparator />
+                                <MenuItem asChild key="all-saved-filters">
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                        onKeyDown={handleKeyDown}
+                                        onClick={() => onLinkClick?.(false)}
+                                    >
+                                        <span className="truncate">All saved filters</span>
+                                    </Link>
+                                </MenuItem>
+                            </>
+                        ) : null}
                     </MenuSubContent>
                 </MenuSub>
             ) : null}
@@ -108,6 +130,23 @@ export function SessionReplayMenuItems({
                                 </Link>
                             </MenuItem>
                         ))}
+                        {playlists.next ? (
+                            <>
+                                <DropdownMenuSeparator />
+                                <MenuItem asChild key="all-collections">
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={`${urls.replay(ReplayTabs.Playlists)}`}
+                                        onKeyDown={handleKeyDown}
+                                        onClick={() => onLinkClick?.(false)}
+                                    >
+                                        <span className="truncate">All collections</span>
+                                    </Link>
+                                </MenuItem>
+                            </>
+                        ) : null}
                     </MenuSubContent>
                 </MenuSub>
             ) : null}
