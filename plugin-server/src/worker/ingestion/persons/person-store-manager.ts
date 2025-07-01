@@ -346,7 +346,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                 target.team_id,
                 distinctId,
                 target.id,
-                mergedPersonUpdate,
+                toInternalPerson(mergedPersonUpdate),
                 false,
                 'moveDistinctIds',
                 mergedPersonUpdate.version
