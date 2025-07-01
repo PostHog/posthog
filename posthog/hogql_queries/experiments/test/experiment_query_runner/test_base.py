@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.exceptions import ExperimentValidationError
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -2370,3 +2371,136 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both should have 5 exposures each
         self.assertEqual(control_variant.absolute_exposure, 5)
         self.assertEqual(test_variant.absolute_exposure, 5)
+
+    def test_experiment_validation_error_is_raised_for_experiment_errors(self):
+        """Test that ExperimentValidationError is raised for experiment-specific validation failures"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=ExperimentMeanMetric(source=EventsNode(event="purchase")),
+        )
+
+        # Don't create any events, so the experiment should fail validation
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        # Should raise ExperimentValidationError, not regular ValidationError
+        with self.assertRaises(ExperimentValidationError) as cm:
+            query_runner.calculate()
+
+        # Verify the error contains expected validation details
+        error_detail = str(cm.exception.detail)
+        error_dict = json.loads(error_detail)
+
+        # Should have no exposures since we created no events
+        self.assertTrue(error_dict.get("no-exposures", False))
+
+    def test_experiment_validation_error_no_control_variant(self):
+        """Test ExperimentValidationError when control variant is missing"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=ExperimentMeanMetric(source=EventsNode(event="purchase")),
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create events only for test variant, no control
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={feature_flag_property: "test"},
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        with self.assertRaises(ExperimentValidationError) as cm:
+            query_runner.calculate()
+
+        error_detail = str(cm.exception.detail)
+        error_dict = json.loads(error_detail)
+
+        # Should have exposures but missing control variant
+        self.assertFalse(error_dict.get("no-exposures", True))
+        self.assertTrue(error_dict.get("no-control-variant", False))
+
+    def test_experiment_validation_error_no_test_variant(self):
+        """Test ExperimentValidationError when test variant is missing"""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=ExperimentMeanMetric(source=EventsNode(event="purchase")),
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create events only for control variant, no test
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={feature_flag_property: "control"},
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        with self.assertRaises(ExperimentValidationError) as cm:
+            query_runner.calculate()
+
+        error_detail = str(cm.exception.detail)
+        error_dict = json.loads(error_detail)
+
+        # Should have exposures but missing test variant
+        self.assertFalse(error_dict.get("no-exposures", True))
+        self.assertTrue(error_dict.get("no-test-variant", False))
+
+    def test_experiment_validation_error_missing_experiment_id(self):
+        """Test ExperimentValidationError when experiment_id is missing"""
+        experiment_query = ExperimentQuery(
+            experiment_id=None,  # Missing experiment ID
+            metric=ExperimentMeanMetric(source=EventsNode(event="purchase")),
+        )
+
+        with self.assertRaises(ExperimentValidationError) as cm:
+            ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        # Should raise ExperimentValidationError with appropriate message
+        self.assertEqual(str(cm.exception.detail), "experiment_id is required")
