@@ -171,18 +171,21 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         {
                             key: 'schema',
                             title: 'Schema Mapping',
-                            render: (_, goal: ConversionGoalFilter) => (
-                                <div className="text-xs text-muted">
-                                    <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
-                                    <div>Source: {goal.schema_map.utm_source_name}</div>
-                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
-                                        <div>Timestamp: {goal.schema_map.timestamp_field}</div>
-                                    )}
-                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
-                                        <div>Distinct ID: {goal.schema_map.distinct_id_field}</div>
-                                    )}
-                                </div>
-                            ),
+                            render: (_, goal: ConversionGoalFilter) =>
+                                goal.schema_map ? (
+                                    <div className="text-xs text-muted">
+                                        <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
+                                        <div>Source: {goal.schema_map.utm_source_name}</div>
+                                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
+                                            <div>Timestamp: {goal.schema_map.timestamp_field}</div>
+                                        )}
+                                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
+                                            <div>Distinct ID: {goal.schema_map.distinct_id_field}</div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div>Not configured</div>
+                                ),
                         },
                         {
                             key: 'actions',

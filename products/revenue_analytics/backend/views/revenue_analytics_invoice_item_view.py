@@ -310,8 +310,14 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ast.Alias(
                     alias="is_recurring",
                     expr=ast.Call(
-                        name="isNotNull",
-                        args=[ast.Field(chain=["subscription_id"])],
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="notEmpty",
+                                args=[ast.Field(chain=["subscription_id"])],
+                            ),
+                            ast.Constant(value=0),
+                        ],
                     ),
                 ),
                 ast.Field(chain=["product_id"]),
