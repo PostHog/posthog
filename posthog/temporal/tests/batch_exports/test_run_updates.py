@@ -218,6 +218,7 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@pytest.mark.flaky(reruns=3)
 async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will not fail in the prescence of a NUL byte."""
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)

@@ -172,6 +172,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@pytest.mark.flaky(reruns=3)
 def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",

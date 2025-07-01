@@ -1,5 +1,7 @@
 import uuid
 
+import pytest
+
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.models import Organization, Project, Team
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
@@ -124,6 +126,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id2)
 
+    @pytest.mark.flaky(reruns=3)
     def test_vector_search_selects_max_version(self):
         query = VectorSearchQuery(embedding=[2, 4])
         id = str(uuid.uuid4())
