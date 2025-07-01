@@ -36,11 +36,10 @@ class MigrationConflictResolver:
             self.base_dir = self.base_dir.parent
 
         self.apps_with_migrations = [
-            "posthog/posthog",
-            "billing/billing",
-            "posthog/ee",
-            "posthog/products/early_access_features",
-            "posthog/products/user_interviews",
+            "posthog",
+            "ee",
+            "products/early_access_features",
+            "products/user_interviews",
             # Add other apps as needed
         ]
 
