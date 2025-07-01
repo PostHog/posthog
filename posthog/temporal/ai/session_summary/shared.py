@@ -9,10 +9,10 @@ import structlog
 from ee.session_recordings.session_summary import ExceptionToRetry
 import temporalio
 from posthog.temporal.ai.session_summary.state import (
-    compress_redis_data,
     get_data_class_from_redis,
     get_redis_state_client,
     StateActivitiesEnum,
+    store_data_in_redis,
 )
 
 logger = structlog.get_logger(__name__)
@@ -74,11 +74,6 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         )
         # Store the input in Redis
         input_data_str = json.dumps(dataclasses.asdict(input_data))
-        compressed_input_data = compress_redis_data(input_data_str)
-        redis_client.setex(
-            redis_input_key,
-            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-            compressed_input_data,
-        )
+        store_data_in_redis(redis_client=redis_client, redis_key=redis_input_key, data=input_data_str)
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None

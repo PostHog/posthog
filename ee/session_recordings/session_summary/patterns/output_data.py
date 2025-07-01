@@ -42,7 +42,7 @@ class EnrichedPatternAssignedEvent(PaternAssignedEvent):
     window_id: str
     current_url: str
     event: str
-    event_type: str
+    event_type: str | None
     event_index: int
 
 

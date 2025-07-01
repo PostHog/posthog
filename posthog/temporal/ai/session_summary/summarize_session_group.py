@@ -18,9 +18,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     extract_session_group_patterns_activity,
 )
 from posthog.temporal.ai.session_summary.shared import (
-    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SingleSessionSummaryInputs,
-    compress_redis_data,
     fetch_session_data_activity,
 )
 from posthog.temporal.ai.session_summary.state import (
@@ -28,6 +26,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_data_str_from_redis,
     get_redis_state_client,
     StateActivitiesEnum,
+    store_data_in_redis,
 )
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
@@ -92,12 +91,7 @@ async def get_llm_single_session_summary_activity(
             trace_id=temporalio.activity.info().workflow_id,
         )
         # Store the generated summary in Redis
-        compressed_session_summary = compress_redis_data(session_summary_str)
-        redis_client.setex(
-            redis_output_key,
-            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-            compressed_session_summary,
-        )
+        store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=session_summary_str)
     # Returning nothing as the data is stored in Redis
     return None
 

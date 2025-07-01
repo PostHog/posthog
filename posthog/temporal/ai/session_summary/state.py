@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from redis import Redis
 
 from posthog.redis import get_client
+from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 
 
 class StateActivitiesEnum(Enum):
@@ -37,7 +38,7 @@ def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str 
     return f"{key_base}:{label}:{state_id}"
 
 
-def compress_redis_data(input_data: str) -> bytes:
+def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
@@ -47,6 +48,12 @@ def _decompress_redis_data(raw_redis_data: bytes) -> str:
     else:
         # Fallback for uncompressed data (if stored as string)
         return raw_redis_data
+
+
+def store_data_in_redis(redis_client: Redis, redis_key: str, data: str) -> None:
+    compressed_data = _compress_redis_data(data)
+    redis_client.setex(redis_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_data)
+    return None
 
 
 def get_data_class_from_redis(
@@ -72,17 +79,3 @@ def get_data_str_from_redis(redis_client: Redis, redis_key: str, label: StateAct
         raise ValueError(
             f"Failed to decompress output data ({raw_redis_data}) for Redis key {redis_key} ({label}): {err}"
         ) from err
-
-
-# def get_session_group_pattern_extraction_output_from_redis(redis_client: Redis, redis_output_key: str) -> RawSessionGroupSummaryPatternsList:
-#     raw_redis_data = redis_client.get(redis_output_key)
-#     if not raw_redis_data:
-#         raise ValueError(f"Session group pattern extraction data not found in Redis for key {redis_output_key}")
-#     try:
-#         redis_data_str = _decompress_redis_data(raw_redis_data)
-#         redis_data = RawSessionGroupSummaryPatternsList(**json.loads(redis_data_str))
-#         return redis_data
-#     except Exception as e:
-#         raise ValueError(
-#             f"Failed to decompress session group pattern extraction data ({raw_redis_data}) for Redis key {redis_output_key}: {e}"
-#         ) from e
