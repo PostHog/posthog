@@ -675,7 +675,7 @@
               "revenue_analytics": {
                   "chain": null,
                   "fields": [
-                      "customer_id",
+                      "person_id",
                       "revenue",
                       "revenue_last_30_days"
                   ],
@@ -1968,7 +1968,7 @@
               "revenue_analytics": {
                   "chain": null,
                   "fields": [
-                      "customer_id",
+                      "person_id",
                       "revenue",
                       "revenue_last_30_days"
                   ],
