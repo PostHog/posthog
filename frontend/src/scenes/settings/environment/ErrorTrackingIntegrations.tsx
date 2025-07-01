@@ -12,7 +12,6 @@ type Integration = {
     name: 'Linear' | 'GitHub'
     kind: 'linear' | 'github'
     integrations: IntegrationType[]
-    description: string
 }
 
 export function ErrorTrackingIntegrations(): JSX.Element {
@@ -20,17 +19,14 @@ export function ErrorTrackingIntegrations(): JSX.Element {
 
     const integrations: Integration[] = [
         {
-            name: 'Linear',
-            kind: 'linear',
-            integrations: linearIntegrations,
-            description:
-                'Linear is a project management tool that helps you track your work and collaborate with your team.',
-        },
-        {
             name: 'GitHub',
             kind: 'github',
             integrations: githubIntegrations,
-            description: 'GitHub is a code hosting platform for version control and collaboration.',
+        },
+        {
+            name: 'Linear',
+            kind: 'linear',
+            integrations: linearIntegrations,
         },
     ]
 
@@ -43,11 +39,7 @@ export function ErrorTrackingIntegrations(): JSX.Element {
     )
 }
 
-const Integration = ({
-    integration: { name, kind, integrations, description },
-}: {
-    integration: Integration
-}): JSX.Element => {
+const Integration = ({ integration: { name, kind, integrations } }: { integration: Integration }): JSX.Element => {
     const { deleteIntegration } = useActions(integrationsLogic)
 
     const onDeleteClick = (id: number): void => {
@@ -68,7 +60,6 @@ const Integration = ({
     return (
         <div className="flex flex-col">
             <h3>{name}</h3>
-            <p>{description}</p>
             {integrations?.map((integration) => (
                 <IntegrationView
                     key={integration.id}
