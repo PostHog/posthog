@@ -251,12 +251,10 @@ class RetentionQueryRunner(QueryRunner):
         )
         return_event_timestamps_with_dupes = parse_expr(
             """
-            arraySort(
-                groupArrayIf(
-                    {start_of_interval_timestamp},
-                    {returning_entity_expr} and
-                    {filter_timestamp}
-                )
+            groupArrayIf(
+                {start_of_interval_timestamp},
+                {returning_entity_expr} and
+                {filter_timestamp}
             )
             """,
             {
