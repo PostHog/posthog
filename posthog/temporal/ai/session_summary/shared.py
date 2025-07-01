@@ -17,9 +17,6 @@ from posthog.temporal.ai.session_summary.state import (
 
 logger = structlog.get_logger(__name__)
 
-# How long to store the DB data in Redis within Temporal session summaries jobs
-SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 3 * 60  # 180 minutes to keep alive for retries and long-running workflows
-
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SingleSessionSummaryInputs:

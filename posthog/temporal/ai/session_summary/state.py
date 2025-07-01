@@ -5,8 +5,8 @@ from prometheus_client import Enum
 from pydantic import BaseModel
 from redis import Redis
 
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.redis import get_client
-from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 
 
 class StateActivitiesEnum(Enum):

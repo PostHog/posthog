@@ -10,6 +10,7 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
@@ -17,7 +18,6 @@ from posthog import constants
 from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.shared import (
-    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
     SingleSessionSummaryInputs,
     fetch_session_data_activity,
 )
