@@ -882,6 +882,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
 
+            // we override the console in the player, with one which stores its data instead of logging
+            // there is a debounced logger hidden inside that.
+            // we have to cache those timers so that we can clear them in the beforeUnmount
+            // rrweb can log so much that it becomes a performance issue
+            // this overridden logging avoids some recordings freezing the browser
+            // outside of standard mode, we swallow the logs completely
+            const logging =
+                props.mode === SessionRecordingPlayerMode.Standard
+                    ? makeLogger(actions.incrementWarningCount)
+                    : makeNoOpLogger()
+            cache.consoleDebounceTimers = logging.timers
+
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
@@ -893,10 +905,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 onError: (error) => {
                     actions.playerErrorSeen(error)
                 },
-                logger:
-                    props.mode === SessionRecordingPlayerMode.Standard
-                        ? makeLogger(actions.incrementWarningCount)
-                        : makeNoOpLogger(),
+                logger: logging.logger,
             }
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
 
@@ -1494,8 +1503,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             summaryAnalytics
         )
 
-        if (cache.consoleWarnDebounceTimer) {
-            clearTimeout(cache.consoleWarnDebounceTimer)
+        if (cache.consoleDebounceTimers) {
+            Object.values(cache.consoleDebounceTimers).forEach((timer) => {
+                if (timer) {
+                    clearTimeout(timer)
+                }
+            })
         }
         ;(window as any)[`__posthog_player_logs`] = undefined
         ;(window as any)[`__posthog_player_warnings`] = undefined
