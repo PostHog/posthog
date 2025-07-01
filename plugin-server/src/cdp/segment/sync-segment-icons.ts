@@ -8,7 +8,7 @@ import { SEGMENT_DESTINATIONS } from './segment-templates'
 void SEGMENT_DESTINATIONS.splice(0, 2).map(async ({ template }) => {
     const iconId = template.icon_url?.replace('/static/services/', '')
 
-    const res = await fetch(`https://img.logo.dev/${iconId}?token=abc`)
+    const res = await fetch(`https://img.logo.dev/${iconId}?token=${process.env.LOGO_DEV_TOKEN}`)
     const buffer = await res.arrayBuffer()
 
     // Ensure directory exists
