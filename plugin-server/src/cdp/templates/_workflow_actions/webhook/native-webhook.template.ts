@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-hogflow-send-webhook',
     name: 'Native Webhook',
-    description: "Send webhooks using PostHog's built-in webhook functionality",
+    description: "Send webhooks from Workflows using PostHog's built-in webhook functionality",
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `

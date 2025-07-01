@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-hogflow-send-sms-twilio',
     name: 'Twilio SMS',
-    description: 'Send SMS messages using Twilio',
+    description: 'Send SMS messages from Workflows using Twilio',
     icon_url: '/static/services/twilio.png',
     category: ['Communication'],
     hog: `
@@ -21,10 +21,6 @@ if (not toNumber) {
 
 if (not message) {
     throw Error('SMS message is required')
-}
-
-if (not fromNumber) {
-    throw Error('From phone number is required')
 }
 
 let payload := {
@@ -62,14 +58,6 @@ if (inputs.debug) {
             required: true,
             description: 'Phone number to send the SMS to (in E.164 format, e.g., +1234567890).',
             default: '{person.properties.phone}',
-        },
-        {
-            key: 'from_number',
-            type: 'string',
-            label: 'From Phone Number',
-            secret: false,
-            required: true,
-            description: 'Twilio phone number to send from (in E.164 format, e.g., +1234567890).',
         },
         {
             key: 'message',

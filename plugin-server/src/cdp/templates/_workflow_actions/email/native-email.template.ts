@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-hogflow-send-email-native',
     name: 'Native Email',
-    description: "Send emails using PostHog's built-in email service",
+    description: "Send emails from Workflows using PostHog's built-in email service",
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Communication'],
     hog: `

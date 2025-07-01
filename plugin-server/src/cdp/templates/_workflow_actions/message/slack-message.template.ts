@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-hogflow-send-message-slack',
     name: 'Slack Message',
-    description: 'Send messages to Slack channels or users',
+    description: 'Send messages from Workflows to Slack channels or users',
     icon_url: '/static/services/slack.png',
     category: ['Communication'],
     hog: `
