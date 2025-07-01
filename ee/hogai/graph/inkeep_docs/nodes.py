@@ -58,6 +58,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             api_key=settings.INKEEP_API_KEY,
             streaming=True,
             stream_usage=True,
+            max_retries=3,
         )
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
