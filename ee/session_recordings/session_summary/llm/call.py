@@ -90,9 +90,9 @@ async def stream_llm(
     # TODO: Add LLM observability tracking here
     client = get_async_openai_client()
     stream: AsyncStream = await client.chat.completions.create(
+        messages=messages,
         model=model,
         temperature=SESSION_SUMMARIES_TEMPERATURE,
-        messages=messages,
         user=user_param,
         stream=True,
         posthog_trace_id=trace_id,
@@ -119,17 +119,17 @@ async def call_llm(
     client = get_async_openai_client()
     if not reasoning:
         result = await client.chat.completions.create(
+            messages=messages,
             model=model,
             temperature=SESSION_SUMMARIES_TEMPERATURE,
-            messages=messages,
             user=user_param,
             posthog_trace_id=trace_id,
         )
     else:
         result = await client.chat.completions.create(
+            messages=messages,
             model=model,
             reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
-            messages=messages,
             user=user_param,
             posthog_trace_id=trace_id,
         )
