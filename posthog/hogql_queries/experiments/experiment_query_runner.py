@@ -3,10 +3,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
-from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.exceptions import ExperimentValidationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -94,7 +94,7 @@ class ExperimentQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
 
         if not self.query.experiment_id:
-            raise ValidationError("experiment_id is required")
+            raise ExperimentValidationError("experiment_id is required")
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
@@ -731,7 +731,7 @@ class ExperimentQueryRunner(QueryRunner):
         }
 
         if not variants:
-            raise ValidationError(code="no-results", detail=json.dumps(errors))
+            raise ExperimentValidationError(code="no-results", detail=json.dumps(errors))
 
         errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
@@ -743,7 +743,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         has_errors = any(errors.values())
         if has_errors:
-            raise ValidationError(detail=json.dumps(errors))
+            raise ExperimentValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.metric.kind} to query")
