@@ -6,10 +6,10 @@ import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -37,11 +37,20 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
     )
 }
 
+export function SceneLayoutPanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="px-1 pt-4 flex flex-col gap-2">
+            {children}
+        </div>
+    )
+}
+
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
     const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const { mobileLayout } = useValues(navigation3000Logic)
+    // const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
 
     useEffect(() => {
         if (sceneLayoutContainer.current) {
@@ -73,29 +82,18 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             ref={sceneLayoutContainer}
         >
             <div
-                className={cn('scene-layout__content', {
-                    'scene-layout__content--collapsed': panelInfoActive && !panelInfoOpen && !showPanelOverlay,
+                className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative', {
+                    'grid-cols-[1fr_0px]': showPanelOverlay,
                 })}
             >
-                <div className="flex flex-col flex-1">
-                    {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader />}
+                    {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
 
-                    <div
-                        className={cn('flex-1 flex flex-col p-4 w-full order-1', {
-                            'p-0': layoutConfig?.layout === 'app-raw-no-header',
-                        })}
-                    >
-                        {children}
-                    </div>
-                </div>
-
-                {panelInfoActive && (
+                    {panelInfoActive && (
                     <>
                         <div
-                            className={cn('scene-layout__content-panel order-2 bg-primary flex flex-col', {
+                            className={cn('scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 right-0 h-screen', {
                                 hidden: !panelInfoOpen,
-                                'right-0': mobileLayout,
-                                'right-[3rem]': !mobileLayout,
+                                // 'sticky top-0 right-0 h-screen': showPanelOverlay,
                             })}
                         >
                             <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
@@ -129,6 +127,15 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         )}
                     </>
                 )}
+                    <div
+                        className={cn('flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1', {
+                            'p-0': layoutConfig?.layout === 'app-raw-no-header',
+                        })}
+                    >
+                        {children}
+                    </div>
+
+                
             </div>
         </div>
     )

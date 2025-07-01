@@ -27,13 +27,11 @@
 }
 
 .scene-layout__content-panel {
-    position: fixed;
+    /* position: absolute;
     top: 0;
-    bottom: 0;
+    bottom: 0; */
     z-index: var(--z-top-navigation);
     width: var(--scene-layout-panel-info-width);
-    height: 100%;
-    min-height: 100vh;
     border-color: var(--border-primary);
     border-style: solid;
     border-width: 0 0 0 1px;

@@ -1,6 +1,6 @@
 import './SceneHeader.scss'
 
-import { IconChevronDown, IconListCheck, IconX } from '@posthog/icons'
+import { IconChevronDown, IconInfo, IconListCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
@@ -18,24 +18,27 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 /** Sync with --breadcrumbs-height-compact. */
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
-export function SceneHeader(): JSX.Element | null {
+export function SceneHeader({className}: {className?: string}): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { setPanelInfoOpen } = useActions(sceneLayoutLogic)
-    const { panelInfoOpen, panelInfoActive } = useValues(sceneLayoutLogic)
+    const { panelInfoOpen, panelInfoActive, showPanelOverlay, fileActionsContainer } = useValues(sceneLayoutLogic)
+    const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
 
     return breadcrumbs.length || projectTreeRefEntry ? (
+        <>
         <div
             className={cn(
                 'py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]',
+                className,
                 {
                     'pr-2': panelInfoActive,
                 }
@@ -78,10 +81,13 @@ export function SceneHeader(): JSX.Element | null {
                                 <IconListCheck className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
                             </ButtonPrimitive>
                         )}
+
                     </div>
                 </div>
             </div>
         </div>
+
+        </>
     ) : null
 }
 

@@ -60,7 +60,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { SceneLayoutPanelInfo } from '~/layout/scenes/SceneLayout'
+import { SceneLayoutPanelInfo, SceneLayoutPanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetayticsSummaryButton'
@@ -83,7 +83,7 @@ import {
 } from '~/types'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
-    const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId, filtersOverride, variablesOverride, insightLogicRef } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
@@ -304,7 +304,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneLayoutPanelInfo>
                 <>
-                    <div className="px-1 pt-2 flex flex-col gap-2">
+                    <SceneLayoutPanelMetaInfo>
                         {!!(canEditInsight || insight.name) && (
                             <>
                                 <SceneName
@@ -342,7 +342,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             by={insight.last_modified_by}
                             prefix="Last modified"
                         />
-                    </div>
+                    </SceneLayoutPanelMetaInfo>
 
                     <LemonDivider />
                     {hasDashboardItemId && <SceneTreeMenu />}
