@@ -35,7 +35,6 @@ from posthog.api import (
     unsubscribe,
     uploaded_media,
     user,
-    hog_function,
 )
 from posthog.api.web_experiment import web_experiments
 from posthog.api.utils import hostname_in_allowed_url_list
@@ -191,10 +190,6 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
-    ),
-    opt_slash_path(
-        "api/public_hog_function_icons/icon",
-        hog_function.PublicHogFunctionIconsViewSet.as_view({"get": "retrieve"}),
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
