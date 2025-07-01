@@ -150,18 +150,19 @@ jobs:
 
                       ## ✅ Quick Fix Available
 
-                      Click the button below to automatically resolve these conflicts:
+                      To automatically resolve these conflicts:
 
-                      **[▶️ Apply Migration Fixes](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml)**
+                      **To apply the fixes:**
 
-                      > 1. Click the link above
-                      > 2. Click "Run workflow"
-                      > 3. Select branch: \`${branch}\`
-                      > 4. Type "YES" to confirm
-                      > 5. The fixes will be automatically committed to this PR
+                      1. **[🛠️ Go to Actions Tab](${context.payload.repository.html_url}/actions)**
+                      2. **Look for "Migration Conflicts - Apply Fixes" workflow**
+                      3. **Click "Run workflow"**
+                      4. **Select branch:** \`${branch}\`
+                      5. **Type "YES"** to confirm
+                      6. **The fixes will be automatically committed to this PR**
 
-                      Alternatively, you can run the preview workflow first to see more details:
-                      **[🔍 Preview Only](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-preview.yml)**
+
+                      **For preview only:** **[🔍 Go to Actions Tab](${context.payload.repository.html_url}/actions)** and look for "Migration Conflicts - Preview" workflow
 
                       ---
                       <sub>🤖 Auto-detected by migration-conflicts-auto-detect.yml on push to ${context.sha.substring(0, 7)}</sub>`;
