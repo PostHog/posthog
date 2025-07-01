@@ -106,7 +106,7 @@ case "$RS_SVC" in
     # Download MaxMind DB if it doesn't exist
     ./bin/download-mmdb
     
-    export RUST_LOG=debug
+    export RUST_LOG=debug,tower=warn,maxminddb=warn
     export RUST_BACKTRACE=1
     export WRITE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
     export READ_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
