@@ -41,11 +41,13 @@ To do so:
 The maxContextLogic will automatically detect and process these context items.
 Use the helper functions to ensure type safety and consistency.
 
-Currently, these types of contexts are supported:
+Currently, these context entities are supported:
 - Dashboards
 - Insights
 - Events
 - Actions
+
+If you want to add new entities, you need to extend `maxContextLogic.ts`, slightly more difficult, but doable, check how other entities are supported and start from there.
 
 Caveat: we currently support these types of insights: trends, funnels, retention, custom SQL.
 This means that if you expose a dashboard with custom queries, these will show up in the frontend logic,
