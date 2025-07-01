@@ -21,7 +21,6 @@ from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
@@ -39,6 +38,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
@@ -56,10 +56,15 @@ from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
@@ -100,36 +105,56 @@ def mock_stripe_client(
     stripe_balance_transaction,
     stripe_charge,
     stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
     stripe_invoice,
+    stripe_payout,
     stripe_price,
     stripe_product,
+    stripe_refund,
     stripe_subscription,
+    stripe_credit_note,
 ):
     with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
         mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
         mock_price_list = mock.MagicMock()
         mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
         mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
         mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
         mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
         mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
         instance.charges.list.return_value = mock_charges_list
         instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
         instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
         instance.prices.list.return_value = mock_price_list
         instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
 
         yield instance
 
@@ -395,6 +420,71 @@ async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_subscription["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
+        table_name="stripe_dispute",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_dispute["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
+        table_name="stripe_payout",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_payout["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_REFUND_RESOURCE_NAME,
+        table_name="stripe_refund",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_refund["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
+        table_name="stripe_invoiceitem",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_invoiceitem["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+        table_name="stripe_creditnote",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_credit_note["data"],
     )
 
 
@@ -2124,3 +2214,37 @@ async def test_append_only_table(team, mock_stripe_client):
     # We should now have 2 rows with the same `id`
     assert len(res.results) == 2
     assert res.results[0][0] == res.results[1][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, mock_stripe_client):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_PRICE_RESOURCE_NAME,
+            table_name="stripe_price",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_price["data"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    # assert that the running job was completed successfully and that the new workflow was triggered
+    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
+
+    run: ExternalDataJob = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+    assert run.status == ExternalDataJob.Status.COMPLETED

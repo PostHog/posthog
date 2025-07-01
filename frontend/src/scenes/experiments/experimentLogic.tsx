@@ -1040,7 +1040,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined
+                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1176,6 +1176,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
                     ].reverse()
 
+                    /**
+                     * TODO: replace with a queryBuilder composed from getQuery
+                     */
                     for (const query of metrics) {
                         const insightQuery = toInsightVizNode(query)
 
