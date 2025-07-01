@@ -236,7 +236,7 @@ fn evaluate_cohort_values(
                     // Handle regular property check
                     let property_result =
                         match_property(filter, target_properties, false).unwrap_or(false);
-                    // handle any property negation
+                    // handle any property negation; cohort filters use negation (as compared to flag filters, which use NotIContains)
                     let final_result = if filter.negation.unwrap_or(false) {
                         !property_result
                     } else {
@@ -260,7 +260,7 @@ fn evaluate_cohort_values(
                     // Handle regular property check
                     let property_result =
                         match_property(filter, target_properties, false).unwrap_or(false);
-                    // handle any property negation
+                    // handle any property negation; cohort filters use negation (as compared to flag filters, which use NotIContains)
                     let final_result = if filter.negation.unwrap_or(false) {
                         !property_result
                     } else {
