@@ -600,7 +600,7 @@ async def update_job_progress(
         job.progress_percentage = min(100.0, (rows_materialized / total_rows_expected) * 100.0)
     else:
         # If we don't have total rows, just track batches without percentage
-        job.progress_percentage = None
+        job.progress_percentage = 0.0
 
     await database_sync_to_async(job.save)()
 
