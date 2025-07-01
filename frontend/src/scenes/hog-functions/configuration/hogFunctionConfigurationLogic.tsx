@@ -378,14 +378,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         oldFilters: [
-            null as any,
+            null as CyclotronJobFiltersType | null,
             {
                 setOldFilters: (_, { oldFilters }) => oldFilters,
                 clearFiltersDiff: () => null,
             },
         ],
         newFilters: [
-            null as any,
+            null as CyclotronJobFiltersType | null,
             {
                 setNewFilters: (_, { newFilters }) => newFilters,
                 clearFiltersDiff: () => null,
