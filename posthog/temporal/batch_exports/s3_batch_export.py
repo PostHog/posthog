@@ -103,7 +103,7 @@ COMPRESSION_EXTENSIONS = {
     "gzip": "gz",
     "snappy": "sz",
     "brotli": "br",
-    "ztsd": "zst",
+    "zstd": "zst",
     "lz4": "lz4",
 }
 
