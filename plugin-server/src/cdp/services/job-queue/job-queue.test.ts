@@ -7,7 +7,7 @@ import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
-import { CyclotronJobQueue, getProducerMapping } from './job-queue'
+import { CyclotronJobQueue, getProducerMapping, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
@@ -115,7 +115,9 @@ describe('CyclotronJobQueue', () => {
                             },
                             exampleHogFunction
                         ),
-                        queueScheduledAt: DateTime.now().plus({ seconds: 1 }),
+                        queueScheduledAt: DateTime.now().plus({
+                            milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS + 1000,
+                        }),
                     },
                 ]
                 await queue.queueInvocations(invocations)
@@ -137,6 +139,35 @@ describe('CyclotronJobQueue', () => {
                 }
             }
         )
+
+        it('should not route scheduled jobs to postgres if they are not scheduled far enough in the future', async () => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = true
+
+            const queue = buildQueue('*:kafka')
+            await queue.startAsProducer()
+            const invocations = [
+                {
+                    ...createInvocation(
+                        {
+                            ...createHogExecutionGlobals(),
+                            inputs: {},
+                        },
+                        exampleHogFunction
+                    ),
+                    queueScheduledAt: DateTime.now().plus({
+                        milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS - 1000,
+                    }),
+                },
+            ]
+            await queue.queueInvocations(invocations)
+
+            // With enforced routing and the main queue being kafka then both producers should be started
+            expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
+            expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+
+            expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
+        })
     })
 })
 
