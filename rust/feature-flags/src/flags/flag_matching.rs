@@ -437,7 +437,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or(&HashMap::new()),
         );
 
-        let mut flag_details_map = HashMap::new();
+        let mut evaluated_flags_map = HashMap::new();
 
         if !flags_requiring_db_preparation.is_empty() {
             if let Err(e) = self
@@ -446,7 +446,7 @@ impl FeatureFlagMatcher {
             {
                 errors_while_computing_flags = true;
                 let reason = parse_exception_for_prometheus_label(&e);
-                flag_details_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
+                evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
                     (
                         flag.key.clone(),
                         FlagDetails::create_error(flag, reason, None),
@@ -462,21 +462,21 @@ impl FeatureFlagMatcher {
         }
 
         // Evaluate all flags in the current level
-        let (level_flag_details_map, level_errors) = self
+        let (level_evaluated_flags_map, level_errors) = self
             .evaluate_flags_in_level(
                 &feature_flags.flags,
-                &mut flag_details_map,
+                &mut evaluated_flags_map,
                 &person_property_overrides,
                 &group_property_overrides,
                 &hash_key_overrides,
             )
             .await;
         errors_while_computing_flags |= level_errors;
-        flag_details_map.extend(level_flag_details_map);
+        evaluated_flags_map.extend(level_evaluated_flags_map);
 
         FlagsResponse {
             errors_while_computing_flags,
-            flags: flag_details_map,
+            flags: evaluated_flags_map,
             quota_limited: None,
             request_id,
             config: ConfigResponse::default(),
@@ -497,7 +497,7 @@ impl FeatureFlagMatcher {
     ) -> (HashMap<String, FlagDetails>, bool) {
         // initialize some state
         let mut errors_while_computing_flags = false;
-        let mut level_flag_details_map = HashMap::new();
+        let mut level_evaluated_flags_map = HashMap::new();
         let mut precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>> =
             HashMap::new();
 
@@ -571,7 +571,8 @@ impl FeatureFlagMatcher {
                 Ok(flag_match) => {
                     self.flag_evaluation_state
                         .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    level_flag_details_map.insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    level_evaluated_flags_map
+                        .insert(flag_key, FlagDetails::create(flag, &flag_match));
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
@@ -595,7 +596,7 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason.to_string())],
                         1,
                     );
-                    level_flag_details_map
+                    level_evaluated_flags_map
                         .insert(flag_key, FlagDetails::create_error(flag, reason, None));
                 }
             }
@@ -611,7 +612,7 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        (level_flag_details_map, errors_while_computing_flags)
+        (level_evaluated_flags_map, errors_while_computing_flags)
     }
 
     /// Convert group overrides to property overrides
