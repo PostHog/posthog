@@ -127,11 +127,12 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
-    private backgroundTask: Promise<void>[]
+    private backgroundTasks: Promise<void>[]
     private podName: string
+    private heartbeatInterval: NodeJS.Timeout | null = null
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
-        this.backgroundTask = []
+        this.backgroundTasks = []
         this.podName = process.env.HOSTNAME || hostname()
 
         this.config.autoCommit ??= true
@@ -148,8 +149,9 @@ export class KafkaConsumer {
             'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
             log_level: 4, // WARN as the default
             'group.id': this.config.groupId,
-            'session.timeout.ms': 30_000,
-            'max.poll.interval.ms': 300_000,
+            'session.timeout.ms': 10_000, // How long to wait for a heartbeat before considering the consumer dead (we should never block the thread for longer than this essentially)
+            'heartbeat.interval.ms': 3_000, // The interval at which heartbeats are sent (default is 3 seconds)
+            'max.poll.interval.ms': 300_000, // The maximum time between consume commands (this is basically our non-sync timeout for a batch)
             'max.partition.fetch.bytes': 1_048_576,
             'fetch.error.backoff.ms': 100,
             'fetch.message.max.bytes': 10_485_760,
@@ -157,13 +159,13 @@ export class KafkaConsumer {
             'queued.min.messages': 100000,
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
+            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
+            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
-            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
-            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
@@ -369,12 +371,12 @@ export class KafkaConsumer {
                         histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
                     }
                     lastConsumeTime = consumeStartTime
+
                     // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
                     // error when consuming, hence the retryIfRetriable.
                     const messages = await retryIfRetriable(() =>
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
-
                     logger.debug('🔁', 'messages', { count: messages.length })
 
                     // After successfully pulling a batch, we can update our heartbeat time
@@ -409,25 +411,23 @@ export class KafkaConsumer {
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
-                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
 
                     const backgroundTaskStart = performance.now()
 
-                    void backgroundTask.finally(async () => {
-                        // Only when we are fully done with the background work we store the offsets
-                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                        // Remove the background work from the queue when it is finished
-
+                    const backgroundTask = (result?.backgroundTask ?? Promise.resolve()).then(async () => {
                         // First of all clear ourselves from the queue
-                        const index = this.backgroundTask.indexOf(backgroundTask)
-                        void this.backgroundTask.splice(index, 1)
+                        const index = this.backgroundTasks.indexOf(backgroundTask)
+                        void this.backgroundTasks.splice(index, 1)
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        await Promise.all(this.backgroundTask.slice(0, index))
+                        const otherBackgroundTasks = this.backgroundTasks.slice(0, index)
+                        await Promise.all(otherBackgroundTasks)
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(messages)
                         }
+
+                        const overallDuration = performance.now() - backgroundTaskStart
 
                         if (result?.backgroundTask) {
                             // We only want to count the time spent in the background work if it was real
@@ -436,28 +436,28 @@ export class KafkaConsumer {
                                     topic: this.config.topic,
                                     groupId: this.config.groupId,
                                 })
-                                .observe(performance.now() - backgroundTaskStart)
+                                .observe(overallDuration)
                         }
                     })
 
                     // At first we just add the background work to the queue
-                    this.backgroundTask.push(backgroundTask)
+                    this.backgroundTasks.push(backgroundTask)
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
 
-                    if (this.backgroundTask.length >= this.maxBackgroundTasks) {
+                    if (this.backgroundTasks.length >= this.maxBackgroundTasks) {
                         const stopTimer = consumedBatchBackpressureDuration.startTimer({
                             topic: this.config.topic,
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0]
+                        await this.backgroundTasks[0]
                         stopTimer()
                     }
                 }
 
                 // Once we are stopping, make sure that we wait for all background work to finish
-                await Promise.all(this.backgroundTask)
+                await Promise.all(this.backgroundTasks)
             } catch (error) {
                 throw error
             } finally {
@@ -488,6 +488,11 @@ export class KafkaConsumer {
         }
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
+
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval)
+            this.heartbeatInterval = null
+        }
 
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
