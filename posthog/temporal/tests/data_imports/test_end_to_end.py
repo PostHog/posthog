@@ -1,8 +1,10 @@
+from datetime import datetime
 import functools
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, cast
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import aioboto3
 import deltalake
@@ -2248,3 +2250,154 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, 
         team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
     )
     assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 0, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows_previously(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        # A previous job that reached the billing limit
+        await sync_to_async(ExternalDataJob.objects.create)(
+            team=team,
+            rows_synced=10,
+            pipeline=source,
+            finished_at=datetime.now(),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 10, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)

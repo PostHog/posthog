@@ -117,7 +117,6 @@ export enum NodeKind {
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
@@ -161,7 +160,6 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -227,7 +225,6 @@ export type QuerySchema =
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -754,7 +751,6 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
@@ -786,7 +782,6 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
@@ -1930,18 +1925,21 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsGrossRevenueQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
+export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsRevenueQueryResult {
+    gross: unknown[]
+    mrr: unknown[]
+}
+export interface RevenueAnalyticsRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
 }
-export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
+export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -1957,16 +1955,6 @@ export interface RevenueAnalyticsOverviewItem {
 export interface RevenueAnalyticsOverviewQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
-
-export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsRevenueQuery
-    groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
-}
-
-export interface RevenueAnalyticsRevenueQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
-export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
