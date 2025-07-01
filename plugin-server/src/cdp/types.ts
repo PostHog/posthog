@@ -58,6 +58,11 @@ export type GroupType = {
     properties: Record<string, any>
 }
 
+export type CyclotronPerson = {
+    id: string
+    properties: Record<string, any>
+}
+
 export type HogFunctionInvocationGlobals = {
     project: {
         id: number
@@ -80,11 +85,7 @@ export type HogFunctionInvocationGlobals = {
         /* Special fields in Hog */
         url: string
     }
-    person?: {
-        /** Database fields */
-        id: string
-        properties: Record<string, any>
-
+    person?: CyclotronPerson & {
         /** Special fields in Hog */
         name: string
         url: string
