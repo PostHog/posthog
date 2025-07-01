@@ -395,6 +395,7 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         'segment-actions-revx': 'revx.io',
         'segment-actions-saleswings': 'saleswingsapp.com',
         'segment-actions-schematic': 'schematichq.com',
+        'segment-actions-canny': 'canny.io',
     }
 
     if (!slug && !(id in icon_overrides)) {
@@ -470,7 +471,9 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         }
         if (
             Object.keys(destination.authentication?.fields ?? {}).length === 0 ||
-            (destination?.presets ?? []).length === 0
+            (destination?.presets ?? [])
+                .filter((preset) => preset.type === 'automatic' && preset.subscribe)
+                .filter((preset) => preset.partnerAction in destination.actions).length === 0
         ) {
             return false
         }
