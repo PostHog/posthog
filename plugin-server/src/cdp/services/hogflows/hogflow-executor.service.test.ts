@@ -238,8 +238,8 @@ describe('Hogflow Executor', () => {
         })
 
         it('can execute a hogflow with async function delays', async () => {
-            hogFlow.actions.find((action) => action.id === 'function_id_1')!.config.template_id =
-                'template-test-hogflow-executor-async'
+            const action = hogFlow.actions.find((action) => action.id === 'function_id_1')!
+            ;(action.config as any).template_id = 'template-test-hogflow-executor-async'
 
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
