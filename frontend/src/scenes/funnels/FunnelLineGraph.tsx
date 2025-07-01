@@ -28,8 +28,9 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
-        useValues(funnelDataLogic(insightProps))
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, insightData } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { weekStartDay } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
@@ -59,8 +60,8 @@ export function FunnelLineGraph({
                         }
                         return (
                             getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
-                                interval,
-                                dateRange: querySource.dateRange,
+                                interval: insightData?.query_date_range?.interval,
+                                dateRange: insightData?.query_date_range,
                                 timezone: insightData?.timezone,
                                 weekStartDay,
                             }) +
