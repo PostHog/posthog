@@ -10,7 +10,7 @@ const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satu
 
 export class HogFlowActionRunnerWaitUntilTimeWindow {
     run(action: Action): HogFlowActionResult {
-        const now = DateTime.utc().setZone(action.config.timezone)
+        const now = DateTime.utc().setZone(action.config.timezone || 'UTC')
         const nextTime = this.getNextValidTime(now, action.config)
 
         return {
