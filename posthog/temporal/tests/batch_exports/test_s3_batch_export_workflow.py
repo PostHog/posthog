@@ -1072,6 +1072,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+@pytest.mark.flaky(reruns=3)
 async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,

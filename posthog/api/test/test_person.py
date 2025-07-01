@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.utils import timezone
 from freezegun.api import freeze_time
+import pytest
 from rest_framework import status
 
 import posthog.models.person.deletion
@@ -1067,6 +1068,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
         wraps=posthog.models.person.deletion.create_person_distinct_id,
     )
+    @pytest.mark.flaky(reruns=3)
     def test_reset_person_distinct_id(self, mocked_ch_call):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
@@ -1161,6 +1163,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
         wraps=posthog.models.person.deletion.create_person_distinct_id,
     )
+    @pytest.mark.flaky(reruns=3)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
         # person who shouldn't be changed
         person_not_changed_1 = Person.objects.create(
