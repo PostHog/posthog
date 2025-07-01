@@ -12,6 +12,7 @@ class StateActivitiesEnum(Enum):
     SESSION_DB_DATA = "session_db_data"
     SESSION_SUMMARY = "session_summary"
     SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"
+    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"
 
 
 def get_redis_state_client(
