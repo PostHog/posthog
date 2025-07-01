@@ -31,7 +31,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
-    COHORTS = "cohorts"
+    COHORT = "cohort"
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
@@ -124,9 +124,9 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     # constant query tags
-    git_commit: str
-    container_hostname: str
-    service_name: str
+    git_commit: Optional[str] = None
+    container_hostname: Optional[str] = None
+    service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 

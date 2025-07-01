@@ -270,7 +270,7 @@ def format_cohort_subquery(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORTS)
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
     persons = [
         {
             "id": str(uuid.uuid4()),
@@ -285,7 +285,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORTS)
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_STATIC_COHORT_SIZE_SQL,
         {
@@ -347,7 +347,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORTS)
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORT)
     hogql_global_settings = HogQLGlobalSettings()
 
     return sync_execute(
@@ -374,7 +374,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORTS)
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -461,13 +461,13 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORTS)
+    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORTS)
+    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
