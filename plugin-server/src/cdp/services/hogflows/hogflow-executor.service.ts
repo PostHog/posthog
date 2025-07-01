@@ -17,10 +17,8 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { checkConditions, HogFlowActionRunnerConditionalBranch } from './actions/action.conditional_branch'
-import { HogFlowActionRunnerFunction } from './actions/action.function'
-import { HogFlowActionRunnerRandomCohortBranch } from './actions/action.random_cohort_branch'
-import { getNextValidTime, HogFlowActionRunnerWaitUntilTimeWindow } from './actions/action.wait_until_time_window'
+import { checkConditions } from './actions/action.conditional_branch'
+import { getNextValidTime } from './actions/action.wait_until_time_window'
 import { calculatedScheduledAt } from './actions/common/delay'
 import { findContinueAction, findNextAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
@@ -47,25 +45,11 @@ export function createHogFlowInvocation(
 }
 
 export class HogFlowExecutorService {
-    private hogFlowActionRunnerConditionalBranch: HogFlowActionRunnerConditionalBranch
-    private hogFlowActionRunnerWaitUntilTimeWindow: HogFlowActionRunnerWaitUntilTimeWindow
-    private hogFlowActionRunnerRandomCohortBranch: HogFlowActionRunnerRandomCohortBranch
-    private hogFlowActionRunnerFunction: HogFlowActionRunnerFunction
-
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
-    ) {
-        this.hogFlowActionRunnerConditionalBranch = new HogFlowActionRunnerConditionalBranch()
-        this.hogFlowActionRunnerWaitUntilTimeWindow = new HogFlowActionRunnerWaitUntilTimeWindow()
-        this.hogFlowActionRunnerRandomCohortBranch = new HogFlowActionRunnerRandomCohortBranch()
-        this.hogFlowActionRunnerFunction = new HogFlowActionRunnerFunction(
-            this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager
-        )
-    }
+    ) {}
 
     async buildHogFlowInvocations(
         hogFlows: HogFlow[],
