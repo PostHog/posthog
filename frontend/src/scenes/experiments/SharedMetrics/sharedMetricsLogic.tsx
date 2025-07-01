@@ -2,7 +2,6 @@ import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import type { SharedMetric } from './sharedMetricLogic'
@@ -17,7 +16,7 @@ export enum SharedMetricsTabs {
 export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     path(['scenes', 'experiments', 'sharedMetricsLogic']),
     connect(() => ({
-        values: [featureFlagsLogic, ['featureFlags'], billingLogic, ['billing']],
+        values: [featureFlagsLogic, ['featureFlags']],
     })),
     actions({
         setSharedMetricsTab: (tabKey: SharedMetricsTabs) => ({ tabKey }),
