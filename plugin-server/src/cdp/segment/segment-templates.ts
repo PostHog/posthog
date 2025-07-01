@@ -395,13 +395,14 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         'segment-actions-revx': 'revx.io',
         'segment-actions-saleswings': 'saleswingsapp.com',
         'segment-actions-schematic': 'schematichq.com',
+        'segment-actions-canny': 'canny.io',
     }
 
     if (!slug && !(id in icon_overrides)) {
         return '/static/posthog-icon.svg'
     }
 
-    return `/api/environments/@current/hog_functions/icon/?id=${
+    return `/static/services/${
         id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] : `${slug}.com`
     }`
 }
