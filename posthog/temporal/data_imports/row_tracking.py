@@ -136,6 +136,10 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
 
         logger.debug(f"will_hit_billing_limit: rows_synced_limit = {rows_synced_limit}")
 
+        if rows_synced_limit is None or not isinstance(rows_synced_limit, int | float):
+            logger.debug("will_hit_billing_limit: rows_synced_limit is None or not a number, returning False")
+            return False
+
         # Get all completed rows for all teams in org
         rows_synced_in_billing_period_dict = ExternalDataJob.objects.filter(
             team_id__in=all_teams_in_org,
