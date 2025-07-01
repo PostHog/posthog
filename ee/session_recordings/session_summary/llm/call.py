@@ -40,7 +40,7 @@ def get_openai_client() -> OpenAI:
     return OpenAI(posthog_client=client)
 
 
-def get_async_openai_client() -> OpenAI:
+def get_async_openai_client() -> AsyncOpenAI:
     """Get configured OpenAI client or raise appropriate error."""
     client = _get_default_posthog_client()
     return AsyncOpenAI(posthog_client=client)
@@ -89,7 +89,7 @@ async def stream_llm(
     user_param = _prepare_user_param(user_key)
     # TODO: Add LLM observability tracking here
     client = get_async_openai_client()
-    stream = await client.chat.completions.create(
+    stream: AsyncStream = await client.chat.completions.create(
         model=model,
         temperature=SESSION_SUMMARIES_TEMPERATURE,
         messages=messages,

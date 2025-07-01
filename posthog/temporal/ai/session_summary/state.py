@@ -61,7 +61,7 @@ def get_data_class_from_redis(
 ) -> BaseModel:
     redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     try:
-        return target_class(**json.loads(redis_data_str))
+        return target_class(**json.loads(redis_data_str))  # type: ignore[operator]
     except Exception as err:
         raise ValueError(
             f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label}): {err}"
