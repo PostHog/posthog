@@ -43,15 +43,10 @@ export function SessionReplayMenuItems({
             ) : savedFilters.count > 0 ? (
                 <MenuSub>
                     <MenuSubTrigger asChild>
-                        <Link
-                            to="/"
-                            buttonProps={{
-                                menuItem: true,
-                            }}
-                        >
+                        <ButtonPrimitive menuItem>
                             Saved filters
                             <IconChevronRight className="ml-auto size-3" />
-                        </Link>
+                        </ButtonPrimitive>
                     </MenuSubTrigger>
 
                     <MenuSubContent>
@@ -86,15 +81,10 @@ export function SessionReplayMenuItems({
             ) : playlists.count > 0 ? (
                 <MenuSub>
                     <MenuSubTrigger asChild>
-                        <Link
-                            to="/"
-                            buttonProps={{
-                                menuItem: true,
-                            }}
-                        >
+                        <ButtonPrimitive menuItem>
                             Collections
                             <IconChevronRight className="ml-auto size-3" />
-                        </Link>
+                        </ButtonPrimitive>
                     </MenuSubTrigger>
 
                     <MenuSubContent>
