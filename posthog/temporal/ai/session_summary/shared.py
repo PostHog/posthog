@@ -45,7 +45,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
             redis_client=redis_client,
             redis_key=redis_input_key,
             label=StateActivitiesEnum.SESSION_DB_DATA,
-            target_class=SingleSessionSummaryLlmInputs,
+            target_class=SingleSessionSummaryLlmInputs,  # type: ignore[arg-type]
         )
     except ValueError:
         # If not yet, or TTL expired - fetch data from DB
