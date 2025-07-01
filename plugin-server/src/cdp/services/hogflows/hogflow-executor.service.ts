@@ -7,13 +7,11 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
-    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
     MinimalAppMetric,
 } from '../../types'
-import { convertToHogFunctionFilterGlobal } from '../../utils'
-import { filterFunctionInstrumented } from '../../utils/hog-function-filtering'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogFlowActionRunner } from './actions'
 
@@ -45,26 +43,26 @@ export class HogFlowExecutorService {
         this.hogFlowActionRunner = new HogFlowActionRunner(this.hub)
     }
 
-    buildHogFlowInvocations(
+    async buildHogFlowInvocations(
         hogFlows: HogFlow[],
         triggerGlobals: HogFunctionInvocationGlobals
-    ): {
+    ): Promise<{
         invocations: CyclotronJobInvocationHogFlow[]
         metrics: MinimalAppMetric[]
         logs: LogEntry[]
-    } {
+    }> {
         const metrics: MinimalAppMetric[] = []
         const logs: LogEntry[] = []
         const invocations: CyclotronJobInvocationHogFlow[] = []
 
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
+        const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
-        hogFlows.forEach((hogFlow) => {
+        for (const hogFlow of hogFlows) {
             if (hogFlow.trigger.type !== 'event') {
-                return
+                continue
             }
-            const filterResults = filterFunctionInstrumented({
+            const filterResults = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
                 filterGlobals,
@@ -76,12 +74,12 @@ export class HogFlowExecutorService {
             logs.push(...filterResults.logs)
 
             if (!filterResults.match) {
-                return
+                continue
             }
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow)
             invocations.push(invocation)
-        })
+        }
 
         return {
             invocations,
@@ -103,9 +101,7 @@ export class HogFlowExecutorService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(
             invocation,
-            {
-                queue: 'hogflow',
-            },
+            {},
             {
                 finished: false,
             }
@@ -209,9 +205,7 @@ export class HogFlowExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const finalResult = createInvocationResult<CyclotronJobInvocationHogFlow>(
             invocation,
-            {
-                queue: 'hogflow',
-            },
+            {},
             {
                 finished: false,
             }
