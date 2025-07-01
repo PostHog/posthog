@@ -2,10 +2,17 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+export enum MaxContextType {
+    DASHBOARD = 'dashboard',
+    INSIGHT = 'insight',
+    EVENT = 'event',
+    ACTION = 'action',
+}
+
 export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
 
 export interface MaxInsightContext {
-    type: 'insight'
+    type: MaxContextType.INSIGHT
     id: InsightShortId
     name?: string
     description?: string
@@ -13,7 +20,7 @@ export interface MaxInsightContext {
 }
 
 export interface MaxDashboardContext {
-    type: 'dashboard'
+    type: MaxContextType.DASHBOARD
     id: number
     name?: string
     description?: string
@@ -22,14 +29,14 @@ export interface MaxDashboardContext {
 }
 
 export interface MaxEventContext {
-    type: 'event'
+    type: MaxContextType.EVENT
     id: string
     name?: string
     description?: string
 }
 
 export interface MaxActionContext {
-    type: 'action'
+    type: MaxContextType.ACTION
     id: number
     name: string
     description?: string
@@ -51,26 +58,26 @@ export interface MaxContextOption {
     value: string | integer
     name: string
     icon: React.ReactNode
-    type?: 'dashboard' | 'insight' | 'event' | 'action'
+    type?: MaxContextType
 }
 
 // Union type for all possible context items that can be exposed by scene logics
 export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
 
 type RawInsightContextItem = {
-    type: 'insight'
+    type: MaxContextType.INSIGHT
     data: InsightWithQuery
 }
 type RawDashboardContextItem = {
-    type: 'dashboard'
+    type: MaxContextType.DASHBOARD
     data: DashboardType<QueryBasedInsightModel>
 }
 type RawEventContextItem = {
-    type: 'event'
+    type: MaxContextType.EVENT
     data: EventDefinition
 }
 type RawActionContextItem = {
-    type: 'action'
+    type: MaxContextType.ACTION
     data: ActionType
 }
 export type RawMaxContextItem =
@@ -88,22 +95,22 @@ export type MaxContextSelector = RawMaxContextItem[]
  */
 export const createMaxContextHelpers = {
     dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): RawDashboardContextItem => ({
-        type: 'dashboard',
+        type: MaxContextType.DASHBOARD,
         data: dashboard,
     }),
 
     insight: (insight: InsightWithQuery): RawInsightContextItem => ({
-        type: 'insight',
+        type: MaxContextType.INSIGHT,
         data: insight,
     }),
 
     event: (event: EventDefinition): RawEventContextItem => ({
-        type: 'event',
+        type: MaxContextType.EVENT,
         data: event,
     }),
 
     action: (action: ActionType): RawActionContextItem => ({
-        type: 'action',
+        type: MaxContextType.ACTION,
         data: action,
     }),
 }
