@@ -22,11 +22,6 @@ class TestWebAnalyticsS3(BaseTest):
 
         assert url == expected_url
 
-        # Verify URL components
-        assert ".s3.us-east-1.amazonaws.com" in url  # Region is included
-        assert f"/{table_name}/{team_id}/data.native" in url  # Path is correct
-        assert ".native/" not in url  # No extra .native/ in path
-
     @override_settings(DEBUG=False)
     @patch("posthog.settings.object_storage.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "test-bucket-name")
     @patch("posthog.settings.object_storage.OBJECT_STORAGE_REGION", "eu-west-1")
@@ -39,7 +34,6 @@ class TestWebAnalyticsS3(BaseTest):
         expected_url = "https://test-bucket-name.s3.eu-west-1.amazonaws.com/web_bounces_daily_export/123/data.native"
 
         assert url == expected_url
-        assert ".s3.eu-west-1.amazonaws.com" in url
 
     @override_settings(DEBUG=True)
     def test_get_s3_url_debug_format(self):
