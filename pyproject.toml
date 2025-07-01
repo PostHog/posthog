@@ -91,6 +91,7 @@ dependencies = [
     "pympler==1.1",
     "pymssql==2.3.1",
     "pymysql==1.1.1",
+    "pymongo==4.13.2",
     "pyodbc==5.1.0",
     "python-dateutil>=2.8.2",
     "python-snappy~=0.7.3",
