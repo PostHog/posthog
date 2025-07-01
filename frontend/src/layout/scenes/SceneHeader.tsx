@@ -36,51 +36,49 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         <>
             <div
                 className={cn(
-                    'py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]',
+                    'flex items-center gap-2 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]',
                     className,
                     {
                         'pr-2': panelInfoActive,
                     }
                 )}
             >
-                <div className="flex items-center gap-2">
-                    {mobileLayout && (
-                        <LemonButton
-                            size="small"
-                            onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
-                            icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
-                            className="-ml-2"
-                        />
-                    )}
-                    <div className="grid grid-cols-[1fr_auto] gap-2 justify-between w-full">
-                        {breadcrumbs.length > 0 && (
-                            <div className="flex gap-0 flex-1 items-center">
-                                {breadcrumbs.map((breadcrumb, index) => (
-                                    <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
-                                        <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
-                                        {index < breadcrumbs.length - 1 && (
-                                            <span className="flex items-center shrink-0 opacity-50">
-                                                <IconSlash fontSize="1rem" />
-                                            </span>
-                                        )}
-                                    </React.Fragment>
-                                ))}
-                            </div>
-                        )}
-                        <div className="flex gap-2 items-center">
-                            <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
-
-                            {panelInfoActive && (
-                                <ButtonPrimitive
-                                    onClick={() => setPanelInfoOpen(!panelInfoOpen)}
-                                    iconOnly
-                                    tooltip={panelInfoOpen ? 'Close info panel' : 'Open info panel'}
-                                    active={panelInfoOpen}
-                                >
-                                    <IconInfo className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
-                                </ButtonPrimitive>
-                            )}
+                {mobileLayout && (
+                    <LemonButton
+                        size="small"
+                        onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                        icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
+                        className="-ml-2"
+                    />
+                )}
+                <div className="grid grid-cols-[1fr_auto] gap-2 justify-between w-full items-center">
+                    {breadcrumbs.length > 0 && (
+                        <div className="flex gap-0 flex-1 items-center">
+                            {breadcrumbs.map((breadcrumb, index) => (
+                                <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
+                                    <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
+                                    {index < breadcrumbs.length - 1 && (
+                                        <span className="flex items-center shrink-0 opacity-50">
+                                            <IconSlash fontSize="1rem" />
+                                        </span>
+                                    )}
+                                </React.Fragment>
+                            ))}
                         </div>
+                    )}
+                    <div className="flex gap-2 items-center">
+                        <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
+
+                        {panelInfoActive && (
+                            <ButtonPrimitive
+                                onClick={() => setPanelInfoOpen(!panelInfoOpen)}
+                                iconOnly
+                                tooltip={panelInfoOpen ? 'Close info panel' : 'Open info panel'}
+                                active={panelInfoOpen}
+                            >
+                                <IconInfo className={cn('text-tertiary', { 'text-primary': panelInfoOpen })} />
+                            </ButtonPrimitive>
+                        )}
                     </div>
                 </div>
             </div>
@@ -137,7 +135,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
-            className={cn('text-primary text-base inline-grid', {
+            className={cn('text-primary text-sm inline-grid', {
                 'font-bold': here,
             })}
         >
