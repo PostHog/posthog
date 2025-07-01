@@ -21,7 +21,7 @@ def get_redis_state_client(
     input_label: StateActivitiesEnum | None = None,
     output_label: StateActivitiesEnum | None = None,
     state_id: str | None = None,
-) -> tuple[Redis, str, str]:
+) -> tuple[Redis, str | None, str | None]:
     """Get a Redis client and state keys for input and output data"""
     redis_client = get_client()
     redis_input_key, redis_output_key = None, None
@@ -42,12 +42,12 @@ def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
-def _decompress_redis_data(raw_redis_data: bytes) -> str:
+def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
     if isinstance(raw_redis_data, bytes):
         return gzip.decompress(raw_redis_data).decode("utf-8")
-    else:
-        # Fallback for uncompressed data (if stored as string)
+    if isinstance(raw_redis_data, str):
         return raw_redis_data
+    raise ValueError(f"Invalid Redis data type: {type(raw_redis_data)}")
 
 
 def store_data_in_redis(redis_client: Redis, redis_key: str, data: str) -> None:
