@@ -87,8 +87,8 @@ jobs:
               run: |
                   echo "🔧 Running detailed migration conflict analysis..."
 
-                  # Run the preview to get detailed output
-                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview 2>&1)
+                  # Run the preview to get detailed output (from correct directory)
+                  OUTPUT=$(python posthog/bin/fix-migration-conflicts.py --preview 2>&1)
                   echo "$OUTPUT"
 
                   # Save output for PR comment
@@ -102,7 +102,6 @@ jobs:
                   fi
 
             - name: Find associated PR
-              if: steps.detailed_analysis.outputs.script_found_conflicts == 'true'
               id: find_pr
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
@@ -174,8 +173,8 @@ jobs:
                         issue_number: prNumber,
                       });
 
-                      const existingComment = comments.find(comment => 
-                        comment.user.type === 'Bot' && 
+                      const existingComment = comments.data.find(comment => 
+                        comment.user.login === 'github-actions[bot]' && 
                         comment.body.includes('Auto-Detected Migration Conflicts')
                       );
 
@@ -199,10 +198,42 @@ jobs:
                         console.log(`Created new auto-detection comment`);
                       }
 
-            - name: Log results
+            - name: Post "no conflicts" update
+              if: steps.find_pr.outputs.pr_found == 'true' && steps.check_conflicts.outputs.conflicts_found == 'false'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      const prNumber = ${{ steps.find_pr.outputs.pr_number }};
+                      const branch = context.ref.replace('refs/heads/', '');
+
+                      // Check for existing auto-detection comment to update
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: prNumber,
+                      });
+
+                      const existingComment = comments.find(comment => 
+                        comment.user.login === 'github-actions[bot]' && 
+                        comment.body.includes('🤖 Auto-Detected Migration')
+                      );
+
+                      if (existingComment) {
+                        // Delete the old conflict comment since there are no more conflicts
+                        await github.rest.issues.deleteComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existingComment.id
+                        });
+                        console.log(`Removed old conflict comment - no conflicts detected`);
+                      }
+
+            - name: Always complete successfully
+              if: always()
               run: |
                   echo "🔍 Auto-detection workflow completed:"
-                  echo "  Conflicts found: ${{ steps.check_conflicts.outputs.conflicts_found }}"
+                  echo "  Conflicts found: ${{ steps.check_conflicts.outputs.conflicts_found || 'false' }}"
                   echo "  Script confirmed: ${{ steps.detailed_analysis.outputs.script_found_conflicts || 'N/A' }}"
                   echo "  PR found: ${{ steps.find_pr.outputs.pr_found || 'N/A' }}"
                   echo "  PR number: ${{ steps.find_pr.outputs.pr_number || 'N/A' }}"
+                  echo "✅ Migration conflict detection completed successfully"
