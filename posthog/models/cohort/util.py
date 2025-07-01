@@ -309,7 +309,7 @@ def recalculate_cohortpeople(
     """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
-    tag_queries(cohort_id=cohort.id, kind="cohort_calculation")
+    tag_queries(cohort_id=cohort.id)
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
@@ -347,7 +347,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(query_type="CohortsQueryHogQL", feature=Feature.COHORTS)
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORTS)
     hogql_global_settings = HogQLGlobalSettings()
 
     return sync_execute(
