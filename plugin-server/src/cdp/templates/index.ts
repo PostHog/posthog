@@ -1,5 +1,9 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
+import { template as nativeEmailTemplate } from './_actions/native-email/native-email.template'
+import { template as nativeWebhookTemplate } from './_actions/native-webhook/native-webhook.template'
+import { template as slackMessageTemplate } from './_actions/slack-message/slack-message.template'
+import { template as twilioSmsTemplate } from './_actions/twilio-sms/twilio-sms.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
@@ -60,6 +64,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
+export const HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS: HogFunctionTemplate[] = [
+    nativeEmailTemplate,
+    twilioSmsTemplate,
+    slackMessageTemplate,
+    nativeWebhookTemplate,
+]
+
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
@@ -68,4 +79,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
+    ...HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS,
 ]
