@@ -7,7 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement, InsightModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
@@ -30,16 +30,20 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     : null,
         ],
         maxContext: [
-            (s) => [s.dashboardLogicProps],
-            (dashboardLogicProps: DashboardLogicProps | null): MaxContextSelector => {
-                if (!dashboardLogicProps) {
-                    return []
-                }
-
-                // Get the dashboard from the mounted dashboardLogic
-                const logic = dashboardLogic.findMounted(dashboardLogicProps)
-                const dashboard = logic?.values.dashboard
-
+            (s) => [
+                (state) => {
+                    // Get the dashboard from the mounted dashboardLogic
+                    const dashboardLogicProps = s.dashboardLogicProps(state)
+                    if (!dashboardLogicProps) {
+                        return null
+                    }
+                    const logic = dashboardLogic.build(dashboardLogicProps)
+                    logic.mount()
+                    const dashboard = logic.selectors.dashboard(state)
+                    return dashboard
+                },
+            ],
+            (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextSelector => {
                 if (!dashboard) {
                     return []
                 }

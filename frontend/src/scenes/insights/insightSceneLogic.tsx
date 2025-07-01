@@ -241,7 +241,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 // Only provide insight context when in view mode
                 // In edit mode, MaxAI has the `create_and_query_insight` tool available
                 const isInViewMode = insightLogicRef?.logic.values.isInViewMode
-                if (!insight || !insight.query || !isInViewMode) {
+                if (!insight || !insight.short_id || !insight.query || !isInViewMode) {
                     return []
                 }
                 return [createMaxContextHelpers.insight(insight)]
