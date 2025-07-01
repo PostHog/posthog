@@ -1,0 +1,144 @@
+name: Migration Conflicts - Preview
+
+on:
+    workflow_dispatch:
+        inputs:
+            app_filter:
+                description: 'Specific app to check (optional, e.g., "posthog", "billing")'
+                required: false
+                type: string
+
+jobs:
+    preview-migration-fixes:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: '3.11'
+
+            - name: Fetch master branch
+              run: |
+                  git fetch origin master:master
+
+            - name: Run migration conflict detection and preview
+              id: preview
+              run: |
+                  # Capture the output of the preview
+                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview ${{ inputs.app_filter && format('--app {0}', inputs.app_filter) || '' }} 2>&1)
+
+                  # Save output to file for later use
+                  echo "$OUTPUT" > ../migration_preview.txt
+
+                  # Check if conflicts were detected
+                  if echo "$OUTPUT" | grep -q "CONFLICT DETECTED"; then
+                    echo "conflicts_found=true" >> $GITHUB_OUTPUT
+                    echo "has_changes=true" >> $GITHUB_OUTPUT
+                  elif echo "$OUTPUT" | grep -q "No conflicts to fix"; then
+                    echo "conflicts_found=false" >> $GITHUB_OUTPUT  
+                    echo "has_changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "conflicts_found=false" >> $GITHUB_OUTPUT
+                    echo "has_changes=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Create PR comment with preview and approval buttons
+              if: steps.preview.outputs.conflicts_found == 'true'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const previewOutput = fs.readFileSync('../migration_preview.txt', 'utf8');
+
+                      const appFilter = '${{ inputs.app_filter }}';
+                      const appText = appFilter ? ` --app ${appFilter}` : '';
+
+                      const comment = `## 🔧 Migration Conflicts Detected
+
+                      I found migration conflicts that need to be resolved. Here's what I would do to fix them:
+
+                      <details>
+                      <summary><strong>📋 Click to see detailed preview</strong></summary>
+
+                      \`\`\`
+                      ${previewOutput}
+                      \`\`\`
+                      </details>
+
+                      ## ✅ Ready to Apply These Fixes?
+
+                      If the changes above look good to you, click the button below to automatically apply them:
+
+                      **[▶️ Apply Migration Fixes](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml)**
+
+                      > 1. Click the link above
+                      > 2. Click "Run workflow" 
+                      > 3. Select your branch: \`${context.ref.replace('refs/heads/', '')}\`
+                      > 4. Set parameters the same as this preview${appText ? ` (app_filter: ${appFilter})` : ''}
+                      > 5. Click "Run workflow" to apply the fixes
+
+                      The fixes will be automatically committed to this PR branch.
+
+                      ---
+                      <sub>💡 This is an automated preview. The actual changes will only be made when you run the Apply workflow.</sub>`;
+
+                      // Find existing comment to update or create new one
+                      const comments = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                      });
+
+                      const botComment = comments.data.find(comment => 
+                        comment.user.type === 'Bot' && 
+                        comment.body.includes('Migration Conflicts Detected')
+                      );
+
+                      if (botComment) {
+                        // Update existing comment
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: botComment.id,
+                          body: comment
+                        });
+                      } else {
+                        // Create new comment
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: comment
+                        });
+                      }
+
+            - name: Create PR comment when no conflicts found
+              if: steps.preview.outputs.conflicts_found == 'false'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const appFilter = '${{ inputs.app_filter }}';
+                      const appText = appFilter ? ` for app "${appFilter}"` : '';
+
+                      const comment = `## ✅ No Migration Conflicts Found
+
+                      Great news! I checked your branch against master and didn't find any migration conflicts${appText}.
+
+                      Your migrations should merge cleanly! 🎉
+
+                      ---
+                      <sub>💡 If you believe this is incorrect, try running the check again or contact your team.</sub>`;
+
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                        body: comment
+                      });
