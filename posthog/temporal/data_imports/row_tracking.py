@@ -118,7 +118,13 @@ def will_hit_billing_limit(team_id: int, logger: FilteringBoundLogger) -> bool:
 
         logger.debug(f"will_hit_billing_limit: billing_res = {billing_res}")
 
-        current_billing_cycle_start = billing_res["billing_period"]["current_period_start"]
+        current_billing_cycle_start = billing_res.get("billing_period", {}).get("current_period_start")
+        if current_billing_cycle_start is None:
+            logger.debug(
+                f"will_hit_billing_limit: returning early, no current_period_start available. current_billing_cycle_start = {current_billing_cycle_start}"
+            )
+            return False
+
         current_billing_cycle_start_dt = parser.parse(current_billing_cycle_start)
 
         logger.debug(f"will_hit_billing_limit: current_billing_cycle_start = {current_billing_cycle_start}")
