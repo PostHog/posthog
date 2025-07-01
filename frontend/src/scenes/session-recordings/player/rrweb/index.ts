@@ -167,7 +167,8 @@ const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 
-export type LoggingTimers = { log: NodeJS.Timeout | null; warning: NodeJS.Timeout | null }
+export type LogType = 'log' | 'warning'
+export type LoggingTimers = Record<LogType, NodeJS.Timeout | null>
 export type BuiltLogging = {
     logger: playerConfig['logger']
     timers: LoggingTimers
@@ -192,7 +193,7 @@ export const makeLogger = (onIncrement: (count: number) => void): BuiltLogging =
     ;(window as any)[`__posthog_player_logs`] = (window as any)[`__posthog_player_logs`] || []
     ;(window as any)[`__posthog_player_warnings`] = (window as any)[`__posthog_player_warnings`] || []
 
-    const logStores = {
+    const logStores: Record<LogType, any[]> = {
         log: (window as any)[`__posthog_player_logs`],
         warning: (window as any)[`__posthog_player_warnings`],
     }
@@ -202,7 +203,7 @@ export const makeLogger = (onIncrement: (count: number) => void): BuiltLogging =
         warning: null,
     }
 
-    const logger = (type: 'log' | 'warning'): ((message?: any, ...optionalParams: any[]) => void) => {
+    const logger = (type: LogType): ((message?: any, ...optionalParams: any[]) => void) => {
         // NOTE: RRWeb can log _alot_ of warnings,
         // so we debounce the count otherwise we just end up making the performance worse
         // We also don't log the messages directly.
