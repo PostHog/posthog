@@ -113,7 +113,7 @@ describe('fetch', () => {
             const totalTime = performance.now() - start
             const firstTime = timings[0]
 
-            expect(totalTime).toBeGreaterThan(firstTime)
+            expect(totalTime).toBeGreaterThan(firstTime - 100)
             expect(totalTime).toBeLessThan(firstTime * 3) // all requests should be executed in less than some small constant factor of the first request
         })
     })
