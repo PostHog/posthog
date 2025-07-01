@@ -517,7 +517,7 @@ export class DB {
                 AND posthog_persondistinctid.distinct_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
-            PostgresUse.COMMON_READ,
+            PostgresUse.PERSONS_READ,
             queryString,
             values,
             'personPropertiesSize'
