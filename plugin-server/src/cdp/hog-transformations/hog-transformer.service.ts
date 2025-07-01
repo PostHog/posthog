@@ -115,7 +115,7 @@ export class HogTransformerService {
         return {
             project: {
                 id: event.team_id,
-                name: 'WHERE TO GET THIS FROM??',
+                name: '',
                 url: this.hub.SITE_URL,
             },
             event: {
