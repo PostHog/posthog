@@ -547,11 +547,12 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_teams_legacy'
                         break
                     case BillingPlan.Paid:
-                        const currentTotal = parseFloat(billing?.current_total_amount_usd || '0')
-                        const projectedTotal = parseFloat(billing?.projected_total_amount_usd || '0')
-                        const hasAmountOwed = currentTotal > 0 || projectedTotal > 0
+                        const shouldMarkAsFree =
+                            billing?.custom_limits_usd &&
+                            Object.keys(billing.custom_limits_usd).length > 0 &&
+                            Object.values(billing.custom_limits_usd).every((limit) => limit === 0)
 
-                        planLevelTag = hasAmountOwed ? 'plan_pay-as-you-go_paying' : 'plan_pay-as-you-go_free'
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
                         break
                     case BillingPlan.Free:
                         planLevelTag = 'plan_free'
