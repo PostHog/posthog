@@ -22,6 +22,7 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
     RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsSubscriptionView,
 )
 
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
@@ -69,8 +70,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def _get_subquery(self) -> ast.SelectQuery | None:
-        _, _, invoice_item_subquery, _ = self.revenue_subqueries
-        if invoice_item_subquery is None:
+        if self.revenue_subqueries.invoice_item is None:
             return None
 
         query = ast.SelectQuery(
@@ -102,7 +102,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             select_from=self.append_joins(
                 ast.JoinExpr(
                     alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
-                    table=invoice_item_subquery,
+                    table=self.revenue_subqueries.invoice_item,
                 ),
                 self.joins_for_properties,
             ),
@@ -196,15 +196,16 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             raise ValueError(f"Invalid group by: {group_by}")
 
     def _subquery_for_view(self, view: type[RevenueAnalyticsBaseView]) -> ast.SelectSetQuery | None:
-        charge_subquery, customer_subquery, invoice_item_subquery, product_subquery = self.revenue_subqueries
         if view == RevenueAnalyticsProductView:
-            return product_subquery
+            return self.revenue_subqueries.product
         elif view == RevenueAnalyticsCustomerView:
-            return customer_subquery
+            return self.revenue_subqueries.customer
         elif view == RevenueAnalyticsInvoiceItemView:
-            return invoice_item_subquery
+            return self.revenue_subqueries.invoice_item
         elif view == RevenueAnalyticsChargeView:
-            return charge_subquery
+            return self.revenue_subqueries.charge
+        elif view == RevenueAnalyticsSubscriptionView:
+            return self.revenue_subqueries.subscription
         else:
             raise ValueError(f"Invalid view: {view}")
 
