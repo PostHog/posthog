@@ -64,43 +64,6 @@ export const getNextRetryTime = (config: PluginsServerConfig, tries: number): Da
     return DateTime.utc().plus({ milliseconds: backoffMs })
 }
 
-const cdpHttpRequests = new Counter({
-    name: 'cdp_http_requests',
-    help: 'HTTP requests and their outcomes',
-    labelNames: ['status'],
-})
-
-export const RETRIABLE_STATUS_CODES = [
-    408, // Request Timeout
-    429, // Too Many Requests (rate limiting)
-    500, // Internal Server Error
-    502, // Bad Gateway
-    503, // Service Unavailable
-    504, // Gateway Timeout
-]
-
-export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
-    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
-
-    if (error) {
-        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
-            canRetry = false
-        } else {
-            canRetry = true // Only retry on general errors, not security or validation errors
-        }
-    }
-
-    return canRetry
-}
-
-export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
-    const backoffMs = Math.min(
-        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
-        config.CDP_FETCH_BACKOFF_MAX_MS
-    )
-    return DateTime.utc().plus({ milliseconds: backoffMs })
-}
-
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_LOG_LENGTH = 10000
