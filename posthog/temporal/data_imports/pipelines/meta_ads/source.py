@@ -4,7 +4,6 @@ import json
 import typing
 from typing import Any
 
-import pyarrow as pa
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
@@ -12,11 +11,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SCHEMAS
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType
+from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SCHEMAS
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -54,149 +52,61 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
 
 
-class MetaAdsColumn(Column):
-    """Represents a column of a Meta Ads resource."""
-
-    def __init__(self, name: str, data_type: str):
+# Simple schema structure without typing
+class MetaAdsSchema:
+    def __init__(self, name: str, requires_filter: bool, primary_key: list[str], field_names: list[str]):
         self.name = name
-        self.data_type = data_type
-
-    def to_arrow_field(self):
-        """Return the Arrow type associated with this column."""
-        arrow_type: pa.DataType
-
-        match self.data_type:
-            case "string":
-                arrow_type = pa.string()
-            case "integer":
-                arrow_type = pa.int64()
-            case "float":
-                arrow_type = pa.float64()
-            case "boolean":
-                arrow_type = pa.bool_()
-            case "datetime":
-                arrow_type = pa.timestamp("us")
-            case "date":
-                arrow_type = pa.date32()
-            case "json":
-                arrow_type = pa.string()  # Store JSON as string
-            case _:
-                arrow_type = pa.string()  # Default to string
-
-        return pa.field(self.name, arrow_type)
-
-
-class MetaAdsTable(Table[MetaAdsColumn]):
-    def __init__(self, *args, requires_filter: bool, primary_key: list[str], **kwargs):
         self.requires_filter = requires_filter
         self.primary_key = primary_key
-        super().__init__(*args, **kwargs)
+        self.field_names = field_names
 
 
-TableSchemas = dict[str, MetaAdsTable]
-
-
-def _infer_column_type(field_name: str) -> str:
-    """Infer column type based on field name."""
-    if field_name in ["id", "account_id", "adset_id", "campaign_id"]:
-        return "string"
-    elif field_name in ["impressions", "clicks", "reach", "unique_clicks"]:
-        return "integer"
-    elif field_name in [
-        "spend",
-        "cpm",
-        "cpc",
-        "ctr",
-        "cpp",
-        "frequency",
-        "bid_amount",
-        "daily_budget",
-        "lifetime_budget",
-        "budget_remaining",
-        "amount_spent",
-        "balance",
-        "spend_cap",
-    ]:
-        return "float"
-    elif field_name in ["created_time", "updated_time", "start_time", "end_time", "stop_time"]:
-        return "datetime"
-    elif field_name in ["date_start", "date_stop"]:
-        return "date"
-    elif field_name in [
-        "actions",
-        "conversions",
-        "conversion_values",
-        "cost_per_action_type",
-        "targeting",
-        "promoted_object",
-        "creative",
-        "tracking_specs",
-        "conversion_specs",
-        "special_ad_categories",
-        "funding_source_details",
-    ]:
-        return "json"
-    else:
-        return "string"
+# Resource mapping for API endpoints
+RESOURCE_ENDPOINTS = {
+    "campaign": "campaigns",
+    "adset": "adsets",
+    "ad": "ads",
+    "creative": "adcreatives",
+    "account": "",  # Account is accessed directly
+}
 
 
 def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
     """Get incremental field configuration for Meta Ads resources."""
-    d = {}
-    for alias, contents in RESOURCE_SCHEMAS.items():
-        assert isinstance(contents, dict)
+    incremental_fields = {}
 
-        if "filter_field_names" not in contents:
-            continue
+    # Only stats resources support incremental sync
+    for resource_name in ["ad_stats", "adset_stats", "campaign_stats"]:
+        incremental_fields[resource_name] = [("date_start", IncrementalFieldType.Date)]
 
-        d[alias] = contents["filter_field_names"]
-
-    return d
+    return incremental_fields
 
 
-def get_schemas(config: MetaAdsSourceConfig, team_id: int) -> TableSchemas:
-    """Obtain Meta Ads schemas."""
-    table_schemas = {}
+def get_schemas(config: MetaAdsSourceConfig, team_id: int) -> dict[str, MetaAdsSchema]:
+    """Obtain Meta Ads schemas using predefined field definitions."""
+    schemas = {}
 
-    for table_alias, resource_contents in RESOURCE_SCHEMAS.items():
-        assert isinstance(resource_contents, dict)
+    for resource_name, schema_def in RESOURCE_SCHEMAS.items():
+        field_names = schema_def["field_names"].copy()
+        primary_key = schema_def["primary_key"]
+        requires_filter = resource_name.endswith("_stats")
 
-        resource_name = resource_contents["resource_name"]
-        assert isinstance(resource_name, str)
-
-        field_names = resource_contents["field_names"]
-        requires_filter = resource_contents.get("filter_field_names", None) is not None
-        primary_key = typing.cast(list[str], resource_contents.get("primary_key", []))
-
-        columns = []
-
-        for field_name in field_names:
-            assert isinstance(field_name, str)
-
-            data_type = _infer_column_type(field_name)
-            columns.append(MetaAdsColumn(name=field_name, data_type=data_type))
-
-        table = MetaAdsTable(
+        schema = MetaAdsSchema(
             name=resource_name,
-            alias=table_alias,
             requires_filter=requires_filter,
             primary_key=primary_key,
-            columns=columns,
-            parents=None,
+            field_names=field_names,
         )
-        table_schemas[table_alias] = table
+        schemas[resource_name] = schema
 
-    return table_schemas
+    return schemas
 
 
-def _serialize_complex_field(value: Any) -> Any:
-    """Serialize complex fields (lists, dicts) to JSON strings."""
-    if value is None:
-        return None
-    elif isinstance(value, dict | list):
+def _serialize_value(value: Any) -> Any:
+    """Serialize complex values to JSON strings."""
+    if isinstance(value, dict | list):
         return json.dumps(value)
-    else:
-        return value
+    return value
 
 
 def _make_api_request(url: str, params: dict, access_token: str) -> dict:
@@ -210,66 +120,6 @@ def _make_api_request(url: str, params: dict, access_token: str) -> dict:
     return response.json()
 
 
-def _get_insights_fields(field_names: list[str]) -> list[str]:
-    """Get fields that should be requested from insights API."""
-    insights_fields = [
-        "impressions",
-        "clicks",
-        "spend",
-        "reach",
-        "frequency",
-        "cpm",
-        "cpc",
-        "ctr",
-        "cpp",
-        "cost_per_unique_click",
-        "unique_clicks",
-        "unique_ctr",
-        "actions",
-        "conversions",
-        "conversion_values",
-        "cost_per_action_type",
-        "video_30_sec_watched_actions",
-        "video_p25_watched_actions",
-        "video_p50_watched_actions",
-        "video_p75_watched_actions",
-        "video_p95_watched_actions",
-        "video_p100_watched_actions",
-    ]
-    return [field for field in field_names if field in insights_fields]
-
-
-def _get_regular_fields(field_names: list[str]) -> list[str]:
-    """Get fields that should be requested from regular API."""
-    insights_fields = [
-        "impressions",
-        "clicks",
-        "spend",
-        "reach",
-        "frequency",
-        "cpm",
-        "cpc",
-        "ctr",
-        "cpp",
-        "cost_per_unique_click",
-        "unique_clicks",
-        "unique_ctr",
-        "actions",
-        "conversions",
-        "conversion_values",
-        "cost_per_action_type",
-        "video_30_sec_watched_actions",
-        "video_p25_watched_actions",
-        "video_p50_watched_actions",
-        "video_p75_watched_actions",
-        "video_p95_watched_actions",
-        "video_p100_watched_actions",
-        "date_start",
-        "date_stop",
-    ]
-    return [field for field in field_names if field not in insights_fields]
-
-
 def meta_ads_source(
     config: MetaAdsSourceConfig,
     team_id: int,
@@ -281,17 +131,17 @@ def meta_ads_source(
 ) -> SourceResponse:
     """A data warehouse Meta Ads source.
     We utilize the Facebook Business SDK to query for the configured resource and
-    yield batches of rows as Arrow tables.
+    yield batches of rows as Python lists.
     """
     name = NamingConvention().normalize_identifier(config.resource_name)
-    table = get_schemas(config, team_id)[config.resource_name]
+    schema = get_schemas(config, team_id)[config.resource_name]
 
-    if table.requires_filter and not should_use_incremental_field:
+    if schema.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
         incremental_field = "date_start"
         incremental_field_type = IncrementalFieldType.Date
 
-    def get_rows() -> collections.abc.Iterator[pa.Table]:
+    def get_rows() -> collections.abc.Iterator[list[dict]]:
         integration = get_integration(config, team_id)
         access_token = integration.access_token
 
@@ -319,38 +169,67 @@ def meta_ads_source(
                 }
         else:
             # Default to last 30 days for stats resources
-            if table.requires_filter:
+            if schema.requires_filter:
                 date_preset = "last_30d"
 
         # Get data based on resource type
         if config.resource_name.endswith("_stats"):
-            yield from _get_insights_data(config.account_id, table, time_range, date_preset, access_token, logger)
+            yield from _get_insights_data(config.account_id, schema, time_range, date_preset, access_token, logger)
         else:
-            yield from _get_resource_data(config.account_id, table, config.resource_name, access_token, logger)
+            yield from _get_resource_data(config.account_id, schema, config.resource_name, access_token, logger)
 
     return SourceResponse(
         name=name,
         items=get_rows(),
-        primary_keys=table.primary_key,
-        partition_count=1 if table.requires_filter else None,
-        partition_size=1 if table.requires_filter else None,
-        partition_mode="datetime" if table.requires_filter else None,
-        partition_format="day" if table.requires_filter else None,
-        partition_keys=["date_start"] if table.requires_filter else None,
+        primary_keys=schema.primary_key,
+        partition_count=1 if schema.requires_filter else None,
+        partition_size=1 if schema.requires_filter else None,
+        partition_mode="datetime" if schema.requires_filter else None,
+        partition_format="day" if schema.requires_filter else None,
+        partition_keys=["date_start"] if schema.requires_filter else None,
     )
 
 
 def _get_insights_data(
     account_id: str,
-    table: MetaAdsTable,
+    schema: MetaAdsSchema,
     time_range: dict | None,
     date_preset: str | None,
     access_token: str,
     logger: FilteringBoundLogger,
-) -> collections.abc.Generator[pa.Table, None, None]:
+) -> collections.abc.Generator[list[dict], None, None]:
     """Get insights data from Meta Ads API."""
-    insights_fields = _get_insights_fields([col.name for col in table.columns])
-    regular_fields = _get_regular_fields([col.name for col in table.columns])
+    # Define which fields are insights metrics vs regular fields
+    insights_fields = [
+        field
+        for field in schema.field_names
+        if field
+        in {
+            "impressions",
+            "clicks",
+            "spend",
+            "reach",
+            "frequency",
+            "cpm",
+            "cpc",
+            "ctr",
+            "cpp",
+            "cost_per_unique_click",
+            "unique_clicks",
+            "unique_ctr",
+            "actions",
+            "conversions",
+            "conversion_values",
+            "cost_per_action_type",
+            "video_30_sec_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+        }
+    ]
+    regular_fields = [field for field in schema.field_names if field not in insights_fields]
 
     # Base resource mapping
     resource_map = {
@@ -359,10 +238,10 @@ def _get_insights_data(
         "campaign_stats": "campaigns",
     }
 
-    base_resource = resource_map.get(table.alias, "ads")
+    base_resource = resource_map.get(schema.name, "ads")
 
     params = {
-        "fields": ",".join(insights_fields),
+        "fields": ",".join(insights_fields) if insights_fields else "impressions,clicks,spend",
         "level": base_resource[:-1],  # Remove 's' from end
         "time_increment": 1,  # Daily breakdown
     }
@@ -383,7 +262,7 @@ def _get_insights_data(
             # Add insights metrics
             for field in insights_fields:
                 value = insight.get(field)
-                row_data[field] = _serialize_complex_field(value)
+                row_data[field] = _serialize_value(value)
 
             # Add regular fields (id, account_id, etc.)
             for field in regular_fields:
@@ -400,12 +279,12 @@ def _get_insights_data(
 
             # Yield batch when we have enough rows
             if len(rows) >= 1000:
-                yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+                yield rows
                 rows = []
 
         # Yield remaining rows
         if rows:
-            yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+            yield rows
 
     except Exception as e:
         logger.debug(f"Error fetching insights data: {e}")
@@ -415,30 +294,27 @@ def _get_insights_data(
 
 def _get_resource_data(
     account_id: str,
-    table: MetaAdsTable,
+    schema: MetaAdsSchema,
     resource_name: str,
     access_token: str,
     logger: FilteringBoundLogger,
-) -> collections.abc.Generator[pa.Table, None, None]:
+) -> collections.abc.Generator[list[dict], None, None]:
     """Get regular resource data from Meta Ads API."""
-    field_names = [col.name for col in table.columns if col.name not in ["account_id"]]
+    # Use all fields except account_id (which we'll add separately)
+    field_names = [field for field in schema.field_names if field != "account_id"]
 
     try:
         # Get the appropriate resource collection
-        if resource_name == "campaign":
-            url = f"https://graph.facebook.com/v21.0/{account_id}/campaigns"
-        elif resource_name == "adset":
-            url = f"https://graph.facebook.com/v21.0/{account_id}/adsets"
-        elif resource_name == "ad":
-            url = f"https://graph.facebook.com/v21.0/{account_id}/ads"
-        elif resource_name == "creative":
-            url = f"https://graph.facebook.com/v21.0/{account_id}/adcreatives"
-        elif resource_name == "account":
-            url = f"https://graph.facebook.com/v21.0/{account_id}"
-        else:
+        endpoint = RESOURCE_ENDPOINTS.get(resource_name)
+        if endpoint is None:
             raise ValueError(f"Unknown resource: {resource_name}")
 
-        params = {"fields": ",".join(field_names)}
+        if resource_name == "account":
+            url = f"https://graph.facebook.com/v21.0/{account_id}"
+        else:
+            url = f"https://graph.facebook.com/v21.0/{account_id}/{endpoint}"
+
+        params = {"fields": ",".join(field_names)} if field_names else {}
         data = _make_api_request(url, params, access_token)
 
         # Handle single account response vs list response
@@ -453,18 +329,18 @@ def _get_resource_data(
 
             for field in field_names:
                 value = resource.get(field)
-                row_data[field] = _serialize_complex_field(value)
+                row_data[field] = _serialize_value(value)
 
             rows.append(row_data)
 
             # Yield batch when we have enough rows
             if len(rows) >= 1000:
-                yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+                yield rows
                 rows = []
 
         # Yield remaining rows
         if rows:
-            yield pa.Table.from_pylist(rows, schema=table.to_arrow_schema())
+            yield rows
 
     except Exception as e:
         logger.debug(f"Error fetching {resource_name} data: {e}")
