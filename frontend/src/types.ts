@@ -426,6 +426,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
+    members_can_create_personal_api_keys?: boolean
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod

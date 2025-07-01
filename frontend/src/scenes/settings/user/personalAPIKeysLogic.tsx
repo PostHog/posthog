@@ -10,9 +10,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
@@ -137,6 +138,23 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (s) => [s.user],
             (user): OrganizationBasicType[] => {
                 return user?.organizations ?? []
+            },
+        ],
+
+        canCreatePersonalApiKeys: [
+            (s) => [s.user],
+            (user: UserType | null): boolean => {
+                const currentOrg = user?.organization
+                if (!currentOrg) {
+                    return true
+                }
+
+                if (currentOrg.membership_level && currentOrg.membership_level >= OrganizationMembershipLevel.Admin) {
+                    return true
+                }
+
+                // Allow for compatibility with nulled column values
+                return currentOrg.members_can_create_personal_api_keys !== false
             },
         ],
     })),

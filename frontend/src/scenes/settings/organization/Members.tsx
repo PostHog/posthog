@@ -357,6 +357,22 @@ export function Members(): JSX.Element | null {
                     disabledReason={membersCanInviteRestrictionReason}
                 />
             </PayGateMini>
+
+            <h3 className="mt-4">Personal API key settings</h3>
+            <p>
+                Control who can create personal API keys. Organization admins can always create personal API keys
+                regardless of this setting.
+            </p>
+            <LemonSwitch
+                label={<span>Members can create personal API keys</span>}
+                bordered
+                data-attr="org-members-can-create-personal-api-keys-toggle"
+                checked={!!currentOrganization?.members_can_create_personal_api_keys}
+                onChange={(members_can_create_personal_api_keys) =>
+                    updateOrganization({ members_can_create_personal_api_keys })
+                }
+                disabledReason={membersCanInviteRestrictionReason}
+            />
         </>
     )
 }
