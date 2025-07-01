@@ -14,13 +14,13 @@ services:
             service: proxy
         ports:
             - 8010:8000
-        depends_on:
-            - feature-flags
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
             - 'capture:host-gateway'
             - 'replay-capture:host-gateway'
+            - 'feature-flags:host-gateway'
+            - 'host.docker.internal:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
@@ -177,14 +177,6 @@ services:
             - '2080:2080'
         environment:
             - LISTEN_PORT=2080
-
-    feature-flags:
-        extends:
-            file: docker-compose.base.yml
-            service: feature-flags
-        depends_on:
-            - redis
-            - db
 
     livestream:
         extends:
