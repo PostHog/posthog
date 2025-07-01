@@ -31,7 +31,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
-    COHORT = "cohort"
+    COHORTS = "cohorts"
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
