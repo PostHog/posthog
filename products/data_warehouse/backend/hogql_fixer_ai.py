@@ -1,5 +1,6 @@
 from typing import Any
 from ee.hogai.tool import MaxTool
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.context import HogQLContext
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
@@ -198,6 +199,7 @@ class HogQLQueryFixerTool(MaxTool):
                     "system",
                     _get_system_prompt(all_tables),
                 ),
+                ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                 (
                     "user",
                     _get_user_prompt(schema_description),

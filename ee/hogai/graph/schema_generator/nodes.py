@@ -9,7 +9,7 @@ from langchain_core.messages import (
     BaseMessage,
     merge_message_runs,
 )
-from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -29,6 +29,7 @@ from .prompts import (
 from .utils import SchemaGeneratorOutput
 from ee.hogai.utils.helpers import find_start_message
 from ..base import AssistantNode
+from ..shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
@@ -78,14 +79,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         chain = generation_prompt | merger | self._model | self._parse_output
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke(
-                {
-                    "project_datetime": self.project_now,
-                    "project_timezone": self.project_timezone,
-                    "project_name": self._team.name,
-                },
-                config,
-            )
+            message: SchemaGeneratorOutput[Q] = chain.invoke(self.project_org_user_variables, config)
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
@@ -149,9 +143,12 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         # Add the group mapping prompt to the beginning of the conversation.
         conversation: list[BaseMessage] = [
+            SystemMessagePromptTemplate.from_template(
+                content=PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
+            ),
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
                 group_mapping=self._group_mapping_prompt
-            )
+            ),
         ]
 
         for message in messages:

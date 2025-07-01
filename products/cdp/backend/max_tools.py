@@ -1,13 +1,14 @@
 from typing import Optional
 import re
 from ee.hogai.tool import MaxTool
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from posthog.cdp.validation import compile_hog
 from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
 from products.cdp.backend.prompts import HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException
+from langchain_core.prompts import ChatPromptTemplate
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -37,6 +38,8 @@ class CreateHogTransformationFunctionTool(MaxTool):
             + HOG_GRAMMAR_MESSAGE
             + "\n</hog_grammar>\n\n"
             + "\n\n<current_hog_code>\n"
+            + PROJECT_ORG_USER_CONTEXT_PROMPT
+            + "\n\n"
             + current_hog_code
             + "\n</current_hog_code>"
             + "\n\nReturn ONLY the hog code inside <hog_code> tags. Do not add any other text or explanation."
@@ -44,18 +47,20 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         user_content = "Write a Hog transformation or tweak the current one to satisfy this request: " + instructions
 
-        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", system_content), ("human", user_content)], template_format="mustache"
+        )
+        chain = prompt | self._model
 
         final_error: Optional[Exception] = None
         for _ in range(3):
             try:
-                result = self._model.invoke(messages)
+                result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
                 # Add error feedback to system message for retry
-                system_content += f"\n\nAvoid this error: {str(e)}"
-                messages[0] = SystemMessage(content=system_content)
+                prompt.messages[0].content += f"\n\nAvoid this error: {str(e)}"
                 final_error = e
         else:
             raise final_error

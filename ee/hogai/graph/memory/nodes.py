@@ -42,6 +42,7 @@ from .prompts import (
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ..base import AssistantNode
+from ..shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -181,6 +182,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             prompt = ChatPromptTemplate.from_messages(
                 [
                     ("system", INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT),
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     ("human", INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT),
                 ],
                 template_format="mustache",
@@ -189,13 +191,14 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             prompt = ChatPromptTemplate.from_messages(
                 [
                     ("system", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT),
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     ("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT),
                 ],
                 template_format="mustache",
             ).partial(bundle_ids=retrieved_prop.sample_values)
 
         chain = prompt | self._model() | StrOutputParser()
-        answer = chain.invoke({}, config=config)
+        answer = chain.invoke(self.project_org_user_variables, config=config)
         # Perplexity has failed to scrape the data, continue.
         if "no data available." in answer.lower():
             return PartialAssistantState(
@@ -278,11 +281,12 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         answers_left = core_memory.answers_left
         if answers_left > 0:
             prompt = ChatPromptTemplate.from_messages(
-                [("system", MEMORY_ONBOARDING_ENQUIRY_PROMPT)], template_format="mustache"
+                [("system", PROJECT_ORG_USER_CONTEXT_PROMPT), ("system", MEMORY_ONBOARDING_ENQUIRY_PROMPT)],
+                template_format="mustache",
             ).partial(core_memory=core_memory.initial_text, questions_left=answers_left)
 
             chain = prompt | self._model | StrOutputParser()
-            response = chain.invoke({}, config=config)
+            response = chain.invoke(self.project_org_user_variables, config=config)
 
             if "[Done]" not in response and "===" in response:
                 question = self._format_question(response)
@@ -333,11 +337,13 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", ONBOARDING_COMPRESSION_PROMPT),
+                ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                 ("human", core_memory.initial_text),
-            ]
+            ],
+            template_format="mustache",
         )
         chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({}, config=config))
+        compressed_memory = cast(str, chain.invoke(self.project_org_user_variables, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
         return PartialAssistantState(
@@ -390,14 +396,21 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
         node_messages = state.memory_collection_messages or []
 
-        prompt = ChatPromptTemplate.from_messages(
-            [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
-        ) + self._construct_messages(state)
+        system_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", MEMORY_COLLECTOR_PROMPT),
+                ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
+            ],
+            template_format="mustache",
+        )
+
+        prompt = system_prompt + self._construct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
         try:
             response = chain.invoke(
                 {
+                    **self.project_org_user_variables,
                     "core_memory": self.core_memory_text,
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
