@@ -487,8 +487,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
         },
     })
 
-    const { addOrUpdateContextInsight, enableCurrentPageContext, addOrUpdateActiveInsight } =
-        useActions(maxContextLogic)
+    const { addOrUpdateContextInsight } = useActions(maxContextLogic)
 
     useEffect(() => {
         // Add multiple context insights
@@ -511,24 +510,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
                 series: [{ event: 'sign up' }, { event: 'first action' }],
             } as FunnelsQuery,
         })
-
-        // Add active insights for current page context
-        addOrUpdateActiveInsight(
-            {
-                short_id: 'active-insight-1' as InsightShortId,
-                name: 'Current Page Metrics',
-                description: 'Metrics for the current page',
-                query: {
-                    kind: 'TrendsQuery',
-                    series: [{ event: '$pageview' }],
-                } as TrendsQuery,
-            },
-            false
-        )
-
-        // Enable current page context to show active insights/dashboard
-        enableCurrentPageContext()
-    }, [addOrUpdateActiveInsight, addOrUpdateContextInsight, enableCurrentPageContext])
+    }, [addOrUpdateContextInsight])
 
     return <Template sidePanel />
 }

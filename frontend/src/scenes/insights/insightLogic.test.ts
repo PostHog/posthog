@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -759,101 +758,6 @@ describe('insightLogic', () => {
                     }),
                 ],
             ])
-        })
-    })
-
-    describe('maxContext integration', () => {
-        beforeEach(async () => {
-            const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
-            logic = insightLogic(insightProps)
-            logic.mount()
-
-            insightDataLogic(insightProps).mount()
-        })
-
-        it('calls setMaxContext when insight changes via subscription', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: { kind: NodeKind.DataTableNode },
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.setInsight(testInsight, { overrideQuery: true })
-            })
-                .toDispatchActions(['setInsight', 'setMaxContext'])
-                .toFinishAllListeners()
-        })
-
-        it('calls maxContextLogic.addOrUpdateActiveInsight with correct parameters when setMaxContext is triggered', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: { kind: NodeKind.DataTableNode },
-            }
-
-            // Set up the insight first
-            logic.actions.setInsight(testInsight, { overrideQuery: true })
-
-            // Mock the maxContextLogic actions
-            const mockAddOrUpdateActiveInsight = jest.fn()
-            jest.spyOn(maxContextLogic, 'findMounted').mockReturnValue({
-                actions: {
-                    addOrUpdateActiveInsight: mockAddOrUpdateActiveInsight,
-                },
-            } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.setMaxContext()
-            })
-                .toDispatchActions(['setMaxContext'])
-                .toFinishAllListeners()
-
-            // Verify that addOrUpdateActiveInsight was called with the correct parameters
-            expect(mockAddOrUpdateActiveInsight).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    id: 42,
-                    short_id: Insight42,
-                    name: 'Test Insight',
-                    query: { kind: NodeKind.DataTableNode },
-                }),
-                false
-            )
-        })
-
-        it('does not call maxContextLogic.addOrUpdateActiveInsight when insight has no query', async () => {
-            const testInsight = {
-                id: 42,
-                short_id: Insight42,
-                name: 'Test Insight',
-                query: null,
-            }
-
-            // Set up the insight first
-            logic.actions.setInsight(testInsight, { overrideQuery: true })
-
-            // Mock the maxContextLogic actions
-            const mockAddOrUpdateActiveInsight = jest.fn()
-            jest.spyOn(maxContextLogic, 'findMounted').mockReturnValue({
-                actions: {
-                    addOrUpdateActiveInsight: mockAddOrUpdateActiveInsight,
-                },
-            } as any)
-
-            await expectLogic(logic, () => {
-                logic.actions.setMaxContext()
-            })
-                .toDispatchActions(['setMaxContext'])
-                .toFinishAllListeners()
-
-            // Verify that addOrUpdateActiveInsight was NOT called because there's no query
-            expect(mockAddOrUpdateActiveInsight).not.toHaveBeenCalled()
-        })
-
-        afterEach(() => {
-            jest.restoreAllMocks()
         })
     })
 })
