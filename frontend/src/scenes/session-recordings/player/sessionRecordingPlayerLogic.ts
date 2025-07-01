@@ -1545,7 +1545,7 @@ export const manageConsoleWarns = (cache: any, onIncrement: (count: number) => v
                     `[PostHog Replayer] ${counter} warnings (window.__posthog_player_warnings to safely log them)`
                 )
                 counter = 0
-            }, 1000)
+            }, 5000)
         }
     }
 
