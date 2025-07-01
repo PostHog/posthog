@@ -4571,7 +4571,7 @@ export const externalDataSources = [
     'Mailjet',
     'Redshift',
     'GoogleSheets',
-    'Mongodb',
+    'MongoDB',
     'TemporalIO',
     'DoIt',
 ] as const
@@ -5497,12 +5497,6 @@ export enum UserRole {
     Marketing = 'marketing',
     Sales = 'sales',
     Other = 'other',
-}
-
-export type UserGroup = {
-    id: string
-    name: string
-    members: UserBasicType[]
 }
 
 export interface CoreMemory {

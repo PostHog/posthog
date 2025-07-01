@@ -2264,3 +2264,109 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             expected_results["test_exposure"],
             f"Test exposure mismatch for {name} handling",
         )
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_none_event_filters_all_events(self):
+        """Test that when event is None, all events are selected (no event name filter applied)."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Use None event to match all events
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event=None,  # This should match all events
+                properties=[
+                    EventPropertyFilter(
+                        key="test_property", operator=PropertyOperator.EXACT, value="test_value", type="event"
+                    ),
+                ],
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Create exposure events
+        for variant in ["control", "test"]:
+            for i in range(5):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+
+        # Create metric events with different event names but same property filter
+        # These should all be counted since event=None should match all events
+        metric_events = [
+            ("purchase", "control", 3),
+            ("signup", "control", 2),
+            ("pageview", "control", 1),
+            ("purchase", "test", 4),
+            ("signup", "test", 3),
+            ("pageview", "test", 2),
+        ]
+
+        for event_name, variant, count in metric_events:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event=event_name,
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "test_property": "test_value",  # This matches our property filter
+                    },
+                )
+
+        # Create some events that should NOT be counted (different property value)
+        for variant in ["control", "test"]:
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_{variant}_excluded",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={
+                    feature_flag_property: variant,
+                    "test_property": "different_value",  # This should be filtered out
+                },
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control should have 3 + 2 + 1 = 6 events (all event types with matching property)
+        self.assertEqual(control_variant.count, 6)
+        # Test should have 4 + 3 + 2 = 9 events (all event types with matching property)
+        self.assertEqual(test_variant.count, 9)
+        # Both should have 5 exposures each
+        self.assertEqual(control_variant.absolute_exposure, 5)
+        self.assertEqual(test_variant.absolute_exposure, 5)
