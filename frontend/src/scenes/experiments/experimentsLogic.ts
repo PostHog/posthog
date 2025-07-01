@@ -14,10 +14,9 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingType, Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { isLegacyExperiment, shouldUseNewQueryRunnerForNewObjects } from './utils'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -197,26 +196,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         showLegacyBadge: [
-            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments, s.billing],
-            (featureFlags: FeatureFlagsSet, experiments: ExperimentsResult, billing: BillingType): boolean => {
-                /**
-                 * If the new query runner is enabled, we want to always show the legacy badge,
-                 * even if all existing experiments are legacy experiments.
-                 *
-                 * Not ideal to use feature flags at this level, but this is how things are and
-                 * it'll take a while to change.
-                 */
-                if (shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)) {
-                    return true
-                }
-
-                /**
-                 * If the new query runner is not enabled, we'll set this boolean selector
-                 * so the components can show the legacy badge only if there are experiments
-                 * that use the NEW query runner.
-                 * This covers the case when the feature was disabled after creating new experiments.
-                 */
-                return experiments.results.some((experiment) => !isLegacyExperiment(experiment))
+            () => [],
+            (): boolean => {
+                return true
             },
         ],
     })),
