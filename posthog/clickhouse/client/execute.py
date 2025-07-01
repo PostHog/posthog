@@ -20,7 +20,7 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
 )
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod, Feature
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
 from posthog.exceptions import ClickhouseAtCapacity
@@ -179,6 +179,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
+        elif tags.feature == Feature.CACHE_WARMUP:
+            ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
