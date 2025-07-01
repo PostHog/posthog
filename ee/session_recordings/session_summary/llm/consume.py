@@ -22,7 +22,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     load_pattern_assignments_from_llm_content,
     load_patterns_from_llm_content,
 )
-from ee.session_recordings.session_summary.summarize_session import PatternsPrompt, SessionSummaryPrompt
+from ee.session_recordings.session_summary.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -108,7 +108,7 @@ def _convert_llm_content_to_session_summary_json_str(
 
 
 async def get_llm_session_group_patterns_extraction(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str]
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
 ) -> RawSessionGroupSummaryPatternsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
@@ -118,6 +118,7 @@ async def get_llm_session_group_patterns_extraction(
         system_prompt=prompt.system_prompt,
         model=SESSION_SUMMARIES_SYNC_MODEL,
         reasoning=True,
+        trace_id=trace_id,
     )
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
@@ -129,7 +130,7 @@ async def get_llm_session_group_patterns_extraction(
 
 
 async def get_llm_session_group_patterns_assignment(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str]
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
 ) -> RawSessionGroupPatternAssignmentsList:
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
@@ -139,6 +140,7 @@ async def get_llm_session_group_patterns_assignment(
         system_prompt=prompt.system_prompt,
         model=SESSION_SUMMARIES_SYNC_MODEL,
         reasoning=True,
+        trace_id=trace_id,
     )
     raw_content = _get_raw_content(result, sessions_identifier)
     if not raw_content:
@@ -147,25 +149,6 @@ async def get_llm_session_group_patterns_assignment(
         )
     patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
     return patterns
-
-
-async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: int, session_ids: list[str]) -> str:
-    sessions_identifier = ",".join(session_ids)
-    result = await call_llm(
-        input_prompt=prompt.summary_prompt,
-        user_key=user_id,
-        session_id=sessions_identifier,
-        system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_SYNC_MODEL,
-        reasoning=True,
-    )
-    raw_content = _get_raw_content(result, sessions_identifier)
-    if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group summary, sessions {sessions_identifier}"
-        )
-    # TODO: Force LLM to return event ids and use them to enrich group summary with metadata
-    return raw_content
 
 
 async def get_llm_single_session_summary(
@@ -181,6 +164,7 @@ async def get_llm_single_session_summary(
     session_start_time_str: str,
     session_duration: int,
     system_prompt: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     try:
         result = await call_llm(
@@ -190,6 +174,7 @@ async def get_llm_single_session_summary(
             system_prompt=system_prompt,
             model=SESSION_SUMMARIES_SYNC_MODEL,
             reasoning=True,
+            trace_id=trace_id,
         )
         raw_content = _get_raw_content(result, session_id)
         if not raw_content:
@@ -246,13 +231,18 @@ async def stream_llm_single_session_summary(
     session_start_time_str: str,
     session_duration: int,
     system_prompt: str | None = None,
+    trace_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
     try:
         accumulated_content = ""
         accumulated_usage = 0
         # TODO: Find a way to time the first chunk and the time of total stream consumption (extend "openai_completion" timer)
         stream = await stream_llm(
-            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt,
+            user_key=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+            trace_id=trace_id,
         )
         async for chunk in stream:
             # TODO: Check if the usage is accumulated by itself or do we need to do it manually

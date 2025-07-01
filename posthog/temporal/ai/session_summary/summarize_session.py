@@ -72,6 +72,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # Session metadata
         session_start_time_str=llm_input.session_start_time_str,
         session_duration=llm_input.session_duration,
+        trace_id=temporalio.activity.info().workflow_id,
     )
     async for current_summary_state in session_summary_generator:
         if current_summary_state == last_summary_state:

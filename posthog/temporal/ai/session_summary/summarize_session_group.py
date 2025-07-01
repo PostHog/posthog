@@ -89,6 +89,7 @@ async def get_llm_single_session_summary_activity(
             # Session metadata
             session_start_time_str=llm_input.session_start_time_str,
             session_duration=llm_input.session_duration,
+            trace_id=temporalio.activity.info().workflow_id,
         )
         # Store the generated summary in Redis
         compressed_session_summary = compress_redis_data(session_summary_str)

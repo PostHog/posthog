@@ -112,7 +112,10 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         )
         # Extract patterns from session summaries through LLM
         patterns_extraction = await get_llm_session_group_patterns_extraction(
-            prompt=patterns_extraction_prompt, user_id=inputs.user_id, session_ids=session_ids
+            prompt=patterns_extraction_prompt,
+            user_id=inputs.user_id,
+            session_ids=session_ids,
+            trace_id=temporalio.activity.info().workflow_id,
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
         compressed_patterns_extraction = compress_redis_data(patterns_extraction_str)
@@ -132,6 +135,7 @@ async def _generate_patterns_assignments_per_chunk(
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
+    trace_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList | Exception:
     try:
         patterns_assignment_prompt = generate_session_group_patterns_assignment_prompt(
@@ -140,7 +144,10 @@ async def _generate_patterns_assignments_per_chunk(
             extra_summary_context=extra_summary_context,
         )
         return await get_llm_session_group_patterns_assignment(
-            prompt=patterns_assignment_prompt, user_id=user_id, session_ids=session_ids
+            prompt=patterns_assignment_prompt,
+            user_id=user_id,
+            session_ids=session_ids,
+            trace_id=trace_id,
         )
     except Exception as err:  # Activity retries exhausted
         # Let caller handle the error
@@ -153,6 +160,7 @@ async def _generate_patterns_assignments(
     user_id: int,
     session_ids: list[str],
     extra_summary_context: ExtraSummaryContext | None,
+    trace_id: str | None = None,
 ) -> list[RawSessionGroupPatternAssignmentsList]:
     patterns_assignments_list_of_lists = []
     tasks = {}
@@ -165,6 +173,7 @@ async def _generate_patterns_assignments(
                     user_id=user_id,
                     session_ids=session_ids,
                     extra_summary_context=extra_summary_context,
+                    trace_id=trace_id,
                 )
             )
     for chunk_index, task in tasks.items():
@@ -226,6 +235,7 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
         user_id=inputs.user_id,
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
+        trace_id=temporalio.activity.info().workflow_id,
     )
     # Get single session summaries LLM inputs from Redis to be able to enrich the patterns collected
     single_session_summaries_llm_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
