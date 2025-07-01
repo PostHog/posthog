@@ -90,24 +90,27 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    private getPersonKey(teamId: number, distinctId: string): string {
-        return `${teamId}:${distinctId}`
+    private getPersonKey(teamId: number, personUuid: string): string {
+        return `${teamId}:${personUuid}`
     }
 
     private updateFinalState(
         teamId: number,
         distinctId: string,
+        personUuid: string,
         person: InternalPerson | null,
         versionDisparity: boolean,
-        operationType: string
+        operationType: string,
+        version?: number
     ): void {
-        const key = this.getPersonKey(teamId, distinctId)
+        const key = this.getPersonKey(teamId, personUuid)
         const existing = this.finalStates.get(key)
 
         const operation = {
             type: operationType,
             timestamp: Date.now(),
             distinctId,
+            version,
         }
 
         if (person) {
@@ -133,14 +136,49 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
     async fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null> {
         const mainResult = await this.mainStore.fetchForUpdate(teamId, distinctId)
-        // If the batch store doesn't have a cached person for update, set it
-        if (this.secondaryStore.getCachedPersonForUpdate(teamId, distinctId) === undefined) {
-            this.secondaryStore.setCachedPersonForUpdate(
+        // Check if batch store already has cached data for this person
+        const existingCached = this.secondaryStore.getCachedPersonForUpdate(teamId, distinctId)
+
+        let versionDisparity = false
+
+        if (mainResult && existingCached === undefined) {
+            // No existing cache, set the fresh data
+            this.secondaryStore.setCachedPersonForUpdate(teamId, distinctId, fromInternalPerson(mainResult, distinctId))
+        } else if (mainResult && existingCached === null) {
+            // Cache was explicitly set to null, but now we have data - update it
+            this.secondaryStore.setCachedPersonForUpdate(teamId, distinctId, fromInternalPerson(mainResult, distinctId))
+        } else if (mainResult && existingCached) {
+            // Check for version disparity - if the fetched version differs from cached, another pod updated it
+            if (mainResult.version !== existingCached.version) {
+                versionDisparity = true
+            }
+
+            // We have both fresh data and existing cache - merge them properly
+            const freshPersonUpdate = fromInternalPerson(mainResult, distinctId)
+            // Preserve the existing changeset
+            freshPersonUpdate.property_changeset = existingCached.property_changeset
+            // Preserve the needs_write flag if it was set
+            freshPersonUpdate.needs_write = existingCached.needs_write
+            freshPersonUpdate.is_identified = freshPersonUpdate.is_identified || existingCached.is_identified
+
+            this.secondaryStore.setCachedPersonForUpdate(teamId, distinctId, freshPersonUpdate)
+        } else if (!mainResult) {
+            // Main store returned null, ensure secondary is also null
+            this.secondaryStore.setCachedPersonForUpdate(teamId, distinctId, null)
+        }
+
+        if (mainResult) {
+            this.updateFinalState(
                 teamId,
                 distinctId,
-                mainResult ? fromInternalPerson(mainResult, distinctId) : null
+                mainResult.uuid,
+                mainResult,
+                versionDisparity,
+                'fetchForUpdate',
+                mainResult.version
             )
         }
+
         return mainResult
     }
 
@@ -169,10 +207,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             tx
         )
 
-        if (
-            distinctIds &&
-            this.secondaryStore.getCachedPersonForUpdate(teamId, distinctIds![0].distinctId) === undefined
-        ) {
+        if (distinctIds) {
             this.secondaryStore.setCachedPersonForUpdate(
                 teamId,
                 distinctIds[0].distinctId,
@@ -180,7 +215,15 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             )
         }
 
-        this.updateFinalState(teamId, distinctIds![0].distinctId, mainResult[0], false, 'createPerson')
+        this.updateFinalState(
+            teamId,
+            distinctIds![0].distinctId,
+            mainResult[0].uuid,
+            mainResult[0],
+            false,
+            'createPerson',
+            mainResult[0].version
+        )
 
         return mainResult
     }
@@ -201,7 +244,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.compareUpdateResults(
             'updatePersonForUpdate',
             person.team_id,
-            distinctId,
+            person.uuid,
             mainPersonResult,
             secondaryPersonResult,
             mainVersionDisparity
@@ -210,9 +253,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(
             person.team_id,
             distinctId,
+            mainPersonResult.uuid,
             mainPersonResult,
             mainVersionDisparity,
-            'updatePersonForUpdate'
+            'updatePersonForUpdate',
+            mainPersonResult.version
         )
         return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
@@ -233,7 +278,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.compareUpdateResults(
             'updatePersonForMerge',
             person.team_id,
-            distinctId,
+            person.uuid,
             mainPersonResult,
             secondaryPersonResult,
             mainVersionDisparity
@@ -242,9 +287,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(
             person.team_id,
             distinctId,
+            mainPersonResult.uuid,
             mainPersonResult,
             mainVersionDisparity,
-            'updatePersonForMerge'
+            'updatePersonForMerge',
+            mainPersonResult.version
         )
         return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
@@ -252,9 +299,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
         const kafkaMessages = await this.mainStore.deletePerson(person, distinctId, tx)
 
-        // Clear cache for the person
-        this.secondaryStore.clearCache(person.team_id, distinctId)
-        this.updateFinalState(person.team_id, distinctId, null, false, 'deletePerson')
+        // Clear ALL caches related to this person UUID
+        this.secondaryStore.clearAllCachesForPersonUuid(person.team_id, person.uuid)
+        this.updateFinalState(person.team_id, distinctId, person.uuid, null, false, 'deletePerson')
 
         return kafkaMessages
     }
@@ -267,8 +314,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.addDistinctId(person, distinctId, version, tx)
 
+        // Cache the person for this new distinct ID in secondary store
+        this.secondaryStore.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
+
         // Track that this distinct ID now points to the person
-        this.updateFinalState(person.team_id, distinctId, person, false, 'addDistinctId')
+        this.updateFinalState(person.team_id, distinctId, person.uuid, person, false, 'addDistinctId', person.version)
 
         return mainResult
     }
@@ -281,12 +331,14 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
 
-        // Track the reassignment in final state - all distinct IDs from source now point to target
-        // This is the critical operation that causes cache key mismatches
-        this.updateFinalState(source.team_id, distinctId, target, false, 'moveDistinctIds')
+        // Clear the cache for the source person UUID to ensure deleted person isn't cached
+        this.secondaryStore.clearCacheByUuid(source.team_id, source.uuid)
 
-        // Also clear the cache for the source person to prevent stale data
-        this.secondaryStore.clearCache(source.team_id, distinctId)
+        // Update cache for the target person for the current distinct ID
+        this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+
+        this.updateFinalState(source.team_id, distinctId, source.uuid, null, false, 'moveDistinctIds', source.version)
+        this.updateFinalState(target.team_id, distinctId, target.uuid, target, false, 'moveDistinctIds', target.version)
 
         return mainResult
     }
@@ -403,8 +455,6 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     }
 
     compareFinalStates(): void {
-        const batchUpdateCache = this.secondaryStore.getUpdateCache()
-
         // Initialize metrics
         this.shadowMetrics.totalComparisons = 0
         this.shadowMetrics.sameOutcomeSameBatch = 0
@@ -416,7 +466,21 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
         // Compare each person we tracked in finalStates with what's in the batch cache
         for (const [key, mainUpdate] of this.finalStates.entries()) {
-            const secondaryPersonUpdate = batchUpdateCache.get(key)
+            // Skip entries that only have fetchForUpdate operations (read-only, no modifications)
+            if (mainUpdate && mainUpdate.operations.length > 0) {
+                const hasNonFetchOperations = mainUpdate.operations.some((op) => op.type !== 'fetchForUpdate')
+                const lastOperationIsFetch =
+                    mainUpdate.operations[mainUpdate.operations.length - 1].type === 'fetchForUpdate'
+                if (!hasNonFetchOperations || lastOperationIsFetch) {
+                    continue // Skip this entry as it's only fetch operations or last operation overwrote
+                }
+            }
+
+            // Parse the key to extract teamId and personUuid
+            const [teamIdStr, personUuid] = key.split(':')
+            const teamId = parseInt(teamIdStr, 10)
+
+            const secondaryPersonUpdate = this.secondaryStore.getCachedPersonForUpdateByUuid(teamId, personUuid)
             const secondaryPerson = secondaryPersonUpdate ? toInternalPerson(secondaryPersonUpdate) : null
             const mainPerson = mainUpdate?.person || null
             const versionDisparity = mainUpdate?.versionDisparity || false
@@ -470,12 +534,12 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     private compareUpdateResults(
         methodName: string,
         teamId: number,
-        distinctId: string,
+        personUuid: string,
         mainPerson: InternalPerson,
         secondaryPerson: InternalPerson,
         mainVersionDisparity: boolean
     ): void {
-        const key = this.getPersonKey(teamId, distinctId)
+        const key = this.getPersonKey(teamId, personUuid)
 
         // Compare the person results (excluding version for primary comparison)
         const mainComparable = this.getComparablePerson(mainPerson)
@@ -491,7 +555,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             logger.info(`${methodName} returned inconsistent results between stores`, {
                 key,
                 teamId,
-                distinctId,
+                personUuid,
                 methodName,
                 samePersonResult,
                 differences,

@@ -71,10 +71,19 @@ impl FlagRequest {
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
-        let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            tracing::debug!("failed to decode body: {}", e);
-            FlagError::RequestDecodingError(String::from("invalid body encoding"))
-        })?;
+        // Handle UTF-8 conversion more gracefully, similar to form data handling
+        let payload = match String::from_utf8(bytes.to_vec()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::debug!(
+                    "Invalid UTF-8 in request body, using lossy conversion: {}",
+                    e
+                );
+                // Use lossy conversion as fallback - this handles Android clients that might
+                // send malformed UTF-8 sequences after decompression
+                String::from_utf8_lossy(&bytes).into_owned()
+            }
+        };
 
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
@@ -319,7 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn token_is_returned_correctly() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -337,7 +346,11 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
 
         match flag_service.verify_token(&token).await {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
@@ -347,7 +360,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_client = setup_redis_client(None);
+        let redis_reader_client = setup_redis_client(None).await;
+        let redis_writer_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
@@ -359,7 +373,11 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_reader_client.clone(),
+            redis_writer_client.clone(),
+            pg_client.clone(),
+        );
         assert!(matches!(
             flag_service.verify_token(&result).await,
             Err(FlagError::TokenValidationError)
