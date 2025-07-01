@@ -2377,53 +2377,6 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
 }
 `;
 
-exports[`segment templates template segment-actions-amazon-amc matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Amazon Ads DSP and AMC",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=amazon.com",
-  "id": "segment-actions-amazon-amc",
-  "inputs_schema": [
-    {
-      "choices": [
-        {
-          "label": "North America (NA)",
-          "value": "https://advertising-api.amazon.com",
-        },
-        {
-          "label": "Europe (EU)",
-          "value": "https://advertising-api-eu.amazon.com",
-        },
-        {
-          "label": "Far East (FE)",
-          "value": "https://advertising-api-fe.amazon.com",
-        },
-      ],
-      "default": "https://advertising-api.amazon.com",
-      "description": "Region for API Endpoint, either NA, EU, FE.",
-      "key": "region",
-      "label": "Region",
-      "required": true,
-      "secret": false,
-      "type": "choice",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [],
-  "name": "Amazon Ads DSP and AMC",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
 exports[`segment templates template segment-actions-amplitude matches expected result 1`] = `
 {
   "category": [],
@@ -12160,39 +12113,6 @@ exports[`segment templates template segment-actions-iterable matches expected re
 }
 `;
 
-exports[`segment templates template segment-actions-iterable-lists matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Iterable Lists",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=iterable.com",
-  "id": "segment-actions-iterable-lists",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "To obtain the API Key, go to the Iterable app and naviate to Integrations > API Keys. Create a new API Key with the 'Server-Side' type.",
-      "key": "apiKey",
-      "label": "API Key",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [],
-  "name": "Iterable Lists",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
 exports[`segment templates template segment-actions-kameleoon matches expected result 1`] = `
 {
   "category": [],
@@ -14240,66 +14160,6 @@ exports[`segment templates template segment-actions-m3ter matches expected resul
     },
   ],
   "name": "m3ter",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
-exports[`segment templates template segment-actions-marketo-static-lists matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Marketo Static Lists",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=marketo.com",
-  "id": "segment-actions-marketo-static-lists",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "Your Marketo REST API Client ID.",
-      "key": "client_id",
-      "label": "Client ID",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "Your Marketo REST API Client Secret.",
-      "key": "client_secret",
-      "label": "Client Secret",
-      "required": true,
-      "secret": true,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "Your Marketo REST API Endpoint in this format: https://<your_account_id>.mktorest.com.",
-      "key": "api_endpoint",
-      "label": "API Endpoint",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "Name of the folder in which to create static lists.",
-      "key": "folder_name",
-      "label": "Folder Name",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [],
-  "name": "Marketo Static Lists",
   "status": "alpha",
   "type": "destination",
 }
@@ -25132,66 +24992,6 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
 }
 `;
 
-exports[`segment templates template segment-actions-s3-csv matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to AWS S3 CSV",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=s3.com",
-  "id": "segment-actions-s3-csv",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "IAM role ARN with write permissions to the S3 bucket. Format: arn:aws:iam::account-id:role/role-name",
-      "key": "iam_role_arn",
-      "label": "IAM Role ARN",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "Name of the S3 bucket where the files will be uploaded to.",
-      "key": "s3_aws_bucket_name",
-      "label": "AWS Bucket Name",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "Region Code where the S3 bucket is hosted. See [AWS S3 Documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-regions-availability-zones.html#concepts-regions)",
-      "key": "s3_aws_region",
-      "label": "AWS Region Code (S3 only)",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "The External ID to your IAM role. Generate a secure string and treat it like a password.",
-      "key": "iam_external_id",
-      "label": "IAM External ID",
-      "required": true,
-      "secret": true,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [],
-  "name": "AWS S3 CSV",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
 exports[`segment templates template segment-actions-saleswings matches expected result 1`] = `
 {
   "category": [],
@@ -26329,67 +26129,6 @@ exports[`segment templates template segment-actions-stackadapt-cloud matches exp
     },
   ],
   "name": "StackAdapt",
-  "status": "alpha",
-  "type": "destination",
-}
-`;
-
-exports[`segment templates template segment-actions-taboola-actions matches expected result 1`] = `
-{
-  "category": [],
-  "description": "Send event data to Taboola",
-  "free": false,
-  "hog": "return event",
-  "icon_url": "/api/environments/@current/hog_functions/icon/?id=taboola.com",
-  "id": "segment-actions-taboola-actions",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "The client ID from your Taboola account.",
-      "key": "client_id",
-      "label": "Client ID",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "default": undefined,
-      "description": "The client's secret from your Taboola account.",
-      "key": "client_secret",
-      "label": "Client Secret",
-      "required": true,
-      "secret": false,
-      "type": "string",
-    },
-    {
-      "choices": [
-        {
-          "label": "Audience Computation Key",
-          "value": "computation_key",
-        },
-        {
-          "label": "Audience Name",
-          "value": "audience_name",
-        },
-      ],
-      "default": "computation_key",
-      "description": "The audience identifier from your Taboola account.",
-      "key": "audience_identifier",
-      "label": "Audience Identifier",
-      "required": false,
-      "secret": false,
-      "type": "choice",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [],
-  "name": "Taboola",
   "status": "alpha",
   "type": "destination",
 }

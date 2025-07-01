@@ -41,14 +41,13 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
     invocation: T,
     params: Pick<
         Partial<CyclotronJobInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<CyclotronJobInvocation, 'queue'>
+        'queue' | 'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > = {}
 ): T {
     return {
         ...invocation,
-        // The target queue is always required
-        queue: params.queue,
+        // The target queue is typically the same as the source but can be overridden
+        queue: params.queue ?? invocation.queue,
         // The source is kept from the invocation always as it is important for the job queue router
         queueSource: invocation.queueSource,
         // Metadata is only used from the invocation if the queue is staying the same
@@ -69,9 +68,8 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
     invocation: CyclotronJobInvocation,
     invocationParams: Pick<
         Partial<CyclotronJobInvocation>,
-        'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
-    > &
-        Pick<CyclotronJobInvocation, 'queue'>,
+        'queue' | 'queuePriority' | 'queueMetadata' | 'queueScheduledAt' | 'queueParameters'
+    > = {},
     resultParams: Pick<
         Partial<CyclotronJobInvocationResult>,
         'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error'
