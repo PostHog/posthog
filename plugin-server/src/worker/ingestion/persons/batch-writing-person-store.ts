@@ -827,7 +827,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
 
         // Use a transaction to ensure we get the latest version with FOR UPDATE
-        await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, operation, async (tx) => {
+        await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
             // First fetch the person with FOR UPDATE to lock the row
             const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
                 forUpdate: true,
