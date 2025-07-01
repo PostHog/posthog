@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -42,14 +42,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => {
-                            if (selectedProject) {
-                                duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject.id })
-                                setIsDuplicateToProjectModalOpen(false)
-                            } else {
-                                lemonToast.error('Please select a project to duplicate to')
-                            }
-                        }}
+                        onClick={() => duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject?.id })}
                         loading={duplicatedToProjectSurveyLoading}
                         disabledReason={!selectedProject ? 'Select a project' : undefined}
                     >
