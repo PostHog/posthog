@@ -395,6 +395,7 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         'segment-actions-revx': 'revx.io',
         'segment-actions-saleswings': 'saleswingsapp.com',
         'segment-actions-schematic': 'schematichq.com',
+        'segment-actions-canny': 'canny.io',
     }
 
     if (!slug && !(id in icon_overrides)) {
