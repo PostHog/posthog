@@ -1,9 +1,5 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
-import { template as nativeEmailTemplate } from './_actions/native-email/native-email.template'
-import { template as nativeWebhookTemplate } from './_actions/native-webhook/native-webhook.template'
-import { template as slackMessageTemplate } from './_actions/slack-message/slack-message.template'
-import { template as twilioSmsTemplate } from './_actions/twilio-sms/twilio-sms.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
@@ -23,6 +19,10 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as nativeEmailTemplate } from './_workflow_actions/email/native-email.template'
+import { template as slackMessageTemplate } from './_workflow_actions/message/slack-message.template'
+import { template as twilioSmsTemplate } from './_workflow_actions/sms/twilio-sms.template'
+import { template as nativeWebhookTemplate } from './_workflow_actions/webhook/native-webhook.template'
 import { HogFunctionTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
