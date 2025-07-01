@@ -40,9 +40,12 @@ export const SetUpReverseProxyContent = (): JSX.Element => (
             means that events are less likely to be intercepted by tracking blockers.
         </p>
         <p>
-            Choose from our{' '}
-            <Link to="https://posthog.com/docs/advanced/proxy/managed-reverse-proxy">managed reverse proxy</Link> or set
-            up your own with <Link to="https://posthog.com/docs/advanced/proxy/cloudflare">Cloudflare</Link>,{' '}
+            We offer a{' '}
+            <Link to="https://posthog.com/docs/advanced/proxy/managed-reverse-proxy">
+                managed reverse proxy service
+            </Link>{' '}
+            that simplifies deployment and management, or you can set up your own with{' '}
+            <Link to="https://posthog.com/docs/advanced/proxy/cloudflare">Cloudflare</Link>,{' '}
             <Link to="https://posthog.com/docs/advanced/proxy/nginx">nginx</Link>, or{' '}
             <Link to="https://posthog.com/docs/advanced/proxy">other proxy options</Link>.
         </p>
