@@ -70,7 +70,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             prompt
             + ChatPromptTemplate.from_messages(
                 [
-                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT)("user", REACT_DEFINITIONS_PROMPT),
+                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
+                    ("user", REACT_DEFINITIONS_PROMPT),
                 ],
                 template_format="mustache",
             )
