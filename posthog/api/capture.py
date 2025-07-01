@@ -932,7 +932,7 @@ class CaptureInternalError(Exception):
 
 
 def new_capture_internal(
-    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profiles: bool = False
+    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
 ) -> Response:
     """
     new_capture_internal submits a single-event capture request payload to
@@ -943,7 +943,7 @@ def new_capture_internal(
         "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
     )
 
-    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event)
+    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
 
     # determine if this is a recordings or events type, route to correct capture endpoint
     resolved_capture_path = NEW_ANALYTICS_CAPTURE_ENDPOINT
@@ -971,17 +971,14 @@ def prepare_capture_internal_payload(
     token: Optional[str],
     distinct_id: Optional[str],
     raw_event: dict[str, Any],
-    process_person_profiles: bool = False,
+    process_person_profile: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability
     properties = raw_event.pop("properties", {})
     properties["capture_internal"] = True
 
     # be specific about this in internal events; person processing is resource intensive at the moment
-    if process_person_profiles:
-        properties["$process_person_profile"] = True
-    else:
-        properties["$process_person_profile"] = False
+    properties["$process_person_profile"] = process_person_profile
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
@@ -1003,7 +1000,7 @@ def prepare_capture_internal_payload(
 
     event_timestamp = raw_event.pop("timestamp", None)
     if event_timestamp is None:
-        event_timestamp = datetime.now(timezone.utc).isoformat()
+        event_timestamp = datetime.now(UTC).isoformat()
 
     return {
         "api_token": token,
