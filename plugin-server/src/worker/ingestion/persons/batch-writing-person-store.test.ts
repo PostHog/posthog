@@ -109,13 +109,13 @@ describe('BatchWritingPersonStore', () => {
 
         // Validate cache - should contain a PersonUpdate object
         const cache = (personStoreForBatch as any)['personUpdateCache']
-        const cachedUpdate = cache.get(`${teamId}:${person.uuid}`)
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)
         expect(cachedUpdate).toBeDefined()
         expect(cachedUpdate.distinct_id).toBe('test')
         expect(cachedUpdate.needs_write).toBe(true)
         expect(cachedUpdate.properties).toEqual({ test: 'test', new_value: 'new_value' })
         expect(cachedUpdate.team_id).toBe(1)
-        expect(cachedUpdate.uuid).toBe('1')
+        expect(cachedUpdate.id).toBe('1')
     })
 
     it('should remove person from caches when deleted', async () => {
@@ -126,12 +126,12 @@ describe('BatchWritingPersonStore', () => {
         const personUpdate = fromInternalPerson(person, 'test')
         personUpdate.properties = { new_value: 'new_value' }
         personUpdate.needs_write = false
-        updateCache.set(`${teamId}:${person.uuid}`, personUpdate)
+        updateCache.set(`${teamId}:${person.id}`, personUpdate)
 
         let checkCache = personStoreForBatch.getCheckCache()
         checkCache.set(`${teamId}:test`, person)
 
-        personStoreForBatch.setDistinctIdToPersonUuid(teamId, 'test', person.uuid)
+        personStoreForBatch.setDistinctIdToPersonId(teamId, 'test', person.id)
 
         const response = await personStoreForBatch.deletePerson(person, 'test')
         expect(response).toEqual([])
@@ -139,8 +139,8 @@ describe('BatchWritingPersonStore', () => {
         // Validate cache
         updateCache = personStoreForBatch.getUpdateCache()
         checkCache = personStoreForBatch.getCheckCache()
-        expect(updateCache.get(`${teamId}:${person.uuid}`)).toBeUndefined()
-        expect(checkCache.get(`${teamId}:${person.uuid}`)).toBeUndefined()
+        expect(updateCache.get(`${teamId}:${person.id}`)).toBeUndefined()
+        expect(checkCache.get(`${teamId}:${person.id}`)).toBeUndefined()
     })
 
     it('should flush person updates with default NO_ASSERT mode', async () => {
@@ -190,7 +190,7 @@ describe('BatchWritingPersonStore', () => {
 
         // Check cache contains merged updates
         const cache = personStoreForBatch.getUpdateCache()
-        const cachedUpdate = cache.get(`${teamId}:${person.uuid}`)!
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.properties).toEqual({ test: 'value2', prop1: 'value1', prop2: 'value2' }) // Second update overwrites
         expect(cachedUpdate.needs_write).toBe(true)
     })
@@ -211,10 +211,10 @@ describe('BatchWritingPersonStore', () => {
             expect(personFromUpdate).toBeDefined()
             expect(personFromUpdate!.id).toBe(person.id)
             expect(personFromUpdate!.team_id).toBe(person.team_id)
-            expect(personFromUpdate!.uuid).toBe(person.uuid)
+            expect(personFromUpdate!.id).toBe(person.id)
 
             const updateCache = personStoreForBatch.getUpdateCache()
-            const cachedPersonUpdate = updateCache.get(`${teamId}:${person.uuid}`)
+            const cachedPersonUpdate = updateCache.get(`${teamId}:${person.id}`)
             expect(cachedPersonUpdate).toBeDefined()
             expect(cachedPersonUpdate!.distinct_id).toBe('test-distinct2')
         })
@@ -378,25 +378,25 @@ describe('BatchWritingPersonStore', () => {
 
     it('should handle clearing cache for different team IDs', async () => {
         const personStoreForBatch = getBatchStoreForBatch()
-        const person2 = { ...person, uuid: 'person2-uuid', team_id: 2 }
+        const person2 = { ...person, id: 'person2-id', uuid: 'person2-uuid', team_id: 2 }
 
         // Add to both caches for different teams
         const updateCache = personStoreForBatch.getUpdateCache()
         const checkCache = personStoreForBatch.getCheckCache()
 
-        updateCache.set(`${person.team_id}:${person.uuid}`, fromInternalPerson(person, 'test'))
-        updateCache.set(`${person2.team_id}:${person2.uuid}`, fromInternalPerson(person2, 'test'))
+        updateCache.set(`${person.team_id}:${person.id}`, fromInternalPerson(person, 'test'))
+        updateCache.set(`${person2.team_id}:${person2.id}`, fromInternalPerson(person2, 'test'))
         checkCache.set(`${person.team_id}:test`, person)
         checkCache.set(`${person2.team_id}:test`, person2)
-        personStoreForBatch.setDistinctIdToPersonUuid(person.team_id, 'test', person.uuid)
-        personStoreForBatch.setDistinctIdToPersonUuid(person2.team_id, 'test', person2.uuid)
+        personStoreForBatch.setDistinctIdToPersonId(person.team_id, 'test', person.id)
+        personStoreForBatch.setDistinctIdToPersonId(person2.team_id, 'test', person2.id)
 
         // Delete person from team 1
         await personStoreForBatch.deletePerson(person, 'test')
 
         // Only team 1 entries should be removed
-        expect(updateCache.has(`${person.team_id}:${person.uuid}`)).toBe(false)
-        expect(updateCache.has(`${person2.team_id}:${person2.uuid}`)).toBe(true)
+        expect(updateCache.has(`${person.team_id}:${person.id}`)).toBe(false)
+        expect(updateCache.has(`${person2.team_id}:${person2.id}`)).toBe(true)
         expect(checkCache.has(`${person.team_id}:test`)).toBe(false)
         expect(checkCache.has(`${person2.team_id}:test`)).toBe(true)
     })
@@ -408,7 +408,7 @@ describe('BatchWritingPersonStore', () => {
         expect(result[0]).toEqual(person) // Should return original person unchanged
 
         const cache = personStoreForBatch.getUpdateCache()
-        const cachedUpdate = cache.get(`${teamId}:${person.uuid}`)!
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.needs_write).toBe(true) // Still marked for write
     })
 
@@ -422,7 +422,7 @@ describe('BatchWritingPersonStore', () => {
         )
 
         const cache = personStoreForBatch.getUpdateCache()
-        const cachedUpdate = cache.get(`${teamId}:${person.uuid}`)!
+        const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
         expect(cachedUpdate.properties.null_prop).toBeNull()
         expect(cachedUpdate.properties.undefined_prop).toBeUndefined()
 
@@ -456,7 +456,7 @@ describe('BatchWritingPersonStore', () => {
             teamId,
             'person_upsert_message_size_too_large',
             {
-                personUuid: person.uuid,
+                personId: person.id,
                 distinctId: 'test',
             }
         )
@@ -559,7 +559,7 @@ describe('BatchWritingPersonStore', () => {
                     teamId,
                     'person_upsert_message_size_too_large',
                     {
-                        personUuid: person.uuid,
+                        personId: person.id,
                         distinctId: 'test',
                     }
                 )
@@ -636,7 +636,7 @@ describe('BatchWritingPersonStore', () => {
                     teamId,
                     'person_upsert_message_size_too_large',
                     {
-                        personUuid: person.uuid,
+                        personId: person.id,
                         distinctId: 'test',
                     }
                 )
@@ -774,14 +774,12 @@ describe('BatchWritingPersonStore', () => {
         // updates via both distinct IDs should be merged into a single person update
         const personStoreForBatch = getBatchStoreForBatch()
 
-        const sharedPersonUuid = 'shared-person-uuid'
         const distinctId1 = 'user-email@example.com'
         const distinctId2 = 'user-device-abc123'
 
         // Both distinct IDs point to the same person
         const sharedPerson = {
             ...person,
-            uuid: sharedPersonUuid,
             properties: {
                 initial_prop: 'initial_value',
             },
@@ -808,13 +806,13 @@ describe('BatchWritingPersonStore', () => {
 
         const cache = personStoreForBatch.getUpdateCache()
 
-        const cacheKey = `${teamId}:${sharedPerson.uuid}`
+        const cacheKey = `${teamId}:${sharedPerson.id}`
         const cacheValue = cache.get(cacheKey)
         // Currently both cache entries exist, which is the problem
         expect(cacheValue).toBeDefined()
 
-        // Both cache entries have the same person UUID but different properties
-        expect(cacheValue?.uuid).toBe(sharedPersonUuid)
+        // Both cache entries have the same person id but different properties
+        expect(cacheValue?.id).toBe(sharedPerson.id)
         expect(cacheValue?.properties).toEqual({
             initial_prop: 'initial_value',
             prop_from_distinctId1: 'value1',
@@ -834,7 +832,7 @@ describe('BatchWritingPersonStore', () => {
         expect(db.updatePerson).toHaveBeenCalledTimes(1)
         expect(db.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
-                uuid: sharedPersonUuid,
+                id: sharedPerson.id,
                 properties: {
                     initial_prop: 'initial_value',
                     prop_from_distinctId1: 'value1',
@@ -842,7 +840,7 @@ describe('BatchWritingPersonStore', () => {
                 },
             }),
             expect.objectContaining({
-                uuid: sharedPersonUuid,
+                id: sharedPerson.id,
                 properties: {
                     initial_prop: 'initial_value',
                     prop_from_distinctId1: 'value1',
