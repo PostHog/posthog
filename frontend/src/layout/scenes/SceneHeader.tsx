@@ -19,9 +19,6 @@ import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeL
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
-/** Sync with --breadcrumbs-height-compact. */
-export const BREADCRUMBS_HEIGHT_COMPACT = 44
-
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
     const { breadcrumbs } = useValues(breadcrumbsLogic)
