@@ -8,7 +8,7 @@ from langchain_core.messages import (
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.utils.tests import FakeChatOpenAI
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import CoreMemory
 from posthog.schema import (
@@ -538,6 +538,28 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             )
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
+
+    def test_model_retry_actually_retries_on_failure(self):
+        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as mock_get_model:
+            counter = 0
+            expected_counter_total = 2
+
+            def side_effect(*args, **kwargs):
+                nonlocal counter
+                counter += 1
+                if counter == 1:
+                    raise Exception
+                return LangchainAIMessage(content="Testing retries")
+
+            mock_get_model.return_value = FakeRunnableLambdaWithTokenCounter(side_effect)
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Launch run, expecting retries")])
+
+            _ = node.run(state, {})
+
+            self.assertEqual(counter, expected_counter_total)
+            mock_get_model.assert_called()
 
 
 class TestRootNodeTools(BaseTest):

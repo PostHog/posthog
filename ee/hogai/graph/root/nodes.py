@@ -312,7 +312,7 @@ class RootNode(RootNodeUIContextMixin):
 
         ui_context = self._format_ui_context(self._get_ui_context(state))
 
-        message = chain.invoke(
+        message = chain.with_retry(stop_after_attempt=1).invoke(
             {
                 "core_memory": self.core_memory_text,
                 "project_datetime": self.project_now,
