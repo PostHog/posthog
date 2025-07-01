@@ -10763,6 +10763,7 @@
                 "insightTrends",
                 "insightRetention",
                 "insightUserPaths",
+                "insightPathsV2",
                 "insightLifecycle",
                 "insightStickiness",
                 "insightHogQL",

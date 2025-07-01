@@ -111,6 +111,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconUserPaths />,
         iconColor: ['var(--insight-user-paths-light)', 'var(--insight-user-paths-dark)'],
     },
+    insightPathsV2: {
+        icon: <IconUserPaths />,
+        iconColor: ['var(--insight-paths-v2-light)'],
+    },
     insightLifecycle: {
         icon: <IconLifecycle />,
         iconColor: ['var(--insight-lifecycle-light)'],

@@ -322,6 +322,7 @@ export const INSIGHT_VISUAL_ORDER = {
     funnel: 20,
     retention: 30,
     paths: 40,
+    pathsV2: 41,
     stickiness: 50,
     lifecycle: 60,
     calendarHeatmap: 70,

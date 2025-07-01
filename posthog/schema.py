@@ -1197,6 +1197,7 @@ class FileSystemIconType(StrEnum):
     INSIGHT_TRENDS = "insightTrends"
     INSIGHT_RETENTION = "insightRetention"
     INSIGHT_USER_PATHS = "insightUserPaths"
+    INSIGHT_PATHS_V2 = "insightPathsV2"
     INSIGHT_LIFECYCLE = "insightLifecycle"
     INSIGHT_STICKINESS = "insightStickiness"
     INSIGHT_HOG_QL = "insightHogQL"

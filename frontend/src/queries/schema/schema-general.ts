@@ -2166,6 +2166,7 @@ export type FileSystemIconType =
     | 'insightTrends'
     | 'insightRetention'
     | 'insightUserPaths'
+    | 'insightPathsV2'
     | 'insightLifecycle'
     | 'insightStickiness'
     | 'insightHogQL'
