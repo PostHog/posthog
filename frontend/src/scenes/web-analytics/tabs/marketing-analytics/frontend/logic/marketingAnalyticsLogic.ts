@@ -52,7 +52,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
         setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
-        clearDynamicConversionGoal: () => true,
     }),
     reducers({
         marketingAnalyticsOrderBy: [
@@ -66,7 +65,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             null as ConversionGoalFilter | null,
             {
                 setDynamicConversionGoal: (_, { goal }) => goal,
-                clearDynamicConversionGoal: () => null,
             },
         ],
     }),
