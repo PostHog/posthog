@@ -245,10 +245,7 @@ def meta_ads_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    """A data warehouse Meta Ads source.
-    We utilize the Facebook Business SDK to query for the configured resource and
-    yield batches of rows as Python lists.
-    """
+    """A data warehouse Meta Ads source."""
     name = NamingConvention().normalize_identifier(config.resource_name)
     schema = get_schemas()[config.resource_name]
 

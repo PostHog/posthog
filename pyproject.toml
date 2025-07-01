@@ -151,7 +151,6 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
-    "facebook-business>=23.0.0",
 ]
 
 [dependency-groups]
