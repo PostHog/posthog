@@ -1,7 +1,7 @@
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -31,7 +31,6 @@ import {
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ActionFilter,
-    BillingType,
     ChartDisplayType,
     Experiment,
     ExperimentMetricMathType,
@@ -914,18 +913,3 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
-
-/**
- * TODO: remove since rollout is complete.
- */
-export const shouldUseNewQueryRunnerForNewObjects = (featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
-    // For non-paying users, we use dedicated flag to control the rollout of the new query runner
-    const isOnFreePlan = billing?.subscription_level === 'free'
-    if (isOnFreePlan && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN]) {
-        return true
-    }
-
-    // If the users org. is on a paid plan, or the feature flag above is disabled, we use the default
-    // feature flag to control the rollout of the new query runner
-    return !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
-}
