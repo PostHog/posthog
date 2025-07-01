@@ -185,6 +185,9 @@ export function ProjectTree({
                 <>
                     <DashboardsMenuItems
                         MenuItem={MenuItem}
+                        MenuSub={MenuSub}
+                        MenuSubTrigger={MenuSubTrigger}
+                        MenuSubContent={MenuSubContent}
                         MenuSeparator={MenuSeparator}
                         onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                     />
