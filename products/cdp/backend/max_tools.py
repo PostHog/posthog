@@ -1,9 +1,13 @@
 from typing import Optional
 import re
+import json
 from ee.hogai.tool import MaxTool
 from posthog.cdp.validation import compile_hog
 from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
-from products.cdp.backend.prompts import HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
+from products.cdp.backend.prompts import (
+    HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+)
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -16,6 +20,14 @@ class CreateHogTransformationFunctionArgs(BaseModel):
 
 class HogTransformationOutput(BaseModel):
     hog_code: str
+
+
+class CreateHogFunctionFiltersArgs(BaseModel):
+    instructions: str = Field(description="The instructions for what filters to create.")
+
+
+class HogFunctionFiltersOutput(BaseModel):
+    filters: dict
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
@@ -89,3 +101,114 @@ class CreateHogTransformationFunctionTool(MaxTool):
             )
 
         return HogTransformationOutput(hog_code=hog_code)
+
+
+class CreateHogFunctionFiltersTool(MaxTool):
+    name: str = "create_hog_function_filters"  # Must match a value in AssistantContextualTool enum
+    description: str = (
+        "Create or edit filters for hog functions to specify which events and properties trigger the function"
+    )
+    thinking_message: str = "Setting up filters for your hog function"
+    args_schema: type[BaseModel] = CreateHogFunctionFiltersArgs
+    root_system_prompt_template: str = HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT
+
+    def _run_impl(self, instructions: str) -> tuple[str, str]:
+        current_filters = self.context.get("current_filters", "{}")
+        function_type = self.context.get("function_type", "destination")
+        is_transformation = self.context.get("is_transformation", False)
+
+        system_content = f"""You are an expert at creating filters for PostHog hog functions.
+
+Current filters: {current_filters}
+Function type: {function_type}
+Is transformation: {is_transformation}
+
+Create filters based on the user's instructions. Return the filters as a JSON object with the following structure:
+{{
+    "events": [
+        {{
+            "id": "event_name",
+            "name": "Event Name",
+            "type": "events",
+            "order": 0,
+            "properties": []
+        }}
+    ],
+    "actions": [],
+    "properties": [
+        {{
+            "key": "property_key",
+            "value": "property_value",
+            "operator": "exact",
+            "type": "event"
+        }}
+    ],
+    "filter_test_accounts": false
+}}
+
+Common event names:
+- $pageview (for page views)
+- $identify (for user identification)
+- $set (for setting user properties)
+- Custom events like "button_clicked", "form_submitted", etc.
+
+Property types can be:
+- "event" for event properties
+- "person" for person properties
+- "group" for group properties
+
+Common operators:
+- "exact" for exact matches
+- "icontains" for contains
+- "regex" for regex patterns
+- "gt", "lt", "gte", "lte" for numeric comparisons
+
+Return ONLY the JSON object inside <filters> tags. Do not add any other text or explanation."""
+
+        user_content = f"Create filters for this hog function: {instructions}"
+
+        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+
+        final_error: Optional[Exception] = None
+        for _ in range(3):
+            try:
+                result = self._model.invoke(messages)
+                parsed_result = self._parse_output(result.content)
+                break
+            except PydanticOutputParserException as e:
+                # Add error feedback to system message for retry
+                system_content += f"\n\nAvoid this error: {str(e)}"
+                messages[0] = SystemMessage(content=system_content)
+                final_error = e
+        else:
+            raise final_error
+
+        return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+
+    def _parse_output(self, output: str) -> HogFunctionFiltersOutput:
+        match = re.search(r"<filters>(.*?)</filters>", output, re.DOTALL)
+        if not match:
+            # The model may have returned the JSON without tags, or with markdown
+            json_str = re.sub(
+                r"^\s*```json\s*\n(.*?)\n\s*```\s*$", r"\1", output, flags=re.DOTALL | re.MULTILINE
+            ).strip()
+        else:
+            json_str = match.group(1).strip()
+
+        if not json_str:
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message="The model returned an empty filters response."
+            )
+
+        try:
+            filters = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise PydanticOutputParserException(
+                llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
+            )
+
+        return HogFunctionFiltersOutput(filters=filters)
