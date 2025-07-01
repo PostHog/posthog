@@ -209,7 +209,7 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
     session_summaries_chunks_str = [
         intermediate_session_summaries_str[i : i + 10] for i in range(0, len(intermediate_session_summaries_str), 10)
     ]
-    # Get extracted patterns from Redis
+    # Get extracted patterns from Redis to be able to assign events to them
     patterns_extraction = cast(
         RawSessionGroupSummaryPatternsList,
         get_data_class_from_redis(
@@ -219,6 +219,7 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
             target_class=RawSessionGroupSummaryPatternsList,
         ),
     )
+    # Assign events <> patterns through LLM calls in chunks to keep the content meaningful
     patterns_assignments_list_of_lists = await _generate_patterns_assignments(
         patterns=patterns_extraction,
         session_summaries_chunks_str=session_summaries_chunks_str,
@@ -273,13 +274,4 @@ async def assign_events_to_patterns_activity(inputs: SessionGroupSummaryOfSummar
     # TODO: Remove after testing
     with open("patterns_with_events_context.json", "w") as f:
         f.write(patterns_with_events_context.model_dump_json(exclude_none=True))
-    # TODO: Enable after testing
-    # summary_prompt = generate_session_group_summary_prompt(
-    #     session_summaries=session_summaries, extra_summary_context=inputs.extra_summary_context
-    # )
-    # # Get summary from LLM
-    # summary_of_summaries = await get_llm_session_group_summary(
-    #     prompt=summary_prompt, user_id=inputs.user_id, session_ids=inputs.session_ids
-    # )
-    # return summary_of_summaries
     return None

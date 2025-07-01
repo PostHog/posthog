@@ -34,6 +34,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from ee.session_recordings.session_summary.llm.call import get_openai_client
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -71,7 +72,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-
+from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 from ..models.product_intent.product_intent import ProductIntent
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
@@ -927,16 +928,84 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
+        # TODO: Uncomment after testing
+        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        #     raise exceptions.ValidationError("session summary is not enabled for this user")
 
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         session_id = recording.session_id
-        return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
-            content_type=ServerSentEventRenderer.media_type,
+        # session_ids_to_test = [
+        #     "01973fc2-2771-744b-a06d-f3b0f91cf404",
+        #     "01973fc2-8543-76cd-a695-69aa02ebc625",
+        #     "019744c2-3353-7aeb-a0b8-ca41749a2a97",
+        #     "019744ea-6e78-7e3d-82af-223ae3baf416",
+        #     "0197459a-7744-744c-b995-6a998e26705b",
+        #     "01975449-5a34-788e-b75b-f030a5b52f3f",
+        #     "01975478-ffcf-7949-b176-cb2fc7f56d7d",
+        #     "019754bd-79be-7d1f-bc97-69d8b1efc3c4",
+        #     "01975a2a-e519-7c9b-a3ab-0a80420362ab",
+        #     "019763d8-2a7f-73a1-bdce-dd5c09576fea"
+        # ]
+        session_ids_to_test = [
+            "0197c33f-99ee-7e6a-bb95-54781cbd59da",
+            "01978570-0b4f-740f-81ea-e4ce54f6434f",
+            # "0197856d-9ab4-7104-b5a4-6cd5bb8eb050",
+            # "01978561-9bbb-726a-8a50-21d749c533dc",
+            # "01978561-671b-790f-a53c-18dfab1626ff",
+            # "01978561-0b4b-71f4-a938-d8bd98be439f",
+            # "0197855a-6e96-73f8-a3ce-4f475aba7d74",
+            # "0197855c-084c-7d84-b72c-cfb6ba0a34ae",
+            # "0197855b-0ba6-7822-ac63-a310d8a8c739",
+            # "01978558-3e89-75d2-b7a4-432cd19330b4",
+            # "01978553-e850-7c55-b965-26723fd5f16d",
+            # "0197854f-5569-74e1-8229-0131b0fab069",
+            # "01978550-8967-7df2-b020-823e70917698",
+            # "0197854e-cda0-77c2-9b47-ae9bcb74d83d",
+            # "0197854e-714c-76f5-a93e-2179bd79f173",
+            # "0197854d-f319-78fb-885e-7db80e6030e1",
+            # "0197854b-f68a-7253-92b3-17e4e74da05a",
+            # "0197854a-f639-7421-94a1-6384abbbdb55",
+            # "01978549-d526-7db4-8e92-654c87be6c38",
+            # "01978546-4abd-7e5f-891c-72f65b0a8ed9",
+            # "01978544-dee0-70b9-a40d-2d103b6b66ee",
+            # "01978542-87c0-7e57-ba21-79412235d06f",
+            # "01978540-f9ae-7286-8c44-62681c2b4a35",
+            # "0197853e-cf1a-74c5-9ba6-08bfc8cd01be",
+            # "0197853d-f288-7882-81ff-6f10480b894e",
+            # "0197853d-5be8-7586-927d-7db36ffd163e",
+            # "0197853b-324f-743a-972b-577ca1042201",
+            # "01978539-729b-7f04-98d2-db4b0b106b8c",
+            # "01978538-1c36-7f02-b20e-d56c51e86841",
+            # "01978537-5e99-7b0d-9292-4982399c9dc0",
+            # "01978535-6e24-7ca4-95dd-e6bad1c7e484",
+            # "01978531-0c40-7664-8f64-2ad72f04c6ea",
+            # "01978530-a192-71bb-a4b3-3e9e08a4a857",
+            # "01978530-66d1-7fd6-a31d-81bb8b82a0f5",
+            # "0197852f-db6d-7f66-9367-6dba0a0813f9",
+            # "0197852c-f8a3-7045-86fe-a29709cd9095",
+            # "0197852c-079d-7c15-85e8-b1d965e2dcc6",
+            # "01978529-c5ed-7736-a272-7f14c188ed6c",
+            # "01978529-0232-7ea0-a3a8-cc8c2acb5253",
+            # "01978527-f6b6-701b-9b5a-3de7d1684a4f",
+            # "01978527-d115-7dc5-b94d-2f20ebfc79ca",
+            # "01978520-e11d-7739-b348-000ca68a9b2b",
+            # # "01978523-1ba1-743d-bb2d-3b64ee20ed9a",
+        ]
+        old_team_pk = self.team.pk
+        self.team.pk = 8910
+        non_stream_summary = execute_summarize_session_group(
+            session_ids=list(dict.fromkeys(session_ids_to_test[:40])),
+            user_id=user.pk,
+            team=self.team,
+            local_reads_prod=True,
         )
+        self.team.pk = old_team_pk
+        return None
+        # return StreamingHttpResponse(
+        #     stream_recording_summary(session_id=session_id, user_pk=user.pk, team=self.team),
+        #     content_type=ServerSentEventRenderer.media_type,
+        # )
 
         # TODO: Calculate timings for stream, and track summarization events (follow-up)
         # timings_header = summary.pop("timings_header", None)
@@ -1107,7 +1176,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
-        client = _get_openai_client()
+        client = get_openai_client()
 
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
@@ -1326,21 +1395,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _get_openai_client() -> OpenAI:
-    """Get configured OpenAI client or raise appropriate error."""
-    if not settings.DEBUG and not is_cloud():
-        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise exceptions.ValidationError("OpenAI API key is not configured")
-
-    client = posthoganalytics.default_client
-    if not client:
-        raise exceptions.ValidationError("PostHog analytics client is not configured")
-
-    return OpenAI(posthog_client=client)
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:
