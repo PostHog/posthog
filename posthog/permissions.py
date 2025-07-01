@@ -649,13 +649,28 @@ class UserCanInvitePermission(BasePermission):
         return members_can_invite
 
 
-class OrganizationInviteSettingsPermission(BasePermission):
+class PersonalApiKeyCreatePermission(BasePermission):
     """
-    Only Admins+ can update org invite settings
+    Only allows creation of personal API keys if organization permits it.
+    Admins can always create keys regardless of the setting.
     """
+
+    message = "Your organization does not allow creating personal API keys."
 
     def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
-        membership = user.organization_memberships.get(organization=user.organization)
 
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        if view.action != "create":
+            return True
+
+        try:
+            membership = user.organization_memberships.get(organization=user.organization)
+            if membership.level >= OrganizationMembership.Level.ADMIN:
+                return True
+        except OrganizationMembership.DoesNotExist:
+            pass
+
+        if user.organization:
+            return bool(user.organization.members_can_create_personal_api_keys)
+
+        return True
