@@ -1,5 +1,4 @@
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -35,8 +34,10 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-tags" className="flex flex-col gap-1">
-            <Label intent="menu">Tags</Label>
-            <LemonField.Pure label="Tags" className="gap-0">
+            <div className="gap-0">
+                <Label intent="menu" htmlFor="new-tag-input">
+                    Tags
+                </Label>
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
@@ -49,7 +50,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                     size="xsmall"
                     autoFocus
                 />
-            </LemonField.Pure>
+            </div>
             <div className="flex gap-1">
                 <ButtonPrimitive
                     type="submit"
@@ -75,13 +76,14 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
             </div>
         </form>
     ) : (
-        <LemonField.Pure label="Tags" className="gap-0">
+        <div className="gap-0">
+            <Label intent="menu">Tags</Label>
             <div className="flex gap-1 items-center">
                 <ObjectTags tags={tags ?? []} data-attr="scene-tags" staticOnly />
-                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="xs">
+                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="sm">
                     <IconPencil />
                 </ButtonPrimitive>
             </div>
-        </LemonField.Pure>
+        </div>
     )
 }

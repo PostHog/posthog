@@ -1,6 +1,6 @@
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimtive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 
@@ -28,7 +28,10 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
-            <LemonField.Pure label="Name" className="gap-0" htmlFor="page-name-input">
+            <div className="gap-0">
+                <Label intent="menu" htmlFor="page-name-input">
+                    Name
+                </Label>
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
@@ -39,7 +42,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     data-attr={`${dataAttr}-name-input`}
                     autoFocus
                 />
-            </LemonField.Pure>
+            </div>
             <div className="flex gap-1">
                 <ButtonPrimitive
                     type="submit"
@@ -64,18 +67,19 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
             </div>
         </form>
     ) : (
-        <LemonField.Pure label="Name" className="gap-0">
-            <p className="m-0 hyphens-auto" lang="en">
+        <div className="gap-0">
+            <Label intent="menu">Name</Label>
+            <p className="m-0 hyphens-auto flex gap-1" lang="en">
                 {defaultValue || <span className="text-tertiary font-normal">No name</span>}
                 <ButtonPrimitive
                     iconOnly
                     onClick={() => setLocalIsEditing(true)}
                     className="inline-block ml-1"
-                    size="xs"
+                    size="sm"
                 >
                     <IconPencil />
                 </ButtonPrimitive>
             </p>
-        </LemonField.Pure>
+        </div>
     )
 }

@@ -1,7 +1,7 @@
-import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Label } from 'lib/ui/Label/Label'
 import { UserBasicType } from '~/types'
 import { TZLabel } from '../TZLabel'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 interface SceneActivityIndicatorProps {
     prefix?: string
@@ -16,13 +16,14 @@ export function SceneActivityIndicator({
 }: SceneActivityIndicatorProps): JSX.Element | null {
     return at && by ? (
         <div>
-            <LemonField.Pure label={prefix} className="gap-0">
+            <div className="gap-0">
+                <Label intent="menu">{prefix}</Label>
                 <span className="flex items-center gap-1 whitespace-normal flex-wrap">
                     <TZLabel time={at} className="w-fit" />
                     <span className="text-secondary">by</span>
                     <ProfilePicture user={by} showName size="md" />
                 </span>
-            </LemonField.Pure>
+            </div>
         </div>
     ) : null
 }

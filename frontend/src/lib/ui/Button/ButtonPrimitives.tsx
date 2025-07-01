@@ -14,7 +14,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 type ButtonVariant = 'default' | 'outline' | 'danger'
 
-export type ButtonSize = 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
+export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -73,9 +73,6 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
 
     let buttonHeight = 'button-primitive--height-base'
     switch (size) {
-        case 'xs':
-            buttonHeight = 'button-primitive--height-xs'
-            break
         case 'sm':
             buttonHeight = 'button-primitive--height-sm'
             break
@@ -132,7 +129,6 @@ export const buttonPrimitiveVariants = cva({
             danger: 'button-primitive--variant-danger',
         },
         size: {
-            xs: `button-primitive--size-xs button-primitive--height-xs text-xs`,
             sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,

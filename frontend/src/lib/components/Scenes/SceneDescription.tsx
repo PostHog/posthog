@@ -1,8 +1,8 @@
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimtive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
+import { Label } from 'lib/ui/Label/Label'
 
 type SceneDescriptionProps = {
     defaultValue: string
@@ -28,7 +28,10 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
-            <LemonField.Pure label="Description" className="gap-0" htmlFor="page-description-input">
+            <div className="gap-0">
+                <Label intent="menu" htmlFor="page-description-input">
+                    Description
+                </Label>
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
@@ -39,7 +42,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
                     data-attr={`${dataAttr}-description-input`}
                     autoFocus
                 />
-            </LemonField.Pure>
+            </div>
             <div className="flex gap-1">
                 <ButtonPrimitive
                     type="submit"
@@ -64,13 +67,14 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
             </div>
         </form>
     ) : (
-        <LemonField.Pure label="Description" className="gap-0">
+        <div className="gap-0">
+            <Label intent="menu">Description</Label>
             <p className="m-0 hyphens-auto flex gap-1" lang="en">
                 {defaultValue || <span className="text-tertiary font-normal">No description</span>}
-                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="xs">
+                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="sm">
                     <IconPencil />
                 </ButtonPrimitive>
             </p>
-        </LemonField.Pure>
+        </div>
     )
 }

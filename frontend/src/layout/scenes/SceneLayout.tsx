@@ -9,6 +9,8 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { Label } from 'lib/ui/Label/Label'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -36,8 +38,23 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
     )
 }
 
+export function SceneLayoutPanelDivider(): JSX.Element {
+    return <LemonDivider className="-mx-2 my-2 w-[calc(100%+1rem)]" />
+}
+
 export function SceneLayoutPanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="px-1 pt-4 flex flex-col gap-2">{children}</div>
+}
+
+export function SceneLayoutPanelActions({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <Label intent="menu" className="px-1">
+                Actions
+            </Label>
+            <div className="flex flex-col gap-px">{children}</div>
+        </div>
+    )
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
@@ -95,7 +112,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         >
                             <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
-                                    <IconInfo className="size-6 text-tertiary" />
+                                    <IconInfo className="size-5 text-tertiary" />
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
