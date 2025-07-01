@@ -3650,9 +3650,6 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-    query_date_range: Optional[QueryDateRangeResponse] = Field(
-        default=None, description="The date range used for the query."
-    )
 
 
 class RevenueExampleEventsQueryResponse(BaseModel):
@@ -5423,9 +5420,6 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-    query_date_range: Optional[QueryDateRangeResponse] = Field(
-        default=None, description="The date range used for the query."
-    )
 
 
 class CachedRevenueExampleEventsQueryResponse(BaseModel):

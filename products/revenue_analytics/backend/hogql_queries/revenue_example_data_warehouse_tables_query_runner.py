@@ -8,7 +8,6 @@ from posthog.schema import (
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
-    QueryDateRangeResponse,
 )
 from ..views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 
@@ -75,10 +74,5 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
-            query_date_range=QueryDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
-                date_to=self.query_date_range.date_to(),
-                interval=self.query_date_range.interval_type,
-            ),
             **self.paginator.response_params(),
         )
