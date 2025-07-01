@@ -166,3 +166,4 @@ export type AssistantNavigateUrls =
     | 'notebooks'
     | 'persons'
     | 'toolbarLaunch'
+    | 'create_hog_function_inputs'

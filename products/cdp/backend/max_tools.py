@@ -3,6 +3,8 @@ import re
 import json
 from ee.hogai.tool import MaxTool
 from posthog.cdp.validation import compile_hog
+from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
+from products.cdp.backend.prompts import HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT, HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 from posthog.hogql.ai import (
     HOG_EXAMPLE_MESSAGE,
     HOG_GRAMMAR_MESSAGE,
@@ -190,3 +192,107 @@ class CreateHogFunctionFiltersTool(MaxTool):
             )
 
         return HogFunctionFiltersOutput(filters=filters)
+
+
+class CreateHogFunctionInputsArgs(BaseModel):
+    instructions: str = Field(description="The instructions for what inputs to generate or modify.")
+
+
+class HogFunctionInputsOutput(BaseModel):
+    inputs_schema: list = Field(description="The generated inputs schema for the hog function")
+
+
+class CreateHogFunctionInputsTool(MaxTool):
+    name: str = "create_hog_function_inputs"
+    description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
+    thinking_message: str = "Generating input variables for your hog function"
+    args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
+    root_system_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
+
+    def _run_impl(self, instructions: str) -> tuple[str, list]:
+        current_inputs_schema = self.context.get("current_inputs_schema", [])
+        hog_code = self.context.get("hog_code", "")
+        function_type = self.context.get("function_type", "destination")
+
+        system_content = f"""You are an expert at creating input variable schemas for PostHog hog functions.
+
+Current hog code:
+{hog_code}
+Current inputs schema:
+{current_inputs_schema}
+Function type: {function_type}
+Your task is to analyze the hog code and create appropriate input variable schemas based on the instructions. 
+CRITICAL: You must extract the EXACT variable names used in the hog code. Look for patterns like:
+- inputs.variableName
+- inputs['variableName'] 
+- inputs["variableName"]
+The "key" field in the schema MUST match exactly what is used in the hog code after "inputs.". For example:
+- If code uses inputs.propertiesToRedact, the key must be "propertiesToRedact" (NOT "properties_to_redact")
+- If code uses inputs.webhookUrl, the key must be "webhookUrl" (NOT "webhook_url")
+- If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
+Input schema format should be a list of objects with these fields:
+- key: string (EXACT variable name as used in hog code, preserve camelCase/snake_case)
+- type: string (one of: string, number, boolean, dictionary, choice, json, integration, email)
+- label: string (human readable label)
+- description: string (description of what this input is for)
+- required: boolean (whether this input is required)
+- default: any (default value, optional)
+- choices: list (for choice type, list of {{label, value}} objects)
+- templating: boolean (whether templating is enabled, defaults to true)
+- secret: boolean (whether this is a secret value, defaults to false)
+Return ONLY a valid JSON array of input schema objects inside <inputs_schema> tags."""
+
+        user_content = f"Create or modify the input variables for this hog function: {instructions}"
+
+        messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+
+        final_error: Optional[Exception] = None
+        for _ in range(3):
+            try:
+                result = self._model.invoke(messages)
+                parsed_result = self._parse_output(result.content)
+                break
+            except PydanticOutputParserException as e:
+                system_content += f"\n\nAvoid this error: {str(e)}"
+                messages[0] = SystemMessage(content=system_content)
+                final_error = e
+        else:
+            raise final_error
+
+        # Format the output for display
+        import json
+        formatted_json = json.dumps(parsed_result.inputs_schema, indent=2)
+        return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
+
+    def _parse_output(self, output: str) -> HogFunctionInputsOutput:
+        import json
+
+        match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output, re.DOTALL)
+        if not match:
+            # Try to find JSON array in the output
+            json_match = re.search(r'\[[\s\S]*\]', output)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                raise PydanticOutputParserException(
+                    llm_output=output, validation_message="Could not find inputs_schema in the response."
+                )
+        else:
+            json_str = match.group(1).strip()
+
+        try:
+            inputs_schema = json.loads(json_str)
+            if not isinstance(inputs_schema, list):
+                raise PydanticOutputParserException(
+                    llm_output=output, validation_message="Inputs schema must be a list."
+                )
+        except json.JSONDecodeError as e:
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message=f"Invalid JSON in inputs schema: {str(e)}"
+            )
+
+        return HogFunctionInputsOutput(inputs_schema=inputs_schema)

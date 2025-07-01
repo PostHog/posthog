@@ -87,6 +87,9 @@ export function HogFunctionConfiguration({
         mightDropEvents,
         oldHogCode,
         newHogCode,
+        oldInputs,
+        newInputs,
+        inputsDiff,
         featureFlags,
     } = useValues(logic)
 
@@ -106,6 +109,13 @@ export function HogFunctionConfiguration({
         reportAIHogFunctionAccepted,
         reportAIHogFunctionRejected,
         reportAIHogFunctionPromptOpen,
+        setOldInputs,
+        setNewInputs,
+        clearInputsDiff,
+        reportAIHogFunctionInputsPrompted,
+        reportAIHogFunctionInputsAccepted,
+        reportAIHogFunctionInputsRejected,
+        reportAIHogFunctionInputsPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
@@ -408,19 +418,96 @@ export function HogFunctionConfiguration({
                                         </LemonBanner>
                                     ) : null}
 
-                                    <CyclotronJobInputs
-                                        configuration={{
-                                            inputs_schema: configuration.inputs_schema ?? [],
-                                            inputs: configuration.inputs ?? {},
-                                        }}
-                                        onInputSchemaChange={(schema) => {
-                                            setConfigurationValue('inputs_schema', schema)
-                                        }}
-                                        onInputChange={(key, input) => {
-                                            setConfigurationValue(`inputs.${key}`, input)
-                                        }}
-                                        showSource={showSource}
-                                    />
+                                    {aiHogFunctionCreation ? (
+                                        <MaxTool
+                                            name="create_hog_function_inputs"
+                                            displayName="Generate and manage input variables"
+                                            context={{
+                                                current_inputs_schema: configuration.inputs_schema ?? [],
+                                                hog_code: configuration.hog ?? '',
+                                                function_type: configuration.type ?? 'destination',
+                                            }}
+                                            callback={(toolOutput: any) => {
+                                                // Store the old inputs before changing
+                                                setOldInputs(configuration.inputs_schema ?? [])
+                                                // Store the new inputs from Max Tool
+                                                setNewInputs(toolOutput)
+                                                // Report that AI was prompted
+                                                reportAIHogFunctionInputsPrompted()
+                                                // Don't immediately update the form - let user accept/reject
+                                            }}
+                                            onMaxOpen={() => {
+                                                reportAIHogFunctionInputsPromptOpen()
+                                            }}
+                                            suggestions={[]}
+                                            introOverride={{
+                                                headline: 'What input variables do you need?',
+                                                description:
+                                                    'Let me help you generate the input variables for your function based on your code and requirements.',
+                                            }}
+                                        >
+                                            <div>
+                                                <CyclotronJobInputs
+                                                    configuration={{
+                                                        inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
+                                                        inputs: configuration.inputs ?? {},
+                                                    }}
+                                                    onInputSchemaChange={(schema) => {
+                                                        // If user manually edits while diff is showing, clear the diff
+                                                        if (oldInputs && newInputs) {
+                                                            clearInputsDiff()
+                                                        }
+                                                        setConfigurationValue('inputs_schema', schema)
+                                                    }}
+                                                    onInputChange={(key, input) => {
+                                                        setConfigurationValue(`inputs.${key}`, input)
+                                                    }}
+                                                    showSource={showSource}
+                                                />
+                                                {inputsDiff && (
+                                                    <div className="flex gap-2 mt-2">
+                                                        <LemonButton
+                                                            type="primary"
+                                                            size="small"
+                                                            onClick={() => {
+                                                                if (newInputs) {
+                                                                    setConfigurationValue('inputs_schema', newInputs)
+                                                                }
+                                                                reportAIHogFunctionInputsAccepted()
+                                                                clearInputsDiff()
+                                                            }}
+                                                        >
+                                                            Accept changes
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            size="small"
+                                                            onClick={() => {
+                                                                reportAIHogFunctionInputsRejected()
+                                                                clearInputsDiff()
+                                                            }}
+                                                        >
+                                                            Reject changes
+                                                        </LemonButton>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </MaxTool>
+                                    ) : (
+                                        <CyclotronJobInputs
+                                            configuration={{
+                                                inputs_schema: configuration.inputs_schema ?? [],
+                                                inputs: configuration.inputs ?? {},
+                                            }}
+                                            onInputSchemaChange={(schema) => {
+                                                setConfigurationValue('inputs_schema', schema)
+                                            }}
+                                            onInputChange={(key, input) => {
+                                                setConfigurationValue(`inputs.${key}`, input)
+                                            }}
+                                            showSource={showSource}
+                                        />
+                                    )}
                                     {showSource && canEditSource ? (
                                         <LemonButton
                                             icon={<IconPlus />}
