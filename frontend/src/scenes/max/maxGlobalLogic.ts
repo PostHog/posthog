@@ -5,6 +5,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
@@ -33,7 +34,7 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization']],
+        values: [organizationLogic, ['currentOrganization'], sceneLogic, ['sceneConfig']],
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
@@ -98,6 +99,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
     })),
     selectors({
+        showFloatingMax: [
+            (s) => [s.sceneConfig],
+            (sceneConfig) => sceneConfig && !sceneConfig.onlyUnauthenticated && sceneConfig.layout !== 'plain',
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

@@ -2,11 +2,12 @@ import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { MaxContextSelector, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 
@@ -29,20 +30,21 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     : null,
         ],
         maxContext: [
-            () => [
-                (state): DashboardType<QueryBasedInsightModel> | null => {
-                    const logic = dashboardLogic(
-                        projectHomepageLogic.selectors.dashboardLogicProps(state) as DashboardLogicProps
-                    )
-                    logic.mount()
-                    return logic.selectors.dashboard(state)
-                },
-            ],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
+            (s) => [s.dashboardLogicProps],
+            (dashboardLogicProps: DashboardLogicProps | null): MaxContextSelector => {
+                if (!dashboardLogicProps) {
+                    return []
+                }
+
+                // Get the dashboard from the mounted dashboardLogic
+                const logic = dashboardLogic.findMounted(dashboardLogicProps)
+                const dashboard = logic?.values.dashboard
+
                 if (!dashboard) {
                     return []
                 }
-                return [{ type: 'dashboard', data: dashboard }]
+
+                return [createMaxContextHelpers.dashboard(dashboard)]
             },
         ],
     }),

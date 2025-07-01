@@ -215,9 +215,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
-            // Update MaxAI context when query changes
-            actions.setMaxContext()
-
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return

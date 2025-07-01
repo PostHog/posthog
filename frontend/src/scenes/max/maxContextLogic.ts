@@ -12,6 +12,7 @@ import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedI
 
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
+    InsightWithQuery,
     MaxActionContext,
     MaxContextItem,
     MaxContextOption,
@@ -56,7 +57,7 @@ const autoAddEntities = <TContext extends EntityWithIdAndType>(
     return [...state, ...uniqueNewEntities]
 }
 
-type LoadedEntitiesMap = { dashboard: []; insight: [] }
+export type LoadedEntitiesMap = { dashboard: []; insight: [] }
 
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
@@ -70,7 +71,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        addOrUpdateContextInsight: (data: Partial<QueryBasedInsightModel>) => ({ data }),
+        addOrUpdateContextInsight: (data: InsightWithQuery) => ({ data }),
         addOrUpdateContextDashboard: (data: DashboardType<QueryBasedInsightModel>) => ({ data }),
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
@@ -106,10 +107,8 @@ export const maxContextLogic = kea<maxContextLogicType>([
         contextInsights: [
             [] as MaxInsightContext[],
             {
-                addOrUpdateContextInsight: (
-                    state: MaxInsightContext[],
-                    { data }: { data: Partial<QueryBasedInsightModel> }
-                ) => addOrUpdateEntity(state, insightToMaxContext(data)),
+                addOrUpdateContextInsight: (state: MaxInsightContext[], { data }: { data: InsightWithQuery }) =>
+                    addOrUpdateEntity(state, insightToMaxContext(data)),
                 removeContextInsight: (state: MaxInsightContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
                 resetContext: () => resetEntities<MaxInsightContext>(),
@@ -341,7 +340,9 @@ export const maxContextLogic = kea<maxContextLogicType>([
         },
     })),
     selectors({
-        // Automatically collect context from active scene logic, similar to breadcrumbsLogic
+        // Automatically collect context from active scene logic
+        // This selector checks if the current scene logic has a 'maxContext' selector
+        // and if so, calls it to get context items for MaxAI
         rawSceneContext: [
             () => [
                 // Pass scene selector through to get automatic updates when scene changes

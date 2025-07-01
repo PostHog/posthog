@@ -34,7 +34,7 @@ import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
 
-import { RawInsightContextItem } from 'scenes/max/maxTypes'
+import { MaxContextSelector, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -237,14 +237,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
         maxContext: [
             (s) => [s.insight, s.insightLogicRef],
-            (insight: Partial<QueryBasedInsightModel>, insightLogicRef: any): RawInsightContextItem[] => {
-                // do not add the insight to the context when editing
-                // since we have the `create_and_query_insight` MaxTool in the view
+            (insight: Partial<QueryBasedInsightModel>, insightLogicRef: any): MaxContextSelector => {
+                // Only provide insight context when in view mode
+                // In edit mode, MaxAI has the `create_and_query_insight` tool available
                 const isInViewMode = insightLogicRef?.logic.values.isInViewMode
                 if (!insight || !insight.query || !isInViewMode) {
                     return []
                 }
-                return [{ type: 'insight', data: insight }]
+                return [createMaxContextHelpers.insight(insight)]
             },
         ],
     })),

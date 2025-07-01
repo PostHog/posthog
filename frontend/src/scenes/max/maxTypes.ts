@@ -2,6 +2,8 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
+
 export interface MaxInsightContext {
     type: 'insight'
     id: InsightShortId
@@ -55,19 +57,19 @@ export interface MaxContextOption {
 // Union type for all possible context items that can be exposed by scene logics
 export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
 
-export type RawInsightContextItem = {
+type RawInsightContextItem = {
     type: 'insight'
-    data: Pick<QueryBasedInsightModel, 'query'> & Partial<QueryBasedInsightModel>
+    data: InsightWithQuery
 }
-export type RawDashboardContextItem = {
+type RawDashboardContextItem = {
     type: 'dashboard'
     data: DashboardType<QueryBasedInsightModel>
 }
-export type RawEventContextItem = {
+type RawEventContextItem = {
     type: 'event'
     data: EventDefinition
 }
-export type RawActionContextItem = {
+type RawActionContextItem = {
     type: 'action'
     data: ActionType
 }
@@ -76,3 +78,32 @@ export type RawMaxContextItem =
     | RawDashboardContextItem
     | RawEventContextItem
     | RawActionContextItem
+
+// Helper type for maxContext selectors - ensures all scene logics return the same type
+export type MaxContextSelector = RawMaxContextItem[]
+
+/**
+ * Helper functions to create maxContext items safely
+ * These ensure proper typing and consistent patterns across scene logics
+ */
+export const createMaxContextHelpers = {
+    dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): RawDashboardContextItem => ({
+        type: 'dashboard',
+        data: dashboard,
+    }),
+
+    insight: (insight: InsightWithQuery): RawInsightContextItem => ({
+        type: 'insight',
+        data: insight,
+    }),
+
+    event: (event: EventDefinition): RawEventContextItem => ({
+        type: 'event',
+        data: event,
+    }),
+
+    action: (action: ActionType): RawActionContextItem => ({
+        type: 'action',
+        data: action,
+    }),
+}

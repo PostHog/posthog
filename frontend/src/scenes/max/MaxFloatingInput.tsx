@@ -146,14 +146,15 @@ function MaxFloatingInputContent(): JSX.Element {
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen } = useValues(sidePanelLogic)
-    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState, showFloatingMax } =
+        useValues(maxGlobalLogic)
     const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
     }
 
-    if (sidePanelOpen) {
+    if (sidePanelOpen || !showFloatingMax) {
         return null
     }
 
