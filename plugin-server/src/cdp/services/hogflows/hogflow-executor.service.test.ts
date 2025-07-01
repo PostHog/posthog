@@ -10,7 +10,7 @@ jest.mock('~/utils/request', () => {
 
 import { DateTime } from 'luxon'
 
-import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFlow } from '~/schema/hogflow'
@@ -27,9 +27,7 @@ import { HogFlowExecutorService } from './hogflow-executor.service'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
-    return logs.map((log) => {
-        return log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms')
-    })
+    return logs.map((log) => log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms'))
 }
 
 describe('Hogflow Executor', () => {
@@ -286,6 +284,283 @@ describe('Hogflow Executor', () => {
                   "Workflow completed",
                 ]
             `)
+        })
+
+        describe('action filtering', () => {
+            beforeEach(() => {
+                const action = hogFlow.actions.find((action) => action.id === 'function_id_1')!
+                action.filters = HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters
+            })
+
+            it("should not skip the action if the filters don't match", async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: 'not-a-pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                        },
+                    },
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toEqual(true)
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+                expect(result.metrics.find((x) => x.instance_id === 'function_id_1')).toMatchObject({
+                    count: 1,
+                    instance_id: 'function_id_1',
+                    metric_kind: 'success',
+                    metric_name: 'succeeded',
+                })
+            })
+
+            it('should skip the action if the filters do match', async () => {
+                const invocation = createExampleHogFlowInvocation(hogFlow, {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                        properties: {
+                            $current_url: 'https://posthog.com',
+                        },
+                    },
+                })
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toEqual(true)
+                expect(mockFetch).toHaveBeenCalledTimes(0)
+                expect(result.metrics.find((x) => x.instance_id === 'function_id_1')).toMatchObject({
+                    count: 1,
+                    instance_id: 'function_id_1',
+                    metric_kind: 'other',
+                    metric_name: 'filtered',
+                })
+            })
+        })
+    })
+
+    describe('actions', () => {
+        const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
+            return new FixtureHogFlowBuilder()
+                .withExitCondition('exit_on_conversion')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                            },
+                        },
+                        delay: {
+                            type: 'delay',
+                            config: {
+                                delay_duration: '2h',
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                        ...flow.actions,
+                    },
+                    edges: flow.edges,
+                })
+                .build()
+        }
+
+        describe('per action runner tests', () => {
+            // NOTE: We test one case of each action to ensure it works as expected, the rest is handles as per-action unit test
+            const cases: [
+                string,
+                SimpleHogFlowRepresentation,
+                {
+                    finished: boolean
+                    scheduledAt?: DateTime
+                    nextActionId: string
+                }
+            ][] = [
+                [
+                    'wait_until_condition',
+                    {
+                        actions: {
+                            wait_until_condition: {
+                                type: 'wait_until_condition',
+                                config: {
+                                    condition: {
+                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
+                                    },
+                                    max_wait_duration: '10m',
+                                },
+                            },
+                        },
+                        edges: [
+                            {
+                                from: 'trigger',
+                                to: 'wait_until_condition',
+                                type: 'continue',
+                            },
+                        ],
+                    },
+                    {
+                        finished: false,
+                        scheduledAt: DateTime.fromISO('2025-01-01T00:10:00.000Z').toUTC(),
+                        nextActionId: 'wait_until_condition',
+                    },
+                ],
+
+                [
+                    'conditional_branch',
+                    {
+                        actions: {
+                            conditional_branch: {
+                                type: 'conditional_branch',
+                                config: {
+                                    conditions: [
+                                        {
+                                            filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
+                                        },
+                                        {
+                                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                        edges: [
+                            {
+                                from: 'conditional_branch',
+                                to: 'exit',
+                                type: 'branch',
+                                index: 0,
+                            },
+                            {
+                                from: 'conditional_branch',
+                                to: 'delay',
+                                type: 'branch',
+                                index: 1,
+                            },
+                        ],
+                    },
+                    {
+                        finished: false,
+                        nextActionId: 'delay',
+                    },
+                ],
+                [
+                    'delay',
+                    {
+                        actions: {
+                            delay: {
+                                type: 'delay',
+                                config: {
+                                    delay_duration: '2h',
+                                },
+                            },
+                        },
+                        edges: [
+                            {
+                                from: 'delay',
+                                to: 'exit',
+                                type: 'continue',
+                            },
+                        ],
+                    },
+                    {
+                        finished: false,
+                        scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
+                        nextActionId: 'exit',
+                    },
+                ],
+                [
+                    'random_cohort_branch',
+                    {
+                        actions: {
+                            random_cohort_branch: {
+                                type: 'random_cohort_branch',
+                                config: {
+                                    cohorts: [
+                                        {
+                                            percentage: 50,
+                                        },
+                                        {
+                                            percentage: 50,
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                        edges: [
+                            {
+                                from: 'random_cohort_branch',
+                                to: 'exit',
+                                type: 'branch',
+                                index: 0,
+                            },
+                            {
+                                from: 'random_cohort_branch',
+                                to: 'delay',
+                                type: 'branch',
+                                index: 1,
+                            },
+                        ],
+                    },
+                    {
+                        finished: false,
+                        nextActionId: 'delay',
+                    },
+                ],
+                [
+                    'exit',
+                    {
+                        actions: {
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            {
+                                from: 'exit',
+                                to: 'exit',
+                                type: 'continue',
+                            },
+                        ],
+                    },
+                    { finished: true, nextActionId: 'exit' },
+                ],
+            ]
+
+            it.each(cases)(
+                'should run %s action',
+                async (actionId, simpleFlow, { nextActionId, finished, scheduledAt }) => {
+                    const hogFlow = createHogFlow(simpleFlow)
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: {
+                                $current_url: 'https://posthog.com',
+                            },
+                        },
+                    })
+
+                    // For the random_cohort_branch action
+                    jest.spyOn(Math, 'random').mockReturnValue(0.8)
+
+                    invocation.state.currentAction = {
+                        id: actionId,
+                        startedAtTimestamp: DateTime.utc().toMillis(),
+                    }
+
+                    const result = await executor['executeCurrentAction'](invocation)
+
+                    expect(result.finished).toEqual(finished)
+                    expect(result.invocation.queueScheduledAt).toEqual(scheduledAt)
+                    expect(result.invocation.state.currentAction!.id).toEqual(nextActionId)
+                }
+            )
         })
     })
 })

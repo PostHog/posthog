@@ -112,6 +112,10 @@ export class HogFlowExecutorService {
             // Here we could be continuing the hog function side of things?
             result = await this.executeCurrentAction(nextInvocation)
 
+            if (result.finished) {
+                this.log(result, 'info', `Workflow completed`)
+            }
+
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
@@ -182,7 +186,6 @@ export class HogFlowExecutorService {
             const currentAction = ensureCurrentAction(invocation)
 
             // TODO: Add early condition for continuing a hog function
-
             if (await shouldSkipAction(invocation, currentAction)) {
                 this.logAction(result, currentAction, 'info', `Skipped due to filter conditions`)
                 this.goToNextAction(result, currentAction, findContinueAction(invocation), 'filtered')
@@ -198,15 +201,33 @@ export class HogFlowExecutorService {
             try {
                 switch (currentAction.type) {
                     case 'conditional_branch':
-                        const conditionResult = await checkConditions(invocation, currentAction)
+                    case 'wait_until_condition':
+                        const conditionResult = await checkConditions(
+                            invocation,
+                            currentAction.type === 'conditional_branch'
+                                ? currentAction
+                                : {
+                                      ...currentAction,
+                                      type: 'conditional_branch',
+                                      config: {
+                                          conditions: [currentAction.config.condition],
+                                          delay_duration: currentAction.config.max_wait_duration,
+                                      },
+                                  }
+                        )
 
                         if (conditionResult.scheduledAt) {
                             this.scheduleInvocation(result, conditionResult.scheduledAt)
+                            break
                         } else if (conditionResult.nextAction) {
                             this.goToNextAction(result, currentAction, conditionResult.nextAction, 'succeeded')
+                            break
                         }
 
+                        // If we are not delaying or continuing then we go to the next action
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
                         break
+
                     case 'delay':
                         const scheduledAt = calculatedScheduledAt(
                             currentAction.config.delay_duration,
@@ -222,23 +243,7 @@ export class HogFlowExecutorService {
                         }
 
                         break
-                    case 'wait_until_condition':
-                        const waitUntilConditionResult = await checkConditions(invocation, {
-                            ...currentAction,
-                            type: 'conditional_branch',
-                            config: {
-                                conditions: [currentAction.config.condition],
-                                delay_duration: currentAction.config.max_wait_duration,
-                            },
-                        })
 
-                        if (waitUntilConditionResult.scheduledAt) {
-                            this.scheduleInvocation(result, waitUntilConditionResult.scheduledAt)
-                        } else if (waitUntilConditionResult.nextAction) {
-                            this.goToNextAction(result, currentAction, waitUntilConditionResult.nextAction, 'succeeded')
-                        }
-
-                        break
                     case 'wait_until_time_window':
                         const nextTime = getWaitUntilTime(currentAction)
                         if (nextTime) {
@@ -246,6 +251,7 @@ export class HogFlowExecutorService {
                         }
                         this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
                         break
+
                     case 'random_cohort_branch':
                         const nextActionFromRandomCohort = getRandomCohort(invocation, currentAction)
                         this.goToNextAction(result, currentAction, nextActionFromRandomCohort, 'succeeded')
@@ -272,24 +278,27 @@ export class HogFlowExecutorService {
                                 result,
                                 functionResult.invocation.queueScheduledAt ?? DateTime.now() // If not set then we schedule for now
                             )
-                        } else {
-                            this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+                            break
                         }
 
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+
                         break
+
                     case 'exit':
                         // Exit is the simplest case
                         result.finished = true
-                        this.log(result, 'info', `Workflow completed`)
-                        this.trackActionMetric(result, currentAction, 'success', 'succeeded')
-                        return result
+                        // Special case for exit - we just track a success metric
+                        this.trackActionMetric(result, currentAction, 'succeeded')
+                        break
+
                     default:
                         throw new Error(`Action type '${currentAction.type}' not supported`)
                 }
             } catch (err) {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.trackActionMetric(result, currentAction, 'failure', 'failed')
+                this.trackActionMetric(result, currentAction, 'failed')
 
                 throw err
             }
@@ -328,12 +337,7 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
         })
 
-        this.trackActionMetric(
-            result,
-            currentAction,
-            reason === 'filtered' ? 'other' : 'success',
-            reason === 'filtered' ? 'filtered' : 'succeeded'
-        )
+        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
 
         return result
     }
@@ -360,14 +364,13 @@ export class HogFlowExecutorService {
     private trackActionMetric(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         action: HogFlowAction,
-        metricKind: 'failure' | 'success' | 'other',
         metricName: 'failed' | 'succeeded' | 'filtered'
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
             app_source_id: result.invocation.hogFlow.id,
             instance_id: action.id,
-            metric_kind: metricKind,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
             count: 1,
         })
