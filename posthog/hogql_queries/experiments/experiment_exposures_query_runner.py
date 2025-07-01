@@ -43,7 +43,6 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             raise ValidationError("experiment_id is required")
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
-        self.exposure_criteria = self.query.exposure_criteria
         self.feature_flag_key = self.query.feature_flag.get("key")
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
 
@@ -92,7 +91,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     def _get_exposure_query(self) -> ast.SelectQuery:
         # Get the exposure event and feature flag variant property
         event, feature_flag_variant_property = get_exposure_event_and_property(
-            self.feature_flag_key, self.exposure_criteria
+            self.feature_flag_key, self.experiment.exposure_criteria
         )
 
         # Build common exposure conditions using shared logic
@@ -102,7 +101,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             variants=self.variants,
             date_range_query=self.date_range_query,
             team=self.team,
-            exposure_criteria=self.exposure_criteria,
+            exposure_criteria=self.experiment.exposure_criteria,
             feature_flag_key=self.feature_flag_key,
         )
 
