@@ -6,6 +6,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewQueryResponse,
     RevenueAnalyticsOverviewQuery,
+    QueryDateRangeResponse,
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
@@ -113,6 +114,11 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
         return RevenueAnalyticsOverviewQueryResponse(
             results=results,
             modifiers=self.modifiers,
+            query_date_range=QueryDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+                interval=self.query_date_range.interval_type,
+            ),
         )
 
 

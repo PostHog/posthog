@@ -30,6 +30,7 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
+    QueryDateRangeResponse,
 )
 
 
@@ -105,7 +106,16 @@ class FunnelsQueryRunner(QueryRunner):
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
-            isUdf=self._use_udf, results=results, timings=timings, hogql=hogql, modifiers=self.modifiers
+            isUdf=self._use_udf,
+            results=results,
+            timings=timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            query_date_range=QueryDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+                interval=self.query_date_range.interval_type,
+            ),
         )
 
     @cached_property

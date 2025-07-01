@@ -3515,6 +3515,9 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
@@ -3536,6 +3539,9 @@ class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -3566,6 +3572,9 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class RevenueAnalyticsRevenueQueryResponse(BaseModel):
@@ -3586,6 +3595,9 @@ class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     results: list[RevenueAnalyticsOverviewItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -3608,6 +3620,9 @@ class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -3635,6 +3650,9 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class RevenueExampleEventsQueryResponse(BaseModel):
@@ -3661,6 +3679,9 @@ class RevenueExampleEventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class SavedInsightNode(BaseModel):
@@ -4030,6 +4051,9 @@ class TrendsQueryResponse(BaseModel):
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -5004,6 +5028,9 @@ class CachedFunnelsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedGroupsQueryResponse(BaseModel):
@@ -5069,6 +5096,9 @@ class CachedLifecycleQueryResponse(BaseModel):
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -5221,6 +5251,9 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
@@ -5252,6 +5285,9 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -5281,6 +5317,9 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -5312,6 +5351,9 @@ class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -5342,6 +5384,9 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -5378,6 +5423,9 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedRevenueExampleEventsQueryResponse(BaseModel):
@@ -5413,6 +5461,9 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
 
 
 class CachedSessionAttributionExplorerQueryResponse(BaseModel):
@@ -5622,6 +5673,9 @@ class CachedTrendsQueryResponse(BaseModel):
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
@@ -7234,6 +7288,18 @@ class FunnelsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
+    )
+
+
+class QueryDateRangeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[datetime]
+    date_to: Optional[datetime]
+    interval: Optional[IntervalType] = Field(default=None, description="Granularity of the response.")
 
 
 class GenericCachedQueryResponse(BaseModel):
@@ -7388,6 +7454,9 @@ class LifecycleQueryResponse(BaseModel):
     results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query."
     )
 
 
