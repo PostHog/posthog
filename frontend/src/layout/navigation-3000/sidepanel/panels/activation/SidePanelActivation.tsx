@@ -7,7 +7,7 @@ import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 
 import {
     activationLogic,
@@ -199,22 +199,22 @@ const ActivationTask = ({
     lockedReason,
     url,
 }: ActivationTaskType): JSX.Element => {
-    const { runTask, markTaskAsSkipped, setExpandedTaskId } = useActions(activationLogic)
+    const { runTask, markTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
-    const { expandedTaskId } = useValues(activationLogic)
+    const { expandedTaskId, taskContentHeights } = useValues(activationLogic)
     const contentRef = useRef<HTMLDivElement>(null)
-    const [contentHeight, setContentHeight] = useState<number>(0)
 
     const isActive = !completed && !skipped && !lockedReason
     const hasContent = Boolean(activationTaskContentMap[id])
     const expanded = expandedTaskId === id
     const ContentComponent = hasContent ? activationTaskContentMap[id] : undefined
+    const contentHeight = taskContentHeights[id] || 0
 
     useEffect(() => {
         if (contentRef.current) {
-            setContentHeight(contentRef.current.scrollHeight)
+            setTaskContentHeight(id, contentRef.current.scrollHeight)
         }
-    }, [expanded, ContentComponent])
+    }, [expanded, ContentComponent, id, setTaskContentHeight])
 
     const handleRowClick = (e: React.MouseEvent): void => {
         if ((e.target as HTMLElement).closest('.activation-task-skip')) {

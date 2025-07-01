@@ -101,6 +101,7 @@ export const activationLogic = kea<activationLogicType>([
         setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
         onTeamLoad: (team: TeamType | TeamPublicType | null) => ({ team }),
         setExpandedTaskId: (taskId: ActivationTask | null) => ({ taskId }),
+        setTaskContentHeight: (taskId: ActivationTask, height: number) => ({ taskId, height }),
     }),
     reducers(() => ({
         openSections: [
@@ -125,6 +126,15 @@ export const activationLogic = kea<activationLogicType>([
             null as ActivationTask | null,
             {
                 setExpandedTaskId: (_state, { taskId }) => taskId,
+            },
+        ],
+        taskContentHeights: [
+            {} as Record<ActivationTask, number>,
+            {
+                setTaskContentHeight: (state, { taskId, height }) => ({
+                    ...state,
+                    [taskId]: height,
+                }),
             },
         ],
     })),
