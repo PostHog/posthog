@@ -326,14 +326,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 or_exprs: list[ast.Expr] = []
 
                 props_to_search = {
-                    ["properties"]: [
+                    ("properties",): [
                         "$exception_types",
                         "$exception_values",
                         "$exception_sources",
                         "$exception_functions",
                         "email",
                     ],
-                    ["person", "properties"]: [
+                    ("person", "properties"): [
                         "email",
                     ],
                 }
