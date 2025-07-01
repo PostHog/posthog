@@ -998,7 +998,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
 
-        return {
+        payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
@@ -1007,6 +1007,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "timezone": self.team.timezone,
             "version": 2,
         }
+
+        # add week_start_day to the payload for queries with weekly intervals
+        query_date_range = getattr(self, "query_date_range", None)
+        if query_date_range and query_date_range.interval_name == "week":
+            payload["week_start_day"] = self.team.week_start_day
+
+        return payload
 
     def get_cache_key(self) -> str:
         return generate_cache_key(f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
