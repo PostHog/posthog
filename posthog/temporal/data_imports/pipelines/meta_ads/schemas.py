@@ -1,4 +1,3 @@
-# Predefined schemas for Meta Ads resources
 RESOURCE_SCHEMAS = {
     "ad": {
         "resource_name": "ads",
