@@ -452,6 +452,7 @@ const HIDDEN_DESTINATIONS = [
     'segment-actions-apolloio',
     'segment-actions-toplyne-cloud',
     'segment-actions-heap-cloud',
+    'segment-actions-amazon-amc',
 
     // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
     'segment-actions-equals',
