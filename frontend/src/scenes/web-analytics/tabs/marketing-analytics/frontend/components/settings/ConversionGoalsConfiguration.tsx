@@ -10,7 +10,7 @@ import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { defaultConversionGoalFilter } from './constants'
-import { ConversionGoalDropdown } from './ConversionGoalDropdown'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter
@@ -173,13 +173,13 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                             title: 'Schema Mapping',
                             render: (_, goal: ConversionGoalFilter) => (
                                 <div className="text-xs text-muted">
-                                    <div>Campaign: {goal.schema.utm_campaign_name}</div>
-                                    <div>Source: {goal.schema.utm_source_name}</div>
-                                    {goal.kind === 'DataWarehouseNode' && goal.schema.timestamp_field && (
-                                        <div>Timestamp: {goal.schema.timestamp_field}</div>
+                                    <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
+                                    <div>Source: {goal.schema_map.utm_source_name}</div>
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
+                                        <div>Timestamp: {goal.schema_map.timestamp_field}</div>
                                     )}
-                                    {goal.kind === 'DataWarehouseNode' && goal.schema.distinct_id_field && (
-                                        <div>Distinct ID: {goal.schema.distinct_id_field}</div>
+                                    {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
+                                        <div>Distinct ID: {goal.schema_map.distinct_id_field}</div>
                                     )}
                                 </div>
                             ),

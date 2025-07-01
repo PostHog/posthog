@@ -13,6 +13,7 @@
         "kea-loaders": "*",
         "kea-subscriptions": "*",
         "kea-router": "*",
+        "posthog-js": "*",
         "react": "*",
         "zod": "*"
     }

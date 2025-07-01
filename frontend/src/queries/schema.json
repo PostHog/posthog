@@ -6383,7 +6383,7 @@
                         "response": {
                             "type": "object"
                         },
-                        "schema": {
+                        "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
                         "version": {
@@ -6391,7 +6391,7 @@
                             "type": "number"
                         }
                     },
-                    "required": ["conversion_goal_id", "conversion_goal_name", "kind", "schema"],
+                    "required": ["conversion_goal_id", "conversion_goal_name", "kind", "schema_map"],
                     "type": "object"
                 },
                 {
@@ -6455,7 +6455,7 @@
                         "response": {
                             "type": "object"
                         },
-                        "schema": {
+                        "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
                         "version": {
@@ -6463,7 +6463,7 @@
                             "type": "number"
                         }
                     },
-                    "required": ["conversion_goal_id", "conversion_goal_name", "id", "kind", "schema"],
+                    "required": ["conversion_goal_id", "conversion_goal_name", "id", "kind", "schema_map"],
                     "type": "object"
                 },
                 {
@@ -6536,7 +6536,7 @@
                         "response": {
                             "type": "object"
                         },
-                        "schema": {
+                        "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
                         "table_name": {
@@ -6557,7 +6557,7 @@
                         "id",
                         "id_field",
                         "kind",
-                        "schema",
+                        "schema_map",
                         "table_name",
                         "timestamp_field"
                     ],
@@ -14021,6 +14021,17 @@
                 },
                 "doPathCleaning": {
                     "type": "boolean"
+                },
+                "dynamicConversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ConversionGoalFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Dynamic conversion goal that can be set in the UI without saving"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",

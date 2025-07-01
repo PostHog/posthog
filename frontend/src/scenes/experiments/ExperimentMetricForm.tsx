@@ -7,9 +7,12 @@ import { Query } from '~/queries/Query/Query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
+    FunnelsQuery,
+    InsightVizNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
@@ -17,14 +20,9 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import {
-    filterToMetricConfig,
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getMathAvailability,
-    metricToFilter,
-    metricToQuery,
-} from './utils'
+import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
+
+import { addExposureToMetric, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
@@ -86,16 +84,35 @@ export function ExperimentMetricForm({
         },
     ]
 
-    const metricFilter = metricToFilter(metric)
-    const previewQuery = metricToQuery(metric, filterTestAccounts)
+    const metricFilter = getFilter(metric)
 
-    const queryConfig = {
-        kind: NodeKind.InsightVizNode,
-        source: previewQuery,
-        showTable: false,
-        showLastComputation: true,
-        showLastComputationRefresh: false,
-    }
+    /**
+     * TODO: use exposure criteria form running time calculator instead of
+     * default $pageview event.
+     */
+    const queryBuilder = compose<
+        ExperimentMetric,
+        ExperimentMetric,
+        FunnelsQuery | TrendsQuery | undefined,
+        InsightVizNode | undefined
+    >(
+        addExposureToMetric({
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            custom_name: 'Placeholder for experiment exposure',
+            properties: [],
+        }),
+        getQuery({
+            filterTestAccounts,
+        }),
+        getInsight({
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        })
+    )
+
+    const query = queryBuilder(metric)
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -175,10 +192,10 @@ export function ExperimentMetricForm({
                 </LemonLabel>
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                <Query query={queryConfig} readOnly />
+            {query && isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
+                <Query query={query} readOnly />
             )}
-            {isExperimentFunnelMetric(metric) && <Query query={queryConfig} readOnly />}
+            {query && isExperimentFunnelMetric(metric) && <Query query={query} readOnly />}
         </div>
     )
 }

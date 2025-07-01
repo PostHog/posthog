@@ -279,9 +279,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
         const kafkaMessages = await this.mainStore.deletePerson(person, distinctId, tx)
 
-        // Clear cache for the person
-        this.secondaryStore.clearCache(person.team_id, distinctId)
-        this.secondaryStore.clearCacheByUuid(person.team_id, person.uuid)
+        // Clear ALL caches related to this person UUID
+        this.secondaryStore.clearAllCachesForPersonUuid(person.team_id, person.uuid)
         this.updateFinalState(person.team_id, distinctId, person.uuid, null, false, 'deletePerson')
 
         return kafkaMessages
@@ -311,9 +310,14 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
+
+        // Clear the cache for the source person UUID to ensure deleted person isn't cached
+        this.secondaryStore.clearCacheByUuid(source.team_id, source.uuid)
+
+        // Update cache for the target person for the current distinct ID
         this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
 
-        this.updateFinalState(source.team_id, distinctId, source.uuid, source, false, 'moveDistinctIds')
+        this.updateFinalState(source.team_id, distinctId, source.uuid, null, false, 'moveDistinctIds')
         this.updateFinalState(target.team_id, distinctId, target.uuid, target, false, 'moveDistinctIds')
 
         return mainResult

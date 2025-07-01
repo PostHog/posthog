@@ -790,7 +790,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
         it('should handle createPerson followed by moveDistinctIds', async () => {
             const teamId = 61953
-            const personUuid = 'de69137b-e7d8-5eea-a494-357e01d2f012'
+            const personUuid = 'person-uuid'
 
             // Mock the main store to successfully create a person
             const createdPerson: InternalPerson = {
@@ -850,7 +850,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.moveDistinctIds(createdPerson, targetPerson, distinctId)
 
             // Verify batch cache is populated after moveDistinctIds
-            expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeDefined()
+            expect(batchUpdateCache.get(`${teamId}:${createdPerson.uuid}`)).toBeUndefined()
             expect(batchUpdateCache.get(`${teamId}:${targetPerson.uuid}`)).toBeDefined()
 
             // Step 3: Flush and compare final states
@@ -860,19 +860,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const finalStates = shadowManager.getFinalStates()
             const finalStateSource = finalStates.get(`${teamId}:${createdPerson.uuid}`)
 
-            expect(finalStateSource?.person).toEqual(createdPerson)
-            expect(finalStateSource?.operations).toEqual([
-                {
-                    type: 'createPerson',
-                    timestamp: expect.any(Number),
-                    distinctId: distinctId,
-                },
-                {
-                    type: 'moveDistinctIds',
-                    timestamp: expect.any(Number),
-                    distinctId: distinctId,
-                },
-            ])
+            expect(finalStateSource).toBeNull()
 
             const finalStateTarget = finalStates.get(`${teamId}:${targetPerson.uuid}`)
             expect(finalStateTarget?.person).toEqual(targetPerson)

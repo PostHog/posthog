@@ -29,6 +29,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    ConversionGoalFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
@@ -437,7 +438,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes'],
+            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
         ],
     })),
     actions({
@@ -2432,12 +2433,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts],
+            (s) => [
+                s.loading,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+                s.dynamicConversionGoal,
+            ],
             (
                 loading: boolean,
-                dateFilter: any,
-                webAnalyticsFilters: any,
-                filterTestAccounts: boolean
+                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                filterTestAccounts: boolean,
+                dynamicConversionGoal: ConversionGoalFilter | null
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2453,6 +2461,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
+                        dynamicConversionGoal: dynamicConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                     } as MarketingAnalyticsTableQuery,

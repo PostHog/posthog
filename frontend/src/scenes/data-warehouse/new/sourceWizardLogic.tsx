@@ -48,15 +48,17 @@ const StripeCaption = (): JSX.Element => (
         Currently, <strong>read permissions are required</strong> for the following resources:
         <ul className="list-disc list-inside">
             <li>
-                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
-                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
+                Under the <strong>Core</strong> resource type, select <i>read</i> for{' '}
+                <strong>Balance transaction sources</strong>, <strong>Charges</strong>, <strong>Customer</strong>,{' '}
+                <strong>Product</strong>, and <strong>Credit notes</strong>
             </li>
             <li>
-                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
-                <b>Subscription</b>
+                Under the <strong>Billing</strong> resource type, select <i>read</i> for <strong>Invoice</strong>,{' '}
+                <strong>Price</strong>, and <strong>Subscription</strong>
             </li>
             <li>
-                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
+                Under the <strong>Connected</strong> resource type, select <i>read</i> for the{' '}
+                <strong>entire resource</strong>
             </li>
         </ul>
     </>
@@ -893,16 +895,29 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         betaSource: true,
     },
+    MongoDB: {
+        name: 'MongoDB',
+        label: 'MongoDB',
+        caption: (
+            <>
+                Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'connection_string',
+                label: 'Connection String',
+                type: 'text',
+                required: true,
+                placeholder: 'mongodb://username:password@host:port/database?authSource=admin',
+            },
+        ],
+        betaSource: true,
+    },
     MetaAds: {
         name: 'MetaAds',
         label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Mongodb: {
-        name: 'Mongodb',
-        label: 'MongoDB',
         caption: '',
         fields: [],
         unreleasedSource: true,

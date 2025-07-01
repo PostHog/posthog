@@ -445,12 +445,14 @@ def mock_stripe_client():
             {
                 "id": "chg_123",
                 "customer": "cus_1",
+                "created": 123,
             }
         ]
         mock_customers_list.auto_paging_iter.return_value = [
             {
                 "id": "cus_123",
                 "name": "John Doe",
+                "created": 123,
             }
         ]
 

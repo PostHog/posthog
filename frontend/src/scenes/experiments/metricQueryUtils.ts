@@ -92,7 +92,7 @@ export const getMathProperties = (source: ExperimentMetricSource): MathPropertie
         .with({ math: ExperimentMetricMathType.UniqueSessions }, ({ math }) => ({ math }))
         .otherwise(() => ({ math: ExperimentMetricMathType.TotalCount, math_property: undefined }))
 
-type MetricToQueryOptions = {
+type GetQueryOptions = {
     breakdownFilter: BreakdownFilter
     filterTestAccounts: boolean
     trendsFilter: TrendsFilter
@@ -111,7 +111,7 @@ type MetricToQueryOptions = {
  * - Results Breakdowns
  */
 export const getQuery =
-    (options?: Partial<MetricToQueryOptions>) =>
+    (options?: Partial<GetQueryOptions>) =>
     (metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined => {
         /**
          * we get all the options or their defaults. There's no overrides that could
@@ -211,6 +211,7 @@ const createSourceNode = (step: ExperimentFunnelMetricStep): ExperimentMetricSou
         type: step.kind === NodeKind.EventsNode ? 'events' : 'actions',
         id: step.kind === NodeKind.EventsNode ? step.event : step.id,
         name: step.kind === NodeKind.EventsNode ? step.event : step.name,
+        custom_name: step.custom_name,
         math: step.math,
         math_property: step.math_property,
         math_hogql: step.math_hogql,
