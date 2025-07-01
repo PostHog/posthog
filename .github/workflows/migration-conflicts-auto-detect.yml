@@ -88,7 +88,7 @@ jobs:
                   echo "🔧 Running detailed migration conflict analysis..."
 
                   # Run the preview to get detailed output (from correct directory)
-                  OUTPUT=$(python posthog/bin/fix-migration-conflicts.py --preview 2>&1)
+                  OUTPUT=$(python bin/fix-migration-conflicts.py --preview 2>&1)
                   echo "$OUTPUT"
 
                   # Save output for PR comment
