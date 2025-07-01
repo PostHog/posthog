@@ -34,7 +34,8 @@ const numberToWord = (num: number): string => {
 }
 
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
-    const { sdkHealth, multipleInitSdks, featureFlagMisconfiguration } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkHealth, multipleInitSdks, featureFlagMisconfiguration, outdatedSdkCount } =
+        useValues(sidePanelSdkDoctorLogic)
 
     const hasMultipleInits = multipleInitSdks.length > 0
     const hasFlagMisconfiguration = featureFlagMisconfiguration.detected
@@ -43,7 +44,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
         ? 'Feature flag misconfiguration detected!'
         : hasMultipleInits
         ? 'SDK initialization issue detected!'
-        : sdkHealth !== 'healthy'
+        : outdatedSdkCount > 0
         ? 'Outdated SDKs found'
         : 'SDK health is good'
 
@@ -150,14 +151,8 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
 }
 
 export function SidePanelSdkDoctor(): JSX.Element {
-    const {
-        sdkVersions,
-        sdkHealth,
-        recentEventsLoading,
-        outdatedSdkCount,
-        multipleInitDetection,
-        featureFlagMisconfiguration,
-    } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkVersions, recentEventsLoading, outdatedSdkCount, multipleInitDetection, featureFlagMisconfiguration } =
+        useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // Group the versions by SDK type (each SDK type gets its own table)
@@ -211,9 +206,13 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     Outdated
                                 </LemonTag>
                             </Tooltip>
-                        ) : (
+                        ) : record.latestVersion && record.version === record.latestVersion ? (
                             <LemonTag type="success" className="shrink-0">
                                 Current
+                            </LemonTag>
+                        ) : (
+                            <LemonTag type="primary" className="shrink-0">
+                                Close enough
                             </LemonTag>
                         )}
                         {record.multipleInitializations && (
@@ -405,7 +404,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     </Section>
                 )}
 
-                {sdkHealth !== 'healthy' ? (
+                {outdatedSdkCount > 0 ? (
                     <Section title={outdatedSdkCount === 1 ? 'Outdated SDK found' : 'Outdated SDKs found'}>
                         <div className="p-3 bg-warning/10 rounded border border-warning/20">
                             <div className="flex items-start">
@@ -434,7 +433,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         </div>
                     </Section>
                 ) : (
-                    !sdkVersions.some((sdk) => sdk.multipleInitializations) && (
+                    !sdkVersions.some((sdk) => sdk.multipleInitializations) &&
+                    !multipleInitDetection.detected &&
+                    !featureFlagMisconfiguration.detected && (
                         <Section title="SDK health is good">
                             <div className="p-3 bg-success/10 rounded border border-success/20">
                                 <div className="flex items-start">

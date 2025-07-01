@@ -63,7 +63,7 @@ function isSignificantVersionGap(version1: string | undefined, version2: string 
         // Small version differences = likely auto-update, not multiple inits
         // console.log(`[SDK Doctor] Heuristic: ${minorDiff} < 3, treating as auto-update`)
         return false
-    } catch (e) {
+    } catch {
         // If we can't parse versions, assume it's a problem to be safe
         return true
     }
@@ -95,7 +95,7 @@ function checkReleaseTimeGapFromCache(version1: string, version2: string, releas
         const date2 = new Date(release2.published_at).getTime()
 
         return Math.abs(date1 - date2)
-    } catch (error) {
+    } catch {
         return null
     }
 }
@@ -129,7 +129,7 @@ async function updateReleasesCache(): Promise<void> {
             const releases = await response.json()
             releasesCache = { data: releases, timestamp: now }
         }
-    } catch (error) {
+    } catch {
         // Keep existing cache or leave empty - fallback will handle it
         // console.log('[SDK Doctor] Failed to update releases cache, using fallback method')
     }
@@ -183,7 +183,7 @@ function isOutdatedVersionGap(version1: string | undefined, version2: string | u
 
         // console.log(`[SDK Doctor] Outdated heuristic: ${minorDiff} < 2, considering current`)
         return false
-    } catch (e) {
+    } catch {
         return true // If we can't parse versions, assume outdated to be safe
     }
 }
@@ -533,15 +533,22 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             const hasSessionChange = prevSessionId !== currSessionId
                             const hasSameUrl = prevUrl === currUrl
                             const hasShortTimeGap = timeDiffSeconds < 30 && timeDiffSeconds > 0
-                            const hasVersionGap = isSignificantVersionGap(prevVersion, currVersion)
 
-                            // console.log(`[SDK Doctor] Event pair: ${prevVersion} → ${currVersion}`)
-                            // console.log(`[SDK Doctor] Conditions: session=${hasSessionChange}, url=${hasSameUrl}, time=${hasShortTimeGap} (${timeDiffSeconds}s), version=${hasVersionGap}`)
+                            console.info(`[SDK Doctor] Event pair: ${prevVersion} → ${currVersion}`)
+                            console.info(
+                                `[SDK Doctor] Conditions: session=${hasSessionChange}, url=${hasSameUrl}, time=${hasShortTimeGap} (${timeDiffSeconds}s)`
+                            )
 
-                            // Detect: new session ID + same URL + tiny time gap + significant version difference
-                            if (hasSessionChange && hasSameUrl && hasShortTimeGap && hasVersionGap) {
-                                // console.log(`[SDK Doctor] ⚠️ DETECTION TRIGGERED: ${prevVersion} → ${currVersion} on ${currUrl}`)
-                                // console.log(`[SDK Doctor] Sessions: ${prevSessionId?.substr(-8)} → ${currSessionId?.substr(-8)}, ${timeDiffSeconds}s gap`)
+                            // Detect: new session ID + same URL + tiny time gap (version doesn't matter - same version multiple inits are common!)
+                            if (hasSessionChange && hasSameUrl && hasShortTimeGap) {
+                                console.warn(
+                                    `[SDK Doctor] ⚠️ DETECTION TRIGGERED: ${prevVersion} → ${currVersion} on ${currUrl}`
+                                )
+                                console.warn(
+                                    `[SDK Doctor] Sessions: ${prevSessionId?.substr(-8)} → ${currSessionId?.substr(
+                                        -8
+                                    )}, ${timeDiffSeconds}s gap`
+                                )
                                 newDetection = true
                                 newProblematicUrls.add(currUrl)
 
@@ -551,7 +558,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     exampleEventTimestamp = currEvent.timestamp
                                 }
 
-                                // console.log(`[SDK Doctor] Multiple init detected: ${prevSessionId} → ${currSessionId} on ${currUrl} (${timeDiffSeconds}s apart`)
+                                console.warn(
+                                    `[SDK Doctor] Multiple init detected: ${prevSessionId} → ${currSessionId} on ${currUrl} (${timeDiffSeconds}s apart`
+                                )
                             }
                         }
                     })
@@ -579,18 +588,44 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             .filter((e) => e.properties?.$lib === 'web' && e.properties?.$session_id)
                             .slice(0, 10) // Look at the 10 most recent web events
 
-                        if (recentWebEvents.length >= 5) {
-                            // If the last 5+ web events all share the same session ID, consider the issue resolved
+                        // More lenient clearing: 3+ events in same session OR auto-update pattern
+                        if (recentWebEvents.length >= 3) {
                             const sessionIds = new Set(recentWebEvents.map((e) => e.properties?.$session_id))
 
+                            // Clear if all recent events are from same session (normal behavior)
                             if (sessionIds.size === 1) {
-                                // All recent events are from the same session - issue appears resolved
-                                // console.log('[SDK Doctor] Multiple init issue appears resolved - clearing detection state')
+                                console.info(
+                                    '[SDK Doctor] Multiple init issue appears resolved - clearing detection state'
+                                )
                                 return {
                                     detected: false,
                                     detectedAt: '',
                                     affectedUrls: [],
                                     sessionCount: 0,
+                                }
+                            }
+
+                            // Also clear if we see clear auto-update pattern (same session, version changes)
+                            if (recentWebEvents.length >= 3) {
+                                const mostRecentEvents = recentWebEvents.slice(0, 4) // Look at last 4 events
+                                const uniqueSessions = new Set(mostRecentEvents.map((e) => e.properties?.$session_id))
+                                const uniqueVersions = new Set(mostRecentEvents.map((e) => e.properties?.$lib_version))
+
+                                // Auto-update pattern: single session with version changes
+                                if (uniqueSessions.size === 1 && uniqueVersions.size >= 2) {
+                                    const versions = Array.from(uniqueVersions)
+                                    // Check if versions are close (auto-update, not multiple inits)
+                                    if (versions.length === 2 && !isSignificantVersionGap(versions[0], versions[1])) {
+                                        console.info(
+                                            '[SDK Doctor] Auto-update pattern detected - clearing multiple init detection'
+                                        )
+                                        return {
+                                            detected: false,
+                                            detectedAt: '',
+                                            affectedUrls: [],
+                                            sessionCount: 0,
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -765,8 +800,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const webEvents = limitedEvents.filter((e) => e.properties?.$lib === 'web')
 
                     // Detect multiple SDK versions within the same session - a strong indicator of misconfiguration
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const hasMultipleVersions = false
+                    // TODO: Implement multiple version detection logic
                     const problematicSessions = new Set<string>()
                     const problematicUrls = new Set<string>()
 
@@ -824,8 +858,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     }
 
                     // Detect multiple initialization patterns - same URL, new session ID, tiny time gap
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const hasMultipleInits = false
+                    // TODO: Implement multiple initialization detection logic
                     const initProblematicUrls = new Set<string>()
 
                     // Sort events by timestamp for temporal analysis
@@ -1241,7 +1274,7 @@ function checkVersionAgainstLatest(
                 releasesAhead,
                 latestVersion: mockLatestVersion,
             }
-        } catch (e) {
+        } catch {
             // If parsing fails, use the fallback check
             return {
                 isOutdated: checkIfVersionOutdated(lib, version),
@@ -1284,15 +1317,15 @@ function checkVersionAgainstLatest(
             }
         }
 
-        // Consider outdated if 2+ versions behind
+        // Consider outdated if 3+ versions behind (more than 2 releases)
         return {
-            isOutdated: releasesBehind >= 2,
+            isOutdated: releasesBehind > 2,
             releasesAhead: Math.max(0, releasesBehind),
             latestVersion,
         }
-    } catch (e) {
+    } catch {
         // If we can't parse the versions, fall back to the hardcoded check
-        // console.log(`[SDK Doctor] Error parsing versions, falling back to hardcoded check for ${lib}: ${e}`)
+        // console.log(`[SDK Doctor] Error parsing versions, falling back to hardcoded check for ${lib}`)
 
         return {
             isOutdated: checkIfVersionOutdated(lib, version),
