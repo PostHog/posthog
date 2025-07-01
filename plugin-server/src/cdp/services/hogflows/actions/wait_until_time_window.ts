@@ -2,8 +2,6 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { HogFlowActionResult } from './types'
-
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
@@ -38,7 +36,7 @@ function getNextValidDay(now: DateTime, dateConfig: Action['config']['date']): D
     return nextDay
 }
 
-export const getNextValidTime = (action: Action): DateTime | null => {
+export const getWaitUntilTime = (action: Action): DateTime | null => {
     const now = DateTime.utc().setZone(action.config.timezone)
     const config = action.config
 
@@ -70,15 +68,4 @@ export const getNextValidTime = (action: Action): DateTime | null => {
     }
 
     return nextTime
-}
-
-export class HogFlowActionRunnerWaitUntilTimeWindow {
-    run(action: Action): HogFlowActionResult {
-        const nextTime = getNextValidTime(action)
-
-        return {
-            done: true,
-            scheduledAt: nextTime ?? undefined,
-        }
-    }
 }

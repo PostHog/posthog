@@ -5,8 +5,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
-import { calculatedScheduledAt } from './common/delay'
-import { HogFlowActionResult } from './types'
+import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
@@ -54,44 +53,4 @@ export async function checkConditions(
         }
     }
     return {}
-}
-
-export class HogFlowActionRunnerConditionalBranch {
-    async run(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): Promise<HogFlowActionResult> {
-        const result = await checkConditions(invocation, action)
-
-        if (result.scheduledAt) {
-            return {
-                done: false,
-                scheduledAt: result.scheduledAt,
-            }
-        } else if (result.nextAction) {
-            return {
-                done: true,
-                goToAction: result.nextAction,
-            }
-        }
-
-        return {
-            done: true,
-        }
-    }
-
-    // NOTE: Wait until condition is a special case of conditional branch, so we reuse the same logic
-    async runWaitUntilCondition(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
-    ): Promise<HogFlowActionResult> {
-        return await this.run(invocation, {
-            ...action,
-            type: 'conditional_branch',
-            config: {
-                conditions: [action.config.condition],
-                delay_duration: action.config.max_wait_duration,
-            },
-        })
-    }
 }

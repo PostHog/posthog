@@ -17,10 +17,11 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { checkConditions } from './actions/action.conditional_branch'
-import { getNextValidTime } from './actions/action.wait_until_time_window'
-import { calculatedScheduledAt } from './actions/common/delay'
-import { findContinueAction, findNextAction } from './hogflow-utils'
+import { checkConditions } from './actions/conditional_branch'
+import { calculatedScheduledAt } from './actions/delay'
+import { getRandomCohort } from './actions/random_cohort_branch'
+import { getWaitUntilTime } from './actions/wait_until_time_window'
+import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
@@ -250,30 +251,17 @@ export class HogFlowExecutorService {
 
                         break
                     case 'wait_until_time_window':
-                        const nextTime = getNextValidTime(currentAction)
+                        const nextTime = getWaitUntilTime(currentAction)
                         if (nextTime) {
                             this.scheduleInvocation(result, nextTime)
                         }
                         this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
                         break
                     case 'random_cohort_branch':
-                        const random = Math.random() * 100 // 0-100
-                        let cumulativePercentage = 0
-
-                        // If we don't find a match then we go to the last cohort by default
-                        let nextActionIndex = currentAction.config.cohorts.length - 1
-
-                        for (const [index, cohort] of currentAction.config.cohorts.entries()) {
-                            cumulativePercentage += cohort.percentage
-                            if (random <= cumulativePercentage) {
-                                nextActionIndex = index
-                                break
-                            }
-                        }
-
-                        const nextAction = findNextAction(invocation.hogFlow, currentAction.id, nextActionIndex)
-                        this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                        const nextActionFromRandomCohort = getRandomCohort(invocation, currentAction)
+                        this.goToNextAction(result, currentAction, nextActionFromRandomCohort, 'succeeded')
                         break
+
                     // case 'function':
                     //     // TODO: Add function execution
 
