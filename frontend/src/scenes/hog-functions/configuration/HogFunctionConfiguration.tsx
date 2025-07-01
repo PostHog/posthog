@@ -242,7 +242,9 @@ export function HogFunctionConfiguration({
                       'template-tiktok-pixel',
                       'template-snapchat-pixel',
                       'template-reddit-conversions-api',
-                  ].includes(templateId ?? '') || template?.status === 'alpha' ? (
+                  ].includes(templateId ?? hogFunction?.template?.id ?? '') ||
+                  template?.status === 'alpha' ||
+                  hogFunction?.template?.status === 'alpha' ? (
                     <div>
                         <LemonBanner type="warning">
                             <p>
