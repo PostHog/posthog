@@ -216,7 +216,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET", "PUT"], detail=True)
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        required_scopes={
+            "GET": ["project:read"],
+            "PUT": ["project:write"],
+        },
+    )
     def access_controls(self, request: Request, *args, **kwargs):
         if request.method == "PUT":
             return self._update_access_controls(request)
@@ -224,7 +231,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return self._get_access_controls(request)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET", "PUT"], detail=True)
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        required_scopes={
+            "GET": ["project:read"],
+            "PUT": ["project:write"],
+        },
+    )
     def global_access_controls(self, request: Request, *args, **kwargs):
         if request.method == "PUT":
             return self._update_access_controls(request, is_global=True)
