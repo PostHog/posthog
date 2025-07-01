@@ -197,7 +197,6 @@ export const FEATURE_FLAGS = {
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
-    EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     MESSAGING: 'messaging', // owner @haven #team-messaging
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen #team-platform
