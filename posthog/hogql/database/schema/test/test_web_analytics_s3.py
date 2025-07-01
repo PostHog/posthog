@@ -25,7 +25,7 @@ class TestWebAnalyticsS3(BaseTest):
         # Verify URL components
         assert ".s3.us-east-1.amazonaws.com" in url  # Region is included
         assert f"/{table_name}/{team_id}/data.native" in url  # Path is correct
-        assert ".native/" not in url  # No extra .native/ in path from
+        assert ".native/" not in url  # No extra .native/ in path
 
     @override_settings(DEBUG=False)
     @patch("posthog.settings.object_storage.OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "test-bucket-name")
