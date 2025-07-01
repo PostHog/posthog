@@ -91,7 +91,9 @@ const TileWrapper = ({ title, tooltip, extra, children }: React.PropsWithChildre
                 {extra}
             </div>
 
-            <InsightsWrapper>{children}</InsightsWrapper>
+            <InsightsWrapper>
+                <div className="TrendsInsight TrendsInsight--ActionsLineGraph">{children}</div>
+            </InsightsWrapper>
         </div>
     )
 }

@@ -92,7 +92,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     )
 
     return (
-        <div>
+        <div className="RevenueAnalyticsDashboard">
             <LemonBanner
                 type="info"
                 dismissKey="revenue-analytics-beta-banner"
