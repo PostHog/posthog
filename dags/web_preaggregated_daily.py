@@ -3,7 +3,7 @@ from collections.abc import Callable
 import os
 
 import dagster
-from dagster import DailyPartitionsDefinition, BackfillPolicy
+from dagster import DailyPartitionsDefinition, BackfillPolicy, AssetCheckResult, asset_check
 import structlog
 import chdb
 from dags.common import JobOwners
@@ -13,6 +13,7 @@ from dags.web_preaggregated_utils import (
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
+    format_clickhouse_settings,
 )
 from posthog.clickhouse.client import sync_execute
 
@@ -206,10 +207,12 @@ def partition_web_analytics_data_by_team(
 
         temp_table = f"{temp_db}.source_data"
 
-        session.query(f"""
+        session.query(
+            f"""
             CREATE TABLE {temp_table} ENGINE = Memory AS
             SELECT * FROM s3({get_s3_function_args(source_s3_path)})
-        """)
+        """
+        )
 
         context.log.info(f"Loaded source data into temporary table {temp_table}")
 
@@ -331,3 +334,243 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
             }
         },
     )
+
+
+@dagster.asset(
+    name="web_analytics_active_teams_90d",
+    group_name="web_analytics",
+    deps=["web_analytics_stats_table_daily"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_analytics_active_teams_90d(context: dagster.AssetExecutionContext) -> dagster.Output[list]:
+    """
+    Fetches teams with pageview activity in the last 90 days from pre-aggregated tables.
+
+    Returns a list of team data with pageview counts that can be used by other assets.
+    """
+    ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, "")
+
+    # Calculate date range for last 90 days
+    end_date = datetime.now(UTC)
+    start_date = end_date - timedelta(days=90)
+
+    date_start = start_date.strftime("%Y-%m-%d")
+    date_end = end_date.strftime("%Y-%m-%d")
+
+    query = f"""
+    SELECT
+        team_id,
+        sumMerge(pageviews_count_state) as total_pageviews
+    FROM web_stats_daily
+    WHERE period_bucket >= toDateTime('{date_start}', 'UTC')
+        AND period_bucket < toDateTime('{date_end}', 'UTC')
+    GROUP BY team_id
+    HAVING total_pageviews > 0
+    ORDER BY total_pageviews DESC
+    SETTINGS {format_clickhouse_settings(ch_settings)}
+    """
+
+    try:
+        context.log.info(f"Querying active teams for date range: {date_start} to {date_end}")
+        context.log.info(f"Query: {query}")
+
+        result = sync_execute(query)
+
+        active_teams = []
+        total_teams = 0
+        total_pageviews = 0
+
+        for row in result:
+            team_id, pageviews = int(row[0]), int(row[1])
+            active_teams.append({"team_id": team_id, "pageviews_90d": pageviews})
+            total_teams += 1
+            total_pageviews += pageviews
+
+        context.log.info(f"Found {total_teams} active teams with {total_pageviews:,} total pageviews in last 90 days")
+
+        # Extract just the team IDs for easy consumption by other assets
+        team_ids = [team["team_id"] for team in active_teams]
+
+        return dagster.Output(
+            value=team_ids,
+            metadata={
+                "total_teams": dagster.MetadataValue.int(total_teams),
+                "total_pageviews": dagster.MetadataValue.int(total_pageviews),
+                "date_range": dagster.MetadataValue.text(f"{date_start} to {date_end}"),
+                "team_details": dagster.MetadataValue.json(active_teams[:20]),  # Show top 20 teams
+                "query": dagster.MetadataValue.text(query),
+            },
+        )
+
+    except Exception as e:
+        raise dagster.Failure(f"Failed to fetch active teams: {str(e)}") from e
+
+
+@asset_check(
+    asset="web_analytics_active_teams_90d",
+    name="web_stats_daily_query_with_active_teams",
+    description="Verify web_stats_daily table can be queried successfully with teams from active teams list",
+)
+def web_stats_daily_query_with_active_teams(
+    context: dagster.AssetCheckExecutionContext, web_analytics_active_teams_90d: list
+) -> AssetCheckResult:
+    """
+    Asset check to verify that web_stats_daily table works with the active teams list.
+    """
+    if not web_analytics_active_teams_90d:
+        return AssetCheckResult(
+            passed=False,
+            description="No active teams found to test query with",
+            metadata={"team_count": dagster.MetadataValue.int(0)},
+        )
+
+    # Test with a subset of teams to avoid timeout
+    test_teams = web_analytics_active_teams_90d[:10]
+    team_ids_str = ",".join(str(team_id) for team_id in test_teams)
+
+    # Test query for last 7 days
+    end_date = datetime.now(UTC)
+    start_date = end_date - timedelta(days=7)
+    date_start = start_date.strftime("%Y-%m-%d")
+    date_end = end_date.strftime("%Y-%m-%d")
+
+    test_query = f"""
+    SELECT
+        team_id,
+        count(*) as row_count,
+        sumMerge(pageviews_count_state) as total_pageviews
+    FROM web_stats_daily
+    WHERE team_id IN ({team_ids_str})
+        AND period_bucket >= toDateTime('{date_start}', 'UTC')
+        AND period_bucket < toDateTime('{date_end}', 'UTC')
+    GROUP BY team_id
+    ORDER BY team_id
+    LIMIT 100
+    """
+
+    try:
+        context.log.info(f"Testing web_stats_daily query with {len(test_teams)} teams")
+        result = sync_execute(test_query)
+
+        teams_with_data = len(result)
+        total_rows = sum(int(row[1]) for row in result)
+        total_pageviews = sum(int(row[2]) for row in result)
+
+        if teams_with_data > 0:
+            return AssetCheckResult(
+                passed=True,
+                description=f"Successfully queried web_stats_daily with {teams_with_data} teams returning {total_rows} rows",
+                metadata={
+                    "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+                    "teams_with_data": dagster.MetadataValue.int(teams_with_data),
+                    "total_rows": dagster.MetadataValue.int(total_rows),
+                    "total_pageviews": dagster.MetadataValue.int(total_pageviews),
+                    "date_range": dagster.MetadataValue.text(f"{date_start} to {date_end}"),
+                },
+            )
+        else:
+            return AssetCheckResult(
+                passed=False,
+                description=f"Query succeeded but no data found for {len(test_teams)} test teams",
+                metadata={
+                    "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+                    "teams_with_data": dagster.MetadataValue.int(0),
+                },
+            )
+
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Failed to query web_stats_daily table: {str(e)}",
+            metadata={
+                "error": dagster.MetadataValue.text(str(e)),
+                "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+            },
+        )
+
+
+@asset_check(
+    asset="web_analytics_active_teams_90d",
+    name="web_bounces_daily_query_with_active_teams",
+    description="Verify web_bounces_daily table can be queried successfully with teams from active teams list",
+)
+def web_bounces_daily_query_with_active_teams(
+    context: dagster.AssetCheckExecutionContext, web_analytics_active_teams_90d: list
+) -> AssetCheckResult:
+    """
+    Asset check to verify that web_bounces_daily table works with the active teams list.
+    """
+    if not web_analytics_active_teams_90d:
+        return AssetCheckResult(
+            passed=False,
+            description="No active teams found to test query with",
+            metadata={"team_count": dagster.MetadataValue.int(0)},
+        )
+
+    # Test with a subset of teams to avoid timeout
+    test_teams = web_analytics_active_teams_90d[:10]
+    team_ids_str = ",".join(str(team_id) for team_id in test_teams)
+
+    # Test query for last 7 days
+    end_date = datetime.now(UTC)
+    start_date = end_date - timedelta(days=7)
+    date_start = start_date.strftime("%Y-%m-%d")
+    date_end = end_date.strftime("%Y-%m-%d")
+
+    test_query = f"""
+    SELECT
+        team_id,
+        count(*) as row_count,
+        sumMerge(bounces_count_state) as total_bounces,
+        uniqMerge(sessions_uniq_state) as unique_sessions
+    FROM web_bounces_daily
+    WHERE team_id IN ({team_ids_str})
+        AND period_bucket >= toDateTime('{date_start}', 'UTC')
+        AND period_bucket < toDateTime('{date_end}', 'UTC')
+    GROUP BY team_id
+    ORDER BY team_id
+    LIMIT 100
+    """
+
+    try:
+        context.log.info(f"Testing web_bounces_daily query with {len(test_teams)} teams")
+        result = sync_execute(test_query)
+
+        teams_with_data = len(result)
+        total_rows = sum(int(row[1]) for row in result)
+        total_bounces = sum(int(row[2]) for row in result)
+        total_sessions = sum(int(row[3]) for row in result)
+
+        if teams_with_data > 0:
+            return AssetCheckResult(
+                passed=True,
+                description=f"Successfully queried web_bounces_daily with {teams_with_data} teams returning {total_rows} rows",
+                metadata={
+                    "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+                    "teams_with_data": dagster.MetadataValue.int(teams_with_data),
+                    "total_rows": dagster.MetadataValue.int(total_rows),
+                    "total_bounces": dagster.MetadataValue.int(total_bounces),
+                    "total_sessions": dagster.MetadataValue.int(total_sessions),
+                    "date_range": dagster.MetadataValue.text(f"{date_start} to {date_end}"),
+                },
+            )
+        else:
+            return AssetCheckResult(
+                passed=False,
+                description=f"Query succeeded but no data found for {len(test_teams)} test teams",
+                metadata={
+                    "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+                    "teams_with_data": dagster.MetadataValue.int(0),
+                },
+            )
+
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Failed to query web_bounces_daily table: {str(e)}",
+            metadata={
+                "error": dagster.MetadataValue.text(str(e)),
+                "tested_teams": dagster.MetadataValue.int(len(test_teams)),
+            },
+        )
