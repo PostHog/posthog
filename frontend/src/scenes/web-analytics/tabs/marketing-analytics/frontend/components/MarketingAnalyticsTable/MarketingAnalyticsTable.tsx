@@ -4,7 +4,12 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, MarketingAnalyticsTableQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ConversionGoalFilter,
+    DataTableNode,
+    MarketingAnalyticsTableQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -14,8 +19,8 @@ interface ColumnConfig {
     align?: 'left' | 'center' | 'right'
 }
 
-import { webAnalyticsDataTableQueryContext } from '../../../../tiles/WebAnalyticsTile'
-import { marketingAnalyticsLogic } from '../logic/marketingAnalyticsLogic'
+import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
+import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import {
     CAMPAIGN_COST_CTE_NAME,
     CAMPAIGN_NAME_FIELD,
@@ -25,7 +30,8 @@ import {
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
-} from '../logic/utils'
+} from '../../logic/utils'
+import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -36,7 +42,7 @@ interface MarketingAnalyticsTableProps {
 // Also we need to centralize the column names and orderBy fields whether in the backend or frontend
 export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy } = useActions(marketingAnalyticsLogic)
-    const { marketingAnalyticsOrderBy, conversion_goals } = useValues(marketingAnalyticsLogic)
+    const { marketingAnalyticsOrderBy, conversion_goals, dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
 
     // Create a new query object with the orderBy field when sorting state changes
     const queryWithOrderBy = useMemo(() => {
@@ -56,6 +62,18 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             source,
         }
     }, [query, marketingAnalyticsOrderBy])
+
+    // Combined conversion goals - static from settings + dynamic goal
+    const allConversionGoals = useMemo(() => {
+        const goals: ConversionGoalFilter[] = []
+        if (dynamicConversionGoal) {
+            goals.push(dynamicConversionGoal)
+        }
+        if (conversion_goals) {
+            goals.push(...conversion_goals)
+        }
+        return goals
+    }, [conversion_goals, dynamicConversionGoal])
 
     const MarketingSortableCell = useCallback(
         (name: string, orderByField: string): QueryContextColumnTitleComponent =>
@@ -94,11 +112,10 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         [marketingAnalyticsOrderBy, setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy]
     )
 
-    // Generate dynamic column mappings for conversion goals
     const conversionGoalColumns = useMemo(() => {
         const columns: Record<string, ColumnConfig> = {}
 
-        conversion_goals?.forEach((goal, index) => {
+        allConversionGoals?.forEach((goal: ConversionGoalFilter, index: number) => {
             const goalName = goal.conversion_goal_name || `Goal ${index + 1}`
             const costPerGoalName = `Cost per ${goalName}`
 
@@ -125,7 +142,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         })
 
         return columns
-    }, [conversion_goals, MarketingSortableCell])
+    }, [allConversionGoals, MarketingSortableCell])
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -175,13 +192,15 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 render: webAnalyticsDataTableQueryContext.columns?.ctr?.render,
                 align: 'right',
             },
-            // Add dynamic conversion goal columns
             ...conversionGoalColumns,
         },
     }
 
     return (
         <div className="bg-surface-primary">
+            <div className="p-4 border-b border-border bg-bg-light">
+                <DynamicConversionGoalControls />
+            </div>
             <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />
         </div>
     )

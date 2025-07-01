@@ -19,6 +19,7 @@ export function createInvocation(
         state: {
             globals,
             timings: [],
+            attempts: 0,
         },
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,

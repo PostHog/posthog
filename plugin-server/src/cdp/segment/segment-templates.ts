@@ -269,6 +269,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof val === 'object' && val['@path']) {
                     val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
+                } else if (typeof val === 'object' && val['@template']) {
+                    val = `'${val['@template']}'`
                 } else if (typeof val === 'string') {
                     val = `'${val}'`
                 }
@@ -277,6 +279,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof fallbackVal === 'object' && fallbackVal['@path']) {
                     fallbackVal = fallbackVal['@path'].replace('$.', 'event.')
                     fallbackVal = normalizeValue(fallbackVal)
+                } else if (typeof fallbackVal === 'object' && fallbackVal['@template']) {
+                    fallbackVal = `'${fallbackVal['@template']}'`
                 } else if (typeof fallbackVal === 'string') {
                     fallbackVal = `'${fallbackVal}'`
                 }
@@ -294,7 +298,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         } else if (defaultVal && '@arrayPath' in defaultVal) {
             let val = defaultVal['@arrayPath'][0]
             val = val.replace('$.', 'event.')
-            return normalizeValue(val)
+            return `{${normalizeValue(val)}}`
         }
     }
     return JSON.stringify(defaultVal)
@@ -375,24 +379,22 @@ const translateInputsSchema = (
 
 const getIconUrl = (id: string, slug: string | undefined) => {
     const icon_overrides = {
-        'segment-gameball': 'gameball.co',
-        'segment-angler-ai': 'getangler.ai',
-        'segment-amazon-amc': 'amazon.com',
-        'segment-canvas': 'supernova.ai',
+        'segment-actions-gameball': 'gameball.co',
+        'segment-actions-angler-ai': 'getangler.ai',
+        'segment-actions-amazon-amc': 'amazon.com',
+        'segment-actions-canvas': 'supernova.ai',
         'segment-voucherify-actions': 'voucherify.io',
-        'segment-voyage': 'voyagesms.com',
+        'segment-actions-voyage': 'voyagesms.com',
         'segment-encharge-cloud-actions': 'encharge.io',
-        'segment-cloud-gwen': 'gwenplatform.com',
-        'segment-heap-cloud': 'heap.io',
-        'segment-hyperengage': 'hyperengage.io',
+        'segment-actions-cloud-gwen': 'gwenplatform.com',
+        'segment-actions-hyperengage': 'hyperengage.io',
         'segment-inleads-ai': 'inleads.ai',
         'segment-metronome-actions': 'metronome.com',
-        'segment-movable-ink': 'movableink.com',
         'segment-outfunnel': 'outfunnel.com',
-        'segment-playerzero-cloud': 'playerzero.ai',
-        'segment-revx': 'revx.io',
-        'segment-saleswings': 'saleswingsapp.com',
-        'segment-schematic': 'schematichq.com',
+        'segment-actions-playerzero-cloud': 'playerzero.ai',
+        'segment-actions-revx': 'revx.io',
+        'segment-actions-saleswings': 'saleswingsapp.com',
+        'segment-actions-schematic': 'schematichq.com',
     }
 
     if (!slug && !(id in icon_overrides)) {
@@ -406,49 +408,55 @@ const getIconUrl = (id: string, slug: string | undefined) => {
 
 // hide all destinations for now
 const APPROVED_DESTINATIONS: string[] = [
-    // 'segment-mixpanel',
-    // 'segment-amplitude',
-    // 'segment-launchdarkly',
-    // 'segment-canny',
-    // 'segment-fullstory-cloud',
-    // 'segment-drip',
-    // 'segment-heap',
-    // 'segment-pipedrive',
+    'segment-actions-mixpanel',
+    'segment-actions-amplitude',
+    'segment-actions-launchdarkly',
+    'segment-actions-canny',
+    'segment-actions-fullstory-cloud',
+    'segment-actions-drip',
+    'segment-actions-pipedrive',
+    'segment-inleads-ai',
+    'segment-actions-koala-cloud',
+    'segment-actions-pushwoosh',
+    'segment-actions-schematic',
+    'segment-actions-usermotion',
+    'segment-actions-accoil-analytics',
 ]
 
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
-    'segment-snap-conversions',
+    'segment-actions-snap-conversions',
     'segment-hubspot-cloud',
     'segment-june-actions',
     'segment-intercom-cloud',
-    'segment-avo',
+    'segment-actions-avo',
     'segment-loops',
-    'segment-reddit-conversions-api',
-    'segment-customerio',
+    'segment-actions-reddit-conversions-api',
+    'segment-actions-customerio',
     'segment-slack',
     'segment-webhook',
     'segment-webhook-extensible',
     'segment-attio',
-    'segment-braze-cloud',
-    'segment-klaviyo',
+    'segment-actions-braze-cloud',
+    'segment-actions-klaviyo',
     'segment-tiktok-conversions',
     'segment-tiktok-conversions-sandbox',
-    'segment-tiktok-offline-conversions',
-    'segment-tiktok-offline-conversions-sandbox',
+    'segment-actions-tiktok-offline-conversions',
+    'segment-actions-tiktok-offline-conversions-sandbox',
     'segment-facebook-conversions-api',
-    'segment-google-enhanced-conversions',
+    'segment-actions-google-enhanced-conversions',
     'segment-gleap-cloud-actions',
 
     // broken destinations
-    'segment-apolloio',
-    'segment-toplyne-cloud',
+    'segment-actions-apolloio',
+    'segment-actions-toplyne-cloud',
+    'segment-actions-heap-cloud',
 
     // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
-    'segment-equals',
-    'segment-gainsight-px-cloud',
-    'segment-iqm',
-    'segment-movable-ink',
+    'segment-actions-equals',
+    'segment-actions-gainsight-px-cloud',
+    'segment-actions-iqm',
+    'segment-actions-movable-ink',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -456,8 +464,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         if (HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences')) {
             return false
         }
@@ -472,15 +479,14 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .map(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
 
         return {
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'hidden',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
                 type: 'destination',
                 id,
                 name,
