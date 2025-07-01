@@ -40,6 +40,7 @@ import {
 
 import { sidePanelSettingsLogic } from '../sidePanelSettingsLogic'
 import type { activationLogicType } from './activationLogicType'
+import { reverseProxyModalLogic } from 'lib/components/Onboarding/ReverseProxyModal/ReverseProxyModalLogic'
 
 export type ActivationTaskDefinition = {
     id: ActivationTask
@@ -89,6 +90,8 @@ export const activationLogic = kea<activationLogicType>([
             ['addProductIntent'],
             reverseProxyCheckerLogic,
             ['loadHasReverseProxy'],
+            reverseProxyModalLogic,
+            ['openReverseProxyModal'],
         ],
     })),
     actions({
@@ -261,6 +264,9 @@ export const activationLogic = kea<activationLogicType>([
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
+                    break
+                case ActivationTask.SetUpReverseProxy:
+                    actions.openReverseProxyModal()
                     break
 
                 // Product Analytics
@@ -548,7 +554,6 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Set up a reverse proxy',
         canSkip: true,
         section: ActivationSection.QuickStart,
-        url: 'https://posthog.com/docs/advanced/proxy',
     },
 
     // Product Analytics

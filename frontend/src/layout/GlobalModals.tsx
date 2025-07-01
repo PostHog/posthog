@@ -21,6 +21,7 @@ import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal
 import { useEffect } from 'react'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
+import { ReverseProxyModal } from 'lib/components/Onboarding/ReverseProxyModal/ReverseProxyModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -110,6 +111,7 @@ export function GlobalModals(): JSX.Element {
             <SaveToModal />
             <MoveToModal />
             <ItemSelectModal />
+            <ReverseProxyModal />
             {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
         </>
     )
