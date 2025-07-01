@@ -77,20 +77,6 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS="true"
     ;;
 
-  cyclotron-fetch)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
-    export RUST_BACKTRACE=1
-    export KAFKA_HOSTS=localhost:9092
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
-    export WORKER_ID=default_worker_id
-    export JOB_POLL_INTERVAL=1s
-    export MAX_CONCURRENT_JOBS=10
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
-    ;;
-
   cyclotron-janitor)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
