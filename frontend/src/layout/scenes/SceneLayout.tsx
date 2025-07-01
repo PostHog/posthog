@@ -1,6 +1,5 @@
 import { IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -45,16 +44,6 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
     const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-    // const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
-
-    // Access the side panel's desiredSize
-    const { desiredSize } = useValues(
-        resizerLogic({
-            logicKey: 'side-panel', // Same logic key as the SidePanel
-            containerRef: { current: null }, // Dummy ref for reading values
-            placement: 'left',
-        })
-    )
 
     useEffect(() => {
         if (sceneLayoutContainer.current) {
