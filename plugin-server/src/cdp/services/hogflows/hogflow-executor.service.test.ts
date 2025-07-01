@@ -14,6 +14,13 @@ import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
+const cleanLogs = (logs: string[]): string[] => {
+    // Replaces the function time with a fixed value to simplify testing
+    return logs.map((log) => {
+        return log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms')
+    })
+}
+
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let hub: Hub
@@ -107,11 +114,12 @@ describe('Hogflow Executor', () => {
             })
 
             const result = await executor.execute(invocation)
+
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 invocation: {
                     state: {
-                        actionStepCount: 0,
+                        actionStepCount: 1,
                         currentAction: {
                             id: 'exit',
                             startedAtTimestamp: expect.any(Number),
@@ -121,7 +129,7 @@ describe('Hogflow Executor', () => {
                             elements_chain: '',
                             event: 'test',
                             properties: {
-                                $lib_version: '1.2.3',
+                                name: 'John Doe',
                             },
                             timestamp: expect.any(String),
                             url: 'http://localhost:8000/events/1',
@@ -144,7 +152,27 @@ describe('Hogflow Executor', () => {
                     {
                         level: 'info',
                         timestamp: expect.any(DateTime),
-                        message: `Workflow completed`,
+                        message: '[Action:function_id_1] Hello, Mr John Doe!',
+                    },
+                    {
+                        level: 'warn',
+                        timestamp: expect.any(DateTime),
+                        message: '[Action:function_id_1] HTTP fetch failed on attempt 1 with status code 405.',
+                    },
+                    {
+                        level: 'debug',
+                        timestamp: expect.any(DateTime),
+                        message: expect.stringContaining('[Action:function_id_1] Function completed in'),
+                    },
+                    {
+                        level: 'info',
+                        timestamp: expect.any(DateTime),
+                        message: "Workflow moved to action 'exit (exit)'",
+                    },
+                    {
+                        level: 'info',
+                        timestamp: expect.any(DateTime),
+                        message: 'Workflow completed',
                     },
                 ],
                 metrics: [
