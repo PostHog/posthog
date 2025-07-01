@@ -111,6 +111,13 @@ function getWeekBoundaries(
         weekStart: weekStartDay,
     })
 
+    // Prevent an edge case where the reference date is not set to the start of the week
+    // This can happen when the data is cached and the weekStartDay changes
+    if ([0, 1].includes(referenceDate.day()) && referenceDate.day() !== weekStartDay) {
+        // adjust the reference date to the start of the week
+        referenceDate = referenceDate.add(weekStartDay - referenceDate.day(), 'day')
+    }
+
     const weekStart = referenceDate.startOf('week')
     const weekEnd = referenceDate.endOf('week')
 
