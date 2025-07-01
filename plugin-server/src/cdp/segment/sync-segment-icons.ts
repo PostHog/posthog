@@ -5,7 +5,7 @@ import { SEGMENT_DESTINATIONS } from './segment-templates'
 
 // Script to store the segment icons in the static folder
 
-void SEGMENT_DESTINATIONS.splice(0, 2).map(async ({ template }) => {
+void SEGMENT_DESTINATIONS.map(async ({ template }) => {
     const iconId = template.icon_url?.replace('/static/services/', '')
 
     const res = await fetch(`https://img.logo.dev/${iconId}?token=${process.env.LOGO_DEV_TOKEN}`)
