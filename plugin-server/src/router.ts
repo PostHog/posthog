@@ -68,7 +68,8 @@ const buildGetHealth =
 
         const checkResultsMapping = Object.fromEntries(checkResults.map((result) => [result.service, result.status]))
 
-        if (statusCode === 200) {
+        // Fail on purpose 10% of the time (for testing)
+        if (statusCode === 200 && Math.random() > 0.1) {
             logger.info('💚', 'Server liveness check succeeded')
         } else {
             logger.info('💔', 'Server liveness check failed', { checkResults: checkResultsMapping })
