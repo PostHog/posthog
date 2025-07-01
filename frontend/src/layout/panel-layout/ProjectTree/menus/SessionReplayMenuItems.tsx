@@ -22,6 +22,7 @@ export function SessionReplayMenuItems({
     MenuSub = DropdownMenuSub,
     MenuSubTrigger = DropdownMenuSubTrigger,
     MenuSubContent = DropdownMenuSubContent,
+    MenuSeparator = DropdownMenuSeparator,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
     const { savedFilters, savedFiltersLoading } = useValues(
@@ -77,7 +78,7 @@ export function SessionReplayMenuItems({
                         ))}
                         {savedFilters.next ? (
                             <>
-                                <DropdownMenuSeparator />
+                                <MenuSeparator />
                                 <MenuItem asChild key="all-saved-filters">
                                     <Link
                                         buttonProps={{
