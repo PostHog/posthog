@@ -7874,6 +7874,9 @@
                       properties: {
                         hidden: False
                       },
+                      revenue_analytics: {
+                        hidden: False
+                      },
                       some_expr: {
                         hidden: False
                       },
@@ -9329,9 +9332,6 @@
                       person_id: {
                         hidden: False
                       },
-                      revenue_analytics: {
-                        hidden: False
-                      },
                       team_id: {
                         hidden: False
                       }
@@ -9564,9 +9564,6 @@
                       person_id: {
                         hidden: False
                       },
-                      revenue_analytics: {
-                        hidden: False
-                      },
                       team_id: {
                         hidden: False
                       }
@@ -9782,9 +9779,6 @@
                       hidden: False
                     },
                     person_id: {
-                      hidden: False
-                    },
-                    revenue_analytics: {
                       hidden: False
                     },
                     team_id: {
@@ -10006,9 +10000,6 @@
                     person_id: {
                       hidden: False
                     },
-                    revenue_analytics: {
-                      hidden: False
-                    },
                     team_id: {
                       hidden: False
                     }
@@ -10075,9 +10066,6 @@
                     hidden: False
                   },
                   person_id: {
-                    hidden: False
-                  },
-                  revenue_analytics: {
                     hidden: False
                   },
                   team_id: {
