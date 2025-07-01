@@ -476,7 +476,7 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.debug).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
                 truth(

@@ -669,11 +669,6 @@ export class HogExecutorService {
         } catch (err) {
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            logger.error(
-                '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.state.globals.event?.url}'`,
-                err
-            )
         }
 
         return result
