@@ -20,7 +20,6 @@ services:
             - 'capture:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
-            - 'host.docker.internal:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
@@ -58,7 +57,7 @@ services:
                     }
 
                     handle @flags {
-                        reverse_proxy feature-flags:3001
+                        reverse_proxy host.docker.internal:3001
                     }
 
                     handle @webhooks {
@@ -177,6 +176,14 @@ services:
             - '2080:2080'
         environment:
             - LISTEN_PORT=2080
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
 
     livestream:
         extends:
