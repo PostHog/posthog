@@ -11,7 +11,12 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    get_multiple_variant_handling_from_experiment,
+    get_variant_selection_expr,
+)
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models.experiment import Experiment
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     ExperimentExposureQuery,
@@ -35,9 +40,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
+        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.exposure_criteria = self.query.exposure_criteria
         self.feature_flag_key = self.query.feature_flag.get("key")
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
+        
+        # Determine how to handle entities exposed to multiple variants
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
 
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [variant.get("key") for variant in multivariate_data.get("variants", [])]
@@ -172,13 +181,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
-                            expr=parse_expr(
-                                "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                                placeholders={
-                                    "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
-                                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                                },
-                            ),
+                            expr=get_variant_selection_expr(feature_flag_variant_property, self.multiple_variant_handling),
                         ),
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                     ],
