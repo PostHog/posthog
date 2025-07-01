@@ -1,5 +1,6 @@
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -246,13 +247,26 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, progress_percentage } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
                                             Running: 'warning',
                                         }
                                         const type = statusToType[status] || 'warning'
+
+                                        if (status === 'Running' && progress_percentage > 0) {
+                                            return (
+                                                <Tooltip title={`Running: ${progress_percentage.toFixed(1)}%`}>
+                                                    <LemonProgress
+                                                        size="large"
+                                                        percent={progress_percentage}
+                                                        className="w-[68px]"
+                                                    />
+                                                </Tooltip>
+                                            )
+                                        }
 
                                         return error ? (
                                             <Tooltip title={error}>
@@ -270,33 +284,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
                                             ? '~'
                                             : humanFriendlyNumber(rows_materialized),
-                                },
-                                {
-                                    title: 'Progress',
-                                    render: (_, job: DataModelingJob) => {
-                                        if (job.status === 'Running' && job.progress_percentage > 0) {
-                                            return (
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-16 bg-gray-200 rounded-full h-2">
-                                                        <div
-                                                            className="bg-primary h-2 rounded-full transition-all duration-300"
-                                                            style={{ width: `${job.progress_percentage}%` }}
-                                                        />
-                                                    </div>
-                                                    <span className="text-xs text-muted">
-                                                        {job.progress_percentage.toFixed(1)}%
-                                                    </span>
-                                                </div>
-                                            )
-                                        }
-                                        if (job.status === 'Completed') {
-                                            return <span className="text-success">Complete</span>
-                                        }
-                                        if (job.status === 'Failed') {
-                                            return <span className="text-danger">Failed</span>
-                                        }
-                                        return <span className="text-muted">-</span>
-                                    },
                                 },
                                 {
                                     title: 'Updated',

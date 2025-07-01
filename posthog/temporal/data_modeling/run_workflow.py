@@ -436,6 +436,9 @@ async def materialize_model(
         except FileNotFoundError:
             await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
+        total_rows_expected = await get_query_row_count(hogql_query, team, logger)
+        await logger.ainfo(f"Expected total rows: {total_rows_expected}")
+
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
@@ -468,9 +471,12 @@ async def materialize_model(
             )
 
             row_count = row_count + batch.num_rows
-
-            # Update progress after each batch
-            await update_job_progress(job=job, rows_materialized=row_count, batches_processed=index + 1, logger=logger)
+            await update_job_progress(
+                job=job,
+                rows_materialized=row_count,
+                batches_processed=index + 1,
+                total_rows_expected=total_rows_expected,
+            )
 
             shutdown_monitor.raise_if_is_worker_shutdown()
 
@@ -577,7 +583,6 @@ async def update_job_progress(
     rows_materialized: int,
     batches_processed: int,
     total_rows_expected: int | None = None,
-    logger: FilteringBoundLogger | None = None,
 ) -> None:
     """
     Update the progress of a DataModelingJob during materialization.
@@ -586,28 +591,18 @@ async def update_job_progress(
         rows_materialized: Total rows materialized so far
         batches_processed: Number of batches processed
         total_rows_expected: Optional total rows expected (for percentage calculation)
-        logger: Optional logger for progress logging
     """
     job.rows_materialized = rows_materialized
     job.batches_processed = batches_processed
 
-    if total_rows_expected is not None:
+    if total_rows_expected is not None and total_rows_expected > 0:
         job.total_rows_expected = total_rows_expected
-        if total_rows_expected > 0:
-            job.progress_percentage = min(100.0, (rows_materialized / total_rows_expected) * 100.0)
-        else:
-            job.progress_percentage = 100.0 if rows_materialized > 0 else 0.0
+        job.progress_percentage = min(100.0, (rows_materialized / total_rows_expected) * 100.0)
     else:
-        # If we don't know total expected, use batches as a proxy for progress
-        # This is a rough estimate - we assume each batch represents roughly equal progress
-        job.progress_percentage = min(100.0, batches_processed * 10.0)  # 10% per batch as rough estimate
+        # If we don't have total rows, just track batches without percentage
+        job.progress_percentage = None
 
     await database_sync_to_async(job.save)()
-
-    if logger:
-        await logger.adebug(
-            f"Progress update: {rows_materialized} rows, {batches_processed} batches, {job.progress_percentage:.1f}% complete"
-        )
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
@@ -650,6 +645,40 @@ async def update_table_row_count(
     except Exception as e:
         capture_exception(e)
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
+
+
+async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogger) -> int:
+    """Get the total row count for a HogQL query."""
+    count_query = f"SELECT count() FROM ({query})"
+
+    query_node = parse_select(count_query)
+
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+    )
+    context.output_format = "TabSeparated"
+    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+
+    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        query_node, context=context, dialect="clickhouse", stack=[]
+    )
+    printed = await database_sync_to_async(print_prepared_ast)(
+        prepared_hogql_query,
+        context=context,
+        dialect="clickhouse",
+        stack=[],
+    )
+
+    await logger.adebug(f"Running count query: {printed}")
+
+    async with get_client() as client:
+        result = await client.read_query(printed, query_parameters=context.values)
+        count = int(result.decode("utf-8").strip())
+        await logger.adebug(f"Count query result: {count}")
+        return count
 
 
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
