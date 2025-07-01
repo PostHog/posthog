@@ -1,10 +1,10 @@
 import { afterMount, kea, key, path, props } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { HogFunctionTemplateType } from '~/types'
 
 import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
-import { forms } from 'node_modules/kea-forms/lib'
 import { HogFlowAction } from '../types'
 import { Node } from '@xyflow/react'
 
