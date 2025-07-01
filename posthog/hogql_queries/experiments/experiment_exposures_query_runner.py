@@ -44,7 +44,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.exposure_criteria = self.query.exposure_criteria
         self.feature_flag_key = self.query.feature_flag.get("key")
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
-        
+
         # Determine how to handle entities exposed to multiple variants
         self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
 
@@ -181,7 +181,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         ast.Alias(alias="entity_id", expr=ast.Field(chain=[entity])),
                         ast.Alias(
                             alias="variant",
-                            expr=get_variant_selection_expr(feature_flag_variant_property, self.multiple_variant_handling),
+                            expr=get_variant_selection_expr(
+                                feature_flag_variant_property, self.multiple_variant_handling
+                            ),
                         ),
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                     ],
