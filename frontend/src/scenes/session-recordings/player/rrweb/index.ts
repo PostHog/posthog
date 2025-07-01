@@ -209,7 +209,7 @@ export const makeLogger = (onIncrement: (count: number) => void): BuiltLogging =
         // We also don't log the messages directly.
         // Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
 
-        return (args: any[]): void => {
+        return (...args: any[]): void => {
             logStores[type].push(args)
             counters[type] += 1
 
