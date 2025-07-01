@@ -107,14 +107,21 @@ function getWeekBoundaries(
     timezone?: string
 ): { weekStart: dayjs.Dayjs; weekEnd: dayjs.Dayjs } {
     // Adjust the reference date to the start of the week based on the provided day
-    const startOfWeek = referenceDate.startOf('week')
-    const endOfWeek = referenceDate.endOf('week')
+    const weekStart = referenceDate.startOf('week')
+    const weekEnd = referenceDate.endOf('week')
 
-    const dateFrom = dateRange?.date_from ? dayjs.tz(dateRange.date_from, timezone) : startOfWeek
-    const dateTo = dateRange?.date_to ? dayjs.tz(dateRange.date_to, timezone) : endOfWeek
+    if (dateRange && dayjs(dateRange?.date_from).isValid() && dayjs(dateRange?.date_to).isValid()) {
+        const dateFrom = dayjs.tz(dateRange.date_from, timezone)
+        const dateTo = dayjs.tz(dateRange.date_to, timezone)
+        return {
+            weekStart: dateFrom.isAfter(weekStart) ? dateFrom : weekStart,
+            weekEnd: dateTo.isBefore(weekEnd) ? dateTo : weekEnd,
+        }
+    }
+
     return {
-        weekStart: dateFrom.isAfter(startOfWeek) ? dateFrom : startOfWeek,
-        weekEnd: dateTo.isBefore(endOfWeek) ? dateTo : endOfWeek,
+        weekStart,
+        weekEnd,
     }
 }
 
