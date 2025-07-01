@@ -57,7 +57,7 @@ const autoAddEntities = <TContext extends EntityWithIdAndType>(
     return [...state, ...uniqueNewEntities]
 }
 
-export type LoadedEntitiesMap = { dashboard: []; insight: [] }
+export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 
 export const maxContextLogic = kea<maxContextLogicType>([
     path(['lib', 'ai', 'maxContextLogic']),
@@ -232,6 +232,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     dashboardLogicInstance.unmount()
                 }
             }
+
+            if (dashboard) {
+                actions.addOrUpdateContextDashboard(dashboard)
+            }
         },
         loadAndProcessInsight: async ({ data }: { data: InsightItemInfo }, breakpoint) => {
             let insight = data.preloaded
@@ -252,6 +256,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 } finally {
                     insightLogicInstance.unmount()
                 }
+            }
+
+            if (insight) {
+                actions.addOrUpdateContextInsight(insight)
             }
         },
         handleTaxonomicFilterChange: async ({
