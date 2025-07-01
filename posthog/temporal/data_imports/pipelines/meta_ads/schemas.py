@@ -1,5 +1,3 @@
-from posthog.warehouse.types import IncrementalFieldType
-
 # Predefined schemas for Meta Ads resources
 RESOURCE_SCHEMAS = {
     "ad": {
@@ -25,7 +23,6 @@ RESOURCE_SCHEMAS = {
     "ad_stats": {
         "resource_name": "ads",
         "primary_key": ["ad_id", "account_id", "date_start"],
-        "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
             "ad_id",
             "account_id",
@@ -85,7 +82,6 @@ RESOURCE_SCHEMAS = {
     "adset_stats": {
         "resource_name": "adsets",
         "primary_key": ["adset_id", "account_id", "date_start"],
-        "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
             "adset_id",
             "account_id",
@@ -135,7 +131,6 @@ RESOURCE_SCHEMAS = {
     "campaign_stats": {
         "resource_name": "campaigns",
         "primary_key": ["campaign_id", "account_id", "date_start"],
-        "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
             "campaign_id",
             "account_id",

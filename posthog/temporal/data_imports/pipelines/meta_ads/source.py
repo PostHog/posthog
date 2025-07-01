@@ -129,7 +129,7 @@ class MetaAdsSchema:
         self.field_names = field_names
 
 
-def get_schemas(config: MetaAdsSourceConfig, team_id: int) -> dict[str, MetaAdsSchema]:
+def get_schemas() -> dict[str, MetaAdsSchema]:
     """Obtain Meta Ads schemas using predefined field definitions."""
     schemas = {}
 
@@ -250,7 +250,7 @@ def meta_ads_source(
     yield batches of rows as Python lists.
     """
     name = NamingConvention().normalize_identifier(config.resource_name)
-    schema = get_schemas(config, team_id)[config.resource_name]
+    schema = get_schemas()[config.resource_name]
 
     if schema.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
@@ -284,7 +284,7 @@ def meta_ads_source(
                     last_value_date = last_value
 
                 start_date = max(last_value_date, three_years_ago).strftime("%Y-%m-%d")
-                end_date = dt.date.today().strftime("%Y-%m-%d")
+                end_date = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
                 time_range = {
                     "since": start_date,
                     "until": end_date,
@@ -305,11 +305,11 @@ def meta_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=schema.primary_key,
-        partition_count=1 if schema.requires_filter else None,
-        partition_size=1 if schema.requires_filter else None,
-        partition_mode="datetime" if schema.requires_filter else None,
-        partition_format="day" if schema.requires_filter else None,
-        partition_keys=["date_start"] if schema.requires_filter else None,
+        partition_count=None,
+        partition_size=None,
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
     )
 
 

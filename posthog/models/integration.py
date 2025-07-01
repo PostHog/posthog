@@ -300,7 +300,7 @@ class OauthIntegration:
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read ads_management business_management read_insights",
                 id_path="id",
-                name_path="email",
+                name_path="name",
             )
         elif kind == "linear":
             if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
