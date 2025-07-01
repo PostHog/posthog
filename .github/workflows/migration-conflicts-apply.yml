@@ -13,16 +13,19 @@ on:
                 type: string
     issue_comment:
         types: [created]
+    repository_dispatch:
+        types: [test-apply]
 
 jobs:
     apply-migration-fixes:
         runs-on: ubuntu-latest
-        # Only run on manual dispatch or PR comments with the trigger
+        # Only run on manual dispatch, PR comments with the trigger, or via repository_dispatch
         if: |
             (github.event_name == 'workflow_dispatch') ||
             (github.event_name == 'issue_comment' && 
              github.event.issue.pull_request && 
-             contains(github.event.comment.body, '/fix-migrations'))
+             contains(github.event.comment.body, '/fix-migrations')) ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'test-apply')
 
         steps:
             - name: Extract app filter from comment
@@ -61,8 +64,13 @@ jobs:
               with:
                   fetch-depth: 0
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  # For issue comments, checkout the PR branch
-                  ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || github.ref }}
+                  # For issue comments, checkout the PR branch; for repository_dispatch, use specified branch
+                  ref: |
+                      ${{ 
+                        github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || 
+                        github.event_name == 'repository_dispatch' && github.event.client_payload.branch ||
+                        github.ref 
+                      }}
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
@@ -87,6 +95,8 @@ jobs:
                   APP_FILTER=""
                   if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
                     APP_FILTER="${{ inputs.app_filter }}"
+                  elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+                    APP_FILTER="${{ github.event.client_payload.app_filter }}"
                   else
                     APP_FILTER="${{ steps.extract_params.outputs.app_filter }}"
                   fi
@@ -159,7 +169,12 @@ jobs:
                       const appFilter = '${{ steps.apply_fixes.outputs.app_filter }}';
                       const appText = appFilter ? ` for app "${appFilter}"` : '';
 
-                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      let issueNumber;
+                      if (context.eventName === 'repository_dispatch') {
+                        issueNumber = context.payload.client_payload.pr_number || 34406;
+                      } else {
+                        issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      }
 
                       const comment = `## ✅ Migration Conflicts Fixed Successfully!
 
@@ -200,7 +215,12 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
-                      const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      let issueNumber;
+                      if (context.eventName === 'repository_dispatch') {
+                        issueNumber = context.payload.client_payload.pr_number || 34406;
+                      } else {
+                        issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      }
 
                       const comment = `## ℹ️ No Migration Conflicts to Fix
 

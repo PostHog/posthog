@@ -9,13 +9,17 @@ on:
         paths:
             - '**/migrations/**'
             - '**/max_migration.txt'
+    repository_dispatch:
+        types: [test-auto-detect]
 
 jobs:
     auto-detect-migration-conflicts:
         runs-on: ubuntu-latest
 
-        # Only run on PRs or if this push is associated with a PR
-        if: github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
+        # Only run on PRs or if this push is associated with a PR, or via repository_dispatch
+        if: |
+            (github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main') ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'test-auto-detect')
 
         steps:
             - name: Checkout code
@@ -23,6 +27,8 @@ jobs:
               with:
                   fetch-depth: 0
                   token: ${{ secrets.GITHUB_TOKEN }}
+                  # For repository_dispatch, checkout the specified branch
+                  ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.branch || github.ref }}
 
             - name: Set up Python
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
@@ -96,7 +102,12 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
-                      const branch = context.ref.replace('refs/heads/', '');
+                      let branch;
+                      if (context.eventName === 'repository_dispatch') {
+                        branch = context.payload.client_payload.branch || 'yasen/feat/migrations-conflict-resolution-in-ci';
+                      } else {
+                        branch = context.ref.replace('refs/heads/', '');
+                      }
 
                       const { data: pulls } = await github.rest.pulls.list({
                         owner: context.repo.owner,
@@ -126,7 +137,13 @@ jobs:
                       const fs = require('fs');
                       const analysisOutput = fs.readFileSync('migration_analysis.txt', 'utf8');
                       const prNumber = ${{ steps.find_pr.outputs.pr_number }};
-                      const branch = context.ref.replace('refs/heads/', '');
+
+                      let branch;
+                      if (context.eventName === 'repository_dispatch') {
+                        branch = context.payload.client_payload.branch || 'yasen/feat/migrations-conflict-resolution-in-ci';
+                      } else {
+                        branch = context.ref.replace('refs/heads/', '');
+                      }
 
                       const comment = `## 🤖 Auto-Detected Migration Conflicts
 
@@ -151,7 +168,7 @@ jobs:
                       - **Preview manually:** [Actions Tab](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-preview.yml) → "Migration Conflicts - Preview"
 
                       ---
-                      <sub>🤖 Auto-detected by migration-conflicts-auto-detect.yml on push to ${context.sha.substring(0, 7)}</sub>`;
+                      <sub>🤖 Auto-detected by migration-conflicts-auto-detect.yml ${context.eventName === 'repository_dispatch' ? 'via API test' : `on push to ${context.sha.substring(0, 7)}`}</sub>`;
 
                       const { data: comments } = await github.rest.issues.listComments({
                         owner: context.repo.owner,
