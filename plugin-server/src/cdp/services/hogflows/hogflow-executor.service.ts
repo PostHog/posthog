@@ -264,9 +264,13 @@ export class HogFlowExecutorService {
                         })
 
                         if (!functionResult.finished) {
+                            // Set the state of the function result on the substate of the flow for the next execution
+                            result.invocation.state.hogFunctionState = functionResult.invocation.state
+                            // Also the queueParameters are required (NOTE: we should really move this to the invocation state)
+                            result.invocation.queueParameters = functionResult.invocation.queueParameters
                             this.scheduleInvocation(
                                 result,
-                                functionResult.invocation.queueScheduledAt ?? DateTime.now()
+                                functionResult.invocation.queueScheduledAt ?? DateTime.now() // If not set then we schedule for now
                             )
                         } else {
                             this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
@@ -444,7 +448,7 @@ export class HogFlowExecutorService {
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: {
+            state: invocation.state.hogFunctionState ?? {
                 globals: await buildGlobalsWithInputs(globals, action.config.inputs),
                 timings: [],
                 attempts: 0,
@@ -452,7 +456,6 @@ export class HogFlowExecutorService {
         }
 
         const result = await this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
-
         return result
     }
 }

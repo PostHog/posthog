@@ -1,3 +1,13 @@
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
+
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -5,6 +15,7 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate } from '~/cdp/_tes
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
+import { fetch } from '~/utils/request'
 
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
@@ -24,10 +35,19 @@ const cleanLogs = (logs: string[]): string[] => {
 describe('Hogflow Executor', () => {
     let executor: HogFlowExecutorService
     let hub: Hub
+    const mockFetch = jest.mocked(fetch)
 
     beforeEach(async () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        mockFetch.mockImplementation(() => {
+            return {
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({ status: 200 })),
+            }
+        })
+
         await resetTestDatabase()
         hub = await createHub()
         const hogExecutor = new HogExecutorService(hub)
@@ -35,7 +55,7 @@ describe('Hogflow Executor', () => {
 
         const exampleHog = `
             print(f'Hello, {inputs.name}!')
-            fetch('https://posthog.com')`
+            print('Fetch 1', fetch('https://posthog.com').status)`
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
@@ -49,6 +69,27 @@ describe('Hogflow Executor', () => {
                 },
             ],
             bytecode: await compileHog(exampleHog),
+        })
+
+        const exampleHogMultiFetch = `
+            print(f'Hello, {inputs.name}!')
+            print('Fetch 1', fetch('https://posthog.com').status)
+            print('Fetch 2', fetch('https://posthog.com').status)
+            print('Fetch 3', fetch('https://posthog.com').status)
+            print('All fetches done!')`
+
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-test-hogflow-executor-async',
+            name: 'Test template multi fetch',
+            hog: exampleHogMultiFetch,
+            inputs_schema: [
+                {
+                    key: 'name',
+                    type: 'string',
+                    required: true,
+                },
+            ],
+            bytecode: await compileHog(exampleHogMultiFetch),
         })
 
         executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
@@ -103,7 +144,7 @@ describe('Hogflow Executor', () => {
                 .build()
         })
 
-        it('can execute a hogflow', async () => {
+        it('can execute a simple hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
                     ...createHogExecutionGlobals().event,
@@ -155,9 +196,9 @@ describe('Hogflow Executor', () => {
                         message: '[Action:function_id_1] Hello, Mr John Doe!',
                     },
                     {
-                        level: 'warn',
+                        level: 'info',
                         timestamp: expect.any(DateTime),
-                        message: '[Action:function_id_1] HTTP fetch failed on attempt 1 with status code 405.',
+                        message: '[Action:function_id_1] Fetch 1, 200',
                     },
                     {
                         level: 'debug',
@@ -194,6 +235,57 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
+        })
+
+        it('can execute a hogflow with async function delays', async () => {
+            hogFlow.actions.find((action) => action.id === 'function_id_1')!.config.template_id =
+                'template-test-hogflow-executor-async'
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                },
+            })
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toEqual(false)
+            expect(result.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "[Action:function_id_1] Hello, Mr John Doe!",
+                  "[Action:function_id_1] Fetch 1, 200",
+                  "Workflow will pause until 2025-01-01T01:00:00.000+01:00",
+                ]
+            `)
+
+            const result2 = await executor.execute(result.invocation)
+
+            expect(result2.finished).toEqual(false)
+            expect(result2.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "[Action:function_id_1] Fetch 2, 200",
+                  "Workflow will pause until 2025-01-01T01:00:00.000+01:00",
+                ]
+            `)
+
+            const result3 = await executor.execute(result2.invocation)
+
+            expect(result3.finished).toEqual(true)
+            expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
+                [
+                  "[Action:function_id_1] Fetch 3, 200",
+                  "[Action:function_id_1] All fetches done!",
+                  "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 101 bytes. Ops: 32. Event: 'http://localhost:8000/events/1'",
+                  "Workflow moved to action 'exit (exit)'",
+                  "Workflow completed",
+                ]
+            `)
         })
     })
 })

@@ -284,6 +284,7 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
     }
+    hogFunctionState?: CyclotronJobInvocationHogFunctionContext
 }
 
 // Mostly copied from frontend types
