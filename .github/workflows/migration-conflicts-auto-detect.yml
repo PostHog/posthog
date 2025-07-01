@@ -42,7 +42,7 @@ jobs:
                   CONFLICTS_FOUND=false
 
                   # List of apps to check
-                  APPS=("posthog/posthog" "billing/billing" "posthog/ee" "posthog/products/early_access_features" "posthog/products/user_interviews")
+                  APPS=("posthog" "billing" "ee" "products/early_access_features" "products/user_interviews")
 
                   for app in "${APPS[@]}"; do
                     MAX_FILE="$app/migrations/max_migration.txt"
