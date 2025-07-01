@@ -9071,7 +9071,7 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user_group", "user", "role"],
+                    "enum": ["user", "role"],
                     "type": "string"
                 }
             },

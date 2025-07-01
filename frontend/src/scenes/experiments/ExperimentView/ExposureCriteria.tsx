@@ -74,9 +74,8 @@ export function ExposureCriteriaModal(): JSX.Element {
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
-                        Uses the number of unique users who trigger the <LemonTag>$feature_flag_called</LemonTag> event
-                        as your exposure count. This is the recommended setting for most experiments, as it accurately
-                        tracks variant exposure.
+                        When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
+                        <strong>exposed</strong> to the experiment and included in the analysis.
                     </div>
                 </LemonButton>
                 <LemonButton
@@ -102,8 +101,9 @@ export function ExposureCriteriaModal(): JSX.Element {
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
-                        Define your own exposure metric for specific use cases, such as counting by sessions instead of
-                        users. This gives you full control but requires careful configuration.
+                        If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
+                        custom event to signal that users reached the part of your app where the experiment runs. You
+                        can also filter out users you would like to exclude from the analysis.
                     </div>
                 </LemonButton>
             </div>
