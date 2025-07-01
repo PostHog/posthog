@@ -7291,8 +7291,8 @@ class QueryDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[datetime]
-    date_to: Optional[datetime]
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
     interval: Optional[IntervalType] = Field(default=None, description="Granularity of the response.")
 
 
