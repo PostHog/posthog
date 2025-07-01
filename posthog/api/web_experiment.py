@@ -31,7 +31,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         model = WebExperiment
         fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
 
-    name = serializers.CharField()
 
     variants = serializers.JSONField(
         help_text="""Variants for the web experiment. Example:
