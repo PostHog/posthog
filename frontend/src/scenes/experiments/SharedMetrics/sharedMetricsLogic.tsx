@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -52,13 +52,5 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         afterMount: () => {
             actions.loadSharedMetrics()
         },
-    })),
-    selectors(() => ({
-        showLegacyBadge: [
-            () => [],
-            (): boolean => {
-                return true
-            },
-        ],
     })),
 ])

@@ -195,12 +195,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 ])
             },
         ],
-        showLegacyBadge: [
-            () => [],
-            (): boolean => {
-                return true
-            },
-        ],
     })),
     events(({ actions }) => ({
         afterMount: () => {
