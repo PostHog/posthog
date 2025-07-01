@@ -51,6 +51,7 @@ import {
     SurveyStats,
 } from '~/types'
 
+import posthog from 'posthog-js'
 import {
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
@@ -625,20 +626,29 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
-                const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
+                try {
+                    const createdSurvey = await api.surveys.create(sanitizeSurvey(payload))
 
-                lemonToast.success('Survey duplicated.', {
-                    toastId: `survey-duplicated-${createdSurvey.id}`,
-                    button: {
-                        label: 'View Survey',
-                        action: () => {
-                            router.actions.push(urls.survey(createdSurvey.id))
+                    lemonToast.success('Survey duplicated.', {
+                        toastId: `survey-duplicated-${createdSurvey.id}`,
+                        button: {
+                            label: 'View Survey',
+                            action: () => {
+                                router.actions.push(urls.survey(createdSurvey.id))
+                            },
                         },
-                    },
-                })
+                    })
 
-                actions.reportSurveyCreated(createdSurvey, true)
-                return survey
+                    actions.reportSurveyCreated(createdSurvey, true)
+                    return survey
+                } catch (error) {
+                    posthog.captureException('Error duplicating survey', {
+                        error,
+                        survey: payload,
+                    })
+                    lemonToast.error('Error while duplicating survey. Please try again.')
+                    return null
+                }
             },
         },
         duplicatedToProjectSurvey: {
