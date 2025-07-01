@@ -18,7 +18,7 @@ def remove_segment_hidden_destinations(apps, schema_editor):
     HogFunction.objects.filter(template_id__in=hidden_segment_templates).update(deleted=True)
 
     # Delete the templates themselves
-    HogFunctionTemplate.objects.filter(template_id__startswith="segment-", status="hidden").delete()[0]
+    HogFunctionTemplate.objects.filter(template_id__startswith="segment-", status="hidden").delete()
 
 
 def reverse_remove_segment_hidden_destinations(apps, schema_editor):
