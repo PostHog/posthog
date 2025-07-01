@@ -100,6 +100,7 @@ export const activationLogic = kea<activationLogicType>([
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
         setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
         onTeamLoad: (team: TeamType | TeamPublicType | null) => ({ team }),
+        setExpandedTaskId: (taskId: ActivationTask | null) => ({ taskId }),
     }),
     reducers(() => ({
         openSections: [
@@ -118,6 +119,12 @@ export const activationLogic = kea<activationLogicType>([
             false,
             {
                 toggleShowHiddenSections: (state) => !state,
+            },
+        ],
+        expandedTaskId: [
+            null as ActivationTask | null,
+            {
+                setExpandedTaskId: (_state, { taskId }) => taskId,
             },
         ],
     })),
