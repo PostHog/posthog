@@ -107,6 +107,11 @@ COMPRESSION_EXTENSIONS = {
     "lz4": "lz4",
 }
 
+SUPPORTED_COMPRESSIONS = {
+    "Parquet": ["gzip", "snappy", "brotli", "zstd", "lz4"],
+    "JSONLines": ["gzip", "brotli"],
+}
+
 
 @dataclasses.dataclass(kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
