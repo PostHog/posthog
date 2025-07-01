@@ -24,10 +24,10 @@ RESOURCE_SCHEMAS = {
     },
     "ad_stats": {
         "resource_name": "ads",
-        "primary_key": ["id", "account_id", "date_start"],
+        "primary_key": ["ad_id", "account_id", "date_start"],
         "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
-            "id",
+            "ad_id",
             "account_id",
             "adset_id",
             "campaign_id",
@@ -84,10 +84,10 @@ RESOURCE_SCHEMAS = {
     },
     "adset_stats": {
         "resource_name": "adsets",
-        "primary_key": ["id", "account_id", "date_start"],
+        "primary_key": ["adset_id", "account_id", "date_start"],
         "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
-            "id",
+            "adset_id",
             "account_id",
             "campaign_id",
             "date_start",
@@ -134,10 +134,10 @@ RESOURCE_SCHEMAS = {
     },
     "campaign_stats": {
         "resource_name": "campaigns",
-        "primary_key": ["id", "account_id", "date_start"],
+        "primary_key": ["campaign_id", "account_id", "date_start"],
         "filter_field_names": [("date_start", IncrementalFieldType.Date)],
         "field_names": [
-            "id",
+            "campaign_id",
             "account_id",
             "date_start",
             "date_stop",

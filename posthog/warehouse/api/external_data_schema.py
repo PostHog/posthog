@@ -42,6 +42,9 @@ from posthog.temporal.data_imports.pipelines.mongo import (
     MongoSourceConfig,
     get_schemas as get_mongo_schemas,
 )
+from posthog.temporal.data_imports.pipelines.meta_ads.source import (
+    get_incremental_fields as get_meta_ads_incremental_fields,
+)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
 )
@@ -389,6 +392,17 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                     columns, MongoSourceConfig.from_dict(source.job_inputs).connection_string, instance.name
                 )
             ]
+
+        elif source.source_type == ExternalDataSource.Type.META_ADS:
+            incremental_fields = get_meta_ads_incremental_fields()
+            matching_fields = incremental_fields.get(instance.name, None)
+            if matching_fields is None:
+                incremental_columns = []
+            else:
+                incremental_columns = [
+                    {"field": field_name, "field_type": field_type, "label": field_name, "type": field_type}
+                    for field_name, field_type in matching_fields
+                ]
 
         elif source.source_type == ExternalDataSource.Type.GOOGLEADS:
             incremental_fields = get_google_ads_incremental_fields()

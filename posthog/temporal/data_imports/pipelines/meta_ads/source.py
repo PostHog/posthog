@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalFieldType
@@ -120,6 +121,32 @@ def _make_api_request(url: str, params: dict, access_token: str) -> dict:
     return response.json()
 
 
+def _make_paginated_api_request(
+    url: str, params: dict, access_token: str
+) -> collections.abc.Generator[dict, None, None]:
+    """Make paginated requests to the Meta Graph API."""
+    params["access_token"] = access_token
+    next_url = url
+
+    while next_url:
+        if next_url == url:
+            # First request
+            response = requests.get(next_url, params=params)
+        else:
+            # Subsequent requests use the full URL from paging
+            response = requests.get(next_url)
+
+        if response.status_code != 200:
+            raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+        data = response.json()
+        yield data
+
+        # Check for next page
+        paging = data.get("paging", {})
+        next_url = paging.get("next")
+
+
 def meta_ads_source(
     config: MetaAdsSourceConfig,
     team_id: int,
@@ -199,12 +226,21 @@ def _get_insights_data(
     logger: FilteringBoundLogger,
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Get insights data from Meta Ads API."""
-    # Define which fields are insights metrics vs regular fields
+
+    resource_map = {
+        "ad_stats": "ads",
+        "adset_stats": "adsets",
+        "campaign_stats": "campaigns",
+    }
+
+    base_resource = resource_map.get(schema.name, "ads")
+
     insights_fields = [
         field
         for field in schema.field_names
         if field
         in {
+            f"{base_resource[:-1]}_id",
             "impressions",
             "clicks",
             "spend",
@@ -229,16 +265,6 @@ def _get_insights_data(
             "video_p100_watched_actions",
         }
     ]
-    regular_fields = [field for field in schema.field_names if field not in insights_fields]
-
-    # Base resource mapping
-    resource_map = {
-        "ad_stats": "ads",
-        "adset_stats": "adsets",
-        "campaign_stats": "campaigns",
-    }
-
-    base_resource = resource_map.get(schema.name, "ads")
 
     params = {
         "fields": ",".join(insights_fields) if insights_fields else "impressions,clicks,spend",
@@ -246,41 +272,26 @@ def _get_insights_data(
         "time_increment": 1,  # Daily breakdown
     }
 
-    if time_range:
-        params["time_range"] = json.dumps(time_range)
-    elif date_preset:
+    if date_preset:
         params["date_preset"] = date_preset
 
     try:
         url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
-        data = _make_api_request(url, params, access_token)
-
         rows = []
-        for insight in data.get("data", []):
-            row_data = {}
 
-            # Add insights metrics
-            for field in insights_fields:
-                value = insight.get(field)
-                row_data[field] = _serialize_value(value)
+        # Use paginated API request to handle large result sets
+        for page_data in _make_paginated_api_request(url, params, access_token):
+            for insight in page_data.get("data", []):
+                row_data = {}
+                for k, v in insight.items():
+                    row_data[k] = _serialize_value(v)
 
-            # Add regular fields (id, account_id, etc.)
-            for field in regular_fields:
-                if field == "account_id":
-                    row_data[field] = account_id
-                elif field in ["id", "adset_id", "campaign_id"]:
-                    row_data[field] = insight.get(field)
-                elif field in ["date_start", "date_stop"]:
-                    row_data[field] = insight.get(field)
-                else:
-                    row_data[field] = None
+                rows.append(row_data)
 
-            rows.append(row_data)
-
-            # Yield batch when we have enough rows
-            if len(rows) >= 1000:
-                yield rows
-                rows = []
+                # Yield batch when we have enough rows
+                if len(rows) >= DEFAULT_CHUNK_SIZE:
+                    yield rows
+                    rows = []
 
         # Yield remaining rows
         if rows:
@@ -315,32 +326,46 @@ def _get_resource_data(
             url = f"https://graph.facebook.com/v21.0/{account_id}/{endpoint}"
 
         params = {"fields": ",".join(field_names)} if field_names else {}
-        data = _make_api_request(url, params, access_token)
-
-        # Handle single account response vs list response
-        if resource_name == "account":
-            resources = [data]
-        else:
-            resources = data.get("data", [])
-
         rows = []
-        for resource in resources:
-            row_data = {"account_id": account_id}
 
-            for field in field_names:
-                value = resource.get(field)
-                row_data[field] = _serialize_value(value)
+        if resource_name == "account":
+            # Account endpoint doesn't have pagination
+            data = _make_api_request(url, params, access_token)
+            resources = [data]
 
-            rows.append(row_data)
+            for resource in resources:
+                row_data = {"account_id": account_id}
 
-            # Yield batch when we have enough rows
-            if len(rows) >= 1000:
+                for field in field_names:
+                    value = resource.get(field)
+                    row_data[field] = _serialize_value(value)
+
+                rows.append(row_data)
+
+            if rows:
                 yield rows
-                rows = []
+        else:
+            # Use paginated API request for collection endpoints
+            for page_data in _make_paginated_api_request(url, params, access_token):
+                resources = page_data.get("data", [])
 
-        # Yield remaining rows
-        if rows:
-            yield rows
+                for resource in resources:
+                    row_data = {"account_id": account_id}
+
+                    for field in field_names:
+                        value = resource.get(field)
+                        row_data[field] = _serialize_value(value)
+
+                    rows.append(row_data)
+
+                    # Yield batch when we have enough rows
+                    if len(rows) >= 1000:
+                        yield rows
+                        rows = []
+
+            # Yield remaining rows
+            if rows:
+                yield rows
 
     except Exception as e:
         logger.debug(f"Error fetching {resource_name} data: {e}")
