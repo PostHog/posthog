@@ -30,7 +30,7 @@ export function ReverseProxyModal(): JSX.Element {
             <h3>Deploying Your Own Reverse Proxy</h3>
             <div className="flex flex-col p-2">
                 <p className="font-normal">
-                    You can read more about how to setup and deploy your own reverse proxy{' '}
+                    You can read more about how to set up and deploy your own reverse proxy{' '}
                     <Link to="https://posthog.com/docs/advanced/proxy" target="_blank" targetBlankIcon disableDocsPanel>
                         in our documentation.
                     </Link>
