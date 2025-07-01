@@ -173,7 +173,7 @@ jobs:
                         issue_number: prNumber,
                       });
 
-                      const existingComment = comments.data.find(comment => 
+                      const existingComment = comments.find(comment => 
                         comment.user.login === 'github-actions[bot]' && 
                         comment.body.includes('Auto-Detected Migration Conflicts')
                       );
