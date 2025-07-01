@@ -6,7 +6,7 @@ import orjson as json
 import structlog
 from prometheus_client import Histogram
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
@@ -207,7 +207,11 @@ def execute_process_query(
         raise
     except Exception as err:
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | ExperimentError) or is_staff_user:
+        if (
+            isinstance(err, ExposedHogQLError | ExposedCHQueryError | ExperimentError)
+            or (isinstance(err, APIException) and not isinstance(err, ValidationError))
+            or is_staff_user
+        ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
