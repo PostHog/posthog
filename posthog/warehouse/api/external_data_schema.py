@@ -389,6 +389,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                     columns, MongoSourceConfig.from_dict(source.job_inputs).connection_string, instance.name
                 )
             ]
+
         elif source.source_type == ExternalDataSource.Type.GOOGLEADS:
             incremental_fields = get_google_ads_incremental_fields()
             matching_fields = incremental_fields.get(instance.name, None)
