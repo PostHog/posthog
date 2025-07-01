@@ -90,20 +90,20 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    private getPersonKey(teamId: number, personUuid: string): string {
-        return `${teamId}:${personUuid}`
+    private getPersonKey(teamId: number, personId: string): string {
+        return `${teamId}:${personId}`
     }
 
     private updateFinalState(
         teamId: number,
         distinctId: string,
-        personUuid: string,
+        personId: string,
         person: InternalPerson | null,
         versionDisparity: boolean,
         operationType: string,
         version?: number
     ): void {
-        const key = this.getPersonKey(teamId, personUuid)
+        const key = this.getPersonKey(teamId, personId)
         const existing = this.finalStates.get(key)
 
         const operation = {
@@ -171,7 +171,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             this.updateFinalState(
                 teamId,
                 distinctId,
-                mainResult.uuid,
+                mainResult.id,
                 mainResult,
                 versionDisparity,
                 'fetchForUpdate',
@@ -218,7 +218,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(
             teamId,
             distinctIds![0].distinctId,
-            mainResult[0].uuid,
+            mainResult[0].id,
             mainResult[0],
             false,
             'createPerson',
@@ -244,7 +244,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.compareUpdateResults(
             'updatePersonForUpdate',
             person.team_id,
-            person.uuid,
+            person.id,
             mainPersonResult,
             secondaryPersonResult,
             mainVersionDisparity
@@ -253,7 +253,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(
             person.team_id,
             distinctId,
-            mainPersonResult.uuid,
+            mainPersonResult.id,
             mainPersonResult,
             mainVersionDisparity,
             'updatePersonForUpdate',
@@ -278,7 +278,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.compareUpdateResults(
             'updatePersonForMerge',
             person.team_id,
-            person.uuid,
+            person.id,
             mainPersonResult,
             secondaryPersonResult,
             mainVersionDisparity
@@ -287,7 +287,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(
             person.team_id,
             distinctId,
-            mainPersonResult.uuid,
+            mainPersonResult.id,
             mainPersonResult,
             mainVersionDisparity,
             'updatePersonForMerge',
@@ -299,9 +299,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
         const kafkaMessages = await this.mainStore.deletePerson(person, distinctId, tx)
 
-        // Clear ALL caches related to this person UUID
-        this.secondaryStore.clearAllCachesForPersonUuid(person.team_id, person.uuid)
-        this.updateFinalState(person.team_id, distinctId, person.uuid, null, false, 'deletePerson')
+        // Clear ALL caches related to this person id
+        this.secondaryStore.clearAllCachesForPersonId(person.team_id, person.id)
+        this.updateFinalState(person.team_id, distinctId, person.id, null, false, 'deletePerson')
 
         return kafkaMessages
     }
@@ -318,7 +318,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.secondaryStore.setCachedPersonForUpdate(person.team_id, distinctId, fromInternalPerson(person, distinctId))
 
         // Track that this distinct ID now points to the person
-        this.updateFinalState(person.team_id, distinctId, person.uuid, person, false, 'addDistinctId', person.version)
+        this.updateFinalState(person.team_id, distinctId, person.id, person, false, 'addDistinctId', person.version)
 
         return mainResult
     }
@@ -331,14 +331,45 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     ): Promise<TopicMessage[]> {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
 
-        // Clear the cache for the source person UUID to ensure deleted person isn't cached
-        this.secondaryStore.clearCacheByUuid(source.team_id, source.uuid)
+        // Clear the cache for the source person id to ensure deleted person isn't cached
+        this.secondaryStore.clearCacheByPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
-        this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        // Check if we already have cached data for the target person that includes merged properties
+        const existingTargetCache = this.secondaryStore.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            // We have existing cached data with merged properties - preserve it
+            // Create a new PersonUpdate for this distinctId that preserves the merged data
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.secondaryStore.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate)
+            this.updateFinalState(
+                target.team_id,
+                distinctId,
+                target.id,
+                mergedPersonUpdate,
+                false,
+                'moveDistinctIds',
+                mergedPersonUpdate.version
+            )
+        } else {
+            // No existing cache, create fresh cache from target person
+            this.secondaryStore.setCachedPersonForUpdate(
+                target.team_id,
+                distinctId,
+                fromInternalPerson(target, distinctId)
+            )
+            this.updateFinalState(
+                target.team_id,
+                distinctId,
+                target.id,
+                target,
+                false,
+                'moveDistinctIds',
+                target.version
+            )
+        }
 
-        this.updateFinalState(source.team_id, distinctId, source.uuid, null, false, 'moveDistinctIds', source.version)
-        this.updateFinalState(target.team_id, distinctId, target.uuid, target, false, 'moveDistinctIds', target.version)
+        this.updateFinalState(source.team_id, distinctId, source.id, null, false, 'moveDistinctIds', source.version)
 
         return mainResult
     }
@@ -422,8 +453,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     sampleErrors: this.shadowMetrics.logicErrors.slice(0, 5).map((error) => ({
                         key: error.key,
                         differences: error.differences,
-                        mainPersonUuid: error.mainPerson?.uuid,
-                        secondaryPersonUuid: error.secondaryPerson?.uuid,
+                        mainPersonId: error.mainPerson?.id,
+                        secondaryPersonId: error.secondaryPerson?.id,
                         operations: error.operations,
                     })),
                 })
@@ -442,8 +473,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                     sampleModifications: this.shadowMetrics.concurrentModifications.slice(0, 3).map((mod) => ({
                         key: mod.key,
                         type: mod.type,
-                        mainPersonUuid: mod.mainPerson?.uuid,
-                        secondaryPersonUuid: mod.secondaryPerson?.uuid,
+                        mainPersonId: mod.mainPerson?.id,
+                        secondaryPersonId: mod.secondaryPerson?.id,
                     })),
                 })
             }
@@ -476,11 +507,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
                 }
             }
 
-            // Parse the key to extract teamId and personUuid
-            const [teamIdStr, personUuid] = key.split(':')
+            // Parse the key to extract teamId and personId
+            const [teamIdStr, personId] = key.split(':')
             const teamId = parseInt(teamIdStr, 10)
 
-            const secondaryPersonUpdate = this.secondaryStore.getCachedPersonForUpdateByUuid(teamId, personUuid)
+            const secondaryPersonUpdate = this.secondaryStore.getCachedPersonForUpdateByPersonId(teamId, personId)
             const secondaryPerson = secondaryPersonUpdate ? toInternalPerson(secondaryPersonUpdate) : null
             const mainPerson = mainUpdate?.person || null
             const versionDisparity = mainUpdate?.versionDisparity || false
@@ -534,12 +565,12 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     private compareUpdateResults(
         methodName: string,
         teamId: number,
-        personUuid: string,
+        personId: string,
         mainPerson: InternalPerson,
         secondaryPerson: InternalPerson,
         mainVersionDisparity: boolean
     ): void {
-        const key = this.getPersonKey(teamId, personUuid)
+        const key = this.getPersonKey(teamId, personId)
 
         // Compare the person results (excluding version for primary comparison)
         const mainComparable = this.getComparablePerson(mainPerson)
@@ -555,12 +586,12 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             logger.info(`${methodName} returned inconsistent results between stores`, {
                 key,
                 teamId,
-                personUuid,
+                personId,
                 methodName,
                 samePersonResult,
                 differences,
-                mainPersonUuid: mainPerson?.uuid,
-                secondaryPersonUuid: secondaryPerson?.uuid,
+                mainPersonId: mainPerson?.id,
+                secondaryPersonId: secondaryPerson?.id,
                 mainVersionDisparity,
             })
         } else {
