@@ -104,7 +104,7 @@ jobs:
             - name: Find associated PR
               if: steps.detailed_analysis.outputs.script_found_conflicts == 'true'
               id: find_pr
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       // Find PR for this branch
@@ -129,7 +129,7 @@ jobs:
 
             - name: Post auto-detection comment to PR
               if: steps.find_pr.outputs.pr_found == 'true' && steps.detailed_analysis.outputs.script_found_conflicts == 'true'
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       const fs = require('fs');

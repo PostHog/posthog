@@ -51,7 +51,7 @@ jobs:
 
             - name: Create PR comment with preview and approval buttons
               if: steps.preview.outputs.conflicts_found == 'true'
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       const fs = require('fs');
@@ -121,7 +121,7 @@ jobs:
 
             - name: Create PR comment when no conflicts found
               if: steps.preview.outputs.conflicts_found == 'false'
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       const appFilter = '${{ inputs.app_filter }}';

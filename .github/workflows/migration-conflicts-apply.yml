@@ -93,7 +93,7 @@ jobs:
 
             - name: Update PR with success comment
               if: steps.apply_fixes.outputs.changes_made == 'true'
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       const fs = require('fs');
@@ -152,7 +152,7 @@ jobs:
 
             - name: Update PR when no changes needed
               if: steps.apply_fixes.outputs.changes_made == 'false'
-              uses: actions/github-script@60a0d83b47d1a19c603a7b337faa4fc7c1573de0 # v7
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
                       const comment = `## ℹ️ No Migration Conflicts to Fix
