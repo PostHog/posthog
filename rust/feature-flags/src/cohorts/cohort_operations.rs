@@ -234,7 +234,15 @@ fn evaluate_cohort_values(
                     }
                 } else {
                     // Handle regular property check
-                    if match_property(filter, target_properties, false).unwrap_or(false) {
+                    let property_result =
+                        match_property(filter, target_properties, false).unwrap_or(false);
+                    // handle any property negation
+                    let final_result = if filter.negation.unwrap_or(false) {
+                        !property_result
+                    } else {
+                        property_result
+                    };
+                    if final_result {
                         return Ok(true);
                     }
                 }
@@ -250,7 +258,15 @@ fn evaluate_cohort_values(
                     }
                 } else {
                     // Handle regular property check
-                    if !match_property(filter, target_properties, false).unwrap_or(false) {
+                    let property_result =
+                        match_property(filter, target_properties, false).unwrap_or(false);
+                    // handle any property negation
+                    let final_result = if filter.negation.unwrap_or(false) {
+                        !property_result
+                    } else {
+                        property_result
+                    };
+                    if !final_result {
                         return Ok(false);
                     }
                 }
