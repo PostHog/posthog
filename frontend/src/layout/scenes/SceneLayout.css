@@ -20,10 +20,6 @@
         display: grid;
         grid-template-columns: calc(100% - var(--scene-layout-panel-info-width)) var(--scene-layout-panel-info-width);
     }
-
-    .scene-layout__content--collapsed {
-        display: flex;
-    }
 }
 
 .scene-layout__content-panel {

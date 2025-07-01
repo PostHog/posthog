@@ -1,12 +1,12 @@
 import { IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { SceneConfig } from 'scenes/sceneTypes'
-import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
@@ -38,19 +38,23 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
 }
 
 export function SceneLayoutPanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="px-1 pt-4 flex flex-col gap-2">
-            {children}
-        </div>
-    )
+    return <div className="px-1 pt-4 flex flex-col gap-2">{children}</div>
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
     const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-    const { mobileLayout } = useValues(navigation3000Logic)
     // const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
+
+    // Access the side panel's desiredSize
+    const { desiredSize } = useValues(
+        resizerLogic({
+            logicKey: 'side-panel', // Same logic key as the SidePanel
+            containerRef: { current: null }, // Dummy ref for reading values
+            placement: 'left',
+        })
+    )
 
     useEffect(() => {
         if (sceneLayoutContainer.current) {
@@ -76,25 +80,29 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
 
     return (
         <div
-            className={cn('scene-layout flex-1 flex flex-col', className, {
-                'scene-layout--has-panel-overlay': panelInfoActive,
-            })}
+            className={cn('scene-layout flex-1 flex flex-col', className)}
             ref={sceneLayoutContainer}
+            style={
+                {
+                    '--scene-layout-outer-right': sceneLayoutContainer.current?.getBoundingClientRect().right + 'px',
+                } as React.CSSProperties
+            }
         >
-            <div
-                className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative', {
-                    'grid-cols-[1fr_0px]': showPanelOverlay,
-                })}
-            >
-                    {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
+            <div className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative')}>
+                {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
 
-                    {panelInfoActive && (
+                {panelInfoActive && (
                     <>
                         <div
-                            className={cn('scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 right-0 h-screen', {
-                                hidden: !panelInfoOpen,
-                                // 'sticky top-0 right-0 h-screen': showPanelOverlay,
-                            })}
+                            className={cn(
+                                'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen',
+                                {
+                                    hidden: !panelInfoOpen,
+                                    // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
+                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-info-width)-1px)]':
+                                        showPanelOverlay,
+                                }
+                            )}
                         >
                             <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
@@ -102,7 +110,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
-                                {showPanelOverlay && panelInfoOpen && (
+                                {panelInfoOpen && (
                                     <ButtonPrimitive iconOnly onClick={() => setPanelInfoOpen(false)}>
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
@@ -127,15 +135,13 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                         )}
                     </>
                 )}
-                    <div
-                        className={cn('flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1', {
-                            'p-0': layoutConfig?.layout === 'app-raw-no-header',
-                        })}
-                    >
-                        {children}
-                    </div>
-
-                
+                <div
+                    className={cn('flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1', {
+                        'p-0': layoutConfig?.layout === 'app-raw-no-header',
+                    })}
+                >
+                    {children}
+                </div>
             </div>
         </div>
     )
