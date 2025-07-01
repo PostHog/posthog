@@ -43,6 +43,11 @@ from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.settings.ingestion import (
+    NEW_CAPTURE_RUST_BASE_URL,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
+)
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -64,13 +69,6 @@ LOG_RATE_LIMITER = Limiter(
     capacity=1,
     storage=MemoryStorage(),
 )
-
-# TODO ELI: this is a placeholder! Move to env-resolved value
-BASE_CAPTURE_RS_URL = "https://localhost:8000"
-
-# capture_internal must route session replay and std events to the right backend
-CAPTURE_EVENTS_PATH = "/i/v0/e/"
-CAPTURE_SESSION_RECORDINGS_PATH = "/s/"
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -948,13 +946,13 @@ def new_capture_internal(
     event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event)
 
     # determine if this is a recordings or events type, route to correct capture endpoint
-    resolved_capture_path = CAPTURE_EVENTS_PATH
+    resolved_capture_path = NEW_ANALYTICS_CAPTURE_ENDPOINT
     if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_path = CAPTURE_SESSION_RECORDINGS_PATH
+        resolved_capture_path = REPLAY_CAPTURE_ENDPOINT
 
     with Session() as s:
         s.mount(
-            BASE_CAPTURE_RS_URL,
+            NEW_CAPTURE_RUST_BASE_URL,
             HTTPAdapter(
                 max_retries=Retry(
                     total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
@@ -962,7 +960,7 @@ def new_capture_internal(
             ),
         )
         return s.post(
-            f"{BASE_CAPTURE_RS_URL}{resolved_capture_path}",
+            f"{NEW_CAPTURE_RUST_BASE_URL}{resolved_capture_path}",
             json=event_payload,
             timeout=2,
         )
