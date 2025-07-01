@@ -23,10 +23,12 @@ FIELDS: dict[str, FieldOrTable] = {
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "plan_id": StringDatabaseField(name="plan_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
+    "status": StringDatabaseField(name="status"),
     "started_at": DateTimeDatabaseField(name="started_at"),
     "ended_at": DateTimeDatabaseField(name="ended_at"),
     "current_period_start": DateTimeDatabaseField(name="current_period_start"),
     "current_period_end": DateTimeDatabaseField(name="current_period_end"),
+    "metadata": StringDatabaseField(name="metadata"),
 }
 
 
@@ -81,10 +83,12 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
                     ),
                 ),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                ast.Alias(alias="status", expr=ast.Field(chain=["status"])),
                 ast.Alias(alias="started_at", expr=ast.Field(chain=["created_at"])),
                 ast.Alias(alias="ended_at", expr=ast.Field(chain=["ended_at"])),
                 ast.Alias(alias="current_period_start", expr=ast.Field(chain=["current_period_start"])),
                 ast.Alias(alias="current_period_end", expr=ast.Field(chain=["current_period_end"])),
+                ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
         )

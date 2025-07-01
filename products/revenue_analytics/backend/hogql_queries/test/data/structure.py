@@ -138,4 +138,6 @@ STRIPE_SUBSCRIPTION_COLUMNS = {
     "ended_at": "DateTime",
     "current_period_start": "DateTime",
     "current_period_end": "DateTime",
+    "status": "String",
+    "metadata": "String",
 }
