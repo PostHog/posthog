@@ -9,7 +9,7 @@ from loginas.utils import is_impersonated_session
 from django.db import transaction
 
 
-from rest_framework import serializers, viewsets, exceptions, permissions
+from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
 from posthog.api.utils import action
 from rest_framework.request import Request
@@ -661,17 +661,3 @@ class HogFunctionViewSet(
 
         serializer = self.get_serializer(transformations, many=True)
         return Response(serializer.data)
-
-
-# Public viewset for icons endpoint that doesn't require authentication
-class PublicHogFunctionIconsViewSet(viewsets.GenericViewSet):
-    permission_classes = [permissions.AllowAny]
-
-    def retrieve(self, request: Request, *args, **kwargs):
-        id = request.GET.get("id")
-        if not id:
-            raise serializers.ValidationError("id is required")
-
-        icon_service = CDPIconsService()
-
-        return icon_service.get_icon_http_response(id)
