@@ -83,8 +83,6 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
         !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent && localConversionGoalName !== uniqueName
     const hasAppliedGoal = !!dynamicConversionGoal
 
-    const hasActiveGoal = !!dynamicConversionGoal
-
     return (
         <div className="flex flex-col gap-4">
             <LemonButton
@@ -118,7 +116,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                                 type="secondary"
                                 size="small"
                                 onClick={handleClearConversionGoal}
-                                disabledReason={!hasActiveGoal ? 'No active goal to clear' : undefined}
+                                disabledReason={!hasAppliedGoal ? 'No active goal to clear' : undefined}
                             >
                                 Clear
                             </LemonButton>
