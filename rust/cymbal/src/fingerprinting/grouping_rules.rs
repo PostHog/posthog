@@ -26,7 +26,6 @@ pub struct GroupingRule {
 
     // If a rule has been custom grouped, it might also be auto-assigned
     pub user_id: Option<i32>,
-    pub user_group_id: Option<Uuid>,
     pub role_id: Option<Uuid>,
     pub order_key: i32,
     pub bytecode: Value,
@@ -44,7 +43,7 @@ impl GroupingRule {
         sqlx::query_as!(
             GroupingRule,
             r#"
-                SELECT id, team_id, user_id, user_group_id, role_id, order_key, bytecode, created_at, updated_at
+                SELECT id, team_id, user_id, role_id, order_key, bytecode, created_at, updated_at
                 FROM posthog_errortrackinggroupingrule
                 WHERE team_id = $1 AND disabled_data IS NULL
             "#,
@@ -131,7 +130,7 @@ impl GroupingRule {
     }
 
     pub fn assignment(&self) -> Option<NewAssignment> {
-        NewAssignment::try_new(self.user_id, self.user_group_id, self.role_id)
+        NewAssignment::try_new(self.user_id, self.role_id)
     }
 }
 
@@ -211,7 +210,6 @@ mod test {
             id: Uuid::new_v4(),
             team_id: 1,
             user_id: None,
-            user_group_id: None,
             role_id: None,
             order_key: 1,
             bytecode: rule_bytecode(),
