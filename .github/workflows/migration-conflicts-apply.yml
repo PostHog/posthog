@@ -83,7 +83,7 @@ jobs:
               run: |
                   echo "🔧 Applying migration conflict fixes..."
 
-                  # Determine app filter
+                  # Determine app filter based on trigger type
                   APP_FILTER=""
                   if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
                     APP_FILTER="${{ inputs.app_filter }}"
@@ -91,13 +91,12 @@ jobs:
                     APP_FILTER="${{ steps.extract_params.outputs.app_filter }}"
                   fi
 
-                  # Run the fix (with automatic yes to confirmation)
+                  # Run the fix with automatic yes to confirmation
                   OUTPUT=$(echo "y" | python bin/fix-migration-conflicts.py --fix ${APP_FILTER:+--app "$APP_FILTER"} 2>&1)
 
                   echo "$OUTPUT"
                   echo "$OUTPUT" > ../apply_output.txt
 
-                  # Check if any changes were made
                   if git diff --quiet; then
                     echo "changes_made=false" >> $GITHUB_OUTPUT
                   else
@@ -149,7 +148,6 @@ jobs:
                         applyOutput = 'Output not available';
                       }
 
-                      // Get list of changed files
                       const { execSync } = require('child_process');
                       let changedFiles = '';
                       try {
@@ -161,7 +159,6 @@ jobs:
                       const appFilter = '${{ steps.apply_fixes.outputs.app_filter }}';
                       const appText = appFilter ? ` for app "${appFilter}"` : '';
 
-                      // Determine issue number  
                       const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
 
                       const comment = `## ✅ Migration Conflicts Fixed Successfully!
@@ -203,7 +200,6 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
-                      // Determine issue number
                       const issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
 
                       const comment = `## ℹ️ No Migration Conflicts to Fix

@@ -3,12 +3,12 @@ name: Migration Conflicts - Auto Detect
 on:
     push:
         branches:
-            - '**' # All branches
-            - '!master' # Except master
-            - '!main' # Except main
+            - '**'
+            - '!master'
+            - '!main'
         paths:
-            - '**/migrations/**' # Only when migrations change
-            - '**/max_migration.txt' # Or when max_migration.txt changes
+            - '**/migrations/**'
+            - '**/max_migration.txt'
 
 jobs:
     auto-detect-migration-conflicts:
@@ -38,10 +38,7 @@ jobs:
               run: |
                   echo "🔍 Checking for migration conflicts..."
 
-                  # Check if any max_migration.txt files would conflict
                   CONFLICTS_FOUND=false
-
-                  # List of apps to check
                   APPS=("posthog" "ee" "products/early_access_features" "products/user_interviews")
 
                   for app in "${APPS[@]}"; do
@@ -50,10 +47,7 @@ jobs:
                     if [ -f "$MAX_FILE" ]; then
                       echo "Checking $MAX_FILE..."
                       
-                      # Get max migration on current branch
                       CURRENT_MAX=$(cat "$MAX_FILE" 2>/dev/null || echo "")
-                      
-                      # Get max migration on master
                       MASTER_MAX=$(git show origin/master:"$MAX_FILE" 2>/dev/null || echo "")
                       
                       if [ -n "$CURRENT_MAX" ] && [ -n "$MASTER_MAX" ] && [ "$CURRENT_MAX" != "$MASTER_MAX" ]; then
@@ -61,7 +55,7 @@ jobs:
                         echo "  Current branch: $CURRENT_MAX"
                         echo "  Master branch: $MASTER_MAX"
                         
-                        # Check if this indicates a real conflict (both have migrations with same number)
+                        # Check if migration numbers indicate a real conflict
                         CURRENT_NUM=$(echo "$CURRENT_MAX" | grep -o '^[0-9]\+' || echo "0")
                         MASTER_NUM=$(echo "$MASTER_MAX" | grep -o '^[0-9]\+' || echo "0")
                         
@@ -77,10 +71,8 @@ jobs:
 
                   if [ "$CONFLICTS_FOUND" = "true" ]; then
                     echo "⚠️ Migration conflicts detected!"
-                    echo "DEBUG: Setting conflicts_found=true"
                   else
                     echo "✅ No migration conflicts found"
-                    echo "DEBUG: Setting conflicts_found=false"
                   fi
 
             - name: Run detailed conflict analysis
@@ -89,20 +81,14 @@ jobs:
               run: |
                   echo "🔧 Running detailed migration conflict analysis..."
 
-                  # Run the preview to get detailed output (from correct directory)
                   OUTPUT=$(python bin/fix-migration-conflicts.py --preview 2>&1)
                   echo "$OUTPUT"
-
-                  # Save output for PR comment
                   echo "$OUTPUT" > migration_analysis.txt
 
-                  # Check if conflicts were actually found by the script
                   if echo "$OUTPUT" | grep -q "CONFLICT DETECTED"; then
                     echo "script_found_conflicts=true" >> $GITHUB_OUTPUT
-                    echo "DEBUG: Script found conflicts - setting script_found_conflicts=true"
                   else
                     echo "script_found_conflicts=false" >> $GITHUB_OUTPUT
-                    echo "DEBUG: Script did not find conflicts - setting script_found_conflicts=false"
                   fi
 
             - name: Find associated PR
@@ -110,7 +96,6 @@ jobs:
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
                   script: |
-                      // Find PR for this branch
                       const branch = context.ref.replace('refs/heads/', '');
 
                       const { data: pulls } = await github.rest.pulls.list({
@@ -168,7 +153,6 @@ jobs:
                       ---
                       <sub>🤖 Auto-detected by migration-conflicts-auto-detect.yml on push to ${context.sha.substring(0, 7)}</sub>`;
 
-                      // Check for existing auto-detection comment
                       const { data: comments } = await github.rest.issues.listComments({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -181,7 +165,6 @@ jobs:
                       );
 
                       if (existingComment) {
-                        // Update existing comment
                         await github.rest.issues.updateComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -190,7 +173,6 @@ jobs:
                         });
                         console.log(`Updated existing auto-detection comment`);
                       } else {
-                        // Create new comment
                         await github.rest.issues.createComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -206,9 +188,7 @@ jobs:
               with:
                   script: |
                       const prNumber = ${{ steps.find_pr.outputs.pr_number }};
-                      const branch = context.ref.replace('refs/heads/', '');
 
-                      // Check for existing auto-detection comment to update
                       const { data: comments } = await github.rest.issues.listComments({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -221,7 +201,6 @@ jobs:
                       );
 
                       if (existingComment) {
-                        // Delete the old conflict comment since there are no more conflicts
                         await github.rest.issues.deleteComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
