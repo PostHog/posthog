@@ -26,17 +26,22 @@ export function DuplicateToProjectModal(): JSX.Element {
     const { isDuplicateToProjectModalOpen, survey } = useValues(surveyLogic)
     const [selectedProject, setSelectedProject] = useState<TeamBasicType | null>(null)
 
+    const handleCloseModal = (): void => {
+        setIsDuplicateToProjectModalOpen(false)
+        setSelectedProject(null)
+    }
+
     return (
         <LemonModal
             title="Duplicate survey to another project"
-            onClose={() => setIsDuplicateToProjectModalOpen(false)}
+            onClose={handleCloseModal}
             isOpen={isDuplicateToProjectModalOpen}
             footer={
                 <>
                     <LemonButton
                         disabledReason={duplicatedToProjectSurveyLoading ? 'Duplicating...' : undefined}
                         type="secondary"
-                        onClick={() => setIsDuplicateToProjectModalOpen(false)}
+                        onClick={handleCloseModal}
                     >
                         Cancel
                     </LemonButton>
