@@ -15,7 +15,13 @@ import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { DISPLAY_MODE_OPTIONS, RevenueAnalyticsLineGraph, TileProps, TileWrapper } from './shared'
+import {
+    DISPLAY_MODE_OPTIONS,
+    extractLabelAndDatasets,
+    RevenueAnalyticsLineGraph,
+    TileProps,
+    TileWrapper,
+} from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsCustomerCountNode(props: {
@@ -78,11 +84,8 @@ const SubscriptionCountTile = ({
     const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
         result.label?.includes('Subscription Count')
     )
-    const labels = results[0]?.labels ?? []
-    const datasets: GraphDataset[] = results.map((result, index) => ({
-        ...result,
-        seriesIndex: index,
-    }))
+
+    const { labels, datasets } = extractLabelAndDatasets(results)
 
     return (
         <TileWrapper
@@ -131,11 +134,8 @@ const CustomerCountTile = ({
     const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
         result.label?.includes('Customer Count')
     )
-    const labels = results[0]?.labels ?? []
-    const datasets: GraphDataset[] = results.map((result, index) => ({
-        ...result,
-        seriesIndex: index,
-    }))
+
+    const { labels, datasets } = extractLabelAndDatasets(results)
 
     return (
         <TileWrapper

@@ -9,7 +9,33 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
-import { GraphType } from '~/types'
+import { GraphDataset, GraphType } from '~/types'
+
+// Simple mapping for the display mode options and their icons
+export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
+    { value: 'line', icon: <IconLineGraph /> },
+    { value: 'area', icon: <IconAreaChart /> },
+    { value: 'bar', icon: <IconGraph /> },
+]
+
+// Simple interface for the tile props, letting us create tiles with a consistent interface
+export interface TileProps<ResponseType extends AnalyticsQueryResponseBase<unknown>> {
+    response: ResponseType
+    responseLoading: boolean
+    queryId: string
+    context: QueryContext
+}
+
+// Simple helper to extract the labels and datasets from the results we get from the server
+export const extractLabelAndDatasets = (results: GraphDataset[]): { labels: string[]; datasets: GraphDataset[] } => {
+    return {
+        labels: results[0]?.labels ?? [],
+        datasets: results.map((result, seriesIndex) => ({
+            ...result,
+            seriesIndex,
+        })),
+    }
+}
 
 interface TileWrapperProps {
     title: JSX.Element | string
@@ -42,19 +68,6 @@ export const TileWrapper = ({
     )
 }
 
-export interface TileProps<ResponseType extends AnalyticsQueryResponseBase<unknown>> {
-    response: ResponseType
-    responseLoading: boolean
-    queryId: string
-    context: QueryContext
-}
-
-export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
-    { value: 'line', icon: <IconLineGraph /> },
-    { value: 'area', icon: <IconAreaChart /> },
-    { value: 'bar', icon: <IconGraph /> },
-]
-
 const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
     line: GraphType.Line,
     area: GraphType.Line,
@@ -63,6 +76,8 @@ const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
     // not really supported, but here to satisfy the type checker
     table: GraphType.Line,
 }
+
+// Simple wrapper around the LineGraph component, adding consistent display mode and date filter
 export const RevenueAnalyticsLineGraph = (
     props: Omit<LineGraphProps, 'type' | 'isArea' | 'isInProgress' | 'labelGroupType'>
 ): JSX.Element => {

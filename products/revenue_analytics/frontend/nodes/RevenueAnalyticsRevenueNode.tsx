@@ -18,7 +18,13 @@ import { GraphDataset } from '~/types'
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LemonButton, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { DISPLAY_MODE_OPTIONS, RevenueAnalyticsLineGraph, TileProps, TileWrapper } from './shared'
+import {
+    DISPLAY_MODE_OPTIONS,
+    extractLabelAndDatasets,
+    RevenueAnalyticsLineGraph,
+    TileProps,
+    TileWrapper,
+} from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsRevenueNode(props: {
@@ -84,11 +90,7 @@ const GrossRevenueTile = ({
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const results = (response?.results?.gross as GraphDataset[]) ?? []
-    const labels = results[0]?.labels ?? []
-    const datasets: GraphDataset[] = results.map((result, index) => ({
-        ...result,
-        seriesIndex: index,
-    }))
+    const { labels, datasets } = extractLabelAndDatasets(results)
 
     return (
         <TileWrapper
@@ -156,17 +158,18 @@ const MRRTile = ({
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
     const results = (response?.results?.mrr as GraphDataset[]) ?? []
-    const labels = results[0]?.labels ?? []
-    const datasets: GraphDataset[] = results.map((result, index) => ({
-        ...result,
-        data: result.data.map((value) => {
+
+    const { labels, datasets } = extractLabelAndDatasets(results)
+
+    const mappedDatasets: GraphDataset[] = datasets.map((dataset) => ({
+        ...dataset,
+        data: dataset.data.map((value) => {
             if (typeof value !== 'number' || mrrMode === 'mrr') {
                 return value
             }
 
             return value * 12
         }) as GraphDataset['data'], // Dumb type assertion because TS can't infer the type of the data
-        seriesIndex: index,
     }))
 
     return (
@@ -196,10 +199,10 @@ const MRRTile = ({
             ) : (
                 <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-mrr-tile-graph"
-                    datasets={datasets}
+                    datasets={mappedDatasets}
                     labels={labels}
                     legend={{
-                        display: groupBy.length > 0 && datasets.length > 1,
+                        display: groupBy.length > 0 && mappedDatasets.length > 1,
                         position: 'right',
                         // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                         reverse: true,
