@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
 
-def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_path: str, domain: str) -> str:
+def convert_patterns_to_markdown(json_data: dict[str, Any], session_ids_file_path: str, domain: str) -> str:
     """
     Convert EnrichedSessionGroupSummaryPatternsList JSON data to markdown format.
 
@@ -21,7 +21,7 @@ def convert_patterns_to_markdown(json_data: Dict[str, Any], session_ids_file_pat
         return f"# Session Summaries Report - {domain}\n\nNo patterns found."
 
     # Load total sessions count
-    with open(session_ids_file_path, "r") as f:
+    with open(session_ids_file_path) as f:
         session_ids = json.load(f)
     total_sessions = len(session_ids)
 
@@ -190,7 +190,7 @@ def save_patterns_to_markdown(
         Path to the created markdown file
     """
     # Load JSON data
-    with open(json_file_path, "r") as f:
+    with open(json_file_path) as f:
         json_data = json.load(f)
 
     # Convert to markdown
@@ -212,7 +212,6 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 4:
-        print("Usage: python stringify.py <json_file_path> <session_ids_file_path> <domain> [output_file_path]")
         sys.exit(1)
 
     json_file = sys.argv[1]
@@ -222,7 +221,5 @@ if __name__ == "__main__":
 
     try:
         result_path = save_patterns_to_markdown(json_file, session_ids_file, domain, output_file)
-        print(f"Markdown file saved to: {result_path}")
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
         sys.exit(1)
