@@ -1049,7 +1049,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ExperimentValidationError) as context:
             cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         expected_errors = json.dumps(
@@ -1059,7 +1059,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception.detail), expected_errors)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1101,7 +1101,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ExperimentValidationError) as context:
             cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         expected_errors = json.dumps(
@@ -1111,7 +1111,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception.detail), expected_errors)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1161,7 +1161,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ExperimentValidationError) as context:
             cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
         expected_errors = json.dumps(
@@ -1171,7 +1171,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception.detail), expected_errors)
 
     @parameterized.expand(
         [
@@ -2419,10 +2419,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event="$feature_flag_called",
                 distinct_id=f"user_test_{i}",
                 timestamp="2020-01-02T12:00:00Z",
-                properties={feature_flag_property: "test"},
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
             )
             _create_event(
                 team=self.team,
@@ -2465,10 +2469,14 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team,
-                event="$pageview",
+                event="$feature_flag_called",
                 distinct_id=f"user_control_{i}",
                 timestamp="2020-01-02T12:00:00Z",
-                properties={feature_flag_property: "control"},
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
             )
             _create_event(
                 team=self.team,

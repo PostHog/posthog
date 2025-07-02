@@ -6,9 +6,9 @@ from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
 from pytest import mark
-from rest_framework.exceptions import ValidationError
 
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.exceptions import ExperimentValidationError
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -384,7 +384,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
-            with self.assertRaises(ValidationError) as context:
+            with self.assertRaises(ExperimentValidationError) as context:
                 query_runner.calculate()
 
             if "person_id_override_properties_joined_filter_laterevent" in name:
@@ -403,7 +403,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                         ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                     }
                 )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception.detail), expected_errors)
         else:
             result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
