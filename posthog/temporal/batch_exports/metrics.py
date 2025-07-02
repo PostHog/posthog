@@ -230,4 +230,7 @@ def log_execution_time(
     if extra_arguments:
         arguments = {**arguments, **extra_arguments}
 
-    logger.info(log_message, arguments)
+    try:
+        logger.info(log_message, arguments)
+    except:
+        logger.exception("Failed to log execution time with attributes '%s'", arguments)
