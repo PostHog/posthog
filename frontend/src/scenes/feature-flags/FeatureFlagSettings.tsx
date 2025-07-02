@@ -4,6 +4,10 @@ import { useActions, useValues } from 'kea'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
     inModal?: boolean
@@ -12,6 +16,7 @@ export type FeatureFlagSettingsProps = {
 export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProps): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { isSubmitting } = useValues(featureFlagConfirmationSettingsLogic)
 
     return (
         <div className="space-y-8">
@@ -63,22 +68,34 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     This helps prevent accidental changes that could impact your users' experience.
                 </p>
 
-                {!!currentTeam?.feature_flag_confirmation_enabled && (
+                {currentTeam?.feature_flag_confirmation_enabled && (
                     <div className="mt-4">
-                        <LemonTextArea
-                            value={currentTeam?.feature_flag_confirmation_message || ''}
-                            onChange={(value) => {
-                                updateCurrentTeam({
-                                    feature_flag_confirmation_message: value,
-                                })
-                            }}
-                            placeholder="These changes will take effect immediately and may impact your users' experience. Please make sure you understand the consequences before proceeding."
-                            rows={3}
-                            className="w-full"
-                        />
-                        <p className="text-xs text-muted mt-1">
-                            Custom message to show in the confirmation modal after the list of changes.
-                        </p>
+                        <Form
+                            logic={featureFlagConfirmationSettingsLogic}
+                            formKey="confirmationMessageForm"
+                            enableFormOnSubmit
+                            className="w-full space-y-4"
+                        >
+                            <LemonField
+                                name="message"
+                                label="Custom confirmation message"
+                                help="Optional custom message to show in the confirmation modal. If empty, a default message will be used."
+                            >
+                                <LemonTextArea
+                                    placeholder="Enter a custom message for your team (optional)"
+                                    maxLength={500}
+                                    maxRows={3}
+                                />
+                            </LemonField>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                disabledReason={!currentTeam ? 'Loading team...' : undefined}
+                                loading={isSubmitting}
+                            >
+                                Save message
+                            </LemonButton>
+                        </Form>
                     </div>
                 )}
             </div>
@@ -186,7 +203,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         {currentTeam.secret_api_token_backup}
                     </CodeSnippet>
                     <p className="text-xs text-muted mt-1">
-                        This key is still active to support deployments using the previous key. Delete it once you’ve
+                        This key is still active to support deployments using the previous key. Delete it once you've
                         fully migrated.
                     </p>
                 </>
