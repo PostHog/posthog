@@ -54,8 +54,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             className={clsx(
                 containerClassName,
                 !isSticky && !isFloating
-                    ? 'px-3 w-[min(44rem,100%)]'
-                    : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
+                    ? 'px-3 w-[min(40rem,100%)]'
+                    : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
             )}
             ref={ref}
         >
