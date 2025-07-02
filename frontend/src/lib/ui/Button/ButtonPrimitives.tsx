@@ -1,18 +1,15 @@
-import { IconCheck } from '@posthog/icons'
 import './ButtonPrimitives.scss'
 
 import { cva, type VariantProps } from 'cva'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
-import { AccessControlProps } from 'lib/components/AccessControlledLemonButton'
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 /* -------------------------------------------------------------------------- */
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline' | 'danger'
+type ButtonVariant = 'default' | 'outline'
 
 export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
@@ -43,7 +40,6 @@ type ButtonBaseProps = {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
-    loading?: boolean
 } & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
@@ -126,10 +122,9 @@ export const buttonPrimitiveVariants = cva({
             default: 'button-primitive--variant-default',
             // Outline variant (aka posthog secondary button)
             outline: 'button-primitive--variant-outline',
-            danger: 'button-primitive--variant-danger',
         },
         size: {
-            sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
+            sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
@@ -170,10 +165,6 @@ export const buttonPrimitiveVariants = cva({
         isSideActionRight: {
             true: 'absolute right-0 -top-px -bottom-px rounded-l-none',
         },
-        loading: {
-            true: 'disabled:pointer-events-none disabled:opacity-50',
-            false: '',
-        },
     },
     defaultVariants: {
         variant: 'default',
@@ -211,7 +202,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const {
         className,
         variant,
-        size = 'base',
+        size,
         fullWidth,
         children,
         iconOnly,
@@ -224,7 +215,6 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
-        loading,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -246,7 +236,6 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     hasSideActionRight,
                     isSideActionRight,
                     className,
-                    loading,
                 })
             ),
             ref,
@@ -274,48 +263,3 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
 })
 
 ButtonPrimitive.displayName = 'ButtonPrimitive'
-
-export const ButtonPrimitiveCheckedIndicator = ({
-    className,
-    checked,
-}: {
-    checked: boolean
-    className?: string
-}): JSX.Element => {
-    return (
-        <IconCheck
-            className={cn(
-                'size-3 text-secondary',
-                {
-                    'opacity-0 group-hover/button-primitive:opacity-30': !checked,
-                    'opacity-100': checked,
-                },
-                className
-            )}
-        />
-    )
-}
-ButtonPrimitiveCheckedIndicator.displayName = 'ButtonPrimitiveCheckedIndicator'
-
-interface ButtonPrimitiveWithAccessControlProps extends ButtonPrimitiveProps, AccessControlProps {}
-
-export const ButtonPrimitiveWithAccessControl = ({
-    className,
-    userAccessLevel,
-    minAccessLevel,
-    resourceType,
-    ...props
-}: ButtonPrimitiveWithAccessControlProps): JSX.Element => {
-    return (
-        <AccessControlAction
-            userAccessLevel={userAccessLevel}
-            minAccessLevel={minAccessLevel}
-            resourceType={resourceType}
-        >
-            {({ disabledReason: accessControlDisabledReason }) => (
-                <ButtonPrimitive className={cn(className)} {...props} disabled={!!accessControlDisabledReason} />
-            )}
-        </AccessControlAction>
-    )
-}
-ButtonPrimitiveWithAccessControl.displayName = 'ButtonPrimitiveWithAccessControl'
