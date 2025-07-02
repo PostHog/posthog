@@ -19,10 +19,7 @@ export const IngestFirstEventContent = (): JSX.Element => (
 
 export const InviteTeamMemberContent = (): JSX.Element => (
     <div className="text-sm text-muted space-y-2">
-        <p>
-            Invite teammates to collaborate on insights, dashboards, and feature flags. Multiple team members can share
-            different perspectives and catch issues you might miss.
-        </p>
+        <p>Invite teammates to collaborate with you in PostHog.</p>
         <p>
             You can manage permissions and roles in{' '}
             <Link to={urls.settings('organization-members')}>
@@ -74,9 +71,8 @@ export const CreateFirstDashboardContent = (): JSX.Element => (
             help you track key performance indicators and share data with your team.
         </p>
         <p>
-            Choose from <Link to="https://posthog.com/templates">ready-made templates</Link> for common use cases or
-            start with a <Link to="https://posthog.com/docs/product-analytics/dashboards">blank dashboard</Link> to
-            customize your own metrics view.
+            Choose from ready-made templates for common use cases or start with a blank dashboard to customize your own
+            metrics view.
         </p>
     </div>
 )
@@ -96,6 +92,115 @@ export const TrackCustomEventsContent = (): JSX.Element => (
     </div>
 )
 
+export const SetupSessionRecordingsContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Enable session recordings to see exactly how users navigate through your product. Session replay captures
+            user interactions, clicks, and page views so you can identify pain points and optimize user experience.
+        </p>
+        <p>
+            Follow the <Link to="https://posthog.com/docs/session-replay/installation">installation guide</Link> to
+            enable recordings.
+        </p>
+    </div>
+)
+
+export const WatchSessionRecordingContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>Watch your first session recording to understand how real users interact with your product.</p>
+        <p>
+            Visit the <Link to={urls.replay()}>replay page</Link> to browse available recordings, or learn{' '}
+            <Link to="https://posthog.com/docs/session-replay/how-to-watch-recordings">
+                how to watch recordings effectively
+            </Link>{' '}
+            to get the most insights from user sessions.
+        </p>
+    </div>
+)
+
+export const LaunchExperimentContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Launch your first A/B test to validate feature changes and product decisions with real user data.
+            Experiments help you understand which variants perform better before rolling them out to all users.
+        </p>
+        <p>
+            Start by creating an experiment on the experiment page, then follow our guide on{' '}
+            <Link to="https://posthog.com/docs/experiments/installation">installing the SDK</Link> and{' '}
+            <Link to="https://posthog.com/docs/experiments/adding-experiment-code">adding experiment code</Link> to your
+            product.
+        </p>
+    </div>
+)
+
+export const ConnectSourceContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Connect external data sources to combine your product analytics with business data from your CRM, payment
+            processor, or database. This gives you a complete view of user behavior and business outcomes.
+        </p>
+        <p>
+            Learn how to <Link to="https://posthog.com/docs/cdp/sources">link a source</Link> to explore data from
+            sources like Stripe and your database.
+        </p>
+    </div>
+)
+
+export const LaunchSurveyContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Create targeted surveys to collect direct feedback from users about their experience and needs. Surveys help
+            you understand the "why" behind user behavior patterns. Get started by{' '}
+            <Link to="https://posthog.com/docs/surveys/installation">installing the SDK</Link>.
+        </p>
+    </div>
+)
+
+export const CollectSurveyResponsesContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Analyze survey responses to gain insights into user satisfaction, feature requests, and pain points. Survey
+            data complements your behavioral analytics with direct user feedback.
+        </p>
+        <p>
+            Visit the <Link to={urls.surveys()}>surveys page</Link> to review responses and learn{' '}
+            <Link to="https://posthog.com/docs/surveys/viewing-results">how to analyze survey results</Link>.
+        </p>
+    </div>
+)
+
+export const CreateFeatureFlagContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Create your first feature flag to safely release new features and control which users see them. Feature
+            flags let you test changes with specific user groups before rolling them out to everyone.
+        </p>
+        <p>
+            Learn{' '}
+            <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags">how to create a feature flag</Link>{' '}
+            and{' '}
+            <Link to="https://posthog.com/docs/feature-flags/adding-feature-flag-code">
+                add the code to your product
+            </Link>{' '}
+            to start controlling feature releases.
+        </p>
+    </div>
+)
+
+export const UpdateFeatureFlagReleaseConditionsContent = (): JSX.Element => (
+    <div className="text-sm text-muted space-y-2">
+        <p>
+            Update your feature flag release conditions to control who sees your feature. You can target specific users,
+            roll out to a percentage of traffic, or use custom properties to define your audience.
+        </p>
+        <p>
+            Visit the <Link to={urls.featureFlags()}>Feature flags page</Link> to modify release conditions and learn{' '}
+            <Link to="https://posthog.com/docs/feature-flags/testing">how to test your feature flags</Link> before going
+            live.
+        </p>
+    </div>
+)
+
 export const activationTaskContentMap: Partial<Record<ActivationTask, React.FC>> = {
     [ActivationTask.IngestFirstEvent]: IngestFirstEventContent,
     [ActivationTask.InviteTeamMember]: InviteTeamMemberContent,
@@ -103,4 +208,12 @@ export const activationTaskContentMap: Partial<Record<ActivationTask, React.FC>>
     [ActivationTask.CreateFirstInsight]: CreateFirstInsightContent,
     [ActivationTask.CreateFirstDashboard]: CreateFirstDashboardContent,
     [ActivationTask.TrackCustomEvents]: TrackCustomEventsContent,
+    [ActivationTask.SetupSessionRecordings]: SetupSessionRecordingsContent,
+    [ActivationTask.WatchSessionRecording]: WatchSessionRecordingContent,
+    [ActivationTask.CreateFeatureFlag]: CreateFeatureFlagContent,
+    [ActivationTask.UpdateFeatureFlagReleaseConditions]: UpdateFeatureFlagReleaseConditionsContent,
+    [ActivationTask.LaunchExperiment]: LaunchExperimentContent,
+    [ActivationTask.ConnectSource]: ConnectSourceContent,
+    [ActivationTask.LaunchSurvey]: LaunchSurveyContent,
+    [ActivationTask.CollectSurveyResponses]: CollectSurveyResponsesContent,
 }
