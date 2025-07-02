@@ -335,6 +335,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
+        showConfirmationModal: (changes: string[], pendingFlag: Partial<FeatureFlagType>) => ({ changes, pendingFlag }),
+        hideConfirmationModal: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -628,6 +630,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as ScheduledChangeOperationType,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
+            },
+        ],
+        confirmationModalVisible: [
+            false,
+            {
+                showConfirmationModal: () => true,
+                hideConfirmationModal: () => false,
+            },
+        ],
+        confirmationModalChanges: [
+            [] as string[],
+            {
+                showConfirmationModal: (_, { changes }) => changes,
+                hideConfirmationModal: () => [],
+            },
+        ],
+        pendingFlagForConfirmation: [
+            null as Partial<FeatureFlagType> | null,
+            {
+                showConfirmationModal: (_, { pendingFlag }) => pendingFlag,
+                hideConfirmationModal: () => null,
             },
         ],
     }),
@@ -1141,6 +1164,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (editing) {
                 actions.loadFeatureFlag()
             }
+        },
+        showConfirmationModal: () => {
+            // Modal state is handled by reducers
+        },
+        hideConfirmationModal: () => {
+            // Modal state is handled by reducers
         },
     })),
     selectors({
