@@ -70,11 +70,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     {children}
                     <div
                         className={clsx(
-                            'flex flex-col m-1',
+                            'flex flex-col',
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary'
+                            isFloating && 'border-primary m-1'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -107,10 +107,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={inputDisabled}
                             minRows={1}
                             maxRows={10}
-                            className={clsx(
-                                '!border-none !bg-transparent min-h-0 py-2.5 pl-2.5',
-                                isFloating ? 'pr-20' : 'pr-12'
-                            )}
+                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
                         />
                     </div>
                     <div
@@ -164,10 +161,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {tools.length > 0 && (
                     <div
                         className={clsx(
-                            'flex gap-1 text-xs font-medium cursor-default px-1.5',
+                            'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                : `w-full ${isThreadVisible ? 'pb-1' : 'pt-1'}`
+                                : `w-full pb-1`
                         )}
                     >
                         <span>Tools in context:</span>

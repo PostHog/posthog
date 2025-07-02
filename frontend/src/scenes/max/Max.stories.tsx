@@ -601,38 +601,7 @@ export const ExpandedFloatingInput: StoryFn = () => {
     return <MaxFloatingInput />
 }
 
-export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
-    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
-    useEffect(() => {
-        setIsFloatingMaxExpanded(true)
-        setShowFloatingMaxSuggestions(true)
-    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
-
-    return <MaxFloatingInput />
-}
-
-export const FloatingInputMobileView: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/organizations/@current/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
-                },
-            ],
-        },
-    })
-
-    return <MaxFloatingInput />
-}
-FloatingInputMobileView.parameters = {
-    viewport: {
-        defaultViewport: 'mobile2',
-    },
-}
-
-export const FloatingInputWithContextualTools: StoryFn = () => {
+export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
     const { registerTool } = useActions(maxGlobalLogic)
 
     useEffect(() => {
@@ -678,30 +647,35 @@ export const FloatingInputWithContextualTools: StoryFn = () => {
     return <MaxFloatingInput />
 }
 
-export const FloatingInputWithCustomToolIntro: StoryFn = () => {
-    const { registerTool } = useActions(maxGlobalLogic)
-
+export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
     useEffect(() => {
-        // Register tool with intro override
-        registerTool({
-            name: 'dashboard_assistant' as AssistantContextualTool,
-            displayName: 'Dashboard Assistant',
-            context: {
-                dashboard_name: 'Product Analytics Dashboard',
-                total_insights: 12,
-                recent_changes: ['Added conversion funnel', 'Updated retention cohorts'],
-            },
-            introOverride: {
-                headline: 'How can I help with your dashboard?',
-                description: 'I can help you analyze insights, create new visualizations, or explain your data.',
-            },
-            callback: (toolOutput) => {
-                console.info('Dashboard assistant action:', toolOutput)
-            },
-        })
-    }, [registerTool])
+        setIsFloatingMaxExpanded(true)
+        setShowFloatingMaxSuggestions(true)
+    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
 
     return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputMobileView: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    return <MaxFloatingInput />
+}
+ExpandedFloatingInputMobileView.parameters = {
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
 }
 
 export const MaxInstanceWithContextualTools: StoryFn = () => {
