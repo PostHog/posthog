@@ -493,6 +493,20 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    live_events_columns: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    changed the <em>live events columns</em> (displayed on the Live Events page) to{' '}
+                    <code>[{(change.after as string[]).join(', ')}]</code>
+                </>,
+            ],
+        }
+    },
     has_group_types: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -536,8 +550,6 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     group_types: () => null,
     ingested_event: () => null,
-    is_demo: () => null,
-    live_events_columns: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,
@@ -562,6 +574,7 @@ const teamActionsMapping: Record<
     cookieless_server_hash_mode: () => null,
 
     // don't make sense to be displayed
+    is_demo: () => null,
     effective_membership_level: () => null,
     organization: () => null,
     project_id: () => null,
