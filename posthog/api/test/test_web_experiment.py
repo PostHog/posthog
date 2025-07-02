@@ -102,51 +102,6 @@ class TestWebExperiment(APIBaseTest):
         assert del_response.status_code == status.HTTP_204_NO_CONTENT
         assert WebExperiment.objects.filter(id=experiment_id).exists() is False
 
-    def test_web_experiments_endpoint_returns_correct_exposure_values(self):
-        """Test that the web_experiments endpoint returns the actual rollout percentages from the feature flag"""
-        # Create experiment
-        response = self._create_web_experiment("exposure_test_experiment")
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        experiment_id = response_data["id"]
-
-        # Get the experiment and its feature flag
-        web_experiment = WebExperiment.objects.get(id=experiment_id)
-        feature_flag = web_experiment.feature_flag
-
-        # Update the feature flag with different rollout percentages
-        updated_filters = feature_flag.filters.copy()
-        updated_filters["multivariate"]["variants"] = [
-            {"key": "control", "rollout_percentage": 40},
-            {"key": "test", "rollout_percentage": 60},
-        ]
-        feature_flag.filters = updated_filters
-        feature_flag.save()
-
-        # Call the web_experiments endpoint
-        list_response = self.client.get(f"/api/web_experiments?token={self.team.api_token}")
-        assert list_response.status_code == status.HTTP_200_OK, list_response
-        response_data = list_response.json()
-
-        # Verify the response
-        assert len(response_data["experiments"]) == 1
-        experiment_data = response_data["experiments"][0]
-        assert experiment_data["name"] == "exposure_test_experiment"
-
-        # Verify the variants contain the updated rollout percentages from feature flag
-        variants = experiment_data["variants"]
-        assert variants is not None
-        assert "control" in variants
-        assert "test" in variants
-        assert variants["control"]["rollout_percentage"] == 40  # Updated value, not original 70
-        assert variants["test"]["rollout_percentage"] == 60  # Updated value, not original 30
-
-        # Verify transforms are still present from original experiment
-        assert "transforms" in variants["control"]
-        assert "transforms" in variants["test"]
-        assert len(variants["control"]["transforms"]) == 1
-        assert len(variants["test"]["transforms"]) == 1
-
     def test_web_experiments_endpoint_handles_missing_feature_flag_data(self):
         """Test that the endpoint gracefully handles cases where feature flag data is missing or invalid"""
         # Create experiment
@@ -234,3 +189,97 @@ class TestWebExperiment(APIBaseTest):
         response_data = detail_response.json()
         assert response_data["id"] == experiment_id
         assert response_data["name"] == "Test Experiment"
+
+    def test_web_experiments_endpoint_returns_correct_exposure_values(self):
+        """Test that the web_experiments endpoint returns the actual rollout percentages from the feature flag"""
+        # Create experiment
+        response = self._create_web_experiment("exposure_test_experiment")
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        experiment_id = response_data["id"]
+
+        # Get the experiment and its feature flag
+        web_experiment = WebExperiment.objects.get(id=experiment_id)
+        feature_flag = web_experiment.feature_flag
+
+        # Update the feature flag with different rollout percentages
+        updated_filters = feature_flag.filters.copy()
+        updated_filters["multivariate"]["variants"] = [
+            {"key": "control", "rollout_percentage": 40},
+            {"key": "test", "rollout_percentage": 60},
+        ]
+        feature_flag.filters = updated_filters
+        feature_flag.save()
+
+        # Call the web_experiments endpoint
+        list_response = self.client.get(f"/api/web_experiments?token={self.team.api_token}")
+        assert list_response.status_code == status.HTTP_200_OK, list_response
+        response_data = list_response.json()
+
+        # Verify the response
+        assert len(response_data["experiments"]) == 1
+        experiment_data = response_data["experiments"][0]
+        assert experiment_data["name"] == "exposure_test_experiment"
+
+        # Verify the variants contain the updated rollout percentages from feature flag
+        variants = experiment_data["variants"]
+        assert variants is not None
+        assert "control" in variants
+        assert "test" in variants
+        assert variants["control"]["rollout_percentage"] == 40  # Updated value, not original 70
+        assert variants["test"]["rollout_percentage"] == 60  # Updated value, not original 30
+
+        # Verify transforms are still present from original experiment
+        assert "transforms" in variants["control"]
+        assert "transforms" in variants["test"]
+        assert len(variants["control"]["transforms"]) == 1
+        assert len(variants["test"]["transforms"]) == 1
+
+    def test_web_experiments_endpoint_includes_new_feature_flag_variants(self):
+        """Test that new variants added directly to the feature flag are included in the response"""
+        # Create experiment with original variants
+        response = self._create_web_experiment("new_variant_test")
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        experiment_id = response_data["id"]
+
+        # Get the experiment and its feature flag
+        web_experiment = WebExperiment.objects.get(id=experiment_id)
+        feature_flag = web_experiment.feature_flag
+
+        # Add a new variant directly to the feature flag (not in experiment variants)
+        updated_filters = feature_flag.filters.copy()
+        updated_filters["multivariate"]["variants"] = [
+            {"key": "control", "rollout_percentage": 30},
+            {"key": "test", "rollout_percentage": 30},
+            {"key": "new_variant", "rollout_percentage": 40},  # New variant added to feature flag
+        ]
+        feature_flag.filters = updated_filters
+        feature_flag.save()
+
+        # Call the web_experiments endpoint
+        list_response = self.client.get(f"/api/web_experiments?token={self.team.api_token}")
+        assert list_response.status_code == status.HTTP_200_OK, list_response
+        response_data = list_response.json()
+
+        # Verify the response includes ALL feature flag variants
+        experiment_data = response_data["experiments"][0]
+        variants = experiment_data["variants"]
+        assert variants is not None
+
+        # Should include all three variants now
+        assert "control" in variants
+        assert "test" in variants
+        assert "new_variant" in variants  # New variant should be included
+
+        # Verify rollout percentages from feature flag
+        assert variants["control"]["rollout_percentage"] == 30
+        assert variants["test"]["rollout_percentage"] == 30
+        assert variants["new_variant"]["rollout_percentage"] == 40
+
+        # Original variants should still have their transforms
+        assert "transforms" in variants["control"]
+        assert "transforms" in variants["test"]
+
+        # New variant should not have transforms (not in original experiment)
+        assert "transforms" not in variants["new_variant"]

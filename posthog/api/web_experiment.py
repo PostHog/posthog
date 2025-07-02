@@ -44,32 +44,37 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
     def _get_corrected_variants(self, obj):
         """
-        Returns the variants with actual rollout percentages from the feature flag,
-        combined with the transforms from the experiment variants.
+        Returns ALL variants from the feature flag with actual rollout percentages,
+        combined with transforms from the experiment variants where available.
         """
-        if not obj.feature_flag or not obj.variants:
+        if not obj.feature_flag:
             return obj.variants or {}
 
-        # Get the actual rollout percentages from the feature flag
-        feature_flag_variants = {}
         multivariate = obj.feature_flag.filters.get("multivariate", {})
         variants_list = multivariate.get("variants", [])
+
+        # If no feature flag variants, fall back to experiment variants
+        if not variants_list:
+            return obj.variants or {}
+
+        # Build result using ALL feature flag variants as the source of truth
+        result_variants = {}
+        experiment_variants = obj.variants or {}
 
         for variant in variants_list:
             key = variant.get("key")
             rollout_percentage = variant.get("rollout_percentage", 0)
             if key:
-                feature_flag_variants[key] = {"rollout_percentage": rollout_percentage}
+                # Start with feature flag data
+                result_variants[key] = {"rollout_percentage": rollout_percentage}
 
-        # Combine with experiment variant data (transforms, etc.)
-        result_variants = {}
-        for variant_key, variant_data in obj.variants.items():
-            result_variants[variant_key] = variant_data.copy()
-            # Override with actual rollout percentage from feature flag
-            if variant_key in feature_flag_variants:
-                result_variants[variant_key]["rollout_percentage"] = feature_flag_variants[variant_key][
-                    "rollout_percentage"
-                ]
+                # Add experiment-specific data (transforms, etc.) if available
+                if key in experiment_variants:
+                    experiment_data = experiment_variants[key].copy()
+                    # Remove rollout_percentage from experiment data to avoid conflicts
+                    experiment_data.pop("rollout_percentage", None)
+                    # Merge experiment data into result
+                    result_variants[key].update(experiment_data)
 
         return result_variants
 
