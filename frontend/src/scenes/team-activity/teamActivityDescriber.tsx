@@ -522,6 +522,22 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    primary_dashboard: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>primary dashboard</em> to{' '}
+                    <Link to={urls.dashboard(change.after as number)}>
+                        <em>{change.after}</em>
+                    </Link>
+                </>,
+            ],
+        }
+    },
     data_attributes: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -698,7 +714,6 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     group_types: () => null,
     path_cleaning_filters: () => null,
-    primary_dashboard: () => null,
     revenue_analytics_config: () => null,
 
     // should never come from the backend
