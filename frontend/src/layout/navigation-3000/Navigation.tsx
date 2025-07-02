@@ -63,7 +63,16 @@ export function Navigation({
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
                 {useMinimalSceneLayout ? (
-                    <SceneLayout layoutConfig={sceneConfig}>{children}</SceneLayout>
+                    <SceneLayout layoutConfig={sceneConfig}>
+                        {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                            <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                                {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
+                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
+                            </div>
+                        )}
+
+                        {children}
+                    </SceneLayout>
                 ) : (
                     <>
                         {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
