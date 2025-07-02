@@ -2,6 +2,8 @@ import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
 import {
+    IconBolt,
+    IconBrackets,
     IconCode,
     IconCopy,
     IconDownload,
@@ -18,6 +20,7 @@ import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -418,20 +421,24 @@ export function OutputPane(): JSX.Element {
                         {
                             key: OutputTab.Results,
                             label: 'Results',
+                            icon: <IconTableChart />,
                         },
                         {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
+                            icon: <IconGraph />,
                         },
                         ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
                             ? [
                                   {
                                       key: OutputTab.Variables,
                                       label: 'Variables',
+                                      icon: <IconBrackets />,
                                   },
                                   {
                                       key: OutputTab.Materialization,
                                       label: 'Materialization',
+                                      icon: <IconBolt />,
                                   },
                               ]
                             : []),
@@ -439,7 +446,7 @@ export function OutputPane(): JSX.Element {
                         <div
                             key={tab.key}
                             className={clsx(
-                                'flex-1 bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
                                 {
                                     'font-semibold !border-brand-yellow': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
@@ -447,6 +454,7 @@ export function OutputPane(): JSX.Element {
                             )}
                             onClick={() => setActiveTab(tab.key)}
                         >
+                            <span className="mr-1">{tab.icon}</span>
                             {tab.label}
                         </div>
                     ))}
