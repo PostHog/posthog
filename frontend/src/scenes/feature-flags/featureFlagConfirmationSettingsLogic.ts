@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { afterMount, connect, kea, listeners, path } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -15,19 +15,8 @@ export const featureFlagConfirmationSettingsLogic = kea<featureFlagConfirmationS
 
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam', 'loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
     })),
-
-    reducers({
-        isSubmitting: [
-            false,
-            {
-                updateConfirmationMessage: () => true,
-                updateConfirmationMessageSuccess: () => false,
-                updateConfirmationMessageFailure: () => false,
-            },
-        ],
-    }),
 
     loaders(() => ({
         confirmationMessage: {
@@ -42,6 +31,9 @@ export const featureFlagConfirmationSettingsLogic = kea<featureFlagConfirmationS
         },
     })),
 
+    // isSubmitting is automatically handled by the kea-loaders
+    // Use confirmationMessageLoading instead
+
     forms(({ actions }) => ({
         confirmationMessageForm: {
             defaults: { message: '' } as ConfirmationMessageForm,
@@ -51,19 +43,24 @@ export const featureFlagConfirmationSettingsLogic = kea<featureFlagConfirmationS
         },
     })),
 
-    listeners(({ actions, values }) => ({
-        updateCurrentTeamSuccess: () => {
+    listeners(({ actions }) => ({
+        updateCurrentTeamSuccess: ({ currentTeam }) => {
             // Update form value when team data changes
-            if (values.currentTeam?.feature_flag_confirmation_message !== undefined) {
-                actions.setConfirmationMessageFormValue('message', values.currentTeam.feature_flag_confirmation_message)
-            }
+            const message = currentTeam?.feature_flag_confirmation_message || ''
+            actions.setConfirmationMessageFormValue('message', message)
+        },
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            // Initialize form when team loads
+            const message = currentTeam?.feature_flag_confirmation_message || ''
+            actions.setConfirmationMessageFormValue('message', message)
         },
     })),
 
     afterMount(({ actions, values }) => {
-        // Initialize form with current team value
-        if (values.currentTeam?.feature_flag_confirmation_message !== undefined) {
-            actions.setConfirmationMessageFormValue('message', values.currentTeam.feature_flag_confirmation_message)
+        // Initialize form with current team value if already loaded
+        if (values.currentTeam) {
+            const message = values.currentTeam.feature_flag_confirmation_message || ''
+            actions.setConfirmationMessageFormValue('message', message)
         }
     }),
 ])

@@ -16,7 +16,7 @@ export type FeatureFlagSettingsProps = {
 export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProps): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { isSubmitting } = useValues(featureFlagConfirmationSettingsLogic)
+    const { confirmationMessageLoading } = useValues(featureFlagConfirmationSettingsLogic)
 
     return (
         <div className="space-y-8">
@@ -91,7 +91,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                                 type="primary"
                                 htmlType="submit"
                                 disabledReason={!currentTeam ? 'Loading team...' : undefined}
-                                loading={isSubmitting}
+                                loading={confirmationMessageLoading}
                             >
                                 Save message
                             </LemonButton>
