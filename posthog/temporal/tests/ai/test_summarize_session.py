@@ -336,7 +336,7 @@ class TestSummarizeSingleSessionWorkflow:
         def mock_redis_get(key):
             nonlocal redis_call_count
             # Return None for first poll, then intermediate data, then final data
-            if "output" in key:
+            if "session_summary" in key:
                 current_call_number = redis_call_count
                 redis_call_count += 1
                 # First call - no data yet
