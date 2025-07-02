@@ -8,10 +8,10 @@ import { cleanNullValues } from '../../hog-transformations/transformation-functi
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
@@ -79,7 +79,7 @@ export class TemplateTester {
                 uuid: 'event-id',
                 event: 'event-name',
                 distinct_id: 'distinct-id',
-                properties: { $current_url: 'https://example.com', ...(globals.event?.properties ?? {}) },
+                properties: { $current_url: 'https://example.com', ...globals.event?.properties },
                 timestamp: '2024-01-01T00:00:00Z',
                 elements_chain: '',
                 url: 'https://us.posthog.com/projects/1/events/1234',
@@ -88,7 +88,7 @@ export class TemplateTester {
             person: {
                 id: 'person-id',
                 name: 'person-name',
-                properties: { email: 'example@posthog.com', ...(globals.person?.properties ?? {}) },
+                properties: { email: 'example@posthog.com', ...globals.person?.properties },
                 url: 'https://us.posthog.com/projects/1/persons/1234',
                 ...globals.person,
             },
@@ -126,8 +126,15 @@ export class TemplateTester {
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
+        // Don't compile inputs that don't suppport templating
         const compiledEntries = await Promise.all(
-            Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
+            Object.entries(allInputs).map(async ([key, value]) => {
+                const schema = this.template.inputs_schema.find((input) => input.key === key)
+                if (schema?.templating === false) {
+                    return [key, value]
+                }
+                return [key, await this.compileObject(value)]
+            })
         )
 
         return compiledEntries.reduce((acc, [key, value]) => {
@@ -139,7 +146,10 @@ export class TemplateTester {
         }, {} as Record<string, HogFunctionInputType>)
     }
 
-    async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+    async invoke(
+        _inputs: Record<string, any>,
+        _globals?: DeepPartialHogFunctionInvocationGlobals
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (this.template.mapping_templates) {
             throw new Error('Mapping templates found. Use invokeMapping instead.')
         }
@@ -160,7 +170,7 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -180,7 +190,7 @@ export class TemplateTester {
         _inputs: Record<string, any>,
         _globals?: DeepPartialHogFunctionInvocationGlobals,
         mapping_inputs?: Record<string, any>
-    ) {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
         }
@@ -219,7 +229,7 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = buildGlobalsWithInputs(this.createGlobals(_globals), {
+        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
             ...compiledInputs,
             ...compiledMappingInputs.inputs,
         })
@@ -237,13 +247,16 @@ export class TemplateTester {
 
         return this.executor.execute(invocation)
     }
-    invokeFetchResponse(
+
+    async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: HogFunctionQueueParametersFetchResponse
-    ) {
-        const modifiedInvocation = cloneInvocation(invocation, {
-            queue: 'hog' as const,
-            queueParameters: response,
+        response: { status: number; body: Record<string, any> }
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const modifiedInvocation = cloneInvocation(invocation)
+
+        modifiedInvocation.state.vmState!.stack.push({
+            status: response.status,
+            body: response.body,
         })
 
         return this.executor.execute(modifiedInvocation)

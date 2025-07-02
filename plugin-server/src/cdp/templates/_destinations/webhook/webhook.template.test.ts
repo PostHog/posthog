@@ -8,7 +8,8 @@ describe('webhook template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('should invoke the function', async () => {
@@ -28,7 +29,6 @@ describe('webhook template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$lib_version":"1.0.0"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}}",
@@ -36,14 +36,14 @@ describe('webhook template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
-              "return_queue": "hog",
+              "type": "fetch",
               "url": "https://example.com?v=1.0.0",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"message": "Hello, world!"}',
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { message: 'Hello, world!' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -63,9 +63,9 @@ describe('webhook template', () => {
             ]
         `)
 
-        response = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"message": "Hello, world!"}',
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { message: 'Hello, world!' },
         })
 
         expect(response.error).toBeUndefined()
@@ -82,9 +82,9 @@ describe('webhook template', () => {
             debug: true,
         })
 
-        response = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"message": "Bad Request"}',
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 400,
+            body: { message: 'Bad Request' },
         })
 
         expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)

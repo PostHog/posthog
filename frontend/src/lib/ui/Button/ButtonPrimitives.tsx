@@ -124,7 +124,7 @@ export const buttonPrimitiveVariants = cva({
             outline: 'button-primitive--variant-outline',
         },
         size: {
-            sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
+            sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
@@ -147,7 +147,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'button-primitive--full-width justify-start',
+            true: 'rounded-sm button-primitive--full-width justify-start shrink-0',
             false: '',
         },
         truncate: {
@@ -155,7 +155,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:pointer-events-none disabled:opacity-50',
+            true: 'disabled:opacity-50',
             false: '',
         },
         hasSideActionRight: {
@@ -239,6 +239,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 })
             ),
             ref,
+            disabled,
             ...rest,
             'aria-disabled': disabled,
             'data-active': active,
