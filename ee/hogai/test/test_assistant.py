@@ -750,7 +750,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
-    async def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock):
+    async def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock, mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
