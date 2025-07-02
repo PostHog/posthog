@@ -480,7 +480,19 @@ const teamActionsMapping: Record<
             description: [<>completed their onboarding</>],
         }
     },
+    data_attributes: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
 
+        return {
+            description: [
+                <>
+                    changed <em>data attributes</em> to <code>[{(change.after as string[]).join(', ')}]</code>
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -509,15 +521,11 @@ const teamActionsMapping: Record<
     access_control: () => null,
     app_urls: () => null,
     correlation_config: () => null,
-    data_attributes: () => null,
-    effective_membership_level: () => null,
     has_group_types: () => null,
     group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,
-    organization: () => null,
-    project_id: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     person_on_events_querying_enabled: () => null,
@@ -540,6 +548,11 @@ const teamActionsMapping: Record<
     live_events_token: () => null,
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
+
+    // don't make sense to be displayed
+    effective_membership_level: () => null,
+    organization: () => null,
+    project_id: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
