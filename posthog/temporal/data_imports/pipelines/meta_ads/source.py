@@ -52,12 +52,39 @@ ENDPOINTS = (
 )
 
 INCREMENTAL_ENDPOINTS = (
+    MetaAdsResource.Ad,
+    MetaAdsResource.Adset,
+    MetaAdsResource.Campaign,
     MetaAdsResource.AdStats,
     MetaAdsResource.AdsetStats,
     MetaAdsResource.CampaignStats,
 )
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    MetaAdsResource.Ad: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.Adset: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.Campaign: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
     MetaAdsResource.AdStats: [
         {
             "label": "date_start",
@@ -122,13 +149,13 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
 
 # Simple schema structure without typing
 class MetaAdsSchema:
-    def __init__(self, name: str, requires_filter: bool, primary_key: list[str], field_names: list[str]):
+    def __init__(self, name: str, primary_key: list[str], field_names: list[str]):
         self.name = name
-        self.requires_filter = requires_filter
         self.primary_key = primary_key
         self.field_names = field_names
 
 
+# Note: can make this static but keeping schemas.py to match other schema files for now
 def get_schemas() -> dict[str, MetaAdsSchema]:
     """Obtain Meta Ads schemas using predefined field definitions."""
     schemas = {}
@@ -136,11 +163,9 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
     for resource_name, schema_def in RESOURCE_SCHEMAS.items():
         field_names = schema_def["field_names"].copy()
         primary_key = schema_def["primary_key"]
-        requires_filter = resource_name.endswith("_stats")
 
         schema = MetaAdsSchema(
             name=resource_name,
-            requires_filter=requires_filter,
             primary_key=primary_key,
             field_names=field_names,
         )
@@ -248,11 +273,7 @@ def meta_ads_source(
     """A data warehouse Meta Ads source."""
     name = NamingConvention().normalize_identifier(config.resource_name)
     schema = get_schemas()[config.resource_name]
-
-    if schema.requires_filter and not should_use_incremental_field:
-        should_use_incremental_field = True
-        incremental_field = "date_start"
-        incremental_field_type = IncrementalFieldType.Date
+    is_stats = config.resource_name.endswith("_stats")
 
     def get_rows() -> collections.abc.Iterator[list[dict]]:
         integration = get_integration(config, team_id)
@@ -293,7 +314,7 @@ def meta_ads_source(
             }
 
         # Get data based on resource type
-        if config.resource_name.endswith("_stats"):
+        if is_stats:
             yield from _get_insights_data(config.account_id, schema, time_range, access_token, logger)
         else:
             yield from _get_resource_data(config.account_id, schema, config.resource_name, access_token, logger)
@@ -302,11 +323,11 @@ def meta_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=schema.primary_key,
-        partition_count=1 if schema.requires_filter else None,
-        partition_size=1 if schema.requires_filter else None,
-        partition_mode="datetime" if schema.requires_filter else None,
-        partition_format="day" if schema.requires_filter else None,
-        partition_keys=["date_start"] if schema.requires_filter else None,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",  # the api is daily so bundle into months
+        partition_keys=["date_start"] if is_stats else ["created_time"],
     )
 
 
@@ -321,41 +342,10 @@ def _get_insights_data(
 
     base_resource = RESOURCE_ENDPOINTS.get(MetaAdsResource(schema.name), "ads")
 
-    insights_fields = [
-        field
-        for field in schema.field_names
-        if field
-        in {
-            f"{base_resource[:-1]}_id",
-            "impressions",
-            "clicks",
-            "spend",
-            "reach",
-            "frequency",
-            "cpm",
-            "cpc",
-            "ctr",
-            "cpp",
-            "cost_per_unique_click",
-            "unique_clicks",
-            "unique_ctr",
-            "actions",
-            "conversions",
-            "conversion_values",
-            "cost_per_action_type",
-            "video_30_sec_watched_actions",
-            "video_p25_watched_actions",
-            "video_p50_watched_actions",
-            "video_p75_watched_actions",
-            "video_p95_watched_actions",
-            "video_p100_watched_actions",
-        }
-    ]
-
     params = {
-        "fields": ",".join(insights_fields) if insights_fields else "impressions,clicks,spend",
-        "level": base_resource[:-1],  # Remove 's' from end
-        "time_increment": 1,  # Daily breakdown
+        "fields": ",".join(schema.field_names),
+        "level": base_resource[:-1],
+        "time_increment": 1,
         "limit": 100,
     }
 
@@ -363,7 +353,6 @@ def _get_insights_data(
         url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
         rows = []
 
-        # Use paginated API request to handle large result sets
         for page_data in _make_paginated_api_request(url, params, access_token, time_range):
             for insight in page_data.get("data", []):
                 row_data = {}
@@ -372,12 +361,10 @@ def _get_insights_data(
 
                 rows.append(row_data)
 
-                # Yield batch when we have enough rows
                 if len(rows) >= DEFAULT_CHUNK_SIZE:
                     yield rows
                     rows = []
 
-        # Yield remaining rows
         if rows:
             yield rows
 
@@ -395,11 +382,9 @@ def _get_resource_data(
     logger: FilteringBoundLogger,
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Get regular resource data from Meta Ads API."""
-    # Use all fields except account_id (which we'll add separately)
     field_names = [field for field in schema.field_names if field != "account_id"]
 
     try:
-        # Get the appropriate resource collection
         endpoint = RESOURCE_ENDPOINTS.get(MetaAdsResource(resource_name))
         if endpoint is None:
             raise ValueError(f"Unknown resource: {resource_name}")
@@ -420,12 +405,11 @@ def _get_resource_data(
         rows = []
 
         if resource_name == "account":
-            # Account endpoint doesn't have pagination
             data = _make_api_request(url, params, access_token)
             resources = [data]
 
             for resource in resources:
-                row_data = {"account_id": account_id}
+                row_data = {}
 
                 for field in field_names:
                     value = resource.get(field)
@@ -436,12 +420,11 @@ def _get_resource_data(
             if rows:
                 yield rows
         else:
-            # Use paginated API request for collection endpoints
             for page_data in _make_paginated_api_request(url, params, access_token):
                 resources = page_data.get("data", [])
 
                 for resource in resources:
-                    row_data = {"account_id": account_id}
+                    row_data = {}
 
                     for field in field_names:
                         value = resource.get(field)
@@ -449,12 +432,10 @@ def _get_resource_data(
 
                     rows.append(row_data)
 
-                    # Yield batch when we have enough rows
-                    if len(rows) >= 1000:
+                    if len(rows) >= DEFAULT_CHUNK_SIZE:
                         yield rows
                         rows = []
 
-            # Yield remaining rows
             if rows:
                 yield rows
 
