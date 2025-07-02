@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta
+
+from posthog.hogql.ast import Alias
+from posthog.hogql.base import Expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
@@ -249,19 +252,17 @@ class RetentionQueryRunner(QueryRunner):
                 "filter_timestamp": self.events_timestamp_filter,
             },
         )
-        return_event_timestamps_with_dupes = parse_expr(
-            """
-            groupArrayIf(
-                {start_of_interval_timestamp},
-                {returning_entity_expr} and
-                {filter_timestamp}
-            )
-            """,
-            {
-                "start_of_interval_timestamp": start_of_interval_sql,
-                "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
-            },
+
+        minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
+        minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
+            minimum_occurrences=minimum_occurrences,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
+        )
+        return_event_timestamps = self._get_return_event_timestamps_expr(
+            minimum_occurrences=minimum_occurrences,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
         )
 
         if event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
@@ -349,35 +350,9 @@ class RetentionQueryRunner(QueryRunner):
                         },
                     ),
                 ),
-                ast.Alias(
-                    alias="return_event_timestamps_with_dupes",
-                    expr=return_event_timestamps_with_dupes,
-                ),
-                ast.Alias(
-                    alias="return_event_counts_by_interval",
-                    expr=parse_expr(
-                        """
-                        arrayMap(
-                            interval_date -> countEqual(return_event_timestamps_with_dupes, interval_date),
-                            date_range
-                        )
-                        """
-                    ),
-                ),
+                *minimum_occurrences_aliases,
                 # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
-                ast.Alias(
-                    alias="return_event_timestamps",
-                    expr=parse_expr(
-                        """
-                            arrayFilter(
-                            (date, counts) -> counts >= {minimum_occurrences},
-                            date_range,
-                            return_event_counts_by_interval,
-                            )
-                        """,
-                        {"minimum_occurrences": ast.Constant(value=self.query.retentionFilter.minimumOccurrences or 1)},
-                    ),
-                ),
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
                 # exploded (0 based) indices of matching intervals for start event
                 ast.Alias(
                     alias="start_interval_index",
@@ -898,3 +873,76 @@ class RetentionQueryRunner(QueryRunner):
                 events_query.where = ast.And(exprs=[cast(ast.Expr, existing_where), ast.And(exprs=event_filters)])
 
             return events_query
+
+    def _get_return_event_timestamps_expr(
+        self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
+    ) -> Expr:
+        if minimum_occurrences > 1:
+            return parse_expr(
+                """
+                arrayFilter(
+                (date, counts) -> counts >= {minimum_occurrences},
+                date_range,
+                return_event_counts_by_interval,
+                )
+                """,
+                {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
+            )
+
+        return parse_expr(
+            """
+                arraySort(
+                    groupUniqArrayIf(
+                        {start_of_interval_timestamp},
+                        {returning_entity_expr} and
+                        {filter_timestamp}
+                    )
+                )
+            """,
+            {
+                "start_of_interval_timestamp": start_of_interval_sql,
+                "returning_entity_expr": return_entity_expr,
+                "filter_timestamp": self.events_timestamp_filter,
+            },
+        )
+
+    def _get_minimum_occurrences_aliases(
+        self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
+    ) -> list[Alias]:
+        """
+        Only include the following expressions when minimum occurrences value is set and greater than one. The query
+        with occurrences uses slightly more RAM, what can make some existing queries go over the max memory setting we
+        have and having them stop working.
+        """
+        if minimum_occurrences == 1:
+            return []
+
+        return_event_timestamps_with_dupes = ast.Alias(
+            alias="return_event_timestamps_with_dupes",
+            expr=parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_timestamp},
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_timestamp": start_of_interval_sql,
+                    "returning_entity_expr": return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter,
+                },
+            ),
+        )
+        return_event_counts_by_interval = ast.Alias(
+            alias="return_event_counts_by_interval",
+            expr=parse_expr(
+                """
+                arrayMap(
+                    interval_date -> countEqual(return_event_timestamps_with_dupes, interval_date),
+                    date_range
+                )
+                """
+            ),
+        )
+        return [return_event_timestamps_with_dupes, return_event_counts_by_interval]
