@@ -507,8 +507,9 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), "evaluation_stages_error".to_string())],
                     1,
                 );
+                debug_assert!(false, "evaluation_stages() failed after dependency graph construction: {e:?}");
                 errors_while_computing_flags = true;
-                Vec::new() // Return an empty vector to allow the program to continue
+                Vec::new() // Return an empty vector to allow the program to continue, but this should never happen.
             }
         };
         for stage in evaluation_stages {
