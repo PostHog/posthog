@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
 from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
+from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from posthog import constants
 from posthog.models.team.team import Team
@@ -221,7 +222,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return session_inputs
 
     @temporalio.workflow.run
-    async def run(self, inputs: SessionGroupSummaryInputs) -> str:
+    async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
         db_session_inputs = await self._fetch_session_group_data(inputs)
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
 
@@ -258,7 +259,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         )
 
         # Assign events to patterns
-        await temporalio.workflow.execute_activity(
+        patterns_assignments = await temporalio.workflow.execute_activity(
             assign_events_to_patterns_activity,
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
@@ -269,7 +270,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        return ""
+        return patterns_assignments
 
 
 async def _execute_workflow(inputs: SessionGroupSummaryInputs, workflow_id: str) -> str:
