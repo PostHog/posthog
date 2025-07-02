@@ -71,7 +71,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                 tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
                                 active={scenePanelOpen}
                             >
-                                <IconInfo className={cn('text-tertiary', { 'text-primary': scenePanelOpen })} />
+                                <IconInfo className="text-primary" />
                             </ButtonPrimitive>
                         )}
                     </div>

@@ -132,6 +132,10 @@ export const buttonPrimitiveVariants = cva({
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
         },
+        autoHeight: {
+            true: 'button-primitive--height-auto',
+            false: '',
+        },
         iconOnly: {
             true: 'icon-only p-0 justify-center items-center shrink-0',
             false: '',
@@ -149,7 +153,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0',
+            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -174,6 +178,7 @@ export const buttonPrimitiveVariants = cva({
         fullWidth: false,
         isGroup: false,
         menuItem: false,
+        autoHeight: false,
     },
     compoundVariants: [
         {
@@ -216,6 +221,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        autoHeight,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -236,6 +242,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     disabled,
                     hasSideActionRight,
                     isSideActionRight,
+                    autoHeight,
                     className,
                 })
             ),
