@@ -567,6 +567,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    app_urls: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    changed the <em>app URLs</em> to <code>[{(change.after as string[]).join(', ')}]</code>
+                </>,
+            ],
+        }
+    },
     person_display_name_properties: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -778,7 +791,7 @@ const teamActionsMapping: Record<
     marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
 
     // TODO implement these when possible
-    app_urls: () => null,
+
     group_types: () => null,
     revenue_analytics_config: () => null,
 
