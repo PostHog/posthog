@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
-from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from django.urls import reverse
 
 from posthog.models import Team
@@ -41,7 +40,7 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    inlines = [GroupTypeMappingInline, TeamMarketingAnalyticsConfigInline]
+    inlines = [GroupTypeMappingInline]
     fieldsets = [
         (
             None,
@@ -56,8 +55,6 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "api_token",
                     "timezone",
-                    "week_start_day",
-                    "base_currency",
                     "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
