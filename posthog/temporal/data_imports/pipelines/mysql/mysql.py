@@ -415,8 +415,9 @@ def _get_table_average_row_size(
         # Build the LENGTH sum for each column with proper sanitization
         length_sum = " + ".join(f"LENGTH(COALESCE({_sanitize_identifier(col)}, ''))" for col in columns)
 
-        # Sample the first 1000 rows to calculate average row size
-        # Note: inner_query is safe SQL from _build_query with sanitized identifiers
+        # NOTE: length_sum and inner_query are constructed with sanitized identifiers only.
+        # All column names are sanitized with _sanitize_identifier, and inner_query is built with same approach.
+        # No user-supplied values are directly interpolated here.
         size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
 
         cursor.execute(size_query, inner_query_args)
