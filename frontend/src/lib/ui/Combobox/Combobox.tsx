@@ -116,10 +116,9 @@ interface SearchProps {
     placeholder?: string
     className?: string
     autoFocus?: boolean
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
 }
 
-const Search = ({ placeholder = 'Search...', className, autoFocus = true, onChange }: SearchProps): JSX.Element => {
+const Search = ({ placeholder = 'Search...', className, autoFocus = true }: SearchProps): JSX.Element => {
     const context = useContext(ComboboxContext)
     if (!context) {
         throw new Error('Combobox.Search must be used inside Combobox')
@@ -130,10 +129,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true, onChan
             <TextInputPrimitive
                 type="text"
                 value={context.searchValue}
-                onChange={(e) => {
-                    context.setSearchValue(e.target.value)
-                    onChange?.(e)
-                }}
+                onChange={(e) => context.setSearchValue(e.target.value)}
                 className={className}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
