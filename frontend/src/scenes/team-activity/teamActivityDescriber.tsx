@@ -13,7 +13,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, CorrelationConfigType, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
+import {
+    ActivityScope,
+    CorrelationConfigType,
+    GroupType,
+    PathCleaningFilter,
+    TeamSurveyConfigType,
+    TeamType,
+} from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
@@ -580,6 +587,22 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    group_types: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        const groupNames = (change.after as GroupType[]).map((group) => group.name_plural)
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>group types</em> to{' '}
+                    <code>[{groupNames.join(', ')}]</code>
+                </>,
+            ],
+        }
+    },
     person_display_name_properties: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -791,8 +814,6 @@ const teamActionsMapping: Record<
     marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
 
     // TODO implement these when possible
-
-    group_types: () => null,
     revenue_analytics_config: () => null,
 
     // should never come from the backend
