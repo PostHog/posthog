@@ -240,14 +240,10 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     function_type: type,
                                 }}
                                 callback={(toolOutput: string) => {
-                                    try {
-                                        const parsedFilters = JSON.parse(toolOutput)
-                                        setOldFilters(filters)
-                                        setNewFilters(parsedFilters)
-                                        reportAIFiltersPrompted()
-                                    } catch (e) {
-                                        console.error('Failed to parse AI filters output:', e)
-                                    }
+                                    const parsedFilters = JSON.parse(toolOutput)
+                                    setOldFilters(filters)
+                                    setNewFilters(parsedFilters)
+                                    reportAIFiltersPrompted()
                                 }}
                                 onMaxOpen={() => {
                                     reportAIFiltersPromptOpen()
