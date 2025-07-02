@@ -316,12 +316,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
         if destination_attrs["type"] == BatchExportDestination.Destination.S3:
             config = destination_attrs["config"]
-            # TODO: should file format be required?
-            file_format = config.get("file_format")
-            compression = config.get("compression")
-            if compression and file_format and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            # JSONLines is the default file format for S3 exports for legacy reasons
+            file_format = config.get("file_format", "JSONLines")
+            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
                 raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}"
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = config.get("compression", None)
+            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
         return destination_attrs
 

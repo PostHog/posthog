@@ -490,7 +490,7 @@ def test_create_snowflake_batch_export_validates_credentials(
         (
             "JSONLines",
             "zstd",
-            "Compression zstd is not supported for file format JSONLines",
+            "Compression zstd is not supported for file format JSONLines. Supported compressions are ['gzip', 'brotli']",
         ),
         (
             "Parquet",
@@ -515,7 +515,12 @@ def test_create_snowflake_batch_export_validates_credentials(
         (
             "Parquet",
             "unknown",
-            "Compression unknown is not supported for file format Parquet",
+            "Compression unknown is not supported for file format Parquet. Supported compressions are ['zstd', 'lz4', 'snappy', 'gzip', 'brotli']",
+        ),
+        (
+            "unknown",
+            "gzip",
+            "File format unknown is not supported. Supported file formats are ['Parquet', 'JSONLines']",
         ),
     ],
 )
@@ -559,4 +564,4 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
             assert response.status_code == status.HTTP_201_CREATED
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert expected_error_message in response.json()["detail"]
+            assert response.json()["detail"] == expected_error_message
