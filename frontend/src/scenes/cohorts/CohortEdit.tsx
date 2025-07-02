@@ -293,7 +293,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
                                     {cohort.is_static
-                                        ? 'We are creating this cohort. This could take up to a couple of minutes.'
+                                        ? "We're creating this cohort. This could take up to a couple of minutes."
                                         : "We're recalculating who belongs to this cohort. This could take up to a couple of minutes."}
                                 </div>
                             ) : (
