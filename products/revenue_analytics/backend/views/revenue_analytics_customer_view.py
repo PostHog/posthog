@@ -47,7 +47,6 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
     def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER
 
-    # No customer views for events, we only have that for schema sources
     @classmethod
     def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:

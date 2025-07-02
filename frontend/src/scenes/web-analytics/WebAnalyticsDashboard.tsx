@@ -40,7 +40,7 @@ import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { MarketingAnalyticsFilters } from './MarketingAnalyticsFilters'
+import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 

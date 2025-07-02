@@ -35,6 +35,7 @@ class Feature(StrEnum):
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
+    CACHE_WARMUP = "cache_warmup"
 
 
 class TemporalTags(BaseModel):

@@ -148,7 +148,6 @@ import {
     SurveyStatsResponse,
     TeamType,
     UserBasicType,
-    UserGroup,
     UserInterviewType,
     UserType,
 } from '~/types'
@@ -1078,23 +1077,6 @@ export class ApiRequest {
 
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
-    }
-
-    // # UserGroups
-    public userGroups(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('user_groups')
-    }
-
-    public userGroup(id: UserGroup['id']): ApiRequest {
-        return this.userGroups().addPathComponent(id)
-    }
-
-    public userGroupAddMember(id: UserGroup['id']): ApiRequest {
-        return this.userGroup(id).addPathComponent('add')
-    }
-
-    public userGroupRemoveMember(id: UserGroup['id']): ApiRequest {
-        return this.userGroup(id).addPathComponent('remove')
     }
 
     // # Alerts
@@ -2576,28 +2558,6 @@ const api = {
 
         async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
-        },
-    },
-
-    userGroups: {
-        async list(): Promise<{ results: UserGroup[] }> {
-            return await new ApiRequest().userGroups().get()
-        },
-
-        async delete(id: UserGroup['id']): Promise<void> {
-            return await new ApiRequest().userGroup(id).delete()
-        },
-
-        async create(name: UserGroup['name']): Promise<UserGroup> {
-            return await new ApiRequest().userGroups().create({ data: { name } })
-        },
-
-        async addMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
-            return await new ApiRequest().userGroupAddMember(id).create({ data: { userId } })
-        },
-
-        async removeMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
-            return await new ApiRequest().userGroupRemoveMember(id).create({ data: { userId } })
         },
     },
 

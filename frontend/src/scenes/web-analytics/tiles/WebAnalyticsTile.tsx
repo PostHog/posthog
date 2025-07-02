@@ -51,7 +51,7 @@ import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
-import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable'
+import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
