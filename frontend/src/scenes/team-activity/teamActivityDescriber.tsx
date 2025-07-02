@@ -506,6 +506,22 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    week_start_day: (change): ChangeMapping | null => {
+        if (!change || change.after === undefined || change.after === null) {
+            return null
+        }
+
+        const dayOfWeekMapping = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the week start day to{' '}
+                    <em>{dayOfWeekMapping[change.after as number]}</em>
+                </>,
+            ],
+        }
+    },
     data_attributes: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -593,7 +609,6 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     revenue_analytics_config: () => null,
     flags_persistence_default: () => null,
-    week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     onboarding_tasks: () => null,
