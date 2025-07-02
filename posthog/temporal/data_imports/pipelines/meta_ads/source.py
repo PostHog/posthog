@@ -302,11 +302,11 @@ def meta_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=schema.primary_key,
-        partition_count=None,
-        partition_size=None,
-        partition_mode=None,
-        partition_format=None,
-        partition_keys=None,
+        partition_count=1 if schema.requires_filter else None,
+        partition_size=1 if schema.requires_filter else None,
+        partition_mode="datetime" if schema.requires_filter else None,
+        partition_format="day" if schema.requires_filter else None,
+        partition_keys=["date_start"] if schema.requires_filter else None,
     )
 
 
