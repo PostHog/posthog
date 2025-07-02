@@ -757,6 +757,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 properties={
                     "location": "session_recording_api.snapshots",
                     "session_id": str(recording.session_id) if recording else None,
+                    "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
             return Response(

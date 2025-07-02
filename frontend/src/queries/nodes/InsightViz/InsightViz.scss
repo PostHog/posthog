@@ -102,6 +102,12 @@
     }
 }
 
+.RevenueAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 20rem;
+    }
+}
+
 .RetentionContainer {
     display: flex;
     flex: 1;

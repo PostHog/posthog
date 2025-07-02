@@ -1,15 +1,15 @@
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    ConversionGoalFilter,
     CurrencyCode,
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
     SourceMap,
+    ConversionGoalFilter,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
@@ -17,14 +17,6 @@ import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
-import {
-    generateGoalConversionCTEs,
-    generateGoalConversionJoins,
-    generateGoalConversionSelects,
-    generateSelect,
-    generateWithClause,
-    unionQueriesString,
-} from './marketingTable'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
@@ -44,6 +36,7 @@ export type ExternalTable = {
     external_type: DataWarehouseSettingsTab
     source_map: SourceMap | null
     schema_name: string
+    dw_source_type: string
 }
 
 export type NativeSource = {
@@ -51,8 +44,32 @@ export type NativeSource = {
     tables: DatabaseSchemaDataWarehouseTable[]
 }
 
+export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC'] | null
+
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    actions({
+        setMarketingAnalyticsOrderBy: (orderBy: string, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        clearMarketingAnalyticsOrderBy: () => true,
+        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        clearDynamicConversionGoal: () => true,
+    }),
+    reducers({
+        marketingAnalyticsOrderBy: [
+            null as MarketingAnalyticsOrderBy,
+            {
+                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+        dynamicConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDynamicConversionGoal: (_, { goal }) => goal,
+                clearDynamicConversionGoal: () => null,
+            },
+        ],
+    }),
     connect(() => ({
         values: [
             teamLogic,
@@ -128,6 +145,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             external_type: tableType,
                             source_map: sourceMap,
                             schema_name: table.schema?.name || table.name,
+                            dw_source_type: tableType,
                         })
                     })
                 }
@@ -200,31 +218,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
-            },
-        ],
-        createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.conversion_goals, s.baseCurrency, s.validNativeSources],
-            (
-                validExternalTables: ExternalTable[],
-                conversionGoals: ConversionGoalFilter[],
-                baseCurrency: CurrencyCode,
-                validNativeSources: NativeSource[]
-            ): string | null => {
-                const unionQueries = unionQueriesString(validNativeSources, validExternalTables, baseCurrency)
-
-                if (unionQueries.length === 0) {
-                    // no valid sources found
-                    return null
-                }
-
-                const conversionGoalCTEs = generateGoalConversionCTEs(conversionGoals)
-                const withClause = generateWithClause(unionQueries, conversionGoalCTEs)
-                const conversionJoins = generateGoalConversionJoins(conversionGoals)
-                const conversionColumns = generateGoalConversionSelects(conversionGoals)
-
-                const query = generateSelect(withClause, conversionColumns, conversionJoins)
-
-                return query
             },
         ],
     }),

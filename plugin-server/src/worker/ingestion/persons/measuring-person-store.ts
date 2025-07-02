@@ -129,7 +129,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
+        return await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
