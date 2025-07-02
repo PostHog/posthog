@@ -493,6 +493,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    has_group_types: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> group types
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -521,7 +534,6 @@ const teamActionsMapping: Record<
     access_control: () => null,
     app_urls: () => null,
     correlation_config: () => null,
-    has_group_types: () => null,
     group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
