@@ -1,7 +1,6 @@
-import { actions, afterMount, connect, kea, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelLayout } from 'lib/constants'
 import { match, P } from 'ts-pattern'
 
 import { performQuery } from '~/queries/query'
@@ -43,6 +42,8 @@ const filterFunnelSteps = (steps: FunnelStep[], variants: string[]): FunnelStep[
 export type ResultBreakdownLogicProps = {
     experiment: Experiment
     metric?: ExperimentMetric
+    metricIndex: number
+    isPrimary: boolean
 }
 
 /**
@@ -55,11 +56,9 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         metric: {} as ExperimentMetric,
     } as ResultBreakdownLogicProps),
 
-    path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
+    key((props) => `${props.experiment.id}-${props.metricIndex}-${props.isPrimary ? 'primary' : 'secondary'}`),
 
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
+    path((key) => ['scenes', 'experiment', 'experimentResultBreakdownLogic', key]),
 
     actions({
         loadBreakdownResults: true,
@@ -107,7 +106,10 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         },
                         funnelsFilter: {
                             layout: FunnelLayout.vertical,
-                            breakdownAttributionType: BreakdownAttributionType.FirstTouch,
+                            /* We want to break down results by the flag value from the _first_ step
+                            which is the expsoure criteria */
+                            breakdownAttributionType: BreakdownAttributionType.Step,
+                            breakdownAttributionValue: 0,
                             funnelOrderType:
                                 (isExperimentFunnelMetric(metric) && metric.funnel_order_type) ||
                                 StepOrderValue.ORDERED,
@@ -199,13 +201,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
         ],
     })),
 
-    afterMount(({ actions, props, values }) => {
-        const isEnabled = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN]
-
-        if (!isEnabled) {
-            return
-        }
-
+    afterMount(({ actions, props }) => {
         const { metric, experiment } = props
 
         // bail if no valid props

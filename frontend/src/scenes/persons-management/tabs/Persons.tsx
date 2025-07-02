@@ -4,13 +4,12 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { personsSceneLogic } from 'scenes/persons-management/tabs/personsSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/types'
+import { ProductKey, OnboardingStepKey } from '~/types'
 
 export function Persons(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
@@ -25,7 +24,7 @@ export function Persons(): JSX.Element {
                     <LemonMenu
                         items={[
                             {
-                                label: 'Reset deleted person',
+                                label: 'Reset a deleted person...',
                                 onClick: () =>
                                     LemonDialog.openForm({
                                         width: '30rem',

@@ -516,6 +516,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             serializer.save()
 
         if config_data := validated_data.pop("marketing_analytics_config", None):
+            # Capture the old config before saving
+            old_config = {
+                "sources_map": (
+                    instance.marketing_analytics_config.sources_map.copy()
+                    if instance.marketing_analytics_config.sources_map
+                    else {}
+                ),
+                # Add other fields as they're added to the model
+                # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
+            }
+
             marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
                 instance.marketing_analytics_config, data=config_data, partial=True
             )
@@ -523,6 +534,34 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
 
             marketing_serializer.save()
+
+            # Log activity for marketing analytics config changes
+            new_config = {
+                "sources_map": config_data.get("sources_map", {}),
+                # Add other fields as they're added to the model
+                # "conversion_goals": config_data.get("conversion_goals", []),
+            }
+            marketing_config_changes_between = dict_changes_between(
+                "Team",
+                {"marketing_analytics_config": old_config},
+                {"marketing_analytics_config": new_config},
+                use_field_exclusions=True,
+            )
+
+            if marketing_config_changes_between:
+                log_activity(
+                    organization_id=cast(UUIDT, instance.organization_id),
+                    team_id=instance.pk,
+                    user=cast(User, self.context["request"].user),
+                    was_impersonated=is_impersonated_session(request),
+                    scope="Team",
+                    item_id=instance.pk,
+                    activity="updated",
+                    detail=Detail(
+                        name=str(instance.name),
+                        changes=marketing_config_changes_between,
+                    ),
+                )
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
