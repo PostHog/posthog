@@ -493,6 +493,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    timezone: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the timezone to <em>{change.after}</em>
+                </>,
+            ],
+        }
+    },
     data_attributes: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -578,7 +591,6 @@ const teamActionsMapping: Record<
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     primary_dashboard: () => null,
-    timezone: () => null,
     revenue_analytics_config: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
