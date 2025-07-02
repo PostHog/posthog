@@ -150,6 +150,10 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
             return featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH]
         }
 
+        if (n.name === 'MetaAds') {
+            return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+        }
+
         if (n.name === 'GoogleSheets') {
             return featureFlags[FEATURE_FLAGS.GOOGLE_SHEETS_DWH]
         }
