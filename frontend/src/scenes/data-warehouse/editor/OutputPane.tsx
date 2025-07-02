@@ -327,7 +327,7 @@ export function OutputPane(): JSX.Element {
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
-                const baseColumn = {
+                const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
                     key: column,
                     name: (
                         <>
@@ -342,9 +342,9 @@ export function OutputPane(): JSX.Element {
                     width: finalWidth,
                     headerCellClass: 'cursor-pointer',
                     renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
-                        <div className="flex items-center justify-between px-3 py-2">
+                        <div className="flex items-center justify-between py-2">
                             <span>{col.name}</span>
-                            <div className="flex flex-col">
+                            <div className="flex flex-col ml-1">
                                 <span
                                     className={`text-[7px] leading-none ${
                                         sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
