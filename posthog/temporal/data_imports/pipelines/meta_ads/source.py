@@ -10,13 +10,16 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration
-from posthog.temporal.common.logger import FilteringBoundLogger
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SCHEMAS
+
+
+# Meta Ads API only supports data from the last 3 years
+META_ADS_MAX_HISTORY_DAYS = 3 * 365
+API_VERSION = "v21.0"
 
 
 class MetaAdsResource(StrEnum):
@@ -264,7 +267,6 @@ def _make_paginated_api_request(
 def meta_ads_source(
     config: MetaAdsSourceConfig,
     team_id: int,
-    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -287,37 +289,28 @@ def meta_ads_source(
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
-                    incremental_field_type
-                )
+                last_value: dt.date = dt.date.today() - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)
             else:
                 last_value = db_incremental_field_last_value
 
-            if isinstance(last_value, dt.datetime | dt.date):
-                # Limit to 3 years ago if last_value is older. Meta Ads API only supports 3 years filtering.
-                three_years_ago = dt.date.today() - dt.timedelta(days=3 * 365)
-                if isinstance(last_value, dt.datetime):
-                    last_value_date = last_value.date()
-                else:
-                    last_value_date = last_value
-
-                start_date = max(last_value_date, three_years_ago).strftime("%Y-%m-%d")
-                end_date = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-                time_range = {
-                    "since": start_date,
-                    "until": end_date,
-                }
+            start_date = last_value.strftime("%Y-%m-%d")
+            # Meta Ads API is day based so only import if the day is complete
+            end_date = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+            time_range = {
+                "since": start_date,
+                "until": end_date,
+            }
         else:
             time_range = {
-                "since": (dt.date.today() - dt.timedelta(days=3 * 365)).strftime("%Y-%m-%d"),
+                "since": (dt.date.today() - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)).strftime("%Y-%m-%d"),
                 "until": dt.date.today().strftime("%Y-%m-%d"),
             }
 
         # Get data based on resource type
         if is_stats:
-            yield from _get_insights_data(config.account_id, schema, time_range, access_token, logger)
+            yield from _get_insights_data(config.account_id, schema, time_range, access_token)
         else:
-            yield from _get_resource_data(config.account_id, schema, config.resource_name, access_token, logger)
+            yield from _get_resource_data(config.account_id, schema, config.resource_name, access_token)
 
     return SourceResponse(
         name=name,
@@ -336,21 +329,18 @@ def _get_insights_data(
     schema: MetaAdsSchema,
     time_range: dict | None,
     access_token: str,
-    logger: FilteringBoundLogger,
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Get insights data from Meta Ads API."""
 
-    base_resource = RESOURCE_ENDPOINTS.get(MetaAdsResource(schema.name), "ads")
-
     params = {
         "fields": ",".join(schema.field_names),
-        "level": base_resource[:-1],
+        "level": schema.name,
         "time_increment": 1,
         "limit": 100,
     }
 
     try:
-        url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
+        url = f"https://graph.facebook.com/{API_VERSION}/{account_id}/insights"
         rows = []
 
         for page_data in _make_paginated_api_request(url, params, access_token, time_range):
@@ -369,7 +359,6 @@ def _get_insights_data(
             yield rows
 
     except Exception as e:
-        logger.debug(f"Error fetching insights data: {e}")
         capture_exception(e)
         raise
 
@@ -379,7 +368,6 @@ def _get_resource_data(
     schema: MetaAdsSchema,
     resource_name: str,
     access_token: str,
-    logger: FilteringBoundLogger,
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Get regular resource data from Meta Ads API."""
     field_names = [field for field in schema.field_names if field != "account_id"]
@@ -390,9 +378,9 @@ def _get_resource_data(
             raise ValueError(f"Unknown resource: {resource_name}")
 
         if resource_name == "account":
-            url = f"https://graph.facebook.com/v21.0/{account_id}"
+            url = f"https://graph.facebook.com/{API_VERSION}/{account_id}"
         else:
-            url = f"https://graph.facebook.com/v21.0/{account_id}/{endpoint}"
+            url = f"https://graph.facebook.com/{API_VERSION}/{account_id}/{endpoint}"
 
         params = (
             {
@@ -440,6 +428,5 @@ def _get_resource_data(
                 yield rows
 
     except Exception as e:
-        logger.debug(f"Error fetching {resource_name} data: {e}")
         capture_exception(e)
         raise
