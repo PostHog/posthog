@@ -1,4 +1,4 @@
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconChevronRight } from '@posthog/icons'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
@@ -14,13 +14,7 @@ const DropdownMenu = DropdownMenuPrimitive.Root
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
-const DropdownMenuGroup = React.forwardRef<
-    React.ElementRef<typeof DropdownMenuPrimitive.Group>,
-    React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
->(({ className, ...props }, ref): JSX.Element => {
-    return <DropdownMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
-})
-DropdownMenuGroup.displayName = DropdownMenuPrimitive.Group.displayName
+const DropdownMenuGroup = DropdownMenuPrimitive.Group
 
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
@@ -206,6 +200,19 @@ const DropdownMenuSeparator = React.forwardRef<
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
 
+const DropdownMenuOpenIndicator = ({ className, ...props }: React.HTMLAttributes<HTMLOrSVGElement>): JSX.Element => {
+    return (
+        <IconChevronRight
+            className={cn(
+                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
+                className
+            )}
+            {...props}
+        />
+    )
+}
+DropdownMenuOpenIndicator.displayName = 'DropdownMenuOpenIndicator'
+
 const DropdownMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
     return <span className={cn('ml-auto text-xs tracking-widest opacity-60', className)} {...props} />
 }
@@ -228,4 +235,5 @@ export {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    DropdownMenuOpenIndicator,
 }
