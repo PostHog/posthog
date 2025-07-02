@@ -3,6 +3,7 @@ import json
 import pkgutil
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -113,7 +114,21 @@ class MaxTool(BaseTool):
         if not getattr(cls, "thinking_message", None):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
+    def _run(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return self._run_impl(*args, **kwargs)
+        except NotImplementedError:
+            return async_to_sync(self._arun_impl)(*args, **kwargs)
+
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return await self._arun_impl(*args, **kwargs)
+        except NotImplementedError:
+            return await super()._arun(*args, config, **kwargs)
+
+    def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
         self._team = config["configurable"]["team"]
         self._user = config["configurable"]["user"]
@@ -128,10 +143,6 @@ class MaxTool(BaseTool):
                 "user": self._user,
             },
         }
-        try:
-            return await self._arun_impl(*args, **kwargs)
-        except NotImplementedError:
-            return self._run_impl(*args, **kwargs)
 
     @property
     def context(self) -> dict:

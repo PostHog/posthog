@@ -83,7 +83,8 @@ class EditCurrentInsightTool(MaxTool):
         last_message.visible = False
 
         await graph.aupdate_state(self._config, values={"messages": [last_message]})
-        state = AssistantState.model_validate(graph.get_state(self._config).values)
+        new_state = await graph.aget_state(self._config)
+        state = AssistantState.model_validate(new_state.values)
         self._state = state
 
         # We don't want to return anything, as we're using the tool to update the state
