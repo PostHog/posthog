@@ -66,7 +66,7 @@ class RawSessionGroupSummaryPattern(BaseModel):
     pattern_name: str = Field(..., description="Human-readable name for the pattern", min_length=1)
     pattern_description: str = Field(..., description="Detailed description of the pattern", min_length=1)
     severity: _SeverityLevel = Field(..., description="Severity level of the pattern")
-    indicators: list[str] = Field(..., description="List of indicators that signal this pattern", min_items=1)
+    indicators: list[str] = Field(..., description="List of indicators that signal this pattern", min_length=1)
 
     @field_serializer("severity")
     def serialize_severity(self, severity: _SeverityLevel) -> str:
@@ -94,7 +94,7 @@ class EnrichedSessionGroupSummaryPattern(RawSessionGroupSummaryPattern):
     """Enriched pattern with events context"""
 
     events: list[PatternAssignedEventSegmentContext] = Field(
-        ..., description="List of events assigned to the pattern", min_items=0
+        ..., description="List of events assigned to the pattern", min_length=0
     )
     stats: EnrichedSessionGroupSummaryPatternStats = Field(..., description="Calculated stats for the pattern")
 
@@ -107,14 +107,14 @@ class EnrichedSessionGroupSummaryPattern(RawSessionGroupSummaryPattern):
 class RawSessionGroupSummaryPatternsList(BaseModel):
     """Schema for validating LLM output for patterns extraction"""
 
-    patterns: list[RawSessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_items=1)
+    patterns: list[RawSessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_length=1)
 
 
 class EnrichedSessionGroupSummaryPatternsList(BaseModel):
     """Enriched patterns with events context ready to be dipsplayed in UI"""
 
     patterns: list[EnrichedSessionGroupSummaryPattern] = Field(
-        ..., description="List of patterns with events context", min_items=1
+        ..., description="List of patterns with events context", min_length=1
     )
 
 
@@ -122,14 +122,14 @@ class RawSessionGroupPatternAssignment(BaseModel):
     """Schema for validating individual pattern with events assigned from LLM output"""
 
     pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
-    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_items=0)
+    event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_length=0)
 
 
 class RawSessionGroupPatternAssignmentsList(BaseModel):
     """Schema for validating LLM output for patterns with events assigned"""
 
     patterns: list[RawSessionGroupPatternAssignment] = Field(
-        ..., description="List of pattern assignments to validate", min_items=0
+        ..., description="List of pattern assignments to validate", min_length=0
     )
 
 
@@ -305,7 +305,7 @@ def combine_patterns_ids_with_events_context(
     combined_patterns_assignments: dict[int, list[str]],
     session_summaries: list[SessionSummarySerializer],
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
-    pattern_event_ids_mapping: dict[int, list[PaternAssignedEvent]] = {}
+    pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
         for event_id in event_ids:

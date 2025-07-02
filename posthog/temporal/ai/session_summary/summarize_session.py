@@ -15,13 +15,16 @@ from ee.session_recordings.session_summary.llm.consume import stream_llm_single_
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
-from posthog.redis import get_client
 from posthog.models.team.team import Team
 from posthog.temporal.ai.session_summary.shared import (
     SingleSessionSummaryInputs,
     fetch_session_data_activity,
 )
-from posthog.temporal.ai.session_summary.state import StateActivitiesEnum, get_data_class_from_redis
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    get_data_class_from_redis,
+    get_redis_state_client,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
@@ -36,18 +39,22 @@ SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
-    if not inputs.redis_output_key:
+    if not inputs.redis_key_base:
         raise ApplicationError(
-            f"Redis output key was not provided when summarizing session {inputs.session_id}: {inputs}",
+            f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}",
             non_retryable=True,
         )
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
-    redis_client = get_client()
+    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+        key_base=inputs.redis_key_base,
+        output_label=StateActivitiesEnum.SESSION_SUMMARY,
+        state_id=inputs.session_id,
+    )
     llm_input = cast(
         SingleSessionSummaryLlmInputs,
         get_data_class_from_redis(
             redis_client=redis_client,
-            redis_key=inputs.redis_input_key,
+            redis_key=redis_input_key,
             label=StateActivitiesEnum.SESSION_DB_DATA,
             target_class=SingleSessionSummaryLlmInputs,
         ),
@@ -82,7 +89,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # Store the last summary state in Redis
         # The size of the output is limited to <20kb, so compressing is excessive
         redis_client.setex(
-            inputs.redis_output_key,
+            redis_output_key,
             SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
@@ -170,17 +177,20 @@ def execute_summarize_session_stream(
     # Using session id instead of random UUID to be able to check the data in Redis
     shared_id = session_id
     # Prepare the input data
-    redis_client = get_client()
-    redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_id}-{team.id}:{shared_id}"
-    redis_output_key = f"session-summary:single:stream-output:{session_id}:{user_id}-{team.id}:{shared_id}"
+    redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
+    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+        key_base=redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
+        output_label=StateActivitiesEnum.SESSION_SUMMARY,
+        state_id=session_id,
+    )
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_id=user_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
-        redis_input_key=redis_input_key,
-        redis_output_key=redis_output_key,
+        redis_key_base=redis_key_base,
     )
     # Connect to Temporal and start streaming the workflow
     workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
