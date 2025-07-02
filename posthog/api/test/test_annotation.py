@@ -128,8 +128,8 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
+            self.user,
             "annotation created",
-            distinct_id=self.user,
             properties={"scope": "organization", "date_marker": date_marker},
         )
 

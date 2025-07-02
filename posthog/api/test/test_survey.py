@@ -102,9 +102,9 @@ class TestSurvey(APIBaseTest):
 
         # Verify that report_user_action was called for the feature flag creation
         mock_capture.assert_any_call(
+            ANY,
             "feature flag created",
-            distinct_id=ANY,
-            properties={
+            {
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,

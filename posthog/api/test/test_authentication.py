@@ -96,8 +96,8 @@ class TestLoginAPI(APIBaseTest):
 
         # Assert the event was captured.
         mock_capture.assert_called_once_with(
-            "user logged in",
             distinct_id=self.user.distinct_id,
+            event="user logged in",
             properties={"social_provider": ""},
             groups={
                 "instance": ANY,
@@ -660,8 +660,8 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            "user logged in",
             distinct_id=self.user.distinct_id,
+            event="user logged in",
             properties={"social_provider": ""},
             groups={
                 "instance": ANY,

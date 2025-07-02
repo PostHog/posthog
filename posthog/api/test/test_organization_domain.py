@@ -119,7 +119,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
-            "organization domain created",
+            event="organization domain created",
             distinct_id=self.user.distinct_id,
             properties={
                 "domain": "the.posthog.com",
@@ -465,7 +465,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain deletion capture event was called
         mock_capture.assert_any_call(
-            "organization domain deleted",
+            event="organization domain deleted",
             distinct_id=self.user.distinct_id,
             properties={
                 "domain": "myposthog.com",

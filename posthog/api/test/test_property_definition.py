@@ -424,7 +424,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(PropertyDefinition.objects.filter(id=property_definition.id).count(), 0)
         mock_capture.assert_called_once_with(
-            "property definition deleted",
+            event="property definition deleted",
             distinct_id=self.user.distinct_id,
             properties={"name": "test_property", "type": "event"},
             groups={

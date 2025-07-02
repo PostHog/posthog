@@ -58,9 +58,9 @@ class TestWebExperiment(APIBaseTest):
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
         mock_capture.assert_called_once_with(
+            ANY,
             "feature flag created",
-            distinct_id=ANY,
-            properties={
+            {
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 2,
