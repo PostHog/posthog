@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -34,6 +35,7 @@ import {
     TrendsFilter,
     TrendsFilterLegacy,
 } from '~/queries/schema/schema-general'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration
@@ -42,7 +44,7 @@ import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, Notebo
 // is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '1'
 
-export function migrate(notebook: NotebookType): NotebookType {
+export async function migrate(notebook: NotebookType): Promise<NotebookType> {
     let content = notebook.content?.content
 
     if (!content) {
@@ -53,6 +55,8 @@ export function migrate(notebook: NotebookType): NotebookType {
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
     content = convertPlaylistFiltersToUniversalFilters(content)
+    content = await upgradeQueryNode(content)
+
     return { ...notebook, content: { type: 'doc', content: content } }
 }
 
@@ -241,4 +245,34 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
             },
         }
     })
+}
+
+async function upgradeQueryNode(content: JSONContent[]): Promise<JSONContent[]> {
+    return Promise.all(
+        content.map(async (node) => {
+            if (
+                node.type !== NotebookNodeType.Query ||
+                !node.attrs ||
+                !('query' in node.attrs) ||
+                node.attrs.query.kind === NodeKind.SavedInsightNode
+            ) {
+                return node
+            }
+
+            const query = node.attrs.query
+
+            if (checkLatestVersionsOnQuery(query)) {
+                return node
+            }
+
+            const response = await api.schema.queryUpgrade({ query })
+            return {
+                ...node,
+                attrs: {
+                    ...node.attrs,
+                    query: response.query,
+                },
+            }
+        })
+    )
 }

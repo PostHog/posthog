@@ -1459,6 +1459,14 @@ export interface QueryRequest {
     variables_override?: Record<string, Record<string, any>>
 }
 
+export interface QueryUpgradeRequest {
+    query: QuerySchema
+}
+
+export interface QueryUpgradeResponse {
+    query: QuerySchema
+}
+
 /**
  * All analytics query responses must inherit from this.
  * @internal - no need to emit to schema.json.
@@ -2621,6 +2629,7 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
     REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {

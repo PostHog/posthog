@@ -32,12 +32,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import {
-    fromInternalPerson,
-    mergePersonPropertiesWithChangeset,
-    PersonUpdate,
-    toInternalPerson,
-} from './person-update-batch'
+import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -600,7 +595,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                       properties_last_operation: result.properties_last_operation
                           ? { ...result.properties_last_operation }
                           : {},
-                      property_changeset: { ...result.property_changeset },
+                      properties_to_set: { ...result.properties_to_set },
+                      properties_to_unset: [...result.properties_to_unset],
                   }
         } else {
             this.cacheMetrics.updateCacheMisses++
@@ -641,11 +637,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 is_identified: person.is_identified,
             } as Partial<InternalPerson>)
 
-            // Handle fields that are specific to PersonUpdate
-            mergedPersonUpdate.property_changeset = {
-                ...existingPersonUpdate.property_changeset,
-                ...person.property_changeset,
+            // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
+            mergedPersonUpdate.properties_to_set = {
+                ...existingPersonUpdate.properties_to_set,
+                ...person.properties_to_set,
             }
+            mergedPersonUpdate.properties_to_unset = [
+                ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
+            ]
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -729,13 +728,20 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     /**
      * Helper method to merge an update into a PersonUpdate
-     * Handles properties, changeset, and is_identified merging with proper logic
+     * Handles properties and is_identified merging with proper logic
      */
     private mergeUpdateIntoPersonUpdate(personUpdate: PersonUpdate, update: Partial<InternalPerson>): PersonUpdate {
-        // Track property changes in changeset and merge into full properties
+        // For properties, we track them in the fine-grained properties_to_set/unset
         if (update.properties) {
-            personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
-            personUpdate.properties = { ...personUpdate.properties, ...update.properties }
+            // Add all properties from the update to properties_to_set
+            Object.entries(update.properties).forEach(([key, value]) => {
+                personUpdate.properties_to_set[key] = value
+                // Remove from unset list if it was there
+                const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
+                if (unsetIndex !== -1) {
+                    personUpdate.properties_to_unset.splice(unsetIndex, 1)
+                }
+            })
         }
 
         // Apply other updates (excluding properties which we handled above)
@@ -753,13 +759,54 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     private addPersonPropertiesUpdateToBatch(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string
     ): [InternalPerson, TopicMessage[]] {
-        throw new Error('Not implemented')
+        const existingUpdate = this.getCachedPersonForUpdate(person.team_id, distinctId)
+
+        let personUpdate: PersonUpdate
+        if (!existingUpdate) {
+            // Create new PersonUpdate from the person
+            personUpdate = fromInternalPerson(person, distinctId)
+        } else {
+            // Use existing cached PersonUpdate
+            personUpdate = { ...existingUpdate }
+        }
+
+        // Add properties to set (merge with existing properties_to_set)
+        Object.entries(propertiesToSet).forEach(([key, value]) => {
+            personUpdate.properties_to_set[key] = value
+            // Remove from unset list if it was there
+            const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
+            if (unsetIndex !== -1) {
+                personUpdate.properties_to_unset.splice(unsetIndex, 1)
+            }
+        })
+
+        // Add properties to unset (merge with existing properties_to_unset)
+        propertiesToUnset.forEach((key) => {
+            if (!personUpdate.properties_to_unset.includes(key)) {
+                personUpdate.properties_to_unset.push(key)
+            }
+            // Remove from set list if it was there
+            delete personUpdate.properties_to_set[key]
+        })
+
+        // Apply other updates
+        Object.assign(personUpdate, otherUpdates)
+
+        // Handle is_identified specially with || operator
+        if (otherUpdates.is_identified !== undefined) {
+            personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
+        }
+
+        personUpdate.needs_write = true
+
+        this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
+        return [toInternalPerson(personUpdate), []]
     }
 
     private async updatePersonNoAssert(
@@ -815,8 +862,18 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (latestPerson) {
-            // Use changeset-based merge: start with latest properties from DB and apply only our changes
-            const mergedProperties = mergePersonPropertiesWithChangeset(latestPerson.properties, personUpdate)
+            // Use fine-grained merge: start with latest properties from DB and apply our specific changes
+            const mergedProperties = { ...latestPerson.properties }
+
+            // Apply our properties_to_set
+            Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
+                mergedProperties[key] = value
+            })
+
+            // Apply our properties_to_unset
+            personUpdate.properties_to_unset.forEach((key) => {
+                delete mergedProperties[key]
+            })
 
             // Update the PersonUpdate with latest data and merged properties
             personUpdate.properties = mergedProperties

@@ -116,7 +116,9 @@ describe('BatchWritingPersonStore', () => {
         expect(cachedUpdate).toBeDefined()
         expect(cachedUpdate.distinct_id).toBe('test')
         expect(cachedUpdate.needs_write).toBe(true)
-        expect(cachedUpdate.properties).toEqual({ test: 'test', new_value: 'new_value' })
+        expect(cachedUpdate.properties).toEqual({ test: 'test' }) // Original properties from database
+        expect(cachedUpdate.properties_to_set).toEqual({ new_value: 'new_value' }) // New properties to set
+        expect(cachedUpdate.properties_to_unset).toEqual([]) // No properties to unset
         expect(cachedUpdate.team_id).toBe(1)
         expect(cachedUpdate.id).toBe('1')
     })
@@ -194,7 +196,9 @@ describe('BatchWritingPersonStore', () => {
         // Check cache contains merged updates
         const cache = personStoreForBatch.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
-        expect(cachedUpdate.properties).toEqual({ test: 'value2', prop1: 'value1', prop2: 'value2' }) // Second update overwrites
+        expect(cachedUpdate.properties).toEqual({ test: 'test' }) // Original properties from database
+        expect(cachedUpdate.properties_to_set).toEqual({ prop1: 'value1', test: 'value2', prop2: 'value2' }) // Merged properties to set
+        expect(cachedUpdate.properties_to_unset).toEqual([]) // No properties to unset
         expect(cachedUpdate.needs_write).toBe(true)
     })
 
@@ -426,8 +430,8 @@ describe('BatchWritingPersonStore', () => {
 
         const cache = personStoreForBatch.getUpdateCache()
         const cachedUpdate = cache.get(`${teamId}:${person.id}`)!
-        expect(cachedUpdate.properties.null_prop).toBeNull()
-        expect(cachedUpdate.properties.undefined_prop).toBeUndefined()
+        expect(cachedUpdate.properties_to_set.null_prop).toBeNull()
+        expect(cachedUpdate.properties_to_set.undefined_prop).toBeUndefined()
 
         await personStoreForBatch.flush()
 
@@ -765,9 +769,10 @@ describe('BatchWritingPersonStore', () => {
                     existing_prop1: 'updated_by_other_pod', // Preserved from other pod's update
                     existing_prop2: 'updated_by_this_pod', // Updated by this pod
                 },
-                property_changeset: {
-                    existing_prop2: 'updated_by_this_pod', // Only the changed property should be in changeset
+                properties_to_set: {
+                    existing_prop2: 'updated_by_this_pod', // Only the changed property should be in properties_to_set
                 },
+                properties_to_unset: [], // No properties to unset
             })
         )
     })
@@ -818,9 +823,13 @@ describe('BatchWritingPersonStore', () => {
         expect(cacheValue?.id).toBe(sharedPerson.id)
         expect(cacheValue?.properties).toEqual({
             initial_prop: 'initial_value',
+        }) // Original properties from database
+        expect(cacheValue?.properties_to_set).toEqual({
+            initial_prop: 'initial_value',
             prop_from_distinctId1: 'value1',
             prop_from_distinctId2: 'value2',
-        })
+        }) // Properties to set
+        expect(cacheValue?.properties_to_unset).toEqual([]) // Properties to unset
 
         expect(cache.size).toBe(1)
 
@@ -899,15 +908,20 @@ describe('BatchWritingPersonStore', () => {
             }
             await personStoreForBatch.updatePersonForMerge(targetPerson, mergeUpdate, 'target-distinct')
 
-            // Verify the merge worked
+            // Verify the merge worked - check the final computed result
             const cacheAfterMerge = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
             expect(cacheAfterMerge?.properties).toEqual({
                 target_prop: 'target_value',
                 existing_target_prop: 'existing_target_value',
+            }) // Original properties from database
+            expect(cacheAfterMerge?.properties_to_set).toEqual({
                 source_prop: 'source_value',
                 rich_property: 'rich_value',
                 merged_from_source: 'merged_value',
-            })
+                target_prop: 'target_value',
+                existing_target_prop: 'existing_target_value',
+            }) // Properties to set
+            expect(cacheAfterMerge?.properties_to_unset).toEqual([]) // Properties to unset
             expect(cacheAfterMerge?.is_identified).toBe(true)
 
             // Step 3: moveDistinctIds - this should preserve the merged cache
@@ -918,10 +932,15 @@ describe('BatchWritingPersonStore', () => {
             expect(cacheAfterMove?.properties).toEqual({
                 target_prop: 'target_value',
                 existing_target_prop: 'existing_target_value',
+            })
+            expect(cacheAfterMove?.properties_to_set).toEqual({
                 source_prop: 'source_value',
                 rich_property: 'rich_value',
                 merged_from_source: 'merged_value',
+                target_prop: 'target_value',
+                existing_target_prop: 'existing_target_value',
             })
+            expect(cacheAfterMove?.properties_to_unset).toEqual([])
             expect(cacheAfterMove?.is_identified).toBe(true)
             expect(cacheAfterMove?.distinct_id).toBe('target-distinct')
 
@@ -1065,14 +1084,11 @@ describe('BatchWritingPersonStore', () => {
             const finalCache = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
             expect(finalCache?.properties).toEqual({
                 target_prop: 'target_value',
-                shared_prop: 'updated_value',
+                shared_prop: 'original_value',
                 target_only: 'target_only_value',
-                source_prop: 'source_value',
-                source_only: 'source_only_value',
-                additional_prop: 'additional_value',
             })
             expect(finalCache?.is_identified).toBe(true)
-            expect(finalCache?.property_changeset).toEqual({
+            expect(finalCache?.properties_to_set).toEqual({
                 source_prop: 'source_value',
                 shared_prop: 'updated_value',
                 additional_prop: 'additional_value',
@@ -1080,6 +1096,7 @@ describe('BatchWritingPersonStore', () => {
                 target_only: 'target_only_value',
                 target_prop: 'target_value',
             })
+            expect(finalCache?.properties_to_unset).toEqual([])
         })
     })
 })
