@@ -520,6 +520,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    person_on_events_querying_enabled: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> querying person on events
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -549,10 +562,8 @@ const teamActionsMapping: Record<
     app_urls: () => null,
     correlation_config: () => null,
     group_types: () => null,
-    ingested_event: () => null,
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
-    person_on_events_querying_enabled: () => null,
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
@@ -576,6 +587,7 @@ const teamActionsMapping: Record<
     // don't make sense to be displayed
     is_demo: () => null,
     effective_membership_level: () => null,
+    ingested_event: () => null,
     organization: () => null,
     project_id: () => null,
 }
