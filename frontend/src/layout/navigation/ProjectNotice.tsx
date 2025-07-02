@@ -1,6 +1,5 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OnboardingStepKey, ProductKey } from '~/types'
 
+import { cn } from 'lib/utils/css-classes'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 
 interface ProjectNoticeBlueprint {
@@ -52,7 +52,7 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     return <>{countdown}</>
 }
 
-export function ProjectNotice(): JSX.Element | null {
+export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
     const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { logout, loadUser } = useActions(userLogic)
@@ -184,7 +184,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
+            className={cn('my-4', requiresHorizontalMargin && 'mx-4', className)}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

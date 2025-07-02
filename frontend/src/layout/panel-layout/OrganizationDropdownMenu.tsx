@@ -1,4 +1,4 @@
-import { IconCheck, IconChevronRight, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -20,6 +20,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
 import { AvailableFeature } from '~/types'
 
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu(): JSX.Element {
@@ -62,7 +63,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}
                                 </span>
-                                <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                                <DropdownMenuOpenIndicator />
                             </>
                         )}
                     </ButtonPrimitive>

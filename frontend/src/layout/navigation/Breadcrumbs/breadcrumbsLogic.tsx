@@ -172,7 +172,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     })
                 }
                 // Organization
-                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
+                if (
+                    (sceneConfig.organizationBased || sceneConfig.projectBased) &&
+                    !featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+                ) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
@@ -194,7 +197,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     })
                 }
                 // Project
-                if (sceneConfig.projectBased) {
+                if (sceneConfig.projectBased && !featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
                     if (!currentProject || !currentTeam) {
                         return breadcrumbs
                     }
