@@ -547,7 +547,12 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_teams_legacy'
                         break
                     case BillingPlan.Paid:
-                        planLevelTag = 'plan_pay-as-you-go'
+                        const shouldMarkAsFree =
+                            billing?.custom_limits_usd &&
+                            Object.keys(billing.custom_limits_usd).length > 0 &&
+                            Object.values(billing.custom_limits_usd).every((limit) => limit === 0)
+
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
                         break
                     case BillingPlan.Free:
                         planLevelTag = 'plan_free'
@@ -555,11 +560,16 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
+            const { accountOwner } = billingLogic.values
+
+            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
+            const accountOwnerTag = `owner_${ownerName}`
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag],
+                    tags: [planLevelTag, accountOwnerTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -584,6 +594,10 @@ export const supportLogic = kea<supportLogicType>([
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
                                 ? 'email_support'
                                 : 'free_support',
+                        },
+                        {
+                            id: 37742340880411,
+                            value: accountOwner?.name || 'unassigned',
                         },
                     ],
                     comment: {
