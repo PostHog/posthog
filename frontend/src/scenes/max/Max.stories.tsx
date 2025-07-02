@@ -678,6 +678,38 @@ ExpandedFloatingInputMobileView.parameters = {
     },
 }
 
+export const ExpandedFloatingInputThread: StoryFn = () => {
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [setIsFloatingMaxExpanded])
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <MaxFloatingInput />
+}
+ExpandedFloatingInputThread.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 export const MaxInstanceWithContextualTools: StoryFn = () => {
     const { registerTool } = useActions(maxGlobalLogic)
 
