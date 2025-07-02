@@ -25,7 +25,6 @@ from ee.session_recordings.session_summary.summarize_session_group import (
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
-from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -85,7 +84,6 @@ def _get_session_summaries_str_from_inputs(
 
 @temporalio.activity.defn
 async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> None:
-    redis_client = get_client()
     session_ids = _get_session_ids_from_inputs(inputs)
     redis_client, _, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,

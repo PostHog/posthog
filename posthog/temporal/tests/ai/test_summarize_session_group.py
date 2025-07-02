@@ -18,6 +18,8 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     EnrichedSessionGroupSummaryPatternStats,
     EnrichedSessionGroupSummaryPatternsList,
 )
+from posthog.temporal.ai.session_summary.state import generate_state_key, store_data_in_redis
+from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
@@ -107,6 +109,74 @@ async def test_get_llm_single_session_summary_activity_standalone(
         assert spy_setex.call_count == 2  # Initial setup + store generated summary
 
 
+@pytest.mark.asyncio
+async def test_extract_session_group_patterns_activity_standalone(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_single_session_summary_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    mock_patterns_extraction_yaml_response: str,
+    redis_test_setup: RedisTestContext,
+):
+    """Test extract_session_group_patterns activity in a standalone mode"""
+    # Prepare input data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
+    activity_inputs = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
+
+    # Store session summaries in Redis for each session to be able to get them from inside the activity
+    redis_client = get_client()
+    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+    for single_session_input in single_session_inputs:
+        session_summary_key = generate_state_key(
+            key_base=single_session_input.redis_key_base,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+            state_id=single_session_input.session_id,
+        )
+        store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        redis_test_setup.keys_to_cleanup.append(session_summary_key)
+
+    # Set up spies to track Redis operations
+    spy_get = mocker.spy(redis_client, "get")
+    spy_setex = mocker.spy(redis_client, "setex")
+
+    # Execute the activity
+    with (
+        patch("ee.session_recordings.session_summary.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock the LLM response with valid YAML patterns
+        mock_llm_response = ChatCompletion(
+            id="test_id",
+            model="test_model",
+            object="chat.completion",
+            created=int(datetime.now().timestamp()),
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(
+                        content=mock_patterns_extraction_yaml_response,
+                        role="assistant",
+                    ),
+                )
+            ],
+        )
+        mock_call_llm.return_value = mock_llm_response
+        result = await extract_session_group_patterns_activity(activity_inputs)
+
+        # Verify the activity completed successfully
+        assert result is None  # Activity returns None as data is stored in Redis
+        # Verify LLM was called once to extract patterns
+        mock_call_llm.assert_called_once()
+        # Try to get result from Redis (cache), fail, then get session summaries to generate result
+        assert spy_get.call_count == 1 + len(session_ids)
+        # Store extracted patterns, as initial data was stored before we created a spy
+        assert spy_setex.call_count == 1
+
+
 class TestSummarizeSessionGroupWorkflow:
     @contextmanager
     def execute_test_environment(
@@ -118,30 +188,19 @@ class TestSummarizeSessionGroupWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
         custom_content: str | None = None,
     ):
         """Test environment for sync Django functions to run the workflow from"""
-        patterns_response_yaml = """
-        patterns:
-          - pattern_id: 1
-            pattern_name: "Mock Pattern"
-            pattern_description: "A test pattern"
-            severity: "medium"
-            indicators: ["test indicator"]
-        """
-        assignments_response_yaml = """
-        patterns:
-          - pattern_id: 1
-            event_ids: ["abcd1234", "defg4567"]
-        """
         # Mock LLM responses:
         # Session calls - mock_valid_llm_yaml_response to simulate single-session-summary (YAML)
         # Pattern extraction call - returns mock patterns data
         # Pattern assignment calls - returns mockassignment data
         call_llm_side_effects = (
             [mock_call_llm(custom_content=custom_content) for _ in range(len(session_ids))]  # Session summaries
-            + [mock_call_llm(custom_content=patterns_response_yaml)]  # Pattern extraction
-            + [mock_call_llm(custom_content=assignments_response_yaml)]  # Pattern assignment
+            + [mock_call_llm(custom_content=mock_patterns_extraction_yaml_response)]  # Pattern extraction
+            + [mock_call_llm(custom_content=mock_patterns_assignment_yaml_response)]  # Pattern assignment
         )
         with (
             # Mock LLM call
@@ -178,6 +237,8 @@ class TestSummarizeSessionGroupWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
         custom_content: str | None = None,  # noqa: ARG002
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
         """Test environment for Temporal workflow"""
@@ -189,6 +250,8 @@ class TestSummarizeSessionGroupWorkflow:
             mock_raw_events_columns,
             mock_raw_events,
             mock_valid_event_ids,
+            mock_patterns_extraction_yaml_response,
+            mock_patterns_assignment_yaml_response,
             custom_content=custom_content,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -267,6 +330,8 @@ class TestSummarizeSessionGroupWorkflow:
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
         mock_session_group_summary_inputs: Callable,
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
         redis_test_setup: RedisTestContext,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
@@ -284,6 +349,8 @@ class TestSummarizeSessionGroupWorkflow:
             mock_raw_events_columns,
             mock_raw_events,
             mock_valid_event_ids,
+            mock_patterns_extraction_yaml_response,
+            mock_patterns_assignment_yaml_response,
             custom_content=None,
         ) as (activity_environment, worker):
             # Wait for workflow to complete and get result
