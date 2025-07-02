@@ -92,7 +92,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
         return <HogFunctionFiltersInternal />
     }
 
-    return (
+    const mainContent = (
         <div
             className={clsx(
                 'deprecated-space-y-2 rounded bg-surface-primary',
@@ -113,7 +113,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
 
-                    const filtersContent = (
+                    return (
                         <>
                             {useMapping && (
                                 <p className="mb-0 text-sm text-secondary">
@@ -227,75 +227,43 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     )}
                                 </>
                             ) : null}
+                            {oldFilters && newFilters && (
+                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                    <div className="flex-1 text-center">
+                                        <span className="text-sm font-medium">Suggested by Max</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <LemonButton
+                                            status="danger"
+                                            icon={<IconX />}
+                                            onClick={() => {
+                                                onChange(oldFilters)
+                                                reportAIFiltersRejected()
+                                                clearFiltersDiff()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                        >
+                                            Reject
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="tertiary"
+                                            icon={<IconCheck color="var(--success)" />}
+                                            onClick={() => {
+                                                onChange(newFilters)
+                                                reportAIFiltersAccepted()
+                                                clearFiltersDiff()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                        >
+                                            Accept
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )
-
-                    if (aiFiltersCreation) {
-                        return (
-                            <MaxTool
-                                name="create_hog_function_filters"
-                                displayName="Set up filters with AI"
-                                context={{
-                                    current_filters: JSON.stringify(filters),
-                                    function_type: type,
-                                }}
-                                callback={(toolOutput: string) => {
-                                    const parsedFilters = JSON.parse(toolOutput)
-                                    setOldFilters(filters)
-                                    setNewFilters(parsedFilters)
-                                    reportAIFiltersPrompted()
-                                }}
-                                onMaxOpen={() => {
-                                    reportAIFiltersPromptOpen()
-                                }}
-                                introOverride={{
-                                    headline: 'What events and properties should trigger this function?',
-                                    description: 'Let me help you set up the right filters for your hog function.',
-                                }}
-                            >
-                                <div>
-                                    {filtersContent}
-                                    {oldFilters && newFilters && (
-                                        <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
-                                            <div className="flex-1 text-center">
-                                                <span className="text-sm font-medium">Suggested by Max</span>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <LemonButton
-                                                    status="danger"
-                                                    icon={<IconX />}
-                                                    onClick={() => {
-                                                        onChange(oldFilters)
-                                                        reportAIFiltersRejected()
-                                                        clearFiltersDiff()
-                                                    }}
-                                                    tooltipPlacement="top"
-                                                    size="small"
-                                                >
-                                                    Reject
-                                                </LemonButton>
-                                                <LemonButton
-                                                    type="tertiary"
-                                                    icon={<IconCheck color="var(--success)" />}
-                                                    onClick={() => {
-                                                        onChange(newFilters)
-                                                        reportAIFiltersAccepted()
-                                                        clearFiltersDiff()
-                                                    }}
-                                                    tooltipPlacement="top"
-                                                    size="small"
-                                                >
-                                                    Accept
-                                                </LemonButton>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </MaxTool>
-                        )
-                    }
-
-                    return filtersContent
                 }}
             </LemonField>
 
@@ -421,4 +389,34 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             ) : null}
         </div>
     )
+
+    if (aiFiltersCreation) {
+        return (
+            <MaxTool
+                name="create_hog_function_filters"
+                displayName="Set up filters with AI"
+                context={{
+                    current_filters: JSON.stringify(configuration?.filters ?? {}),
+                    function_type: type,
+                }}
+                callback={(toolOutput: string) => {
+                    const parsedFilters = JSON.parse(toolOutput)
+                    setOldFilters(configuration?.filters ?? {})
+                    setNewFilters(parsedFilters)
+                    reportAIFiltersPrompted()
+                }}
+                onMaxOpen={() => {
+                    reportAIFiltersPromptOpen()
+                }}
+                introOverride={{
+                    headline: 'What events and properties should trigger this function?',
+                    description: 'Let me help you set up the right filters for your hog function.',
+                }}
+            >
+                {mainContent}
+            </MaxTool>
+        )
+    }
+
+    return mainContent
 }
