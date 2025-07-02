@@ -1101,6 +1101,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
@@ -1125,7 +1126,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         # Verify final state
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
-        assert job.rows_materialized == 6  # 3 + 2 + 1 rows
-        assert job.batches_processed == 3  # 3 batches
-        assert job.progress_percentage > 0  # Should have some progress
+        assert job.rows_materialized == 6
+        assert job.batches_processed == 3
+        assert job.progress_percentage == 100.0
         assert job.last_progress_update is not None
