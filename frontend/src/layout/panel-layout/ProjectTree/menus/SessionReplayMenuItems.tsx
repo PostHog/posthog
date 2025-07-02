@@ -117,11 +117,7 @@ export function SessionReplayMenuItems({
                                     buttonProps={{
                                         menuItem: true,
                                     }}
-                                    to={urls.absolute(
-                                        combineUrl(urls.replay(ReplayTabs.Home), {
-                                            playlistId: playlist.short_id,
-                                        }).url
-                                    )}
+                                    to={urls.replayPlaylist(playlist.short_id)}
                                     onKeyDown={handleKeyDown}
                                     onClick={() => onLinkClick?.(false)}
                                 >
