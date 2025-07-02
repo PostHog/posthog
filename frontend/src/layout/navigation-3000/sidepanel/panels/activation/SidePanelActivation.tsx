@@ -208,6 +208,17 @@ const ActivationTask = ({
     const ContentComponent = hasContent ? activationTaskContentMap[id] : undefined
     const contentHeight = taskContentHeights[id] || 0
 
+    const handleUrlOpen = (url: string): void => {
+        try {
+            const newWindow = window.open(url, '_blank')
+            if (newWindow === null) {
+                window.location.href = url
+            }
+        } catch {
+            window.location.href = url
+        }
+    }
+
     const handleRowClick = (e: React.MouseEvent): void => {
         if ((e.target as HTMLElement).closest('.activation-task-skip')) {
             return
@@ -220,14 +231,7 @@ const ActivationTask = ({
         } else {
             reportActivationSideBarTaskClicked(id)
             if (url) {
-                try {
-                    const newWindow = window.open(url, '_blank')
-                    if (newWindow === null) {
-                        window.location.href = url
-                    }
-                } catch {
-                    window.location.href = url
-                }
+                handleUrlOpen(url)
             } else {
                 runTask(id)
             }
@@ -301,14 +305,7 @@ const ActivationTask = ({
                                 e.stopPropagation()
                                 reportActivationSideBarTaskClicked(id)
                                 if (url) {
-                                    try {
-                                        const newWindow = window.open(url, '_blank')
-                                        if (newWindow === null) {
-                                            window.location.href = url
-                                        }
-                                    } catch {
-                                        window.location.href = url
-                                    }
+                                    handleUrlOpen(url)
                                 } else {
                                     runTask(id)
                                 }
