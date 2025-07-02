@@ -544,7 +544,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
 
             // Set batch cache to null (simulating missing person)
-            batchStoreForBatch.clearCache(teamId, 'test-distinct')
+            batchStoreForBatch.clearAllCachesForDistinctId(teamId, 'test-distinct')
 
             await shadowManager.flush()
 

@@ -137,7 +137,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
     async fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null> {
         const mainResult = await this.mainStore.fetchForUpdate(teamId, distinctId)
         // Check if batch store already has cached data for this person
-        const existingCached = this.secondaryStore.getCachedPersonForUpdate(teamId, distinctId)
+        const existingCached = this.secondaryStore.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
 
         let versionDisparity = false
 
@@ -332,7 +332,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
-        this.secondaryStore.clearCacheByPersonId(source.team_id, source.id)
+        this.secondaryStore.clearPersonCacheForPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
         // Check if we already have cached data for the target person that includes merged properties
