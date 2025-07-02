@@ -115,10 +115,8 @@ class TestFetchSessionDataActivity:
                 return_value=(mock_raw_events_columns, mock_raw_events),
             ),
         ):
-            # Call the activity directly as a function
-            result = await fetch_session_data_activity(input_data)
-            # Verify the result is None (success case)
-            assert result is None
+            # Call the activity directly as a function, success if no exception is raised
+            await fetch_session_data_activity(input_data)
             # Verify Redis operations
             assert spy_setex.call_count == 1  # Store compressed data
             # Verify the data was stored correctly
@@ -281,17 +279,13 @@ class TestSummarizeSingleSessionWorkflow:
         workflow_id = f"test_workflow_{uuid.uuid4()}"
         # Create workflow input object
         workflow_input = mock_single_session_summary_inputs(session_id, redis_key_base)
-
-        # Generate Redis keys using the state system
-        from posthog.temporal.ai.session_summary.state import get_redis_state_client
-
+        # Generate Redis keys
         _, redis_input_key, redis_output_key = get_redis_state_client(
             key_base=redis_key_base,
             input_label=StateActivitiesEnum.SESSION_DB_DATA,
             output_label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=session_id,
         )
-
         # Store input data in Redis
         redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
@@ -442,9 +436,10 @@ class TestSummarizeSingleSessionWorkflow:
             # Verify the workflow returns the expected result
             assert result == expected_final_summary
             # Verify Redis operations count
-            assert spy_get.call_count == 1  # Get input data
-            # Initial setup and number of valid chunks (unparseable chunks are skipped)
-            assert spy_setex.call_count == 1 + 9
+            assert spy_get.call_count == 2  # Try to get cached DB data + Get input data from stream activity
+            # Store DB data input (no store call in the fetch activity, as it would get it from Redis)
+            # + store valid chunks to stream (unparseable chunks are skipped)
+            assert spy_setex.call_count == 1 + 8
 
     @pytest.mark.asyncio
     async def test_summarize_session_workflow_with_activity_retry(

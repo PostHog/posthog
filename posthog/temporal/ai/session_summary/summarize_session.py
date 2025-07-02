@@ -10,7 +10,6 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
@@ -24,6 +23,7 @@ from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
     get_redis_state_client,
+    store_data_in_redis,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -94,10 +94,10 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         last_summary_state = current_summary_state
         # Store the last summary state in Redis
         # The size of the output is limited to <20kb, so compressing is excessive
-        redis_client.setex(
-            redis_output_key,
-            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-            json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
+        store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
         # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
         if time.time() - last_heartbeat_timestamp > 5:
