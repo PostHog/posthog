@@ -31,6 +31,48 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         model = WebExperiment
         fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
 
+    def to_representation(self, instance):
+        """
+        Override to return variants with actual rollout percentages from the feature flag.
+        """
+        data = super().to_representation(instance)
+
+        # Get corrected variants with actual feature flag rollout percentages
+        data["variants"] = self._get_corrected_variants(instance)
+
+        return data
+
+    def _get_corrected_variants(self, obj):
+        """
+        Returns the variants with actual rollout percentages from the feature flag,
+        combined with the transforms from the experiment variants.
+        """
+        if not obj.feature_flag or not obj.variants:
+            return obj.variants or {}
+
+        # Get the actual rollout percentages from the feature flag
+        feature_flag_variants = {}
+        multivariate = obj.feature_flag.filters.get("multivariate", {})
+        variants_list = multivariate.get("variants", [])
+
+        for variant in variants_list:
+            key = variant.get("key")
+            rollout_percentage = variant.get("rollout_percentage", 0)
+            if key:
+                feature_flag_variants[key] = {"rollout_percentage": rollout_percentage}
+
+        # Combine with experiment variant data (transforms, etc.)
+        result_variants = {}
+        for variant_key, variant_data in obj.variants.items():
+            result_variants[variant_key] = variant_data.copy()
+            # Override with actual rollout percentage from feature flag
+            if variant_key in feature_flag_variants:
+                result_variants[variant_key]["rollout_percentage"] = feature_flag_variants[variant_key][
+                    "rollout_percentage"
+                ]
+
+        return result_variants
+
     # Validates that the `variants` property in the request follows this known object format.
     # {
     #     "name": "create-params-debug",
