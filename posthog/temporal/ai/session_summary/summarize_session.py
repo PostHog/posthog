@@ -47,6 +47,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
     redis_client, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=inputs.session_id,
     )
