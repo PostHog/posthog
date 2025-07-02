@@ -90,6 +90,8 @@ async def test_get_llm_single_session_summary_activity_standalone(
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
     # Store initial input data
+    assert redis_input_key
+    assert redis_output_key
     redis_test_setup.setup_input_data(
         compressed_llm_input_data,
         redis_input_key,
@@ -103,8 +105,8 @@ async def test_get_llm_single_session_summary_activity_standalone(
         patch("temporalio.activity.info") as mock_activity_info,
     ):
         mock_activity_info.return_value.workflow_id = "test_workflow_id"
-        result = await get_llm_single_session_summary_activity(input_data)
-        assert result is None  # Activity returns None as data is stored in Redis
+        # If no exception is raised, the activity completed successfully
+        await get_llm_single_session_summary_activity(input_data)
         # Verify Redis operations count
         assert spy_get.call_count == 2  # Get output data (not found) + get input data
         assert spy_setex.call_count == 2  # Initial setup + store generated summary
@@ -166,10 +168,8 @@ async def test_extract_session_group_patterns_activity_standalone(
             ],
         )
         mock_call_llm.return_value = mock_llm_response
-        result = await extract_session_group_patterns_activity(activity_inputs)
-
-        # Verify the activity completed successfully
-        assert result is None  # Activity returns None as data is stored in Redis
+        # If no exception is raised, the activity completed successfully
+        await extract_session_group_patterns_activity(activity_inputs)
         # Verify LLM was called once to extract patterns
         mock_call_llm.assert_called_once()
         # Try to get result from Redis (cache), fail, then get session summaries to generate result
@@ -366,7 +366,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_id: str,
         mock_session_group_summary_inputs: Callable,
         identifier_suffix: str,
-    ) -> tuple[list[str], str, SessionGroupSummaryInputs, str]:
+    ) -> tuple[list[str], str, SessionGroupSummaryInputs]:
         # Prepare test data
         session_ids = [
             f"{mock_session_id}-1-{identifier_suffix}",
