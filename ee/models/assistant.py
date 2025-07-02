@@ -1,4 +1,3 @@
-from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db import models
@@ -58,15 +57,13 @@ class ConversationCheckpoint(UUIDModel):
             )
         ]
 
-    @property
-    def pending_sends(self) -> Iterable["ConversationCheckpointWrite"]:
+    async def get_pending_sends(self) -> list["ConversationCheckpointWrite"]:
         if self.parent_checkpoint is None:
             return []
-        return self.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")
+        return [write async for write in self.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")]
 
-    @property
-    def pending_writes(self) -> Iterable["ConversationCheckpointWrite"]:
-        return self.writes.order_by("idx", "task_id")
+    async def get_pending_writes(self) -> list["ConversationCheckpointWrite"]:
+        return [write async for write in self.writes.order_by("idx", "task_id")]
 
 
 class ConversationCheckpointBlob(UUIDModel):
