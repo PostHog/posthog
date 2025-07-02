@@ -5,13 +5,14 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
-use std::collections::HashSet;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 impl PropertyFilter {
     /// Checks if the filter is a cohort filter
     pub fn is_cohort(&self) -> bool {
-        self.key == "id" && self.prop_type == PropertyType::Cohort
+        self.prop_type == PropertyType::Cohort
     }
 
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
@@ -39,6 +40,16 @@ impl PropertyFilter {
         }
         self.key.parse::<FeatureFlagId>().ok()
     }
+
+    /// Returns true if the filter requires DB properties to be evaluated.
+    ///
+    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
+    pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
+        if self.is_cohort() || self.depends_on_feature_flag() {
+            return false;
+        }
+        !overrides.contains_key(&self.key)
+    }
 }
 
 fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
@@ -50,6 +61,9 @@ fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFla
 }
 
 impl FeatureFlag {
+    /// Returns the group type index for the flag, or None if it's not set.
+    ///
+    /// See [`FlagFilters::aggregation_group_type_index`] for more details about group type mappings.
     pub fn get_group_type_index(&self) -> Option<i32> {
         self.filters.aggregation_group_type_index
     }
@@ -91,6 +105,26 @@ impl FeatureFlag {
         }
         Ok(dependencies)
     }
+
+    /// Returns true if the flag requires DB preparation in order to evaluate the flag.
+    ///
+    /// This is true if the flag has a group type index set
+    /// OR if the flag has a cohort filter
+    /// OR if the flag has a property filter and the property filter is not present in the overrides
+    pub fn requires_db_preparation(&self, overrides: &HashMap<String, Value>) -> bool {
+        self.filters.requires_db_properties(overrides) || self.filters.requires_cohort_filters()
+    }
+}
+
+/// Returns the set of flags that require DB preparation
+pub fn flags_require_db_preparation<'a>(
+    flags: &'a [FeatureFlag],
+    overrides: &HashMap<String, Value>,
+) -> Vec<&'a FeatureFlag> {
+    flags
+        .iter()
+        .filter(|flag| flag.requires_db_preparation(overrides))
+        .collect()
 }
 
 impl DependencyProvider for FeatureFlag {
@@ -261,11 +295,14 @@ impl FeatureFlagList {
 #[cfg(test)]
 mod tests {
     use crate::{
-        flags::flag_models::*,
+        flags::{
+            flag_models::*,
+            test_helpers::{create_simple_flag, create_simple_property_filter},
+        },
         properties::property_models::{OperatorType, PropertyType},
     };
     use rand::Rng;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::time::Instant;
     use tokio::task;
 
@@ -1609,5 +1646,153 @@ mod tests {
         assert!(flag.filters.payloads.is_none());
         assert!(flag.filters.super_groups.is_none());
         assert!(flag.filters.holdout_groups.is_none());
+    }
+
+    #[test]
+    fn test_require_db_preparation_if_group_type_index() {
+        let mut flag = create_simple_flag(
+            vec![create_simple_property_filter(
+                "some_property",
+                PropertyType::Person,
+                OperatorType::Exact,
+            )],
+            100.0,
+        );
+
+        let overrides = HashMap::from([(
+            "some_property".to_string(),
+            Value::String("value".to_string()),
+        )]);
+
+        assert!(flag.get_group_type_index().is_none());
+        assert!(!flag.requires_db_preparation(&overrides));
+
+        flag.filters.aggregation_group_type_index = Some(0);
+
+        assert!(flag.get_group_type_index().is_some());
+        assert!(flag.requires_db_preparation(&overrides));
+    }
+
+    #[test]
+    fn test_requires_db_preparation_if_cohort_filter_set() {
+        let flag = create_simple_flag(
+            vec![create_simple_property_filter(
+                "some_property",
+                PropertyType::Cohort,
+                OperatorType::Exact,
+            )],
+            100.0,
+        );
+
+        // Even though override matches the cohort filter, we still need to prepare the DB
+        let overrides = HashMap::from([(
+            "some_property".to_string(),
+            Value::String("value".to_string()),
+        )]);
+
+        assert!(flag.requires_db_preparation(&overrides));
+    }
+
+    #[test]
+    fn test_requires_db_preparation_if_not_enough_overrides() {
+        let flag = create_simple_flag(
+            vec![
+                create_simple_property_filter(
+                    "some_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+                create_simple_property_filter(
+                    "another_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                ),
+            ],
+            1.0,
+        );
+
+        {
+            let overrides = HashMap::from([
+                // Not enough overrides to evaluate locally
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(flag.requires_db_preparation(&overrides));
+        }
+
+        {
+            let overrides = HashMap::from([
+                (
+                    "some_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+                (
+                    "another_property".to_string(),
+                    Value::String("value".to_string()),
+                ),
+            ]);
+            assert!(!flag.requires_db_preparation(&overrides));
+        }
+    }
+
+    #[test]
+    fn test_does_not_require_db_preparation_if_holdout_groups_set() {
+        let mut flag = create_simple_flag(vec![], 100.0);
+        flag.filters.holdout_groups = Some(vec![
+            FlagPropertyGroup {
+                properties: Some(vec![]),
+                variant: Some("holdout-1".to_string()),
+                rollout_percentage: Some(10.0),
+            },
+            // Ignored, but here for testing.
+            FlagPropertyGroup {
+                properties: Some(vec![create_simple_property_filter(
+                    "some_property",
+                    PropertyType::Person,
+                    OperatorType::Exact,
+                )]),
+                rollout_percentage: Some(100.0),
+                variant: Some("holdout-2".to_string()),
+            },
+        ]);
+
+        assert!(!flag.requires_db_preparation(&HashMap::new()));
+    }
+
+    #[test]
+    fn test_filter_requires_db_property_if_override_not_present() {
+        let filter = create_simple_property_filter(
+            "some_property",
+            PropertyType::Person,
+            OperatorType::Exact,
+        );
+
+        {
+            // Wrong override.
+            let overrides =
+                HashMap::from([("not_cohort".to_string(), Value::String("value".to_string()))]);
+
+            assert!(filter.requires_db_property(&overrides));
+        }
+
+        {
+            // Correct override.
+            let overrides = HashMap::from([(
+                "some_property".to_string(),
+                Value::String("value".to_string()),
+            )]);
+
+            assert!(!filter.requires_db_property(&overrides));
+        }
+    }
+
+    #[test]
+    fn test_filter_does_not_require_db_property_if_cohort_or_flag_filter() {
+        // Cohort filter.
+        let filter =
+            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
+        assert!(!filter.requires_db_property(&HashMap::new()));
     }
 }
