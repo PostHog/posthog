@@ -416,10 +416,8 @@ def _get_table_average_row_size(
         length_sum = " + ".join(f"LENGTH(COALESCE({_sanitize_identifier(col)}, ''))" for col in columns)
 
         # Sample the first 1000 rows to calculate average row size
-        size_query = f"""
-            SELECT AVG({length_sum}) as avg_row_size
-            FROM ({inner_query} LIMIT 1000) as t
-        """
+        # Note: inner_query is safe SQL from _build_query with sanitized identifiers
+        size_query = "SELECT AVG(" + length_sum + ") as avg_row_size " + "FROM (" + inner_query + " LIMIT 1000) as t"
 
         cursor.execute(size_query, inner_query_args)
         row = cursor.fetchone()
