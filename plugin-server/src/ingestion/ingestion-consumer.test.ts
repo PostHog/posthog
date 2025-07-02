@@ -278,6 +278,44 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(eventsB)).toMatchSnapshot()
         })
 
+        it('should support alias on cookie consent', async () => {
+            const distinctId = 'cookie-consent-anon-distinct-id'
+            const events1 = [
+                createCookielessEvent(),
+                createCookielessEvent({
+                    event: '$create_alias',
+                    properties: {
+                        alias: distinctId,
+                        distinct_id: COOKIELESS_SENTINEL_VALUE,
+                    },
+                }),
+                createCookielessEvent({
+                    event: '$autocapture',
+                    distinct_id: distinctId,
+                }),
+            ]
+            const input1 = createKafkaMessages(events1)
+            await ingester.handleKafkaBatch(input1)
+            const messages = mockProducerObserver.getProducedKafkaMessages()
+            console.log(messages)
+            const eventsA = messages.filter(
+                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageview'
+            )
+            const eventsB = messages.filter(
+                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$create_alias'
+            )
+            const eventsC = messages.filter(
+                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$autocapture'
+            )
+            const personId = eventsA[0].value.person_id
+            expect(personId).toBeTruthy()
+            expect(eventsB[0].value.person_id).toEqual(personId)
+            expect(eventsC[0].value.person_id).toEqual(personId)
+            expect(forSnapshot(eventsA)).toMatchSnapshot()
+            expect(forSnapshot(eventsB)).toMatchSnapshot()
+            expect(forSnapshot(eventsC)).toMatchSnapshot()
+        })
+
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
             beforeEach(() => {

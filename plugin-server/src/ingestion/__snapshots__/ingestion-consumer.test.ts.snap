@@ -105,15 +105,15 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
     "topic": "clickhouse_events_json_test",
     "value": {
       "created_at": "2025-01-01 00:00:00.000",
-      "distinct_id": "<REPLACED-COOKIELESS-ID-3>",
+      "distinct_id": "<REPLACED-COOKIELESS-ID-6>",
       "elements_chain": "",
       "event": "$pageview",
       "person_created_at": "2025-01-01 00:00:00",
-      "person_id": "<REPLACED-UUID-4>",
+      "person_id": "<REPLACED-UUID-8>",
       "person_mode": "full",
       "person_properties": "{"a":"a","ab":"a","$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","a":"a","ab":"a"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","a":"a","ab":"a"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-4>"}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-0>",
@@ -132,15 +132,15 @@ exports[`IngestionConsumer general should not blend person properties from 2 dif
     "topic": "clickhouse_events_json_test",
     "value": {
       "created_at": "2025-01-01 00:00:00.000",
-      "distinct_id": "<REPLACED-COOKIELESS-ID-3>",
+      "distinct_id": "<REPLACED-COOKIELESS-ID-6>",
       "elements_chain": "",
       "event": "$pageview",
       "person_created_at": "2025-01-01 00:00:00",
-      "person_id": "<REPLACED-UUID-4>",
+      "person_id": "<REPLACED-UUID-8>",
       "person_mode": "full",
       "person_properties": "{"b":"b","ab":"b","$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","b":"b","ab":"b"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","b":"b","ab":"b"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-4>"}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-0>",
@@ -193,7 +193,7 @@ exports[`IngestionConsumer general should process a cookieless event 1`] = `
       "person_mode": "full",
       "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-3>","$device_id":"<REPLACED-COOKIELESS-ID-4>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-4>","$device_id":"<REPLACED-COOKIELESS-ID-5>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-7>"}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-1>",
@@ -250,6 +250,87 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-1>",
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer general should support alias on cookie consent 1`] = `
+[
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-0>",
+    "topic": "clickhouse_events_json_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00.000",
+      "distinct_id": "<REPLACED-COOKIELESS-ID-6>",
+      "elements_chain": "",
+      "event": "$pageview",
+      "person_created_at": "2025-01-01 00:00:00",
+      "person_id": "<REPLACED-UUID-8>",
+      "person_mode": "full",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
+      "project_id": 2,
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-4>"}",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer general should support alias on cookie consent 2`] = `
+[
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-0>",
+    "topic": "clickhouse_events_json_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00.000",
+      "distinct_id": "<REPLACED-COOKIELESS-ID-4>",
+      "elements_chain": "",
+      "event": "$create_alias",
+      "person_created_at": "2025-01-01 00:00:00",
+      "person_id": "<REPLACED-UUID-8>",
+      "person_mode": "full",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-9>","$initial_current_url":"http://localhost:8000"}",
+      "project_id": 2,
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"alias":"cookie-consent-anon-distinct-id","distinct_id":"<REPLACED-COOKIELESS-ID-4>","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-6>"}",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer general should support alias on cookie consent 3`] = `
+[
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":2,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-0>",
+    "topic": "clickhouse_events_json_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00.000",
+      "distinct_id": "cookie-consent-anon-distinct-id",
+      "elements_chain": "",
+      "event": "$autocapture",
+      "person_created_at": "2025-01-01 00:00:00",
+      "person_id": "<REPLACED-UUID-6>",
+      "person_mode": "full",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-7>","$initial_current_url":"http://localhost:8000"}",
+      "project_id": 2,
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-1>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"},"$cookieless_base_hash":"<REPLACED-COOKIELESS-ID-4>"}",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "uuid": "<REPLACED-UUID-0>",
     },
   },
 ]

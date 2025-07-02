@@ -2,6 +2,10 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import {
+    COOKIELESS_MODE_BASE_HASH_PROPERTY,
+    COOKIELESS_MODE_FLAG_PROPERTY,
+} from '~/ingestion/cookieless/cookieless-manager'
 import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -585,7 +589,15 @@ export class IngestionConsumer {
         for (const { event, message, team } of messages) {
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
+            let eventKey: string
+            if (
+                event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY] &&
+                event.properties?.[COOKIELESS_MODE_BASE_HASH_PROPERTY]
+            ) {
+                eventKey = `${token}:${event.properties[COOKIELESS_MODE_BASE_HASH_PROPERTY]}`
+            } else {
+                eventKey = `${token}:${distinctId}`
+            }
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
