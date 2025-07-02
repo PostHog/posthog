@@ -13,10 +13,10 @@ import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
 import type { messagingSceneLogicType } from './MessagingSceneType'
-import { MessageSenders } from './Senders/MessageSenders'
+import { MessageChannels } from './Channels/MessageChannels'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 
-const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'senders'] as const
+const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
 
 export type MessagingSceneProps = {
@@ -148,9 +148,9 @@ export function MessagingScene(): JSX.Element {
             ),
         },
         {
-            label: 'Senders',
-            key: 'senders',
-            content: <MessageSenders />,
+            label: 'Channels',
+            key: 'channels',
+            content: <MessageChannels />,
         },
     ]
 

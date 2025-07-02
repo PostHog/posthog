@@ -31,7 +31,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     props({} as EmailSetupModalLogicProps),
     key(({ integration }) => (integration ? `messaging-sender-setup-${integration.id}` : 'messaging-sender-setup-new')),
     connect(() => ({
-        values: [integrationsLogic, ['integrations']],
+        values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     forms(({ actions }) => ({
