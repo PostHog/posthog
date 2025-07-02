@@ -4,7 +4,6 @@ import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
@@ -18,9 +17,9 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
 import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
-import { IconAreaChart, IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { DISPLAY_MODE_OPTIONS, TileProps, TileWrapper } from './components'
 
 const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
     line: GraphType.Line,
@@ -72,39 +71,6 @@ export function RevenueAnalyticsRevenueNode(props: {
     )
 }
 
-interface TileWrapperProps {
-    title: JSX.Element | string
-    tooltip: JSX.Element | string
-    extra?: JSX.Element
-}
-
-const TileWrapper = ({ title, tooltip, extra, children }: React.PropsWithChildren<TileWrapperProps>): JSX.Element => {
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-between">
-                <span className="text-lg font-semibold flex items-center gap-1">
-                    {title}
-                    <Tooltip title={tooltip}>
-                        <IconInfo />
-                    </Tooltip>
-                </span>
-                {extra}
-            </div>
-
-            <InsightsWrapper>
-                <div className="TrendsInsight TrendsInsight--ActionsLineGraph">{children}</div>
-            </InsightsWrapper>
-        </div>
-    )
-}
-
-interface TileProps {
-    response: RevenueAnalyticsRevenueQueryResponse
-    responseLoading: boolean
-    queryId: string
-    context: QueryContext
-}
-
 const GROSS_REVENUE_TITLE = 'Gross Revenue'
 const GROSS_REVENUE_TOOLTIP = (
     <span>
@@ -115,13 +81,13 @@ const GROSS_REVENUE_TOOLTIP = (
         created an invoice item with a <code>period.start</code> and <code>period.end</code> that spans several months.
     </span>
 )
-const GROSS_REVENUE_DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
-    { value: 'line', icon: <IconLineGraph /> },
-    { value: 'area', icon: <IconAreaChart /> },
-    { value: 'bar', icon: <IconGraph /> },
-]
 
-const GrossRevenueTile = ({ response, responseLoading, queryId, context }: TileProps): JSX.Element => {
+const GrossRevenueTile = ({
+    response,
+    responseLoading,
+    queryId,
+    context,
+}: TileProps<RevenueAnalyticsRevenueQueryResponse>): JSX.Element => {
     const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
     const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
@@ -143,7 +109,7 @@ const GrossRevenueTile = ({ response, responseLoading, queryId, context }: TileP
                     <LemonSegmentedButton
                         value={insightsDisplayMode}
                         onChange={setInsightsDisplayMode}
-                        options={GROSS_REVENUE_DISPLAY_MODE_OPTIONS}
+                        options={DISPLAY_MODE_OPTIONS}
                         size="small"
                     />
                 </div>
@@ -153,7 +119,7 @@ const GrossRevenueTile = ({ response, responseLoading, queryId, context }: TileP
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
                 <LineGraph
-                    data-attr="revenue-analytics-insights-node-graph"
+                    data-attr="revenue-analytics-revenue-tile-graph"
                     type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
                     datasets={datasets}
                     labels={labels}
@@ -192,7 +158,12 @@ const GrossRevenueTile = ({ response, responseLoading, queryId, context }: TileP
     )
 }
 
-const MRRTile = ({ response, responseLoading, queryId, context }: TileProps): JSX.Element => {
+const MRRTile = ({
+    response,
+    responseLoading,
+    queryId,
+    context,
+}: TileProps<RevenueAnalyticsRevenueQueryResponse>): JSX.Element => {
     const { baseCurrency, groupBy, mrrMode, dateFilter } = useValues(revenueAnalyticsLogic)
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
 
@@ -238,7 +209,7 @@ const MRRTile = ({ response, responseLoading, queryId, context }: TileProps): JS
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
                 <LineGraph
-                    data-attr="revenue-analytics-insights-node-graph"
+                    data-attr="revenue-analytics-mrr-tile-graph"
                     type={GraphType.Line}
                     datasets={datasets}
                     labels={labels}

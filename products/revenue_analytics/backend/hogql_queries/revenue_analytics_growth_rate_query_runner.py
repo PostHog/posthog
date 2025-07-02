@@ -59,12 +59,12 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
-                select_from=self.append_joins(
+                select_from=self._append_joins(
                     ast.JoinExpr(
                         alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
                         table=self.revenue_subqueries.invoice_item,  # Guaranteed to be not None because we check for that in `to_query`
                     ),
-                    self.joins_for_properties,
+                    self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
                 ),
                 where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
                 group_by=[ast.Field(chain=["month"])],
