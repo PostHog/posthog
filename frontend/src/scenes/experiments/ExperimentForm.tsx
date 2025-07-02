@@ -316,9 +316,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                 </div>
                             </div>
                         </div>
-                        <div className="mt-10">
-                            <h3 className="mb-1">Advanced settings</h3>
-                            <LemonDivider />
+                        <div className="mt-10 max-w-150">
                             <LemonField name="parameters.ensure_experience_continuity">
                                 {({ value, onChange }) => (
                                     <div className="border rounded p-4">
@@ -330,10 +328,10 @@ const ExperimentFormFields = (): JSX.Element => {
                                             checked={value}
                                         />
                                         <div className="text-secondary text-sm pl-7">
-                                            If your feature flag is applied before identifying the user, use this to
-                                            ensure that the flag value remains consistent for the same user. Depending
-                                            on your setup, this option might not always be suitable. This feature
-                                            requires creating profiles for anonymous users.{' '}
+                                            If your feature flag is evaluated on anonymous users, use this to ensure
+                                            that the flag value remains consistent when the user logs in. Depending on
+                                            your setup, this option might not always be suitable. This feature requires
+                                            creating profiles for anonymous users.{' '}
                                             <Link
                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                 target="_blank"
