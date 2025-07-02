@@ -458,6 +458,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    anonymize_ips: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> anonymizing IP addresses
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -484,7 +497,6 @@ const teamActionsMapping: Record<
 
     // TODO implement these when possible
     access_control: () => null,
-    anonymize_ips: () => null,
     app_urls: () => null,
     completed_snippet_onboarding: () => null,
     correlation_config: () => null,
