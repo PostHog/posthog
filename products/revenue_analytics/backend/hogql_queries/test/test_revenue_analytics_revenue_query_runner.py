@@ -4,15 +4,16 @@ from decimal import Decimal
 from unittest.mock import ANY
 
 from posthog.models.utils import uuid7
-from products.revenue_analytics.backend.hogql_queries.revenue_analytics_gross_revenue_query_runner import (
-    RevenueAnalyticsGrossRevenueQueryRunner,
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
+    RevenueAnalyticsRevenueQueryRunner,
 )
 from posthog.schema import (
     CurrencyCode,
     DateRange,
     PropertyOperator,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrossRevenueQueryResponse,
+    RevenueAnalyticsRevenueQuery,
+    RevenueAnalyticsRevenueQueryResponse,
+    RevenueAnalyticsRevenueQueryResult,
     RevenueAnalyticsGroupBy,
     IntervalType,
     HogQLQueryModifiers,
@@ -86,7 +87,7 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 
 
 @snapshot_clickhouse_queries
-class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
 
     def _create_purchase_events(self, data):
@@ -199,7 +200,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.customers_cleanup_filesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_gross_revenue_query(
+    def _run_revenue_analytics_revenue_query(
         self,
         date_range: DateRange | None = None,
         interval: IntervalType | None = None,
@@ -216,7 +217,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             properties = []
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsGrossRevenueQuery(
+            query = RevenueAnalyticsRevenueQuery(
                 dateRange=date_range,
                 interval=interval,
                 groupBy=group_by,
@@ -224,25 +225,25 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
-            runner = RevenueAnalyticsGrossRevenueQueryRunner(
+            runner = RevenueAnalyticsRevenueQueryRunner(
                 team=self.team,
                 query=query,
             )
             response = runner.calculate()
 
-            RevenueAnalyticsGrossRevenueQueryResponse.model_validate(response)
+            RevenueAnalyticsRevenueQueryResponse.model_validate(response)
             return response
 
     def test_no_crash_when_no_data(self):
         self.invoices_table.delete()
         self.products_table.delete()
         self.customers_table.delete()
-        results = self._run_revenue_analytics_gross_revenue_query().results
+        results = self._run_revenue_analytics_revenue_query().results
 
-        self.assertEqual(results, [])
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
     def test_no_crash_when_no_source_is_selected(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -252,90 +253,146 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(results, [])
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
     def test_with_data(self):
         # Use huge date range to collect all data
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2024-11-01", date_to="2026-01-01")
         ).results
 
         self.assertEqual(
             results,
-            [
-                {
-                    "label": "stripe.posthog_test",
-                    "days": ALL_MONTHS_DAYS,
-                    "labels": ALL_MONTHS_LABELS,
-                    "data": [
-                        0,
-                        0,
-                        Decimal("8755.6188399999"),
-                        Decimal("9499.3872099999"),
-                        Decimal("9034.4731999999"),
-                        Decimal("8907.0568099999"),
-                        Decimal("8889.3394999999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        Decimal("24.5077499999"),
-                        0,
-                    ],
-                    "action": {
-                        "days": ALL_MONTHS_FAKEDATETIMES,
-                        "id": "stripe.posthog_test",
-                        "name": "stripe.posthog_test",
-                    },
-                }
-            ],
+            RevenueAnalyticsRevenueQueryResult(
+                gross=[
+                    {
+                        "label": "stripe.posthog_test",
+                        "days": ALL_MONTHS_DAYS,
+                        "labels": ALL_MONTHS_LABELS,
+                        "data": [
+                            0,
+                            0,
+                            Decimal("8765.3236433332"),
+                            Decimal("10341.3433233332"),
+                            Decimal("9116.4659033332"),
+                            Decimal("8987.5989733332"),
+                            Decimal("8900.0246133332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            Decimal("34.2125533332"),
+                            0,
+                        ],
+                        "action": {
+                            "days": ALL_MONTHS_FAKEDATETIMES,
+                            "id": "stripe.posthog_test",
+                            "name": "stripe.posthog_test",
+                        },
+                    }
+                ],
+                mrr=[
+                    {
+                        "label": "stripe.posthog_test",
+                        "days": ALL_MONTHS_DAYS,
+                        "labels": ALL_MONTHS_LABELS,
+                        "data": [
+                            0,
+                            0,
+                            0,
+                            Decimal("8755.6188399999"),
+                            Decimal("9499.3872099999"),
+                            Decimal("9034.4731999999"),
+                            Decimal("8907.0568099999"),
+                            Decimal("8889.3394999999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                            Decimal("24.5077499999"),
+                        ],
+                        "action": {
+                            "days": ALL_MONTHS_FAKEDATETIMES,
+                            "id": "stripe.posthog_test",
+                            "name": "stripe.posthog_test",
+                        },
+                    }
+                ],
+            ),
         )
 
     def test_with_data_and_date_range(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2025-02-01", date_to="2025-05-01")
         ).results
 
         # Restricted to the date range
         self.assertEqual(
             results,
-            [
-                {
-                    "label": "stripe.posthog_test",
-                    "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                    "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
-                    "data": [Decimal("9499.3872099999"), Decimal("9034.4731999999"), Decimal("8907.0568099999"), 0],
-                    "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
-                }
-            ],
+            RevenueAnalyticsRevenueQueryResult(
+                gross=[
+                    {
+                        "label": "stripe.posthog_test",
+                        "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                        "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
+                        "data": [
+                            Decimal("10341.3433233332"),
+                            Decimal("9116.4659033332"),
+                            Decimal("8987.5989733332"),
+                            0,
+                        ],
+                        "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
+                    }
+                ],
+                mrr=[
+                    {
+                        "label": "stripe.posthog_test",
+                        "days": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+                        "labels": ["Feb 2025", "Mar 2025", "Apr 2025", "May 2025"],
+                        # This is an important test, see how MRR is included for the first month, because there's previous data from January 30 days prior to February 1st
+                        "data": [
+                            Decimal("8755.6188399999"),
+                            Decimal("9499.3872099999"),
+                            Decimal("9034.4731999999"),
+                            Decimal("8907.0568099999"),
+                        ],
+                        "action": {"days": [ANY] * 4, "id": "stripe.posthog_test", "name": "stripe.posthog_test"},
+                    }
+                ],
+            ),
         )
 
-    def test_with_empty_data_range(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+    def test_with_empty_date_range(self):
+        results = self._run_revenue_analytics_revenue_query(
             date_range=DateRange(date_from="2024-12-01", date_to="2024-12-31")
         ).results
 
-        self.assertEqual(results, [])
+        self.assertEqual(results, RevenueAnalyticsRevenueQueryResult(gross=[], mrr=[]))
 
-    def test_with_data_for_product_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
+    def test_with_data_and_product_grouping(self):
+        results = self._run_revenue_analytics_revenue_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
-        self.assertEqual(len(results), 6)
+        self.assertEqual(len(results.gross), 6)
+        self.assertEqual(len(results.mrr), 6)
+
+        expected_products = [
+            "stripe.posthog_test - Product F",
+            "stripe.posthog_test - Product D",
+            "stripe.posthog_test - Product B",
+            "stripe.posthog_test - Product C",
+            "stripe.posthog_test - Product A",
+            "stripe.posthog_test - Product E",
+        ]
+        self.assertEqual([result["label"] for result in results.gross], expected_products)
+        self.assertEqual([result["label"] for result in results.mrr], expected_products)
+
+        # Very long, but gross first, and then MRR
         self.assertEqual(
-            [result["label"] for result in results],
-            [
-                "stripe.posthog_test - Product F",
-                "stripe.posthog_test - Product D",
-                "stripe.posthog_test - Product A",
-                "stripe.posthog_test - Product B",
-                "stripe.posthog_test - Product C",
-                "stripe.posthog_test - Product E",
-            ],
-        )
-        self.assertEqual(
-            [result["data"] for result in results],
+            [result["data"] for result in results.gross],
             [
                 [
                     0,
@@ -358,20 +415,11 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
-                    Decimal("8.2024583333"),
-                    Decimal("179.1589583333"),
-                    Decimal("223.5518583333"),
-                    Decimal("91.3694083333"),
-                    Decimal("124.1659583333"),
-                ],
-                [
-                    0,
-                    0,
-                    Decimal("16.3052916666"),
-                    Decimal("563.4457916666"),
-                    Decimal("88.5931916666"),
-                    Decimal("95.9973216666"),
-                    Decimal("35.8317916666"),
+                    Decimal("26.0100949999"),
+                    Decimal("1405.4019049999"),
+                    Decimal("170.5858949999"),
+                    Decimal("176.5394849999"),
+                    Decimal("46.5169049999"),
                 ],
                 [
                     0,
@@ -385,6 +433,15 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                 [
                     0,
                     0,
+                    Decimal("8.2024583333"),
+                    Decimal("179.1589583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("91.3694083333"),
+                    Decimal("124.1659583333"),
+                ],
+                [
+                    0,
+                    0,
                     Decimal("0.34271"),
                     Decimal("0.34271"),
                     Decimal("0.34271"),
@@ -394,35 +451,107 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         )
 
-    def test_with_data_with_double_grouping(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        self.assertEqual(
+            [result["data"] for result in results.mrr],
+            [
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                    Decimal("8332.34808"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                    Decimal("386.90365"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("16.3052916666"),
+                    Decimal("563.4457916666"),
+                    Decimal("88.5931916666"),
+                    Decimal("95.9973216666"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("11.51665"),
+                    Decimal("37.18802"),
+                    Decimal("2.73371"),
+                    Decimal("0.09564"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("8.2024583333"),
+                    Decimal("179.1589583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("91.3694083333"),
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                    Decimal("0.34271"),
+                ],
+            ],
+        )
+
+    def test_with_data_and_double_grouping(self):
+        results = self._run_revenue_analytics_revenue_query(
             group_by=[RevenueAnalyticsGroupBy.COHORT, RevenueAnalyticsGroupBy.PRODUCT]
         ).results
 
         # 12 comes from the 6 products and 2 cohorts
-        self.assertEqual(len(results), 12)
+        self.assertEqual(len(results.gross), 12)
+        self.assertEqual(len(results.mrr), 12)
+
+        expected_breakdowns = [
+            "stripe.posthog_test - 2025-01 - Product F",
+            "stripe.posthog_test - 2025-01 - Product D",
+            "stripe.posthog_test - 2025-01 - Product B",
+            "stripe.posthog_test - 2025-01 - Product C",
+            "stripe.posthog_test - 2025-01 - Product A",
+            "stripe.posthog_test - 2025-01 - Product E",
+            "stripe.posthog_test - 2025-02 - Product F",
+            "stripe.posthog_test - 2025-02 - Product B",
+            "stripe.posthog_test - 2025-02 - Product D",
+            "stripe.posthog_test - 2025-02 - Product A",
+            "stripe.posthog_test - 2025-02 - Product C",
+            "stripe.posthog_test - 2025-02 - Product E",
+        ]
+        self.assertEqual([result["label"] for result in results.gross], expected_breakdowns)
+
+        # Very long, but gross first, and then MRR
         self.assertEqual(
-            [result["label"] for result in results],
-            [
-                "stripe.posthog_test - 2025-01 - Product F",
-                "stripe.posthog_test - 2025-01 - Product D",
-                "stripe.posthog_test - 2025-01 - Product A",
-                "stripe.posthog_test - 2025-01 - Product B",
-                "stripe.posthog_test - 2025-01 - Product C",
-                "stripe.posthog_test - 2025-01 - Product E",
-                "stripe.posthog_test - 2025-02 - Product F",
-                "stripe.posthog_test - 2025-02 - Product D",
-                "stripe.posthog_test - 2025-02 - Product A",
-                "stripe.posthog_test - 2025-02 - Product B",
-                "stripe.posthog_test - 2025-02 - Product E",
-                "stripe.posthog_test - 2025-02 - Product C",
-            ],
-        )
-        self.assertEqual(
-            [result["data"] for result in results],
+            [result["data"] for result in results.gross],
             [
                 [0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
                 [0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0, Decimal("386.90365")],
+                [
+                    0,
+                    0,
+                    Decimal("26.0100949999"),
+                    Decimal("26.0100949999"),
+                    Decimal("170.5858949999"),
+                    Decimal("26.0100949999"),
+                    Decimal("46.5169049999"),
+                ],
+                [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
                 [
                     0,
                     0,
@@ -432,23 +561,47 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
                     Decimal("8.2024583333"),
                     Decimal("124.1659583333"),
                 ],
+                [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
+                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
+                [0, 0, 0, Decimal("1379.39181"), 0, Decimal("150.52939"), 0],
+                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
+                [0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695"), 0],
+                [0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564"), 0],
+                [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
+            ],
+        )
+
+        self.assertEqual(
+            [result["data"] for result in results.mrr],
+            [
+                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
+                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
                 [
+                    0,
                     0,
                     0,
                     Decimal("16.3052916666"),
                     Decimal("16.3052916666"),
                     Decimal("88.5931916666"),
                     Decimal("16.3052916666"),
-                    Decimal("35.8317916666"),
                 ],
-                [0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0, Decimal("9.74731")],
-                [0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0, Decimal("0.34271")],
-                [0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808"), 0],
-                [0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365"), 0],
-                [0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695"), 0],
-                [0, 0, 0, Decimal("547.1405"), 0, Decimal("79.69203"), 0],
+                [0, 0, 0, Decimal("11.51665"), 0, Decimal("2.73371"), 0],
+                [
+                    0,
+                    0,
+                    0,
+                    Decimal("8.2024583333"),
+                    Decimal("8.2024583333"),
+                    Decimal("223.5518583333"),
+                    Decimal("8.2024583333"),
+                ],
                 [0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271"), 0],
-                [0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564"), 0],
+                [0, 0, 0, 0, Decimal("8332.34808"), 0, Decimal("8332.34808")],
+                [0, 0, 0, 0, Decimal("547.1405"), 0, Decimal("79.69203")],
+                [0, 0, 0, 0, Decimal("386.90365"), 0, Decimal("386.90365")],
+                [0, 0, 0, 0, Decimal("170.9565"), 0, Decimal("83.16695")],
+                [0, 0, 0, 0, Decimal("37.18802"), 0, Decimal("0.09564")],
+                [0, 0, 0, 0, Decimal("0.34271"), 0, Decimal("0.34271")],
             ],
         )
 
@@ -457,7 +610,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             [0, 0, Decimal("11.51665"), Decimal("37.18802"), Decimal("2.73371"), Decimal("0.09564"), Decimal("9.74731")]
         ]
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="product",
@@ -467,12 +620,15 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         ).results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
-        self.assertEqual([result["data"] for result in results], expected_data)
+        self.assertEqual(len(results.gross), 1)
+        self.assertEqual(len(results.mrr), 1)
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test"])
+        self.assertEqual([result["label"] for result in results.mrr], ["stripe.posthog_test"])
+        self.assertEqual([result["data"] for result in results.gross], expected_data)
+        self.assertEqual([result["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
         # When grouping results should be exactly the same, just the label changes
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             group_by=[RevenueAnalyticsGroupBy.PRODUCT],
             properties=[
                 RevenueAnalyticsPropertyFilter(
@@ -483,12 +639,15 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         ).results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test - Product C"])
-        self.assertEqual([result["data"] for result in results], expected_data)
+        self.assertEqual(len(results.gross), 1)
+        self.assertEqual(len(results.mrr), 1)
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test - Product C"])
+        self.assertEqual([result["label"] for result in results.mrr], ["stripe.posthog_test - Product C"])
+        self.assertEqual([result["data"] for result in results.gross], expected_data)
+        self.assertEqual([result["data"] for result in results.mrr], [[0, *expected_data[0][:-1]]])
 
     def test_with_country_filter(self):
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="country",
@@ -498,19 +657,35 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         ).results
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual([result["label"] for result in results], ["stripe.posthog_test"])
+        self.assertEqual(len(results.gross), 1)
+        self.assertEqual(len(results.mrr), 1)
+        self.assertEqual([result["label"] for result in results.gross], ["stripe.posthog_test"])
+        self.assertEqual([result["label"] for result in results.mrr], ["stripe.posthog_test"])
         self.assertEqual(
-            [result["data"] for result in results],
+            [result["data"] for result in results.gross],
             [
                 [
+                    0,
+                    0,
+                    Decimal("34.2125533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("394.1377533332"),
+                    Decimal("34.2125533332"),
+                    Decimal("170.6828633332"),
+                ],
+            ],
+        )
+        self.assertEqual(
+            [result["data"] for result in results.mrr],
+            [
+                [
+                    0,
                     0,
                     0,
                     Decimal("24.5077499999"),
                     Decimal("24.5077499999"),
                     Decimal("312.1450499999"),
                     Decimal("24.5077499999"),
-                    Decimal("159.9977499999"),
                 ]
             ],
         )
@@ -525,7 +700,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         )
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -536,13 +711,29 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         ).results
 
         self.assertEqual(
-            results,
+            results.gross,
             [
                 {
                     "label": "revenue_analytics.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase",
+                        "name": "revenue_analytics.purchase",
+                    },
+                }
+            ],
+        )
+        self.assertEqual(
+            results.mrr,
+            [
+                {
+                    "label": "revenue_analytics.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
                         "id": "revenue_analytics.purchase",
@@ -567,7 +758,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             ]
         )
 
-        results = self._run_revenue_analytics_gross_revenue_query(
+        results = self._run_revenue_analytics_revenue_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
                     key="source",
@@ -578,13 +769,29 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
         ).results
 
         self.assertEqual(
-            results,
+            results.gross,
             [
                 {
                     "label": "revenue_analytics.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, Decimal("0.33474"), Decimal("0.0556293217"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase",
+                        "name": "revenue_analytics.purchase",
+                    },
+                }
+            ],
+        )
+        self.assertEqual(
+            results.mrr,
+            [
+                {
+                    "label": "revenue_analytics.purchase",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
                         "id": "revenue_analytics.purchase",

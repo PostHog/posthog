@@ -230,7 +230,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardType<QueryBasedInsightModel> | null,
             {
                 /**
-                 * TRICKY:Load dashboard only gets the dashboard meta + cached insights (as we pass `force_cache`)
+                 * TRICKY: Load dashboard only gets the dashboard meta + cached insights (as we pass `force_cache`)
                  * if manualDashboardRefresh is passed then in loadDashboardSuccess we trigger
                  * updateDashboardItems to refresh all insights with `force_blocking`
                  */
