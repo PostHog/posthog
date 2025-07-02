@@ -1,25 +1,10 @@
 .scene-layout {
-    --scene-layout-is-relative: 800px;
     --scene-layout-panel-info-width: 300px;
     --scene-header-height: 42px;
 
     container-name: scenelayout;
     container-type: size;
     min-height: calc(100vh - var(--scene-header-height));
-}
-
-.scene-layout__content {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    min-height: calc(100vh - var(--scene-header-height));
-}
-
-@container scenelayout (width >= 1300px) {
-    .scene-layout__content {
-        display: grid;
-        grid-template-columns: calc(100% - var(--scene-layout-panel-info-width)) var(--scene-layout-panel-info-width);
-    }
 }
 
 .scene-layout__content-panel {
