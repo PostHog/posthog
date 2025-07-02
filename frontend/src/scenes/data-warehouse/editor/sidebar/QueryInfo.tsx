@@ -259,11 +259,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         if (status === 'Running' && progress_percentage > 0) {
                                             return (
                                                 <Tooltip title={`Running: ${progress_percentage.toFixed(1)}%`}>
-                                                    <LemonProgress
-                                                        size="large"
-                                                        percent={progress_percentage}
-                                                        className="w-[68px]"
-                                                    />
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progress_percentage} />
+                                                    </div>
                                                 </Tooltip>
                                             )
                                         }
