@@ -40,7 +40,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
         const source: MarketingAnalyticsTableQuery = {
             ...query.source,
-            orderBy: marketingAnalyticsOrderBy ? [marketingAnalyticsOrderBy] : null,
+            orderBy: marketingAnalyticsOrderBy ? [marketingAnalyticsOrderBy] : undefined,
         }
 
         return {
@@ -61,7 +61,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         return goals
     }, [conversion_goals, dynamicConversionGoal])
 
-    const MarketingSortableCell = useCallback(
+    const makeMarketingSortableCell = useCallback(
         (name: string, index: number) => {
             return function MarketingSortableCellComponent() {
                 const [orderIndex, orderDirection] = marketingAnalyticsOrderBy || [null, null]
@@ -115,19 +115,19 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
             // Add conversion count column
             columns[goalName] = {
-                renderTitle: MarketingSortableCell(goalName, goalColumnIndex),
+                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex),
                 align: 'right',
             }
 
             // Add cost per conversion column
             columns[costPerGoalName] = {
-                renderTitle: MarketingSortableCell(costPerGoalName, costColumnIndex),
+                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex),
                 align: 'right',
             }
         })
 
         return columns
-    }, [allConversionGoals, MarketingSortableCell])
+    }, [allConversionGoals, makeMarketingSortableCell])
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -138,7 +138,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             // Indexes start at 1 because the orderBy field is 1-indexed e.g ORDER BY 1 DESC would sort by the first column
             ...Object.values(MarketingAnalyticsBaseColumns).reduce((acc, column, index) => {
                 acc[column] = {
-                    renderTitle: MarketingSortableCell(column, index + QUERY_ORDER_BY_START_INDEX),
+                    renderTitle: makeMarketingSortableCell(column, index + QUERY_ORDER_BY_START_INDEX),
                 }
                 return acc
             }, {} as Record<string, QueryContextColumn>),

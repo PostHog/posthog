@@ -3211,7 +3211,7 @@ export interface MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
     /** Columns to order by - similar to EventsQuery format */
-    orderBy?: MarketingAnalyticsOrderBy[] | null
+    orderBy?: MarketingAnalyticsOrderBy[]
     /** Number of rows to return */
     limit?: integer
     /** Number of rows to skip before returning rows */

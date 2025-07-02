@@ -84,7 +84,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
 
     @property
-    def sources_map(self) -> dict:
+    def sources_map(self) -> dict[str, dict]:
         return self._sources_map or {}
 
     @sources_map.setter
@@ -97,12 +97,10 @@ class TeamMarketingAnalyticsConfig(models.Model):
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
     @property
-    def sources_map_casted(self) -> dict[str, SourceMap]:
-        """Return sources_map as dict of source_id -> SourceMap objects"""
-        raw_sources = self._sources_map or {}
-        # Convert dict values to SourceMap objects
+    def sources_map_typed(self) -> dict[str, SourceMap]:
+        """Return sources_map as typed SourceMap objects for Python usage"""
         response = {}
-        for source_id, field_mapping in raw_sources.items():
+        for source_id, field_mapping in self._sources_map.items():
             if field_mapping is None:
                 response[source_id] = SourceMap()
             else:

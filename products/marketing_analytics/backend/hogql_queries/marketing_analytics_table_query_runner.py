@@ -269,7 +269,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         order_by_exprs = []
 
-        if hasattr(self.query, "orderBy") and self.query.orderBy:
+        if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
             for order_expr_str in self.query.orderBy:
                 order_index_float, order_by = order_expr_str
                 order_index = int(order_index_float)

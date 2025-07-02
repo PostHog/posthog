@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
@@ -18,19 +18,11 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     const { dynamicConversionGoal } = useValues(marketingAnalyticsLogic)
     const { addOrUpdateConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
-    const [uniqueName, setUniqueName] = useState<string>('')
     const [localConversionGoalName, setLocalConversionGoalName] = useState<string>('')
-
-    useEffect(() => {
-        if (localConversionGoalName) {
-            setUniqueName(
-                generateUniqueName(
-                    localConversionGoalName,
-                    conversion_goals.map((goal) => goal.conversion_goal_name)
-                )
-            )
-        }
-    }, [localConversionGoalName, conversion_goals])
+    const uniqueName = generateUniqueName(
+        localConversionGoalName,
+        conversion_goals.map((goal) => goal.conversion_goal_name)
+    )
 
     const conversionGoalIdRef = useRef<string>()
     if (!conversionGoalIdRef.current) {
@@ -75,7 +67,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
     const handleSaveConversionGoal = useCallback((): void => {
         addOrUpdateConversionGoal({ ...localConversionGoal, conversion_goal_name: uniqueName })
         handleClearConversionGoal()
-    }, [localConversionGoal, addOrUpdateConversionGoal, handleClearConversionGoal])
+    }, [localConversionGoal, addOrUpdateConversionGoal, handleClearConversionGoal, uniqueName])
 
     // Check if there are changes to apply
     const hasEvent = localConversionGoal.name !== defaultConversionGoalFilter.name

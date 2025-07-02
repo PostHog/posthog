@@ -13997,18 +13997,11 @@
                     "description": "Number of rows to skip before returning rows"
                 },
                 "orderBy": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/MarketingAnalyticsOrderBy"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Columns to order by - similar to EventsQuery format"
+                    "description": "Columns to order by - similar to EventsQuery format",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsOrderBy"
+                    },
+                    "type": "array"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
