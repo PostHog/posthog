@@ -17,7 +17,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="datamodelingjob",
             name="last_progress_update",
-            field=models.DateTimeField(auto_now=True, help_text="Last time progress was updated"),
+            field=models.DateTimeField(
+                auto_now=True, null=True, blank=True, help_text="Last time progress was updated"
+            ),
         ),
         migrations.AddField(
             model_name="datamodelingjob",
