@@ -285,7 +285,7 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.insightNew())
                     break
                 case ActivationTask.CreateFirstDashboard:
-                    router.actions.push(urls.dashboards())
+                    router.actions.push(urls.dashboards() + '#newDashboard=modal')
                     break
 
                 // Web Analytics
