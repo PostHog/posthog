@@ -536,9 +536,9 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
         ff_instance = FeatureFlag.objects.get(id=response_data["feature_flag"]["id"])
         mock_capture.assert_called_once_with(
-            ANY,
             "feature flag created",
-            {
+            distinct_id=ANY,
+            properties={
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,

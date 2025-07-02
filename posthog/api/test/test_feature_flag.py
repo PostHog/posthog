@@ -339,9 +339,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Assert analytics are sent
         instance = FeatureFlag.objects.get(id=feature_flag["id"])
         mock_capture.assert_called_once_with(
-            self.user,
             "feature flag created",
-            {
+            distinct_id=self.user,
+            properties={
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
@@ -374,9 +374,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user,
             "feature flag created",
-            {
+            distinct_id=self.user,
+            properties={
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
@@ -428,9 +428,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user,
             "feature flag created",
-            {
+            distinct_id=self.user,
+            properties={
                 "groups_count": 1,  # 1 is always created by default
                 "has_variants": False,
                 "variants_count": 0,
@@ -497,9 +497,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user,
             "feature flag created",
-            {
+            distinct_id=self.user,
+            properties={
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 3,

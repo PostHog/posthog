@@ -763,9 +763,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user,
             "dashboard created",
-            {
+            distinct_id=self.user,
+            properties={
                 "$current_url": None,
                 "$session_id": mock.ANY,
                 "created_at": mock.ANY,
@@ -1226,9 +1226,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(dashboard["tiles"]), 1)
 
         mock_capture.assert_called_once_with(
-            self.user,
             "dashboard created",
-            {
+            distinct_id=self.user,
+            properties={
                 "$current_url": "https://posthog.com/my-referer",
                 "$session_id": "my-session-id",
                 "created_at": mock.ANY,

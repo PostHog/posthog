@@ -70,9 +70,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(Team.objects.filter(id=team.id).exists())
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
             "organization deleted",
-            organization_props,
+            distinct_id=self.user.distinct_id,
+            properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.id])
