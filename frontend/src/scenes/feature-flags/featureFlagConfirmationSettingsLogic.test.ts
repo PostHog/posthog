@@ -9,12 +9,15 @@ import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationS
 
 describe('featureFlagConfirmationSettingsLogic', () => {
     let logic: ReturnType<typeof featureFlagConfirmationSettingsLogic.build>
+    let lastCapturedPayload: any = null
 
     beforeEach(() => {
+        lastCapturedPayload = null
         useMocks({
             patch: {
-                '/api/projects/:id': async (req, res, ctx) => {
-                    const updatedTeam = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
+                '/api/environments/:id': async (req, res, ctx) => {
+                    lastCapturedPayload = await req.json()
+                    const updatedTeam = { ...MOCK_DEFAULT_TEAM, ...lastCapturedPayload }
                     return res(ctx.json(updatedTeam))
                 },
             },
@@ -78,6 +81,11 @@ describe('featureFlagConfirmationSettingsLogic', () => {
             await promise
 
             await expectLogic(logic).toDispatchActions(['updateConfirmationMessageSuccess'])
+
+            // Verify the PATCH request payload contains the empty message
+            expect(lastCapturedPayload).toEqual({
+                feature_flag_confirmation_message: '',
+            })
         })
     })
 
