@@ -161,6 +161,7 @@ TEAM_CONFIG_FIELDS = (
     "surveys_opt_in",
     "heatmaps_opt_in",
     "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
