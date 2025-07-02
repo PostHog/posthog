@@ -283,6 +283,8 @@ class TestSummarizeSingleSessionWorkflow:
             output_label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=session_id,
         )
+        assert redis_input_key
+        assert redis_output_key
         # Store input data in Redis
         redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
