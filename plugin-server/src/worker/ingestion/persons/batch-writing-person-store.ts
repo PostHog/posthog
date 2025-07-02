@@ -158,7 +158,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode.toLowerCase(),
+                                method: this.options.dbWriteMode,
                                 outcome: 'attempt',
                             })
 
@@ -190,7 +190,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode.toLowerCase(),
+                                method: this.options.dbWriteMode,
                                 outcome: 'success',
                             })
                         } catch (error) {
@@ -207,7 +207,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 )
                                 personWriteMethodAttemptCounter.inc({
                                     db_write_mode: this.options.dbWriteMode,
-                                    method: this.options.dbWriteMode.toLowerCase(),
+                                    method: this.options.dbWriteMode,
                                     outcome: 'error',
                                 })
                                 return
