@@ -13,7 +13,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
+import { ActivityScope, CorrelationConfigType, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
@@ -702,6 +702,57 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    correlation_config: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        const before = change.before as CorrelationConfigType
+        const after = change.after as CorrelationConfigType
+
+        const descriptions = []
+
+        const sameArray = (a: string[], b: string[]): boolean => {
+            if (a.length !== b.length) {
+                return false
+            }
+            return a.every((x) => b.includes(x)) && b.every((x) => a.includes(x))
+        }
+
+        if (
+            after.excluded_person_property_names &&
+            !sameArray(before.excluded_person_property_names || [], after.excluded_person_property_names)
+        ) {
+            descriptions.push(
+                <>
+                    set <em>excluded person properties</em> to{' '}
+                    <code>{after.excluded_person_property_names.join(', ')}</code>
+                </>
+            )
+        }
+
+        if (
+            after.excluded_event_property_names &&
+            !sameArray(before.excluded_event_property_names || [], after.excluded_event_property_names)
+        ) {
+            descriptions.push(
+                <>
+                    set <em>excluded event properties</em> to{' '}
+                    <code>{after.excluded_event_property_names.join(', ')}</code>
+                </>
+            )
+        }
+
+        if (after.excluded_event_names && !sameArray(before.excluded_event_names || [], after.excluded_event_names)) {
+            descriptions.push(
+                <>
+                    set <em>excluded event names</em> to <code>{after.excluded_event_names.join(', ')}</code>
+                </>
+            )
+        }
+
+        return { description: descriptions }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -727,9 +778,7 @@ const teamActionsMapping: Record<
     marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
 
     // TODO implement these when possible
-    access_control: () => null,
     app_urls: () => null,
-    correlation_config: () => null,
     group_types: () => null,
     revenue_analytics_config: () => null,
 
@@ -750,6 +799,7 @@ const teamActionsMapping: Record<
     effective_membership_level: () => null,
     default_modifiers: () => null,
     is_demo: () => null,
+    access_control: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
