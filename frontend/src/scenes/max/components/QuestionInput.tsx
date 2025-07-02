@@ -112,8 +112,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isThreadVisible,
-                            'bottom-[7px] right-2': !isThreadVisible,
+                            'bottom-[11px] right-3': isFloating,
+                            'bottom-[7px] right-2': !isFloating,
                         })}
                     >
                         <AIConsentPopoverWrapper
