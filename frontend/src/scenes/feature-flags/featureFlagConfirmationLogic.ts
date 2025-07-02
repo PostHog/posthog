@@ -13,11 +13,11 @@ export const featureFlagConfirmationLogic = kea<featureFlagConfirmationLogicType
     path(['scenes', 'feature-flags', 'featureFlagConfirmationLogic']),
     props({} as FeatureFlagConfirmationLogicProps),
     key(({ featureFlag }) => featureFlag.id ?? 'new'),
-    actions(() => ({
-        setFlagChanges: true,
-        showConfirmationModal: true,
+    actions({
+        setFlagChanges: (changes: string[]) => ({ changes }),
+        showConfirmationModal: (show: boolean) => ({ show }),
         confirmChanges: true,
-    })),
+    }),
     reducers({
         flagChanges: [
             [] as string[],
