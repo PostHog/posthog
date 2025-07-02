@@ -147,7 +147,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 onConfirm: confirmFlagChanges,
             })
         }
-    }, [confirmationModalVisible, confirmationModalChanges, pendingFlagForConfirmation, confirmFlagChanges])
+    }, [
+        confirmationModalVisible,
+        confirmationModalChanges,
+        pendingFlagForConfirmation,
+        confirmFlagChanges,
+        currentTeam,
+    ])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
