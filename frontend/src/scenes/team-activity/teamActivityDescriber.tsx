@@ -480,6 +480,19 @@ const teamActionsMapping: Record<
             description: [<>completed their onboarding</>],
         }
     },
+    slack_incoming_webhook: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the Slack incoming webhook to {change.after}
+                </>,
+            ],
+        }
+    },
     data_attributes: (change): ChangeMapping | null => {
         if (!change || !change.after) {
             return null
@@ -565,7 +578,6 @@ const teamActionsMapping: Record<
     path_cleaning_filters: () => null,
     person_display_name_properties: () => null,
     primary_dashboard: () => null,
-    slack_incoming_webhook: () => null,
     timezone: () => null,
     revenue_analytics_config: () => null,
     flags_persistence_default: () => null,
