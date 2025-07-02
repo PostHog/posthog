@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -14,21 +13,12 @@ import {
     RevenueAnalyticsRevenueQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LemonButton, LemonSegmentedButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { DISPLAY_MODE_OPTIONS, TileProps, TileWrapper } from './components'
-
-const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
-    line: GraphType.Line,
-    area: GraphType.Line,
-    bar: GraphType.Bar,
-
-    // not really supported, but here to satisfy the type checker
-    table: GraphType.Line,
-}
+import { DISPLAY_MODE_OPTIONS, RevenueAnalyticsLineGraph, TileProps, TileWrapper } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsRevenueNode(props: {
@@ -88,7 +78,7 @@ const GrossRevenueTile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsRevenueQueryResponse>): JSX.Element => {
-    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, revenueGoals, groupBy, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
     const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
@@ -118,13 +108,10 @@ const GrossRevenueTile = ({
             {responseLoading ? (
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
-                <LineGraph
+                <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-revenue-tile-graph"
-                    type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
                     datasets={datasets}
                     labels={labels}
-                    isArea={insightsDisplayMode !== 'line'}
-                    isInProgress={!dateFilter.dateTo}
                     legend={{
                         display: groupBy.length > 0 && datasets.length > 1,
                         position: 'right',
@@ -151,7 +138,6 @@ const GrossRevenueTile = ({
                             }
                         }),
                     }}
-                    labelGroupType="none"
                 />
             )}
         </TileWrapper>
@@ -164,7 +150,7 @@ const MRRTile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsRevenueQueryResponse>): JSX.Element => {
-    const { baseCurrency, groupBy, mrrMode, dateFilter } = useValues(revenueAnalyticsLogic)
+    const { baseCurrency, groupBy, mrrMode } = useValues(revenueAnalyticsLogic)
     const { setMRRMode } = useActions(revenueAnalyticsLogic)
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
@@ -208,12 +194,10 @@ const MRRTile = ({
             {responseLoading ? (
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
-                <LineGraph
+                <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-mrr-tile-graph"
-                    type={GraphType.Line}
                     datasets={datasets}
                     labels={labels}
-                    isInProgress={!dateFilter.dateTo}
                     legend={{
                         display: groupBy.length > 0 && datasets.length > 1,
                         position: 'right',
@@ -225,7 +209,6 @@ const MRRTile = ({
                         aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                         aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
                     }}
-                    labelGroupType="none"
                 />
             )}
         </TileWrapper>

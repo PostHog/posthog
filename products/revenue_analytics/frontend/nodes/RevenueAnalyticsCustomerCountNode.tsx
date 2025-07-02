@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -12,20 +11,11 @@ import {
     RevenueAnalyticsCustomerCountQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { DISPLAY_MODE_OPTIONS, TileProps, TileWrapper } from './components'
-
-const DISPLAY_MODE_TO_GRAPH_TYPE: Record<DisplayMode, GraphType> = {
-    line: GraphType.Line,
-    area: GraphType.Line,
-    bar: GraphType.Bar,
-
-    // not really supported, but here to satisfy the type checker
-    table: GraphType.Line,
-}
+import { DISPLAY_MODE_OPTIONS, RevenueAnalyticsLineGraph, TileProps, TileWrapper } from './shared'
 
 let uniqueNode = 0
 export function RevenueAnalyticsCustomerCountNode(props: {
@@ -82,7 +72,7 @@ const SubscriptionCountTile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsCustomerCountQueryResponse>): JSX.Element => {
-    const { insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
+    const { insightsDisplayMode } = useValues(revenueAnalyticsLogic)
     const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
@@ -112,16 +102,10 @@ const SubscriptionCountTile = ({
             {responseLoading ? (
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
-                <LineGraph
+                <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-subscription-count-tile-graph"
-                    type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
                     datasets={datasets}
                     labels={labels}
-                    isArea={insightsDisplayMode !== 'line'}
-                    isInProgress={!dateFilter.dateTo}
-                    legend={{ display: true, position: 'right' }}
-                    trendsFilter={{ aggregationAxisFormat: 'numeric' }}
-                    labelGroupType="none"
                 />
             )}
         </TileWrapper>
@@ -141,7 +125,7 @@ const CustomerCountTile = ({
     queryId,
     context,
 }: TileProps<RevenueAnalyticsCustomerCountQueryResponse>): JSX.Element => {
-    const { insightsDisplayMode, dateFilter } = useValues(revenueAnalyticsLogic)
+    const { insightsDisplayMode } = useValues(revenueAnalyticsLogic)
     const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 
     const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
@@ -171,16 +155,10 @@ const CustomerCountTile = ({
             {responseLoading ? (
                 <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
             ) : (
-                <LineGraph
+                <RevenueAnalyticsLineGraph
                     data-attr="revenue-analytics-customer-count-tile-graph"
-                    type={DISPLAY_MODE_TO_GRAPH_TYPE[insightsDisplayMode]}
                     datasets={datasets}
                     labels={labels}
-                    isArea={insightsDisplayMode !== 'line'}
-                    isInProgress={!dateFilter.dateTo}
-                    legend={{ display: true, position: 'right' }}
-                    trendsFilter={{ aggregationAxisFormat: 'numeric' }}
-                    labelGroupType="none"
                 />
             )}
         </TileWrapper>
