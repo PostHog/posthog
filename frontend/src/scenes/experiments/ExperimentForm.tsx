@@ -1,6 +1,7 @@
 import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
+    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonModal,
@@ -314,6 +315,35 @@ const ExperimentFormFields = (): JSX.Element => {
                                     )}
                                 </div>
                             </div>
+                        </div>
+                        <div className="mt-10">
+                            <h3 className="mb-1">Advanced settings</h3>
+                            <LemonDivider />
+                            <LemonField name="parameters.ensure_experience_continuity">
+                                {({ value, onChange }) => (
+                                    <div className="border rounded p-4">
+                                        <LemonCheckbox
+                                            id="continuity-checkbox"
+                                            label="Persist flag across authentication steps"
+                                            onChange={() => onChange(!value)}
+                                            fullWidth
+                                            checked={value}
+                                        />
+                                        <div className="text-secondary text-sm pl-7">
+                                            If your feature flag is applied before identifying the user, use this to
+                                            ensure that the flag value remains consistent for the same user. Depending
+                                            on your setup, this option might not always be suitable. This feature
+                                            requires creating profiles for anonymous users.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                target="_blank"
+                                            >
+                                                Learn more
+                                            </Link>
+                                        </div>
+                                    </div>
+                                )}
+                            </LemonField>
                         </div>
                     </>
                 )}
