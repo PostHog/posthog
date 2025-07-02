@@ -4,6 +4,7 @@ from functools import cached_property
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
+    HogQLQueryResponse,
     CachedRevenueAnalyticsCustomerCountQueryResponse,
     RevenueAnalyticsCustomerCountQueryResponse,
     RevenueAnalyticsCustomerCountQuery,
@@ -30,8 +31,6 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
 
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()
-            if dates_expr is None:
-                return ast.SelectQuery.empty()
 
         timestamp_expr = ast.And(
             exprs=[
@@ -211,7 +210,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
             right=ast.Field(chain=["period_start"]),
         )
 
-    def _build_results(self, response: RevenueAnalyticsCustomerCountQueryResponse) -> dict:
+    def _build_results(self, response: HogQLQueryResponse) -> list[dict]:
         # We want the result to look just like the Insights query results look like to simplify our UI
         # First, let's generate all of the dates/labels because they'll be exactly the same for all of the results
         all_dates = self.query_date_range.all_values()

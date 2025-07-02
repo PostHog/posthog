@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
+    HogQLQueryResponse,
     CachedRevenueAnalyticsRevenueQueryResponse,
     RevenueAnalyticsRevenueQueryResponse,
     RevenueAnalyticsRevenueQuery,
@@ -116,7 +117,7 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
 
         return query
 
-    def _build_results(self, response: RevenueAnalyticsRevenueQueryResponse) -> RevenueAnalyticsRevenueQueryResult:
+    def _build_results(self, response: HogQLQueryResponse) -> RevenueAnalyticsRevenueQueryResult:
         # We want the result to look just like the Insights query results look like to simplify our UI
         # First, let's generate all of the dates/labels because they'll be exactly the same for all of the results
         all_dates = self.query_date_range.all_values()

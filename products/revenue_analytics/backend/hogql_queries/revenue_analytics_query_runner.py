@@ -157,6 +157,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ),
             )
+        return None
 
     def _create_customer_join(
         self,
@@ -177,6 +178,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ),
             )
+        return None
 
     def _create_charge_join(
         self,
@@ -197,6 +199,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ),
             )
+        return None
 
     def _create_subscription_join(
         self,
@@ -219,6 +222,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ),
             )
+        return None
 
     def _create_invoice_item_join(
         self,
@@ -241,6 +245,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ),
             )
+        return None
 
     @cached_property
     def revenue_selects(self) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
