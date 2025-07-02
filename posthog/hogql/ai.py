@@ -2712,6 +2712,34 @@ Here is the taxonomy for person properties:
     }
 """
 
+FILTER_TAXONOMY_MESSAGE = """
+Here is the taxonomy for event properties:
+PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
+    PropertyOperator.EXACT: "matches exactly",
+    PropertyOperator.IS_NOT: "is not",
+    PropertyOperator.ICONTAINS: "contains",
+    PropertyOperator.NOT_ICONTAINS: "doesn't contain",
+    PropertyOperator.REGEX: "matches regex",
+    PropertyOperator.NOT_REGEX: "doesn't match regex",
+    PropertyOperator.GT: "greater than",
+    PropertyOperator.GTE: "greater than or equal to",
+    PropertyOperator.LT: "less than",
+    PropertyOperator.LTE: "less than or equal to",
+    PropertyOperator.IS_SET: "is set",
+    PropertyOperator.IS_NOT_SET: "is not set",
+    PropertyOperator.IS_DATE_EXACT: "is on exact date",
+    PropertyOperator.IS_DATE_BEFORE: "is before date",
+    PropertyOperator.IS_DATE_AFTER: "is after date",
+    PropertyOperator.BETWEEN: "is between",
+    PropertyOperator.NOT_BETWEEN: "is not between",
+    PropertyOperator.MIN: "is a minimum value",
+    PropertyOperator.MAX: "is a maximum value",
+    PropertyOperator.IN_: "is one of the values in",
+    PropertyOperator.NOT_IN: "is not one of the values in",
+    PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
+}
+"""
+
 HOG_FUNCTION_FILTERS_SYSTEM_PROMPT = """You are an expert at creating filters for PostHog hog functions.
 
 Create filters based on the user's instructions. Return the filters as a JSON object with the following structure:

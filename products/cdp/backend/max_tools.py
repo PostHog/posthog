@@ -11,6 +11,7 @@ from posthog.hogql.ai import (
     EVENT_TAXONOMY_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
     PERSON_TAXONOMY_MESSAGE,
+    FILTER_TAXONOMY_MESSAGE,
 )
 from products.cdp.backend.prompts import (
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
@@ -136,7 +137,10 @@ class CreateHogFunctionFiltersTool(MaxTool):
             + "\n</event_property_taxonomy>\n\n"
             + "\n\n<person_property_taxonomy>\n"
             + PERSON_TAXONOMY_MESSAGE
-            + "\n</person_property_taxonomy>"
+            + "\n</person_property_taxonomy>\n\n"
+            + "\n\n<filter_taxonomy>\n"
+            + FILTER_TAXONOMY_MESSAGE
+            + "\n</filter_taxonomy>"
         )
 
         user_content = f"Create filters for this hog function: {instructions}"
