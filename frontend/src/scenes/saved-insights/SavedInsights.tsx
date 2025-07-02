@@ -32,7 +32,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -71,6 +70,7 @@ import {
 
 import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -752,7 +752,64 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
+            {/* <SceneHeader
+                pageTitle="Insights"
+                pageIcon={<IconGraph />}
+                pageTitleEditable={true}
+                // handlePageTitleSubmit={(title) => {
+                //     console.log('saved title', title)
+                // }}
+                breadcrumbs={[
+                    {
+                        name: 'Product analytics',
+                        to: urls.insights(),
+                        id: 'product-analytics',
+                        icon: <IconGraph />,
+                        iconColor: '#2F80FA',
+                    },
+                ]}
+                navItems={[
+                    {
+                        title: 'File',
+                        id: 'file',
+                        children: [
+                            {
+                                title: 'New Insight',
+                                id: 'new-insight',
+                                icon: <IconPlusSmall />,
+                                to: urls.insightNew(),
+                                type: 'link',
+                            },
+                            {
+                                title: 'New...',
+                                id: 'new',
+                                icon: <IconPlusSmall />,
+                                type: 'submenu',
+                                children: [
+                                    {
+                                        title: 'Trend',
+                                        id: 'new-trend',
+                                        icon: <IconPlusSmall />,
+                                        to: urls.insightNew(),
+                                        type: 'link',
+                                    },
+                                    {
+                                        title: 'Lifecycle',
+                                        id: 'new-trend',
+                                        icon: <IconPlusSmall />,
+                                        to: urls.insightNew(),
+                                        type: 'link',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ]}
+            >
+                <NewInsightButton dataAttr="saved-insights-create-new-insight" />
+            </SceneHeader> */}
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
+
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
