@@ -2,12 +2,14 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { FeatureFlagType } from '~/types'
 import { openConfirmationModal } from './ConfirmationModal'
 
+import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
+
 export interface FeatureFlagConfirmationLogicProps {
     featureFlag: FeatureFlagType
     onConfirm: () => void
 }
 
-export const featureFlagConfirmationLogic = kea<any>([
+export const featureFlagConfirmationLogic = kea<featureFlagConfirmationLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConfirmationLogic']),
     props({} as FeatureFlagConfirmationLogicProps),
     key(({ featureFlag }) => featureFlag.id ?? 'new'),

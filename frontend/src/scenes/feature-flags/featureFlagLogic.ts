@@ -337,6 +337,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         showConfirmationModal: (changes: string[], pendingFlag: Partial<FeatureFlagType>) => ({ changes, pendingFlag }),
         hideConfirmationModal: true,
+        confirmFlagChanges: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -1165,11 +1166,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlag()
             }
         },
-        showConfirmationModal: () => {
-            // Modal state is handled by reducers
-        },
-        hideConfirmationModal: () => {
-            // Modal state is handled by reducers
+        confirmFlagChanges: () => {
+            // Proceed with saving the pending flag
+            const pendingFlag = values.pendingFlagForConfirmation
+            if (pendingFlag) {
+                actions.hideConfirmationModal()
+                if (pendingFlag.id) {
+                    actions.saveFeatureFlag(pendingFlag)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Feature Flags',
+                        callback: (folder) => actions.saveFeatureFlag({ ...pendingFlag, _create_in_folder: folder }),
+                    })
+                }
+            }
         },
     })),
     selectors({
