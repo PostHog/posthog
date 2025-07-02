@@ -33,7 +33,6 @@ class MetaAdsResource(StrEnum):
     Account = "account"
 
 
-# Resource mapping for API endpoints
 RESOURCE_ENDPOINTS = {
     MetaAdsResource.Campaign: "campaigns",
     MetaAdsResource.Adset: "adsets",
@@ -150,7 +149,6 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
 
 
-# Simple schema structure without typing
 class MetaAdsSchema:
     def __init__(self, name: str, primary_key: list[str], field_names: list[str]):
         self.name = name
