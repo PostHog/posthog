@@ -549,6 +549,20 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    person_display_name_properties: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    changed the <em>person display name properties</em> to{' '}
+                    <code>[{(change.after as string[]).join(', ')}]</code>
+                </>,
+            ],
+        }
+    },
     has_group_types: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -654,7 +668,6 @@ const teamActionsMapping: Record<
     correlation_config: () => null,
     group_types: () => null,
     path_cleaning_filters: () => null,
-    person_display_name_properties: () => null,
     primary_dashboard: () => null,
     revenue_analytics_config: () => null,
     has_completed_onboarding_for: () => null,
