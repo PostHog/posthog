@@ -53,7 +53,7 @@ export type QueryContextColumnComponent = ComponentType<{
     value: unknown
 }>
 
-interface QueryContextColumn {
+export interface QueryContextColumn {
     title?: JSX.Element | string
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent

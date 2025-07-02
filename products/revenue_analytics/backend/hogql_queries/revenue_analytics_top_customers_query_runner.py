@@ -55,14 +55,13 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
         # If there's a way to join with the customer table, then do it
-        _, customer_subquery, _, _ = self.revenue_subqueries
-        if customer_subquery is not None:
+        if self.revenue_subqueries.customer is not None:
             base_query.select[0] = ast.Alias(
                 alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
             )
             select_from = cast(ast.JoinExpr, base_query.select_from)
             select_from.next_join = ast.JoinExpr(
-                table=customer_subquery,
+                table=self.revenue_subqueries.customer,
                 alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
@@ -78,8 +77,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         return base_query
 
     def inner_query(self) -> ast.SelectQuery:
-        _, _, invoice_subquery, _ = self.revenue_subqueries
-        if invoice_subquery is None:
+        if self.revenue_subqueries.invoice_item is None:
             # Empty query because there are no invoice items, but still include the right columns
             # to make sure the outer query works
             return ast.SelectQuery(
@@ -114,7 +112,10 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
                 ),
             ],
             select_from=self.append_joins(
-                ast.JoinExpr(alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_subquery),
+                ast.JoinExpr(
+                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.invoice_item,
+                ),
                 self.joins_for_properties,
             ),
             where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),

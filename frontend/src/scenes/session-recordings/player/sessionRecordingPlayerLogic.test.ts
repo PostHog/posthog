@@ -17,6 +17,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -329,31 +330,31 @@ describe('sessionRecordingPlayerLogic', () => {
                 }),
             })
         })
+    })
 
+    describe('the logger override', () => {
         it('captures replayer warnings', async () => {
             jest.useFakeTimers()
-            logic = sessionRecordingPlayerLogic({
-                sessionRecordingId: '4',
-                playerKey: 'test',
-                matchingEventsMatchType: {
-                    matchType: 'uuid',
-                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
-                },
-            })
-            logic.mount()
 
-            console.warn('[replayer]', 'test')
-            console.warn('[replayer]', 'test2')
+            let warningCounts = 0
+            const logger = makeLogger((x) => (warningCounts += x))
 
-            expect(mockWarn).not.toHaveBeenCalled()
+            logger.logger.warn('[replayer]', 'test')
+            logger.logger.warn('[replayer]', 'test2')
+            logger.logger.log('[replayer]', 'test3')
 
             expect((window as any).__posthog_player_warnings).toEqual([
                 ['[replayer]', 'test'],
                 ['[replayer]', 'test2'],
             ])
+            expect((window as any).__posthog_player_logs).toEqual([['[replayer]', 'test3']])
+
             jest.runOnlyPendingTimers()
             expect(mockWarn).toHaveBeenCalledWith(
                 '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
+            )
+            expect(mockWarn).toHaveBeenCalledWith(
+                '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
             )
         })
     })
