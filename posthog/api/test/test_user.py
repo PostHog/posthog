@@ -220,7 +220,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.role_at_organization, "engineering")
 
         mock_capture.assert_called_once_with(
-            "user updated",
+            event="user updated",
             distinct_id=user.distinct_id,
             properties={
                 "updated_attrs": [
@@ -516,7 +516,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_team, self.new_project)
 
         mock_capture.assert_called_once_with(
-            "user updated",
+            event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
@@ -544,7 +544,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_team, team)
 
         mock_capture.assert_called_once_with(
-            "user updated",
+            event="user updated",
             distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
@@ -686,7 +686,7 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            "user updated",
+            event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
@@ -725,7 +725,7 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            "user updated",
+            event="user updated",
             distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
@@ -1311,7 +1311,7 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            "user logged in",
+            event="user logged in",
             distinct_id=self.user.distinct_id,
             properties={"social_provider": ""},
             groups={
@@ -1321,13 +1321,13 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
         mock_capture.assert_any_call(
-            "user verified email",
+            event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
         )
 
         mock_capture.assert_any_call(
-            "verification email sent",
+            event="verification email sent",
             distinct_id=self.user.distinct_id,
             groups={
                 "organization": str(self.team.organization_id),
