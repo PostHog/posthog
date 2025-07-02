@@ -84,10 +84,6 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
  * @returns true if the properties were changed, false if they were not
  */
 export function applyEventPropertyUpdates(propertyUpdates: PropertyUpdates, personProperties: Properties): boolean {
-    if (!propertyUpdates.hasChanges) {
-        return false
-    }
-
     let updated = false
     const metricsKeys = new Set<string>()
 
