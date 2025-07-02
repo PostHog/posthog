@@ -2,6 +2,7 @@ import datetime as dt
 import time
 import typing
 
+import structlog
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
@@ -233,4 +234,8 @@ def log_execution_time(
     try:
         logger.info(log_message, arguments)
     except:
-        logger.exception("Failed to log execution time with attributes '%s'", arguments)
+        logger.exception(
+            "Failed to log execution time with attributes '%s' and configuration '%s'",
+            arguments,
+            structlog.get_config(),
+        )
