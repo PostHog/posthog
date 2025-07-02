@@ -726,14 +726,17 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
-                    raise ResolutionError(
-                        f"Data Warehouse Join HogQL expression should be a Field or Call node, "
-                        f"but got {type(field).__name__}. "
-                        f"Team: {team.pk}, "
-                        f"Join: {join.source_table_name} -> {join.joining_table_name}, "
-                        f"field: {join.field_name}, "
-                        f"source_key: '{join.source_table_key}'"
+                    capture_exception(
+                        ResolutionError(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node, "
+                            f"but got {type(field).__name__}. "
+                            f"Team: {team.pk}, "
+                            f"Join: {join.source_table_name} -> {join.joining_table_name}, "
+                            f"field: {join.field_name}, "
+                            f"source_key: '{join.source_table_key}'"
+                        )
                     )
+                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
@@ -747,14 +750,17 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
-                    raise ResolutionError(
-                        f"Data Warehouse Join HogQL expression should be a Field or Call node, "
-                        f"but got {type(field).__name__}. "
-                        f"Team: {team.pk}, "
-                        f"Join: {join.source_table_name} -> {join.joining_table_name}, "
-                        f"field: {join.field_name}, "
-                        f"joining_key: '{join.joining_table_key}'"
+                    capture_exception(
+                        ResolutionError(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node, "
+                            f"but got {type(field).__name__}. "
+                            f"Team: {team.pk}, "
+                            f"Join: {join.source_table_name} -> {join.joining_table_name}, "
+                            f"field: {join.field_name}, "
+                            f"joining_key: '{join.joining_table_key}'"
+                        )
                     )
+                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
                 source_table.fields[join.field_name] = LazyJoin(
                     from_field=from_field,
