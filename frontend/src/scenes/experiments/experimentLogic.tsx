@@ -7,7 +7,7 @@ import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -51,7 +51,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    BillingType,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -93,7 +92,6 @@ import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
     percentageDistribution,
-    shouldUseNewQueryRunnerForNewObjects,
     toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
@@ -1040,7 +1038,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined
+                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1176,6 +1174,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
                     ].reverse()
 
+                    /**
+                     * TODO: replace with a queryBuilder composed from getQuery
+                     */
                     for (const query of metrics) {
                         const insightQuery = toInsightVizNode(query)
 
@@ -1842,8 +1843,8 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         usesNewQueryRunner: [
-            (s) => [s.experiment, s.featureFlags, s.billing],
-            (experiment: Experiment, featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
                 const hasLegacyMetrics = isLegacyExperiment(experiment)
 
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
@@ -1857,8 +1858,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                // If the experiment has no experiment metrics, we use the new query runner if the feature is enabled
-                return shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)
+                // If the experiment has no experiment metrics, we use the new query runner
+                return true
             },
         ],
         hasMinimumExposureForResults: [

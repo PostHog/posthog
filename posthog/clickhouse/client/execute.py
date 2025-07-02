@@ -20,13 +20,15 @@ from posthog.clickhouse.client.connection import (
     ClickHouseUser,
 )
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, QueryTags, AccessMethod, Feature
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
 from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST, API_QUERIES_ON_ONLINE_CLUSTER
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
+from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
+from opentelemetry import trace
 
 QUERY_STARTED_COUNTER = Counter(
     "posthog_clickhouse_query_sent",
@@ -105,6 +107,7 @@ logger = logging.getLogger(__name__)
 
 
 @patchable
+@trace_clickhouse_query_decorator
 def sync_execute(
     query,
     args=None,
@@ -156,6 +159,8 @@ def sync_execute(
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
+    trace.get_current_span().set_attribute("clickhouse.final_workload", workload.value)
+
     if team_id is not None:
         tags.team_id = team_id
 
@@ -174,6 +179,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
+        elif tags.feature == Feature.CACHE_WARMUP:
+            ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()

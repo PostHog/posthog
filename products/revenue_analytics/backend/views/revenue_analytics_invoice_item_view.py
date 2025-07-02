@@ -44,6 +44,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
     "invoice_id": StringDatabaseField(name="invoice_id"),
+    "subscription_id": StringDatabaseField(name="subscription_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
     "coupon": StringDatabaseField(name="coupon"),
@@ -199,9 +200,8 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                     ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
-                    ast.Alias(
-                        alias="invoice_id", expr=ast.Constant(value=None)
-                    ),  # Helpful for sources, not helpful for events
+                    ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
@@ -310,13 +310,20 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ast.Alias(
                     alias="is_recurring",
                     expr=ast.Call(
-                        name="isNotNull",
-                        args=[ast.Field(chain=["subscription_id"])],
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="notEmpty",
+                                args=[ast.Field(chain=["subscription_id"])],
+                            ),
+                            ast.Constant(value=0),
+                        ],
                     ),
                 ),
                 ast.Field(chain=["product_id"]),
                 ast.Field(chain=["customer_id"]),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
+                ast.Field(chain=["subscription_id"]),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
                 ast.Alias(alias="coupon", expr=extract_json_string("discount", "coupon", "name")),
