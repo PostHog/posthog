@@ -1019,17 +1019,17 @@ def capture_internal(
     site_url,
     now,
     sent_at,
-    to_capture_rs=False,
     event_uuid=None,
     token=None,
     historical=False,
     extra_headers: list[tuple[str, str]] | None = None,
+    to_capture_rs: bool = False,
 ):
     # respect old capture_internal API/behavior during the transition to
     # new capture_internal. If applied, default person processing to disabled
     # unless explicitly enabled (for now, in event props for parity w/old)
     if to_capture_rs:
-        process_person_profile = event.get("properties", {}).get("$process_person_profile", False)
+        process_person_profile = bool(event.get("properties", {}).get("$process_person_profile", False))
         return new_capture_internal(token, distinct_id, event, process_person_profile)
 
     if event_uuid is None:
