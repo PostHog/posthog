@@ -17,6 +17,8 @@ import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
+import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
+import { CurrencyCode } from '~/queries/schema/schema-general'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -432,6 +434,30 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    base_currency: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        const before = change.before as CurrencyCode
+        const after = change.after as CurrencyCode
+
+        return {
+            description: [
+                <>
+                    changed the <em>base currency</em> from{' '}
+                    <strong>
+                        {CURRENCY_SYMBOL_TO_EMOJI_MAP[before]}&nbsp;{before}
+                    </strong>{' '}
+                    ({CURRENCY_SYMBOL_TO_NAME_MAP[before]}) to{' '}
+                    <strong>
+                        {CURRENCY_SYMBOL_TO_EMOJI_MAP[after]}&nbsp;{after}
+                    </strong>{' '}
+                    ({CURRENCY_SYMBOL_TO_NAME_MAP[after]})
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -454,6 +480,7 @@ const teamActionsMapping: Record<
             description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
         }
     },
+    marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
 
     // TODO implement these when possible
     access_control: () => null,
@@ -477,8 +504,6 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     revenue_analytics_config: () => null,
-    marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
-    base_currency: () => null,
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
