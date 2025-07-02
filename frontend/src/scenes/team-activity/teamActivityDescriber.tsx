@@ -638,6 +638,36 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    has_completed_onboarding_for: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        const beforeProducts: { [key: string]: boolean } = (change.before as { [key: string]: boolean }) || {}
+        const afterProducts: { [key: string]: boolean } = (change.after as { [key: string]: boolean }) || {}
+
+        const newlyCompletedProducts = Object.entries(afterProducts).filter(
+            ([product, completed]) => completed && !beforeProducts[product]
+        )
+
+        if (!newlyCompletedProducts.length) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    completed onboarding for{' '}
+                    {newlyCompletedProducts.map(([product], index) => (
+                        <span key={product}>
+                            {index > 0 && <>, </>}
+                            <strong>{product}</strong>
+                        </span>
+                    ))}
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -670,7 +700,6 @@ const teamActionsMapping: Record<
     path_cleaning_filters: () => null,
     primary_dashboard: () => null,
     revenue_analytics_config: () => null,
-    has_completed_onboarding_for: () => null,
 
     // should never come from the backend
     created_at: () => null,
