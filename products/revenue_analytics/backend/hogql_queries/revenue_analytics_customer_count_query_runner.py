@@ -256,7 +256,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
 
         with self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
-                query_type="revenue_analytics_revenue_query",
+                query_type="revenue_analytics_customer_count_query",
                 query=query,
                 team=self.team,
                 timings=self.timings,
