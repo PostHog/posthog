@@ -207,7 +207,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {insightMode !== ItemMode.Edit && hasDashboardItemId && (
+                        {!newSceneLayout && insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <AlertsButton
                                     insight={insight}
