@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
+import isEqual from 'lodash.isequal'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -294,8 +295,8 @@ function detectFeatureFlagChanges(
         }
     }
 
-    // Check for release condition changes (simplified comparison)
-    if (JSON.stringify(originalFlag.filters.groups) !== JSON.stringify(updatedFlag.filters?.groups)) {
+    // Check for release condition changes
+    if (!isEqual(originalFlag.filters.groups, updatedFlag.filters?.groups)) {
         changes.push('Modify release conditions')
     }
 
@@ -412,9 +413,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                // TODO: Check team setting for feature_flag_confirmation_enabled
-                // For now, always show confirmation for existing flags with changes
-                const needsConfirmation = !!featureFlag.id
+                // Check team setting for feature flag confirmation
+                const needsConfirmation = !!featureFlag.id && !!values.currentTeam?.feature_flag_confirmation_enabled
 
                 if (needsConfirmation) {
                     const changes = detectFeatureFlagChanges(values.originalFeatureFlag, featureFlag)
