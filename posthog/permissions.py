@@ -649,13 +649,13 @@ class UserCanInvitePermission(BasePermission):
         return members_can_invite
 
 
-class PersonalApiKeyCreatePermission(BasePermission):
+class PersonalApiKeyUsePermission(BasePermission):
     """
-    Only allows creation of personal API keys if organization permits it.
-    Admins can always create keys regardless of the setting.
+    Only allows use of personal API keys if organization permits it.
+    Admins can always use keys regardless of the setting.
     """
 
-    message = "Your organization does not allow creating personal API keys."
+    message = "Your organization does not allow using personal API keys."
 
     def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
@@ -671,6 +671,6 @@ class PersonalApiKeyCreatePermission(BasePermission):
             pass
 
         if user.organization:
-            return bool(user.organization.members_can_create_personal_api_keys)
+            return bool(user.organization.members_can_use_personal_api_keys)
 
         return True

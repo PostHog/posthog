@@ -142,7 +142,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             },
         ],
 
-        canCreatePersonalApiKeys: [
+        canUsePersonalApiKeys: [
             (s) => [s.user],
             (user: UserType | null): boolean => {
                 const currentOrg = user?.organization

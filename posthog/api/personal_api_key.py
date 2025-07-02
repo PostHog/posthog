@@ -10,7 +10,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, mask_key_value
-from posthog.permissions import TimeSensitiveActionPermission, PersonalApiKeyCreatePermission
+from posthog.permissions import TimeSensitiveActionPermission, PersonalApiKeyUsePermission
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -140,7 +140,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         IsAuthenticated,
         TimeSensitiveActionPermission,
         PersonalApiKeySelfAccessPermission,
-        PersonalApiKeyCreatePermission,
+        PersonalApiKeyUsePermission,
     ]
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
     queryset = PersonalAPIKey.objects.none()

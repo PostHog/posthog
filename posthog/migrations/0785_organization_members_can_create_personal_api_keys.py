@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="organization",
-            name="members_can_create_personal_api_keys",
+            name="members_can_use_personal_api_keys",
             field=models.BooleanField(default=True, null=True, blank=True),
         ),
     ]

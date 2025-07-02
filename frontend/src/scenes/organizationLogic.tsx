@@ -23,7 +23,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
-        | 'members_can_create_personal_api_keys'
+        | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
         | 'default_experiment_stats_method'
     >

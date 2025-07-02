@@ -367,9 +367,9 @@ export function Members(): JSX.Element | null {
                 label={<span>Members can create personal API keys</span>}
                 bordered
                 data-attr="org-members-can-create-personal-api-keys-toggle"
-                checked={!!currentOrganization?.members_can_create_personal_api_keys}
-                onChange={(members_can_create_personal_api_keys) =>
-                    updateOrganization({ members_can_create_personal_api_keys })
+                checked={!!currentOrganization?.members_can_use_personal_api_keys}
+                onChange={(members_can_use_personal_api_keys) =>
+                    updateOrganization({ members_can_use_personal_api_keys })
                 }
                 disabledReason={membersCanInviteRestrictionReason}
             />

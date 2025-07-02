@@ -230,7 +230,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         """Organization admins can always create personal API keys regardless of organization setting"""
         from posthog.models.organization import OrganizationMembership
 
-        self.organization.members_can_create_personal_api_keys = False
+        self.organization.members_can_use_personal_api_keys = False
         self.organization.save()
 
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -247,7 +247,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         """Regular members cannot create personal API keys when organization disallows it"""
         from posthog.models.organization import OrganizationMembership
 
-        self.organization.members_can_create_personal_api_keys = False
+        self.organization.members_can_use_personal_api_keys = False
         self.organization.save()
 
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -259,13 +259,13 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             {"label": "Test key", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
         )
         assert response.status_code == 403
-        assert "does not allow creating personal API keys" in response.json()["detail"]
+        assert "does not allow using personal API keys" in response.json()["detail"]
 
     def test_member_can_create_personal_api_keys_when_enabled(self):
         """Regular members can create personal API keys when organization allows it"""
         from posthog.models.organization import OrganizationMembership
 
-        self.organization.members_can_create_personal_api_keys = True
+        self.organization.members_can_use_personal_api_keys = True
         self.organization.save()
 
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)

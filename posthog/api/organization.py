@@ -119,7 +119,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
-            "members_can_create_personal_api_keys",
+            "members_can_use_personal_api_keys",
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
@@ -214,7 +214,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
 
-            if any(key in self.request.data for key in ["members_can_invite", "members_can_create_personal_api_keys"]):
+            if any(key in self.request.data for key in ["members_can_invite", "members_can_use_personal_api_keys"]):
                 create_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():

@@ -61,7 +61,7 @@ export function isAdminOrOwnerInOrganization(org: OrganizationBasicType): boolea
 
 /** Check if an organization allows personal API keys (compatibility with nulled column values) */
 export function organizationAllowsPersonalApiKeys(org: OrganizationBasicType): boolean {
-    return org.members_can_create_personal_api_keys !== false
+    return org.members_can_use_personal_api_keys !== false
 }
 
 export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
