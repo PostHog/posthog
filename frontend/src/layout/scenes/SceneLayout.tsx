@@ -95,8 +95,9 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             }
         >
             <div
-                className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative min-h-screen', {
+                className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
+                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelActive,
                 })}
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
