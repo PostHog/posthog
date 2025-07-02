@@ -23,6 +23,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
+import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 export const INSIGHTS_PER_PAGE = 30
 
