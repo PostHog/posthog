@@ -17,15 +17,12 @@ def mock_single_session_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for single-session-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_id: str, redis_input_key: str = "test_input_key", redis_output_key: str = "test_output_key"
-    ) -> SingleSessionSummaryInputs:
+    def _create_inputs(session_id: str, redis_key_base: str = "test_key_base") -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key=redis_input_key,
-            redis_output_key=redis_output_key,
+            redis_key_base=redis_key_base,
         )
 
     return _create_inputs

@@ -9,10 +9,8 @@ from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 import pytest
 from pytest_mock import MockerFixture
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from posthog.temporal.ai.session_summary.shared import (
-    compress_llm_input_data,
-    fetch_session_data_activity,
-)
+from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
+from posthog.temporal.ai.session_summary.state import _compress_redis_data
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
@@ -66,7 +64,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
 ):
     # Prepare input data
     llm_input = mock_single_session_summary_llm_inputs(mock_session_id)
-    compressed_llm_input_data = compress_llm_input_data(llm_input)
+    compressed_llm_input_data = _compress_redis_data(json.dumps(llm_input.to_dict()))
     input_data = mock_single_session_summary_inputs(mock_session_id)
     # Set up spies to track Redis operations
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")

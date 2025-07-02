@@ -14,10 +14,13 @@ from ee.session_recordings.session_summary import ExceptionToRetry
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.summarize_session import (
     SingleSessionSummaryData,
+    SingleSessionSummaryLlmInputs,
 )
-from posthog.temporal.ai.session_summary.shared import (
-    compress_llm_input_data,
-    get_single_session_summary_llm_input_from_redis,
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    _compress_redis_data,
+    generate_state_key,
+    get_data_class_from_redis,
 )
 from posthog.temporal.ai.session_summary.summarize_session import (
     SingleSessionSummaryInputs,
@@ -89,7 +92,11 @@ class TestFetchSessionDataActivity:
     ):
         """Test that fetch_session_data_activity stores compressed data correctly in Redis."""
         session_id = "test_fetch_session_id"
+        key_base = "fetch_session_data_activity_standalone"
         input_data = mock_single_session_summary_inputs(session_id)
+        redis_input_key = generate_state_key(
+            key_base=key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
+        )
         # Set up a spy to track Redis operations
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         with (
@@ -111,11 +118,14 @@ class TestFetchSessionDataActivity:
             # Verify Redis operations
             assert spy_setex.call_count == 1  # Store compressed data
             # Verify the data was stored correctly
-            stored_data = redis_test_setup.redis_client.get(input_data.redis_input_key)
+            stored_data = redis_test_setup.redis_client.get(redis_input_key)
             assert stored_data is not None
             # Verify we can decompress and parse the stored data
-            decompressed_data = get_single_session_summary_llm_input_from_redis(
-                redis_test_setup.redis_client, input_data.redis_input_key
+            decompressed_data = get_data_class_from_redis(
+                redis_client=redis_test_setup.redis_client,
+                redis_key=redis_input_key,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                target_class=SingleSessionSummaryLlmInputs,
             )
             assert decompressed_data.session_id == session_id
             assert decompressed_data.user_id == input_data.user_id
@@ -166,7 +176,7 @@ class TestStreamLlmSummaryActivity:
         redis_test_setup: RedisTestContext,
     ):
         llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id)
-        compressed_llm_input_data = compress_llm_input_data(llm_input_data)
+        compressed_llm_input_data = _compress_redis_data(json.dumps(llm_input_data.to_dict()))
         input_data = mock_single_session_summary_inputs(mock_session_id)
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
@@ -249,7 +259,8 @@ class TestSummarizeSingleSessionWorkflow:
         session_id = mock_session_id
         if session_id_suffix:
             session_id = f"{session_id}-{session_id_suffix}"
-        compressed_llm_input_data = compress_llm_input_data(mock_single_session_summary_llm_inputs(session_id))
+        llm_input_data = mock_single_session_summary_llm_inputs(session_id)
+        compressed_llm_input_data = _compress_redis_data(json.dumps(llm_input_data.to_dict()))
         redis_input_key = f"test_workflow_input_key_{uuid.uuid4()}"
         redis_output_key = f"test_workflow_output_key_{uuid.uuid4()}"
         workflow_id = f"test_workflow_{uuid.uuid4()}"
