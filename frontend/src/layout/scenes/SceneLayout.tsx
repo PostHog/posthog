@@ -19,21 +19,21 @@ type SceneLayoutProps = {
 }
 
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
-    const { fileActionsContainer } = useValues(sceneLayoutLogic)
-    const { setPanelInfoActive } = useActions(sceneLayoutLogic)
+    const { scenePanelElement } = useValues(sceneLayoutLogic)
+    const { setScenePanelActive } = useActions(sceneLayoutLogic)
     // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
-        setPanelInfoActive(true)
+        setScenePanelActive(true)
         return () => {
-            setPanelInfoActive(false)
+            setScenePanelActive(false)
         }
-    }, [setPanelInfoActive])
+    }, [setScenePanelActive])
 
     return (
         <>
             {children &&
-                fileActionsContainer &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, fileActionsContainer)}
+                scenePanelElement &&
+                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -58,8 +58,8 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { setFileActionsContainer, setPanelInfoOpen, setShowPanelOverlay } = useActions(sceneLayoutLogic)
-    const { panelInfoActive, showPanelOverlay, panelInfoOpen } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, setScenePanelOpen, setScenePanelIsOverlay } = useActions(sceneLayoutLogic)
+    const { scenePanelActive, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -67,11 +67,11 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             const resizeObserver = new ResizeObserver((entries) => {
                 for (const entry of entries) {
                     if (entry.contentRect.width >= 1300) {
-                        setShowPanelOverlay(false)
-                        setPanelInfoOpen(true)
+                        setScenePanelIsOverlay(false)
+                        setScenePanelOpen(true)
                     } else {
-                        setShowPanelOverlay(true)
-                        setPanelInfoOpen(false)
+                        setScenePanelIsOverlay(true)
+                        setScenePanelOpen(false)
                     }
                 }
             })
@@ -82,7 +82,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 resizeObserver.disconnect()
             }
         }
-    }, [setPanelInfoOpen])
+    }, [setScenePanelOpen])
 
     return (
         <div
@@ -101,16 +101,17 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
 
-                {panelInfoActive && (
+                {scenePanelActive && (
                     <>
                         <div
                             className={cn(
                                 'scene-layout__content-panel order-2 bg-primary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 sticky top-0 h-screen',
                                 {
-                                    hidden: !panelInfoOpen,
+                                    hidden: !scenePanelOpen,
                                     // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
+                                    // Also important when the SidePanel is open
                                     'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
-                                        showPanelOverlay,
+                                        scenePanelIsOverlay,
                                 }
                             )}
                         >
@@ -120,8 +121,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
                                 </div>
 
-                                {panelInfoOpen && (
-                                    <ButtonPrimitive iconOnly onClick={() => setPanelInfoOpen(false)}>
+                                {scenePanelOpen && (
+                                    <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
                                 )}
@@ -131,14 +132,14 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 className="h-full flex-1"
                                 innerClassName="px-2 pb-4"
                             >
-                                <div ref={setFileActionsContainer} />
+                                <div ref={registerScenePanelElement} />
                             </ScrollableShadows>
                         </div>
 
-                        {panelInfoOpen && showPanelOverlay && (
+                        {scenePanelOpen && scenePanelIsOverlay && (
                             <div
                                 onClick={() => {
-                                    setPanelInfoOpen(false)
+                                    setScenePanelOpen(false)
                                 }}
                                 className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
