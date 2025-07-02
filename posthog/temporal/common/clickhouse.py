@@ -4,6 +4,7 @@ import contextlib
 import datetime as dt
 import enum
 import json
+import re
 import ssl
 import typing
 import uuid
@@ -353,9 +354,13 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
+        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
+
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         query = query % format_parameters
-        query = query.format(**format_parameters)
+
+        if has_format_placeholders:
+            query = query.format(**format_parameters)
 
         return query
 
