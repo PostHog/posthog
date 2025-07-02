@@ -1,20 +1,12 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme, Distributed
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
-QUERY_LOG_ARCHIVE_DATA_TABLE = "sharded_query_log_archive"
 
-DISTRIBUTED_QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
+QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
-    return MergeTreeEngine("query_log_archive", replication_scheme=ReplicationScheme.SHARDED)
-
-
-def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_ENGINE():
-    return Distributed(
-        data_table=QUERY_LOG_ARCHIVE_DATA_TABLE,
-        sharding_key="rand()",
-    )
+    return MergeTreeEngine("query_log_archive", replication_scheme=ReplicationScheme.REPLICATED)
 
 
 CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE = """
@@ -96,14 +88,6 @@ ORDER BY (event_date, event_time)
     )
 
 
-def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL(on_cluster=True):
-    return CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE.format(
-        table_name=DISTRIBUTED_QUERY_LOG_ARCHIVE_DATA_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
-    )
-
-
 def QUERY_LOG_ARCHIVE_MV(on_cluster=True):
     return """CREATE MATERIALIZED VIEW query_log_archive_mv {on_cluster_clause}
 TO {table_name}
@@ -162,5 +146,5 @@ WHERE
     AND is_initial_query
     """.format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        table_name=DISTRIBUTED_QUERY_LOG_ARCHIVE_DATA_TABLE,
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
     )
