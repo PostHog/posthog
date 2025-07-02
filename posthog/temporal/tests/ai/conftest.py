@@ -64,14 +64,12 @@ def mock_session_group_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for session-group-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_ids: list[str], redis_input_key_base: str = "test_input_base"
-    ) -> SessionGroupSummaryInputs:
+    def _create_inputs(session_ids: list[str], redis_key_base: str = "test_input_base") -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key_base=redis_input_key_base,
+            redis_key_base=redis_key_base,
         )
 
     return _create_inputs
