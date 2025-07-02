@@ -168,11 +168,11 @@ const ExperimentFormFields = (): JSX.Element => {
                     </div>
                 )}
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
-                    <div>
-                        <h3 className="mt-10">Participant type</h3>
-                        <div className="text-xs text-secondary">
-                            The type on which to aggregate metrics. You can change this at any time during the
-                            experiment.
+                    <div className="mt-10">
+                        <h3>Participant type</h3>
+                        <div className="text-xs text-secondary  max-w-150">
+                            Determines on what level you want to aggregate metrics. You can change this later, but flag
+                            values for users will change so you need to reset the experiment for accurate results.
                         </div>
                         <LemonDivider />
                         <LemonRadio
