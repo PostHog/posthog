@@ -226,25 +226,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         db_session_inputs = await self._fetch_session_group_data(inputs)
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
 
-        # # TODO: Remove after testing
-        # from pathlib import Path
-
-        # DATA_DIR = (
-        #     Path(__file__).resolve().parents[4]
-        #     / "playground/group_summaries_samples/testing_patterns/single-session-summaries"
-        # ).resolve()
-        # print("*" * 100)
-        # print(DATA_DIR)
-        # print("*" * 100)
-        # # Iterate over all files in the directory, each file named as a session id, and contains the session summary
-        # summaries: dict[str, str] = {}
-        # for file in DATA_DIR.glob("*.json"):
-        #     # Should be enough for the initial tests
-        #     if len(summaries) >= 5:
-        #         break
-        #     with open(file, "r") as f:
-        #         summaries[file.stem] = f.read()
-
         # Extract patterns from session summaries
         await temporalio.workflow.execute_activity(
             extract_session_group_patterns_activity,

@@ -1,6 +1,4 @@
 import asyncio
-import dataclasses
-import json
 from typing import cast
 from redis import Redis
 import structlog
@@ -117,11 +115,6 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
             trace_id=temporalio.activity.info().workflow_id,
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
-
-        # TODO: Remove after testing
-        with open("patterns_extraction.json", "w") as f:
-            f.write(patterns_extraction_str)
-
         # Store the extracted patterns in Redis
         store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=patterns_extraction_str)
         return None
@@ -174,7 +167,7 @@ async def _generate_patterns_assignments(
                     trace_id=trace_id,
                 )
             )
-    for chunk_index, task in tasks.items():
+    for _, task in tasks.items():
         res = task.result()
         if isinstance(res, Exception):
             logger.warning(
@@ -182,10 +175,6 @@ async def _generate_patterns_assignments(
             )
             continue
         patterns_assignments_list_of_lists.append(res)
-        # TODO: Remove after testing
-        with open(f"patterns_assignments_chunk_{chunk_index}.json", "w") as f:
-            f.write(res.model_dump_json(exclude_none=True))
-
     return patterns_assignments_list_of_lists
 
 
@@ -263,35 +252,20 @@ async def assign_events_to_patterns_activity(
         combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
             single_session_summaries_inputs=single_session_summaries_llm_inputs
         )
-        # TODO: Remove after testing
-        with open("combined_event_ids_mappings.json", "w") as f:
-            f.write(json.dumps(combined_event_ids_mappings))
         # Combine patterns assignments to have a single patter-to-event list
         combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
             patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
         )
-        with open("combined_patterns_assignments.json", "w") as f:
-            f.write(json.dumps(combined_patterns_assignments))
         # Combine patterns ids with full event ids (from DB) and previous/next events in the segment per each assigned event
         pattern_id_to_event_context_mapping = combine_patterns_ids_with_events_context(
             combined_event_ids_mappings=combined_event_ids_mappings,
             combined_patterns_assignments=combined_patterns_assignments,
             session_summaries=session_summaries,
         )
-        # TODO: Remove after testing
-        with open("pattern_event_ids_mapping.json", "w") as f:
-            f.write(
-                json.dumps(
-                    {k: [dataclasses.asdict(dv) for dv in v] for k, v in pattern_id_to_event_context_mapping.items()}
-                )
-            )
         # Combine patterns info (name, description, etc.) with enriched events context
         patterns_with_events_context = combine_patterns_with_events_context(
             patterns=patterns_extraction,
             pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
             total_sessions_count=len(session_ids),
         )
-    # TODO: Remove after testing
-    with open("patterns_with_events_context.json", "w") as f:
-        f.write(patterns_with_events_context.model_dump_json(exclude_none=True))
     return patterns_with_events_context
