@@ -156,9 +156,6 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         mrr_results = []
         for breakdown in breakdowns:
             events = recurring_by_breakdown[breakdown]
-            if not events:
-                events = []
-
             events.sort(key=lambda x: x[0])
 
             # Pointer race algorithm
