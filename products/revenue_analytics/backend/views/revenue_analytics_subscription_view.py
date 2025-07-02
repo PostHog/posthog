@@ -33,7 +33,7 @@ FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def extract_string(json_field: str, key: str) -> str:
+def extract_string(json_field: str, key: str) -> ast.Expr:
     return ast.Call(
         name="JSONExtractString",
         args=[ast.Field(chain=[json_field]), ast.Constant(value=key)],
