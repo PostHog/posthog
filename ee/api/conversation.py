@@ -1,5 +1,6 @@
 from typing import cast
 
+import posthoganalytics
 import pydantic
 import structlog
 from django.conf import settings
@@ -14,16 +15,15 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.utils.sse import SSESerializer
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import FailureMessage, HumanMessage
+from posthog.schema import HumanMessage
 from posthog.utils import get_instance_region
-from uuid import uuid4
-
 
 logger = structlog.get_logger(__name__)
 
@@ -109,26 +109,16 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             mode=AssistantMode.ASSISTANT,
         )
 
-        # Store original method and wrap it with error handling
-        original_stream_method = assistant._stream
-
-        def safe_stream_wrapper():
-            """Wrapper generator that ensures errors are handled gracefully."""
+        async def handler():
             try:
-                yield from original_stream_method()
+                serializer = SSESerializer()
+                async for event in assistant.astream():
+                    yield serializer.dumps(event)
             except Exception as e:
-                # Log the error but don't re-raise
                 logger.exception("Error in assistant stream", error=e)
+                posthoganalytics.capture_exception(e)
 
-                # Send proper SSE-formatted error message
-                failure_message = FailureMessage(
-                    content="Oops! It looks like I'm having trouble answering this. Could you please try again?",
-                    id=str(uuid4()),
-                )
-                yield assistant._serialize_message(failure_message)
-
-        assistant._stream = safe_stream_wrapper  # type: ignore[method-assign]
-        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
+        return StreamingHttpResponse(handler(), content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
