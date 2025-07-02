@@ -13,7 +13,7 @@ def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
 def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_ENGINE():
     return Distributed(
         data_table=QUERY_LOG_ARCHIVE_DATA_TABLE,
-        # sharding_key="rand()",
+        sharding_key="rand()",
     )
 
 
@@ -162,5 +162,5 @@ WHERE
     AND is_initial_query
     """.format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
+        table_name=DISTRIBUTED_QUERY_LOG_ARCHIVE_DATA_TABLE,
     )
