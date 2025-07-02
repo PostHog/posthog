@@ -1,5 +1,6 @@
 from functools import cache
 import logging
+from typing import Optional
 
 from infi.clickhouse_orm import migrations
 
@@ -16,7 +17,11 @@ def get_migrations_cluster():
 
 
 def run_sql_with_exceptions(
-    sql: str, node_role: NodeRole = NodeRole.DATA, sharded: bool = False, is_alter_on_replicated_table: bool = False
+    sql: str,
+    node_role: NodeRole = NodeRole.DATA,
+    sharded: bool = False,
+    is_alter_on_replicated_table: bool = False,
+    shard_idx: Optional[int] = None,
 ):
     """
     migrations.RunSQL does not raise exceptions, so we need to wrap it in a function that does.
@@ -26,6 +31,7 @@ def run_sql_with_exceptions(
     node_role: NodeRole - the role of the nodes to run the migration on. In general, run everything on NodeRole.ALL except changes to sharded tables / writable distributed tables.
     sharded: bool - whether the migration is on a sharded table
     is_alter_on_replicated_table: bool - whether the migration is an ALTER TABLE on a replicated table. This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+    shard_idx: int - if a query should be run on one
     """
     cluster = get_migrations_cluster()
 
@@ -42,7 +48,11 @@ def run_sql_with_exceptions(
             logger.info("       Running migration on %ss", node_role.value.lower())
             if sharded:
                 assert node_role == NodeRole.DATA
-                futures = cluster.map_one_host_per_shard(query)
+                if shard_idx:
+                    futures = cluster.map_any_host_in_shards(shard_fns={shard_idx: query})
+                else:
+                    futures = cluster.map_one_host_per_shard(query)
+
             else:
                 futures = cluster.map_hosts_by_role(query, node_role=node_role)
             return futures.result()
