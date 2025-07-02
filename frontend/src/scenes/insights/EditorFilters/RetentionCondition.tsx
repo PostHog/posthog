@@ -23,14 +23,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { showGroupsOptions } = useValues(groupsModel)
     const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
-    const {
-        targetEntity,
-        returningEntity,
-        retentionType,
-        totalIntervals,
-        minimumOccurrences = 1,
-        period,
-    } = retentionFilter || {}
+    const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
@@ -95,29 +88,6 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
             />
-            <div className="flex items-center gap-2">
-                <div>at least</div>
-                <LemonInput
-                    type="number"
-                    className="ml-2 w-20"
-                    defaultValue={minimumOccurrences}
-                    min={1}
-                    onBlur={({ target }) => {
-                        let newValue = Number(target.value)
-                        if (newValue < 1) {
-                            newValue = 1
-                            toast.warn(
-                                <>
-                                    The minimum number of occurrences is <strong>1</strong>
-                                </>
-                            )
-                        }
-                        target.value = newValue.toString()
-                        updateInsightFilter({ minimumOccurrences: newValue })
-                    }}
-                />
-                <div>time{minimumOccurrences === 1 ? '' : 's'}</div>
-            </div>
             <div className="flex items-center gap-2">
                 <div>during the next</div>
                 <LemonInput
