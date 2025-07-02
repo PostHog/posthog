@@ -55,7 +55,7 @@ def generate_session_group_summary_prompt(
 def generate_session_group_patterns_extraction_prompt(
     session_summaries_str: list[str],
     extra_summary_context: ExtraSummaryContext | None,
-) -> SessionSummaryPrompt:
+) -> PatternsPrompt:
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)
@@ -81,7 +81,7 @@ def generate_session_group_patterns_assignment_prompt(
     patterns: RawSessionGroupSummaryPatternsList,
     session_summaries_str: list[str],
     extra_summary_context: ExtraSummaryContext | None,
-) -> SessionSummaryPrompt:
+) -> PatternsPrompt:
     if extra_summary_context is None:
         extra_summary_context = ExtraSummaryContext()
     combined_session_summaries = "\n\n".join(session_summaries_str)

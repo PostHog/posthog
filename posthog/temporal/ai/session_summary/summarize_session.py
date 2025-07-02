@@ -50,6 +50,11 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=inputs.session_id,
     )
+    if not redis_input_key or not redis_output_key:
+        raise ApplicationError(
+            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}",
+            non_retryable=True,
+        )
     llm_input = cast(
         SingleSessionSummaryLlmInputs,
         get_data_class_from_redis(
@@ -184,6 +189,11 @@ def execute_summarize_session_stream(
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=session_id,
     )
+    if not redis_input_key or not redis_output_key:
+        raise ApplicationError(
+            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {session_id}: {session_id}",
+            non_retryable=True,
+        )
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_id=user_id,

@@ -2,11 +2,13 @@ import gzip
 import json
 
 from enum import Enum
-from pydantic import BaseModel
+from typing import TypeVar
 from redis import Redis
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from posthog.redis import get_client
+
+T = TypeVar("T")
 
 
 class StateActivitiesEnum(Enum):
@@ -59,13 +61,13 @@ def store_data_in_redis(redis_client: Redis, redis_key: str | None, data: str) -
 
 
 def get_data_class_from_redis(
-    redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: BaseModel
-) -> BaseModel:
+    redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: type[T]
+) -> T:
     if not redis_key:
         raise ValueError(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
     redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     try:
-        return target_class(**json.loads(redis_data_str))  # type: ignore[operator]
+        return target_class(**json.loads(redis_data_str))
     except Exception as err:
         raise ValueError(
             f"Failed to parse output data ({redis_data_str}) for Redis key {redis_key} ({label.value}): {err}"

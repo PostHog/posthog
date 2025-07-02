@@ -43,7 +43,7 @@ logger = structlog.get_logger(__name__)
 @temporalio.activity.defn
 async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
-) -> SessionGroupSummarySingleSessionOutput:
+) -> None:
     """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
     redis_client, redis_input_key, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
