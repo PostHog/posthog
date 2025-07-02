@@ -726,7 +726,11 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
 
     const cloned: Record<string, any> = { ...(node as any) }
 
-    if ('kind' in cloned && Object.values(NodeKind).includes(cloned.kind)) {
+    if (
+        'kind' in cloned &&
+        Object.values(NodeKind).includes(cloned.kind) &&
+        LATEST_VERSIONS[cloned.kind as NodeKind] > 1
+    ) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
         cloned.version = latest || 1
     }
@@ -740,4 +744,30 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     }
 
     return cloned as T
+}
+
+/** Checks wether a given query node satisfies all latest versions of the query schema. */
+export function checkLatestVersionsOnQuery(node: any): boolean {
+    if (node === null || typeof node !== 'object') {
+        return true
+    }
+
+    if (Array.isArray(node)) {
+        return node.every((value) => checkLatestVersionsOnQuery(value))
+    }
+
+    if ('kind' in node && Object.values(NodeKind).includes(node.kind)) {
+        const latest = LATEST_VERSIONS[node.kind as NodeKind]
+        if (node.version !== latest) {
+            return false
+        }
+    }
+
+    for (const value of Object.values(node)) {
+        if (!checkLatestVersionsOnQuery(value)) {
+            return false
+        }
+    }
+
+    return true
 }
