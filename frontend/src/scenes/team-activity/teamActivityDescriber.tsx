@@ -13,12 +13,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
+import { ActivityScope, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
 import { CurrencyCode } from '~/queries/schema/schema-general'
+import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
+import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
 const teamActionsMapping: Record<
     keyof TeamType,
@@ -625,6 +627,22 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    path_cleaning_filters: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the <em>path cleaning filters</em> to{' '}
+                    {(change.after as PathCleaningFilter[]).map((filter) => (
+                        <PathCleanFilterItem key={keyFromFilter(filter)} filter={filter} />
+                    ))}
+                </>,
+            ],
+        }
+    },
     onboarding_tasks: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -713,7 +731,6 @@ const teamActionsMapping: Record<
     app_urls: () => null,
     correlation_config: () => null,
     group_types: () => null,
-    path_cleaning_filters: () => null,
     revenue_analytics_config: () => null,
 
     // should never come from the backend
