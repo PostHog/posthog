@@ -1,10 +1,11 @@
-import { IconCheck, IconChevronRight, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import {
     PopoverPrimitive,
@@ -48,17 +49,7 @@ export function ProjectDropdownMenu({ buttonProps }: { buttonProps?: ButtonPrimi
                     {...buttonProps}
                 >
                     <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
-                    <IconChevronRight
-                        className={`
-                        size-3 
-                        text-secondary 
-                        rotate-90 
-                        group-data-[state=open]/button-primitive:rotate-270 
-                        transition-transform 
-                        duration-200 
-                        prefers-reduced-motion:transition-none
-                    `}
-                    />
+                    <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
