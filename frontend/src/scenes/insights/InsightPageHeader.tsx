@@ -60,12 +60,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import {
-    SceneLayoutPanelInfo,
-    SceneLayoutPanelActions,
-    SceneLayoutPanelMetaInfo,
-    SceneLayoutPanelDivider,
-} from '~/layout/scenes/SceneLayout'
+import { ScenePanel, ScenePanelActions, ScenePanelMetaInfo, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetayticsSummaryButton'
@@ -307,9 +302,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
 
-            <SceneLayoutPanelInfo>
+            <ScenePanel>
                 <>
-                    <SceneLayoutPanelMetaInfo>
+                    <ScenePanelMetaInfo>
                         {!!(canEditInsight || insight.name) && (
                             <>
                                 <SceneName
@@ -347,11 +342,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             by={insight.last_modified_by}
                             prefix="Last modified"
                         />
-                    </SceneLayoutPanelMetaInfo>
+                    </ScenePanelMetaInfo>
 
-                    <SceneLayoutPanelDivider />
+                    <ScenePanelDivider />
 
-                    <SceneLayoutPanelActions>
+                    <ScenePanelActions>
                         {hasDashboardItemId && <SceneTreeMenu />}
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton />}
                         {hasDashboardItemId && (
@@ -514,7 +509,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        <SceneLayoutPanelDivider />
+                        <ScenePanelDivider />
 
                         <LemonSwitch
                             data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
@@ -550,7 +545,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {(hogQL || showCohortButton) && <SceneLayoutPanelDivider />}
+                        {(hogQL || showCohortButton) && <ScenePanelDivider />}
                         {hogQL &&
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
@@ -616,7 +611,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {hasDashboardItemId && (
                             <>
-                                <SceneLayoutPanelDivider />
+                                <ScenePanelDivider />
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -639,9 +634,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 </AccessControlledLemonButton>
                             </>
                         )}
-                    </SceneLayoutPanelActions>
+                    </ScenePanelActions>
                 </>
-            </SceneLayoutPanelInfo>
+            </ScenePanel>
         </>
     )
 }

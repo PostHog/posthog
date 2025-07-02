@@ -18,7 +18,7 @@ type SceneLayoutProps = {
     layoutConfig?: SceneConfig | null
 }
 
-export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }): JSX.Element {
+export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
     const { fileActionsContainer } = useValues(sceneLayoutLogic)
     const { setPanelInfoActive } = useActions(sceneLayoutLogic)
     // HACKY: Show the panel only if this element in in the DOM
@@ -38,15 +38,15 @@ export function SceneLayoutPanelInfo({ children }: { children: React.ReactNode }
     )
 }
 
-export function SceneLayoutPanelDivider(): JSX.Element {
+export function ScenePanelDivider(): JSX.Element {
     return <LemonDivider className="-mx-2 my-2 w-[calc(100%+1rem)]" />
 }
 
-export function SceneLayoutPanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
+export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="px-1 pt-4 flex flex-col gap-2">{children}</div>
 }
 
-export function SceneLayoutPanelActions({ children }: { children: React.ReactNode }): JSX.Element {
+export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <Label intent="menu" className="px-1">
