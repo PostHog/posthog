@@ -23,6 +23,7 @@ use crate::metrics::consts::{
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
+use crate::utils::graph_utils::DependencyGraph;
 use anyhow::Result;
 use common_database::Client as DatabaseClient;
 use common_metrics::{inc, timing_guard};
@@ -461,18 +462,69 @@ impl FeatureFlagMatcher {
             }
         }
 
-        // Evaluate all flags in the current level
-        let (level_evaluated_flags_map, level_errors) = self
-            .evaluate_flags_in_level(
-                &feature_flags.flags,
-                &mut evaluated_flags_map,
-                &person_property_overrides,
-                &group_property_overrides,
-                &hash_key_overrides,
-            )
-            .await;
-        errors_while_computing_flags |= level_errors;
-        evaluated_flags_map.extend(level_evaluated_flags_map);
+        let (flag_dependency_graph, errors) =
+            match DependencyGraph::from_nodes(&feature_flags.flags) {
+                Ok((graph, errors)) => (graph, errors),
+                Err(e) => {
+                    error!(
+                        "Failed to build feature flag dependency graph for team {}: {:?}",
+                        self.team_id, e
+                    );
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), "dependency_graph_error".to_string())],
+                        1,
+                    );
+                    return FlagsResponse {
+                        errors_while_computing_flags: true,
+                        flags: HashMap::new(),
+                        quota_limited: None,
+                        request_id,
+                        config: ConfigResponse::default(),
+                    };
+                }
+            };
+
+        if !errors.is_empty() {
+            errors_while_computing_flags = true;
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[("reason".to_string(), "dependency_graph_error".to_string())],
+                1,
+            );
+            error!("There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}", self.team_id, errors);
+        }
+
+        let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
+            Ok(stages) => stages,
+            Err(e) => {
+                error!(
+                    "Failed to get evaluation stages for team {}: {:?}",
+                    self.team_id, e
+                );
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), "evaluation_stages_error".to_string())],
+                    1,
+                );
+                errors_while_computing_flags = true;
+                Vec::new() // Return an empty vector to allow the program to continue
+            }
+        };
+        for stage in evaluation_stages {
+            let stage_flags: Vec<FeatureFlag> = stage.iter().map(|&flag| flag.clone()).collect();
+            let (level_evaluated_flags_map, level_errors) = self
+                .evaluate_flags_in_level(
+                    &stage_flags,
+                    &mut evaluated_flags_map,
+                    &person_property_overrides,
+                    &group_property_overrides,
+                    &hash_key_overrides,
+                )
+                .await;
+            errors_while_computing_flags |= level_errors;
+            evaluated_flags_map.extend(level_evaluated_flags_map);
+        }
 
         FlagsResponse {
             errors_while_computing_flags,
