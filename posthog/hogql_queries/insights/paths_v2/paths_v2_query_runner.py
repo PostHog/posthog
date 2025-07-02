@@ -165,7 +165,7 @@ class PathsV2QueryRunner(QueryRunner):
             SELECT
                 timestamp,
                 person_id as actor_id,
-                {path_item} as path_item
+                coalesce({path_item}, '$$__posthog_null__$$') as path_item
             FROM events
             WHERE {filters}
             ORDER BY actor_id, timestamp
