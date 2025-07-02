@@ -8,6 +8,7 @@ import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
+import { getWeekBoundaries } from 'lib/utils/dateTimeUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -99,45 +100,6 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
 }
 
 /**
- * Calculate bounded start and end dates for a week interval
- */
-function getWeekBoundaries(
-    referenceDate: dayjs.Dayjs,
-    dateRange?: DateRange | null,
-    timezone?: string,
-    weekStartDay: number = 0 // 0 for Sunday, 1 for Monday
-): { weekStart: dayjs.Dayjs; weekEnd: dayjs.Dayjs } {
-    dayjs.updateLocale('en', {
-        weekStart: weekStartDay,
-    })
-
-    // Prevent an edge case where the reference date is not set to the start of the week
-    // This can happen when the data is cached and the weekStartDay changes
-    if ([0, 1].includes(referenceDate.day()) && referenceDate.day() !== weekStartDay) {
-        // adjust the reference date to the start of the week
-        referenceDate = referenceDate.add(weekStartDay - referenceDate.day(), 'day')
-    }
-
-    const weekStart = referenceDate.startOf('week')
-    const weekEnd = referenceDate.endOf('week')
-
-    if (dateRange && dayjs(dateRange?.date_from).isValid() && dayjs(dateRange?.date_to).isValid()) {
-        let dateFrom = dayjs.tz(dateRange.date_from, timezone)
-        let dateTo = dayjs.tz(dateRange.date_to, timezone)
-
-        return {
-            weekStart: dateFrom.isAfter(weekStart) && dateFrom.isBefore(weekEnd) ? dateFrom : weekStart,
-            weekEnd: dateTo.isBefore(weekEnd) && dateTo.isAfter(weekStart) ? dateTo : weekEnd,
-        }
-    }
-
-    return {
-        weekStart,
-        weekEnd: weekEnd.isBefore(weekStart) ? weekStart : weekEnd, // Ensure weekEnd is not before weekStart
-    }
-}
-
-/**
  * Format a date range
  */
 function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
@@ -175,7 +137,17 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
 
     // Handle week interval separately
     if (interval === 'week') {
-        const { weekStart, weekEnd } = getWeekBoundaries(day, dateRange, timezone, weekStartDay)
+        const dateFrom = dayjs.tz(dateRange?.date_from, timezone)
+        const dateTo = dayjs.tz(dateRange?.date_to, timezone)
+        let boundaryDateRange = null
+        if (dateRange && dateTo && dateFrom.isValid() && dateTo.isValid()) {
+            boundaryDateRange = {
+                dateFrom,
+                dateTo,
+            }
+        }
+
+        const { weekStart, weekEnd } = getWeekBoundaries(day, boundaryDateRange, weekStartDay)
         return formatDateRange(weekStart, weekEnd)
     }
 
