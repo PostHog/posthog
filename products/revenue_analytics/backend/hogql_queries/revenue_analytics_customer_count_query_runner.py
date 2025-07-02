@@ -222,7 +222,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         # This will allow us to easily query the results by breakdown_by and period_start
         # and then we can just add the data to the results
         # [0, 1, 2] -> [value, period_start, breakdown_by]
-        grouped_results: dict[tuple[str, str], list[Decimal]] = {}
+        grouped_results: dict[tuple[str, str], Decimal] = {}
         breakdowns = []
         for breakdown_by, period_start, *counts in response.results:
             if breakdown_by not in breakdowns:
