@@ -10,6 +10,7 @@ from posthog.schema import (
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsGroupBy,
     RevenueAnalyticsRevenueQueryResult,
+    QueryDateRangeResponse,
 )
 from posthog.utils import format_label_date
 
@@ -311,4 +312,9 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             results=results,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            query_date_range=QueryDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+                interval=self.query_date_range.interval_type,
+            ),
         )

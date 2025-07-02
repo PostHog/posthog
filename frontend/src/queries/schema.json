@@ -3407,6 +3407,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -3935,6 +3939,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4372,6 +4380,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4434,6 +4446,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -4509,6 +4525,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -4579,6 +4599,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -5222,6 +5246,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7446,6 +7474,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "query_date_range": {
+                                    "$ref": "#/definitions/QueryDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7476,6 +7508,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_date_range": {
+                                    "$ref": "#/definitions/QueryDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -7519,6 +7555,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "query_date_range": {
+                                    "$ref": "#/definitions/QueryDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7557,6 +7597,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_date_range": {
+                                    "$ref": "#/definitions/QueryDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -11651,6 +11695,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13639,6 +13687,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14991,6 +15043,23 @@
             ],
             "type": "string"
         },
+        "QueryDateRangeResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "date_to": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                }
+            },
+            "type": "object"
+        },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
             "type": "string"
@@ -16294,6 +16363,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16324,6 +16397,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -16367,6 +16444,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16405,6 +16486,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -17050,6 +17135,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17080,6 +17169,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -17123,6 +17216,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17161,6 +17258,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -17583,6 +17684,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17658,6 +17763,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -17812,6 +17921,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_date_range": {
+                            "$ref": "#/definitions/QueryDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -19230,6 +19343,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19308,6 +19425,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -19420,6 +19541,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19511,6 +19636,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -21268,6 +21397,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_date_range": {
+                    "$ref": "#/definitions/QueryDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
