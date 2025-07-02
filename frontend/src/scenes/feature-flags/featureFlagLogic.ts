@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -271,6 +272,47 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
     return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
+// Detect meaningful changes that require confirmation
+function detectFeatureFlagChanges(
+    originalFlag: FeatureFlagType | null,
+    updatedFlag: Partial<FeatureFlagType>
+): string[] {
+    const changes: string[] = []
+
+    // Don't require confirmation for new flags
+    if (!originalFlag || !updatedFlag.id) {
+        return changes
+    }
+
+    // Check for active status changes
+    if (originalFlag.active !== updatedFlag.active) {
+        if (updatedFlag.active) {
+            changes.push('Enable the feature flag')
+        } else {
+            changes.push('Disable the feature flag')
+        }
+    }
+
+    // Check for release condition changes (simplified comparison)
+    if (JSON.stringify(originalFlag.filters.groups) !== JSON.stringify(updatedFlag.filters?.groups)) {
+        changes.push('Modify release conditions')
+    }
+
+    // Check for multivariate changes
+    const originalVariantCount = originalFlag.filters.multivariate?.variants?.length || 0
+    const updatedVariantCount = updatedFlag.filters?.multivariate?.variants?.length || 0
+
+    if (originalVariantCount !== updatedVariantCount) {
+        if (updatedVariantCount > originalVariantCount) {
+            changes.push(`Add ${updatedVariantCount - originalVariantCount} new variant(s)`)
+        } else {
+            changes.push(`Remove ${originalVariantCount - updatedVariantCount} variant(s)`)
+        }
+    }
+
+    return changes
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -369,6 +411,46 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
+                // TODO: Check team setting for feature_flag_confirmation_enabled
+                // For now, always show confirmation for existing flags with changes
+                const needsConfirmation = !!featureFlag.id
+
+                if (needsConfirmation) {
+                    const changes = detectFeatureFlagChanges(values.originalFeatureFlag, featureFlag)
+
+                    if (changes.length > 0) {
+                        // Show confirmation dialog using LemonDialog
+                        LemonDialog.open({
+                            title: `Confirm changes to feature flag "${featureFlag.key}"?`,
+                            description: `You are about to save the following changes:\n\n${changes
+                                .map((change) => `• ${change}`)
+                                .join(
+                                    '\n'
+                                )}\n\nThese changes will immediately affect users matching the release conditions.`,
+                            primaryButton: {
+                                children: 'Save changes',
+                                onClick: () => {
+                                    // Proceed with original save logic
+                                    if (featureFlag.id) {
+                                        actions.saveFeatureFlag(featureFlag)
+                                    } else {
+                                        openSaveToModal({
+                                            defaultFolder: 'Unfiled/Feature Flags',
+                                            callback: (folder) =>
+                                                actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
+                                        })
+                                    }
+                                },
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                        return // Don't proceed with save
+                    }
+                }
+
+                // Original logic for no confirmation needed
                 if (featureFlag.id) {
                     actions.saveFeatureFlag(featureFlag)
                 } else {
