@@ -18458,6 +18458,26 @@
             "required": ["k", "t"],
             "type": "object"
         },
+        "QueryUpgradeRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "QueryUpgradeResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "query": {
+                    "$ref": "#/definitions/QuerySchema"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
         "ReasoningMessage": {
             "additionalProperties": false,
             "properties": {
