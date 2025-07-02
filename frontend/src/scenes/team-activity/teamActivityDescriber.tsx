@@ -595,7 +595,35 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    onboarding_tasks: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
 
+        const afterTasks = change.after ? Object.entries(change.after) : []
+        const changedTasks = afterTasks.filter(([key, value]) => {
+            const beforeValue = (change.before as { [key: string]: string })?.[key]
+            return beforeValue !== value
+        })
+
+        if (!changedTasks.length) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    {changedTasks.map(([key, value], index) => (
+                        <span key={key}>
+                            {index > 0 && <>, </>}
+                            <strong>{value === 'completed' ? 'completed' : 'uncompleted'}</strong> onboarding task{' '}
+                            <em>{key}</em>
+                        </span>
+                    ))}
+                </>,
+            ],
+        }
+    },
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -629,9 +657,7 @@ const teamActionsMapping: Record<
     person_display_name_properties: () => null,
     primary_dashboard: () => null,
     revenue_analytics_config: () => null,
-    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
-    onboarding_tasks: () => null,
 
     // should never come from the backend
     created_at: () => null,
@@ -644,11 +670,12 @@ const teamActionsMapping: Record<
     cookieless_server_hash_mode: () => null,
 
     // don't make sense to be displayed
-    is_demo: () => null,
-    effective_membership_level: () => null,
-    ingested_event: () => null,
-    organization: () => null,
     project_id: () => null,
+    organization: () => null,
+    ingested_event: () => null,
+    effective_membership_level: () => null,
+    default_modifiers: () => null,
+    is_demo: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
