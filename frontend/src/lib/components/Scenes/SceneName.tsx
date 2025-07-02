@@ -1,4 +1,4 @@
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { useValues } from 'kea'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -19,16 +19,23 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
     const [localValue, setLocalValue] = useState(value)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
         onSave(localValue)
         setHasChanged(false)
         setLocalIsEditing(false)
+        setLocalValue(localValue)
     }
 
     useEffect(() => {
         setHasChanged(localValue !== defaultValue)
+        if (localValue.length === 0) {
+            setError('Name is required')
+        } else {
+            setError(null)
+        }
     }, [localValue, defaultValue])
 
     return localIsEditing ? (
@@ -46,14 +53,15 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     id="page-name-input"
                     data-attr={`${dataAttr}-name-input`}
                     autoFocus
+                    error={!!error}
                 />
             </div>
             <div className="flex gap-1">
                 <ButtonPrimitive
                     type="submit"
                     variant="outline"
-                    disabled={!hasChanged}
-                    tooltip={hasChanged ? 'Update name' : 'No changes to update'}
+                    disabled={!hasChanged || !!error}
+                    tooltip={error || (hasChanged ? 'Update name' : 'No changes to update')}
                     data-attr={`${dataAttr}-name-update-button`}
                 >
                     <IconCheck />
@@ -74,17 +82,18 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
     ) : (
         <div className="gap-0">
             <Label intent="menu">Name</Label>
-            <p className="m-0 hyphens-auto flex gap-1 items-center" lang="en">
-                {value || <span className="text-tertiary font-normal">No name</span>}
+            <div className="-ml-1.5">
                 <ButtonPrimitive
-                    iconOnly
+                    className="hyphens-auto flex gap-1 items-center"
+                    lang="en"
                     onClick={() => setLocalIsEditing(true)}
-                    className="inline-block ml-1"
-                    size="sm"
+                    tooltip="Edit name"
+                    autoHeight
+                    menuItem
                 >
-                    <IconPencil />
+                    {value || <span className="text-tertiary font-normal">No name</span>}
                 </ButtonPrimitive>
-            </p>
+            </div>
         </div>
     )
 }

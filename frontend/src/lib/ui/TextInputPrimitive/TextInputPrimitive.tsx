@@ -14,6 +14,10 @@ export const textInputVariants = cva({
             sm: 'text-input-primitive--height-sm',
             lg: 'text-input-primitive--height-lg',
         },
+        error: {
+            true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
+            false: '',
+        },
     },
     defaultVariants: {
         variant: 'default',
