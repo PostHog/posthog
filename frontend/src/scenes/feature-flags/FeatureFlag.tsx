@@ -120,7 +120,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
-        hideConfirmationModal,
         confirmFlagChanges,
     } = useActions(featureFlagLogic)
 
@@ -145,15 +144,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 changes: confirmationModalChanges,
                 onConfirm: confirmFlagChanges,
             })
-            hideConfirmationModal()
         }
-    }, [
-        confirmationModalVisible,
-        confirmationModalChanges,
-        pendingFlagForConfirmation,
-        confirmFlagChanges,
-        hideConfirmationModal,
-    ])
+    }, [confirmationModalVisible, confirmationModalChanges, pendingFlagForConfirmation, confirmFlagChanges])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
