@@ -87,6 +87,35 @@ describe('featureFlagConfirmationSettingsLogic', () => {
                 feature_flag_confirmation_message: '',
             })
         })
+
+        it('handles form submission errors correctly', async () => {
+            // Override mock to return an error response
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async () => {
+                        return [500, { type: 'server_error', detail: 'Internal server error' }]
+                    },
+                },
+            })
+
+            logic.actions.setConfirmationMessageFormValue('message', 'Test message')
+
+            // Start the submission and verify initial loading state
+            await expectLogic(logic, () => {
+                logic.actions.submitConfirmationMessageForm()
+            })
+                .toDispatchActions(['updateConfirmationMessage'])
+                .toMatchValues({ confirmationMessageLoading: true })
+
+            // Wait for teamLogic to fail
+            await expectLogic(logic).toDispatchActions(teamLogic, ['updateCurrentTeamFailure'])
+
+            // Give it a moment for all async operations to complete
+            await new Promise((resolve) => setTimeout(resolve, 100))
+
+            // Verify final state - loading should be false and no success toast should show
+            await expectLogic(logic).toMatchValues({ confirmationMessageLoading: false })
+        })
     })
 
     describe('team data synchronization', () => {
