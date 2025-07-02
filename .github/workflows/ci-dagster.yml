@@ -23,6 +23,7 @@ env:
     # this appears to fix it
     # absolute wild tbh https://stackoverflow.com/a/75503402
     DISPLAY: ':99.0'
+    OIDC_RSA_PRIVATE_KEY: 'test'
 jobs:
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details

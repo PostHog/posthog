@@ -1,5 +1,5 @@
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -14,11 +14,13 @@ import { FilterType } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { modalsLogic } from '../modalsLogic'
 
 export function ExposureCriteriaModal(): JSX.Element {
-    const { experiment, isExposureCriteriaModalOpen } = useValues(experimentLogic)
-    const { closeExposureCriteriaModal, restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } =
-        useActions(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
+    const { restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } = useActions(experimentLogic)
+    const { closeExposureCriteriaModal } = useActions(modalsLogic)
+    const { isExposureCriteriaModalOpen } = useValues(modalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     return (
@@ -72,9 +74,8 @@ export function ExposureCriteriaModal(): JSX.Element {
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
-                        Uses the number of unique users who trigger the <LemonTag>$feature_flag_called</LemonTag> event
-                        as your exposure count. This is the recommended setting for most experiments, as it accurately
-                        tracks variant exposure.
+                        When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
+                        <strong>exposed</strong> to the experiment and included in the analysis.
                     </div>
                 </LemonButton>
                 <LemonButton
@@ -100,8 +101,9 @@ export function ExposureCriteriaModal(): JSX.Element {
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
-                        Define your own exposure metric for specific use cases, such as counting by sessions instead of
-                        users. This gives you full control but requires careful configuration.
+                        If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
+                        custom event to signal that users reached the part of your app where the experiment runs. You
+                        can also filter out users you would like to exclude from the analysis.
                     </div>
                 </LemonButton>
             </div>
@@ -130,6 +132,38 @@ export function ExposureCriteriaModal(): JSX.Element {
                     />
                 </div>
             )}
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
+                <LemonSelect
+                    value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
+                    onChange={(value) => {
+                        setExposureCriteria({
+                            multiple_variant_handling: value as 'exclude' | 'first_seen',
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'exclude',
+                            label: 'Exclude from analysis',
+                            'data-attr': 'multiple-handling-exclude',
+                        },
+                        {
+                            value: 'first_seen',
+                            label: 'Use first seen variant',
+                            'data-attr': 'multiple-handling-first-seen',
+                        },
+                    ]}
+                    placeholder="Select handling method"
+                    fullWidth
+                />
+                <div className="text-xs text-muted mt-1">
+                    {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
+                        'Users exposed to multiple variants will be analyzed using their first seen variant.'}
+                    {(!experiment.exposure_criteria?.multiple_variant_handling ||
+                        experiment.exposure_criteria?.multiple_variant_handling === 'exclude') &&
+                        'Users exposed to multiple variants will be excluded from the analysis (recommended).'}
+                </div>
+            </div>
             <TestAccountFilterSwitch
                 checked={(() => {
                     const val = experiment.exposure_criteria?.filterTestAccounts

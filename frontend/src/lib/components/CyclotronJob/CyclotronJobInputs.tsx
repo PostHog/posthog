@@ -34,13 +34,15 @@ import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIn
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 export type CyclotronJobInputsProps = {
-    configuration: CyclotronJobInputConfiguration
     onInputChange: (key: string, input: CyclotronJobInputType) => void
+    configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -578,7 +580,16 @@ function CyclotronJobInputWithSchema({
             }}
         >
             {!editing ? (
-                <LemonField name={`inputs.${schema.key}`} help={schema.description}>
+                <LemonField
+                    name={`inputs.${schema.key}`}
+                    help={
+                        typeof schema.description === 'string' ? (
+                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                {schema.description}
+                            </LemonMarkdown>
+                        ) : undefined
+                    }
+                >
                     {({
                         value,
                         onChange: _onChange,
@@ -633,7 +644,7 @@ function CyclotronJobInputWithSchema({
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: '' })
+                                                onChange({ value: '', secret: false })
                                             }}
                                             size="small"
                                             type="secondary"

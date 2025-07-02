@@ -133,6 +133,18 @@ class TestAccessMiddleware(APIBaseTest):
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
+        with self.settings(
+            BLOCKED_GEOIP_REGIONS=["DE"],
+            USE_X_FORWARDED_HOST=True,
+        ):
+            with self.settings(TRUST_ALL_PROXIES=True):
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="28.160.62.192",
+                    HTTP_X_FORWARDED_FOR="",
+                )
+                self.assertNotIn(b"PostHog is not available", response.content)
+
 
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
@@ -145,7 +157,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 50
+        cls.base_app_num_queries = 51
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 

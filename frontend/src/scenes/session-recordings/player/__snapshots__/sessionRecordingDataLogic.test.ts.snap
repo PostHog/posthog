@@ -2096,6 +2096,7 @@ AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+        "version": 1,
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2114,6 +2115,7 @@ AND timestamp < '2023-05-02 14:46:32'
 AND $session_id = '2'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+          "version": 1,
         },
         "refresh": undefined,
         "variables_override": undefined,
@@ -2137,6 +2139,7 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+        "version": 1,
       },
       "refresh": undefined,
       "variables_override": undefined,
@@ -2157,6 +2160,7 @@ AND properties.$lib != 'web'
 AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
 ORDER BY timestamp ASC
 LIMIT 1000000",
+          "version": 1,
         },
         "refresh": undefined,
         "variables_override": undefined,

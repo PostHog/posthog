@@ -3,7 +3,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ConversionGoalSchema, MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
-    ActionFilter,
     AnyFilterLike,
     AnyGroupScopeFilter,
     AnyPersonScopeFilter,
@@ -118,9 +117,12 @@ export enum NodeKind {
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsInsightsQuery = 'RevenueAnalyticsInsightsQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
+
+    // Marketing analytics queries
+    MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -158,9 +160,10 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsInsightsQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
+    | MarketingAnalyticsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -222,9 +225,12 @@ export type QuerySchema =
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsInsightsQuery
     | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
+
+    // Marketing analytics
+    | MarketingAnalyticsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -288,10 +294,19 @@ export type AnyResponseType =
     | LogsQueryResponse
     | Partial<QueryBasedInsightModel>
 
+/** Tags that will be added to the Query log comment  **/
+export interface QueryLogTags {
+    /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene **/
+    scene?: string
+    /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product **/
+    productKey?: string
+}
+
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    tags?: QueryLogTags
 }
 
 /** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
@@ -623,6 +638,7 @@ export interface DataWarehouseNode extends EntityNode {
     table_name: string
     timestamp_field: string
     distinct_id_field: string
+    dw_source_type?: string
 }
 
 export interface ActionsNode extends EntityNode {
@@ -735,11 +751,12 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsInsightsQuery
                     | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
+                    | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -765,11 +782,12 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsInsightsQuery
         | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
+        | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -978,6 +996,8 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     dataColorTheme?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTags
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
@@ -1895,7 +1915,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export enum RevenueAnalyticsInsightsQueryGroupBy {
+export enum RevenueAnalyticsGroupBy {
     COHORT = 'cohort',
     COUNTRY = 'country',
     COUPON = 'coupon',
@@ -1905,17 +1925,21 @@ export enum RevenueAnalyticsInsightsQueryGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsInsightsQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsInsightsQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsInsightsQuery
-    groupBy: RevenueAnalyticsInsightsQueryGroupBy[]
+export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsRevenueQuery
+    groupBy: RevenueAnalyticsGroupBy[]
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsInsightsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsRevenueQueryResult {
+    gross: unknown[]
+    mrr: unknown[]
+}
+export interface RevenueAnalyticsRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
 }
-export type CachedRevenueAnalyticsInsightsQueryResponse = CachedQueryResponse<RevenueAnalyticsInsightsQueryResponse>
+export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -1974,7 +1998,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'user_group' | 'user' | 'role'
+    type: 'user' | 'role'
     id: integer | string
 }
 
@@ -2214,9 +2238,10 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentEventExposureConfig
+    multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
-export interface ExperimentEventExposureConfig {
+export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
@@ -2227,7 +2252,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
 }
 
-export type ExperimentMetricBaseProperties = {
+export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
     name?: string
     conversion_window?: integer
@@ -2596,6 +2621,7 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
     REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
@@ -3178,6 +3204,35 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
+export interface MarketingAnalyticsTableQuery
+    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
+    kind: NodeKind.MarketingAnalyticsTableQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Columns to order by - similar to EventsQuery format */
+    orderBy?: string[]
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /** Dynamic conversion goal that can be set in the UI without saving */
+    dynamicConversionGoal?: ConversionGoalFilter | null
+}
+
+export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
+
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -3200,7 +3255,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
 }
 
 export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>, 'dateRange' | 'properties'> {
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters
@@ -3236,10 +3294,10 @@ export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
 
 export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 
-export type ConversionGoalFilter = ActionFilter & {
+export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode) & {
     conversion_goal_id: string
     conversion_goal_name: string
-    schema: SchemaMap
+    schema_map: SchemaMap
 }
 
 export interface MarketingAnalyticsConfig {
