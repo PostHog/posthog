@@ -371,19 +371,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
     }
 
-    updatePersonWithPropertiesDiffForUpdate(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        return Promise.resolve(
-            this.addPersonPropertiesUpdateToBatch(person, propertiesToSet, propertiesToUnset, otherUpdates, distinctId)
-        )
-    }
-
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
@@ -748,16 +735,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         personUpdate.needs_write = true
 
         return personUpdate
-    }
-
-    private addPersonPropertiesUpdateToBatch(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string
-    ): [InternalPerson, TopicMessage[]] {
-        throw new Error('Not implemented')
     }
 
     private async updatePersonNoAssert(
