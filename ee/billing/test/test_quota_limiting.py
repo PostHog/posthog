@@ -1325,7 +1325,7 @@ class TestQuotaLimiting(BaseTest):
             # Find the specific call for org_quota_limited_until with suspension removed
             event = None
             for call in mock_capture.call_args_list:
-                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
                     event = call
                     break
 

@@ -70,7 +70,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertFalse(Team.objects.filter(id=team.id).exists())
 
         mock_capture.assert_called_once_with(
-            "organization deleted",
+            event="organization deleted",
             distinct_id=self.user.distinct_id,
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
@@ -107,15 +107,15 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         mock_capture.assert_has_calls(
             [
                 call(
-                    self.user.distinct_id,
-                    "membership level changed",
+                    distinct_id=self.user.distinct_id,
+                    event="membership level changed",
                     properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
                 call(
-                    self.user.distinct_id,
-                    "organization deleted",
-                    organization_props,
+                    distinct_id=self.user.distinct_id,
+                    event="organization deleted",
+                    properties=organization_props,
                     groups={"instance": mock.ANY, "organization": str(org_id)},
                 ),
             ]
