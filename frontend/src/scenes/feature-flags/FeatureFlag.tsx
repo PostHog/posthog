@@ -109,6 +109,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         confirmationModalVisible,
         confirmationModalChanges,
         pendingFlagForConfirmation,
+        currentTeam,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -142,6 +143,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 featureFlag: pendingFlagForConfirmation as FeatureFlagType,
                 type: 'multi-changes',
                 changes: confirmationModalChanges,
+                customMessage: currentTeam?.feature_flag_confirmation_message || undefined,
                 onConfirm: confirmFlagChanges,
             })
         }

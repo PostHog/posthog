@@ -654,6 +654,7 @@ export interface TeamType extends TeamBasicType {
     default_data_theme?: number
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
+    feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
 }
