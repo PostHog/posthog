@@ -16,7 +16,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ActionStepStringMatching, ActionStepType } from '~/types'
 
 import { LemonEventName } from './EventName'
-import { defaultTaxonomicGroupTypes } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -106,7 +106,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         propertyFilters={step.properties}
                         pageKey={identifier}
                         eventNames={step.event ? [step.event] : []}
-                        taxonomicGroupTypes={[...defaultTaxonomicGroupTypes, ...groupsTaxonomicTypes]}
+                        taxonomicGroupTypes={[...DEFAULT_TAXONOMIC_GROUP_TYPES, ...groupsTaxonomicTypes]}
                         onChange={(properties) => {
                             sendStep({
                                 ...step,
