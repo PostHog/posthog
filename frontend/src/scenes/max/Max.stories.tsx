@@ -759,78 +759,8 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
 
     return <Template />
 }
-
-export const MaxInstanceWithPersonsContext: StoryFn = () => {
-    const { registerTool } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        // Register person-focused contextual tools
-        registerTool({
-            name: 'person_lookup' as AssistantContextualTool,
-            displayName: 'Person Lookup',
-            context: {
-                recent_persons: [
-                    { distinct_id: 'user123', email: 'john@example.com', last_seen: '2024-01-15' },
-                    { distinct_id: 'user456', email: 'jane@example.com', last_seen: '2024-01-14' },
-                ],
-                person_properties: ['email', 'name', 'plan_type', 'signup_date'],
-                search_capabilities: ['by_email', 'by_distinct_id', 'by_properties'],
-            },
-            introOverride: {
-                headline: 'How can I help you find people?',
-                description: 'I can help you look up users, analyze their behavior, or segment your audience.',
-            },
-            callback: (toolOutput) => {
-                console.info('Person lookup action:', toolOutput)
-            },
-        })
-
-        registerTool({
-            name: 'session_replay' as AssistantContextualTool,
-            displayName: 'Session Replay',
-            context: {
-                available_recordings: 1250,
-                recording_settings: { sample_rate: 0.1, console_logs: true, network_payloads: false },
-                recent_sessions: [
-                    { id: 'session_1', duration: 180, events_count: 45 },
-                    { id: 'session_2', duration: 320, events_count: 78 },
-                ],
-            },
-            callback: (toolOutput) => {
-                console.info('Session replay action:', toolOutput)
-            },
-        })
-    }, [registerTool])
-
-    return <Template />
-}
-
-export const MaxInstanceWithExperimentContext: StoryFn = () => {
-    const { registerTool } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        // Register experiment-focused contextual tools
-        registerTool({
-            name: 'ab_testing' as AssistantContextualTool,
-            displayName: 'A/B Testing',
-            context: {
-                running_experiments: [
-                    { id: 'exp_1', name: 'Button Color Test', status: 'running', participants: 2500 },
-                    { id: 'exp_2', name: 'Pricing Page Layout', status: 'draft', participants: 0 },
-                ],
-                experiment_metrics: ['conversion_rate', 'click_through_rate', 'revenue_per_user'],
-                statistical_significance: { min_sample_size: 1000, confidence_level: 0.95 },
-            },
-            introOverride: {
-                headline: 'How can I help with your experiments?',
-                description:
-                    'I can help you analyze test results, create new experiments, or interpret statistical significance.',
-            },
-            callback: (toolOutput) => {
-                console.info('A/B testing action:', toolOutput)
-            },
-        })
-    }, [registerTool])
-
-    return <Template />
+MaxInstanceWithContextualTools.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
