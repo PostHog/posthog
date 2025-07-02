@@ -72,6 +72,7 @@ import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { openConfirmationModal } from './ConfirmationModal'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -105,6 +106,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         newCohortLoading,
         activeTab,
         accessDeniedToFeatureFlag,
+        confirmationModalVisible,
+        confirmationModalChanges,
+        pendingFlagForConfirmation,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -116,6 +120,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
+        hideConfirmationModal,
+        confirmFlagChanges,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -129,6 +135,25 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    // Handle confirmation modal display
+    useEffect(() => {
+        if (confirmationModalVisible && confirmationModalChanges.length > 0 && pendingFlagForConfirmation) {
+            openConfirmationModal({
+                featureFlag: pendingFlagForConfirmation as FeatureFlagType,
+                type: 'multi-changes',
+                changes: confirmationModalChanges,
+                onConfirm: confirmFlagChanges,
+            })
+            hideConfirmationModal()
+        }
+    }, [
+        confirmationModalVisible,
+        confirmationModalChanges,
+        pendingFlagForConfirmation,
+        confirmFlagChanges,
+        hideConfirmationModal,
+    ])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
