@@ -1025,11 +1025,12 @@ def capture_internal(
     historical=False,
     extra_headers: list[tuple[str, str]] | None = None,
 ):
+    # respect old capture_internal API/behavior during the transition to
+    # new capture_internal. If applied, default person processing to disabled
+    # unless explicitly enabled (for now, in event props for parity w/old)
     if to_capture_rs:
-        # respect old capture_internal API/behavior during the transition to
-        # new capture_internal, but ensure we don't process person profiles by default
-        process_person_profiles = event.get("properties", {}).get("$process_person_profiles", False)
-        return new_capture_internal(token, distinct_id, event, process_person_profiles)
+        process_person_profile = event.get("properties", {}).get("$process_person_profile", False)
+        return new_capture_internal(token, distinct_id, event, process_person_profile)
 
     if event_uuid is None:
         event_uuid = UUIDT()
