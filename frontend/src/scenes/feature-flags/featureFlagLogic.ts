@@ -1227,7 +1227,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Proceed with saving the pending flag
             const pendingFlag = values.pendingFlagForConfirmation
             if (pendingFlag) {
+                // Clear modal state first
                 actions.hideConfirmationModal()
+
+                // Then proceed with save
                 if (pendingFlag.id) {
                     actions.saveFeatureFlag(pendingFlag)
                 } else {
