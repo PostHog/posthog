@@ -358,6 +358,7 @@ class TestSummarizeSessionGroupWorkflow:
                         assign_events_to_patterns_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
+                    debug_mode=True,  # turn off sandbox/deadlock detector
                 ) as worker:
                     yield activity_environment, worker
 
