@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 import asyncio
+import dataclasses
 import json
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -21,13 +22,16 @@ from posthog.temporal.ai.session_summary.state import (
     _compress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
+    get_redis_state_client,
 )
 from posthog.temporal.ai.session_summary.summarize_session import (
-    SingleSessionSummaryInputs,
     SummarizeSingleSessionWorkflow,
     execute_summarize_session_stream,
-    fetch_session_data_activity,
     stream_llm_single_session_summary_activity,
+)
+from posthog.temporal.ai.session_summary.shared import (
+    SingleSessionSummaryInputs,
+    fetch_session_data_activity,
 )
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
@@ -93,7 +97,7 @@ class TestFetchSessionDataActivity:
         """Test that fetch_session_data_activity stores compressed data correctly in Redis."""
         session_id = "test_fetch_session_id"
         key_base = "fetch_session_data_activity_standalone"
-        input_data = mock_single_session_summary_inputs(session_id)
+        input_data = mock_single_session_summary_inputs(session_id, key_base)
         redis_input_key = generate_state_key(
             key_base=key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
         )
@@ -140,7 +144,7 @@ class TestFetchSessionDataActivity:
     ):
         """Test that fetch_session_data_activity raises ApplicationError when no events are found (e.g., for fresh real-time replays)."""
         session_id = "test_session_no_events"
-        input_data = mock_single_session_summary_inputs(session_id)
+        input_data = mock_single_session_summary_inputs(session_id, "test_no_events_key_base")
         with (
             # Mock DB calls - return columns but no events (empty list)
             patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
@@ -176,23 +180,35 @@ class TestStreamLlmSummaryActivity:
         redis_test_setup: RedisTestContext,
     ):
         llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id)
-        compressed_llm_input_data = _compress_redis_data(json.dumps(llm_input_data.to_dict()))
-        input_data = mock_single_session_summary_inputs(mock_session_id)
+        compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
+        key_base = "stream_llm_test_base"
+        input_data = mock_single_session_summary_inputs(mock_session_id, key_base)
+        # Generate Redis keys
+        _, redis_input_key, redis_output_key = get_redis_state_client(
+            key_base=key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            output_label=StateActivitiesEnum.SESSION_SUMMARY,
+            state_id=mock_session_id,
+        )
+        assert redis_input_key
+        assert redis_output_key
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         # Store initial input data
         redis_test_setup.setup_input_data(
             compressed_llm_input_data,
-            input_data.redis_input_key,
-            input_data.redis_output_key,
+            redis_input_key,
+            redis_output_key,
         )
         # Run the activity and verify results
         expected_final_summary = json.dumps(mock_enriched_llm_json_response)
         with (
             patch("ee.session_recordings.session_summary.llm.consume.stream_llm", return_value=mock_stream_llm()),
             patch("temporalio.activity.heartbeat") as mock_heartbeat,
+            patch("temporalio.activity.info") as mock_activity_info,
         ):
+            mock_activity_info.return_value.workflow_id = "test_workflow_id"
             # Call the activity directly as a function
             result = await stream_llm_single_session_summary_activity(input_data)
             # Verify the result is the final SSE event
@@ -260,12 +276,22 @@ class TestSummarizeSingleSessionWorkflow:
         if session_id_suffix:
             session_id = f"{session_id}-{session_id_suffix}"
         llm_input_data = mock_single_session_summary_llm_inputs(session_id)
-        compressed_llm_input_data = _compress_redis_data(json.dumps(llm_input_data.to_dict()))
-        redis_input_key = f"test_workflow_input_key_{uuid.uuid4()}"
-        redis_output_key = f"test_workflow_output_key_{uuid.uuid4()}"
+        compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
+        redis_key_base = f"test_workflow_key_base_{uuid.uuid4()}"
         workflow_id = f"test_workflow_{uuid.uuid4()}"
         # Create workflow input object
-        workflow_input = mock_single_session_summary_inputs(session_id, redis_input_key, redis_output_key)
+        workflow_input = mock_single_session_summary_inputs(session_id, redis_key_base)
+
+        # Generate Redis keys using the state system
+        from posthog.temporal.ai.session_summary.state import get_redis_state_client
+
+        _, redis_input_key, redis_output_key = get_redis_state_client(
+            key_base=redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            output_label=StateActivitiesEnum.SESSION_SUMMARY,
+            state_id=session_id,
+        )
+
         # Store input data in Redis
         redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
@@ -336,11 +362,11 @@ class TestSummarizeSingleSessionWorkflow:
         mock_workflow_handle.result = AsyncMock(return_value=expected_final_summary)
         with (
             patch(
-                "posthog.temporal.ai.session_summary.shared.prepare_data_for_single_session_summary",
+                "ee.session_recordings.session_summary.summarize_session.prepare_data_for_single_session_summary",
                 return_value=sample_session_summary_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.shared.prepare_single_session_summary_input",
+                "ee.session_recordings.session_summary.summarize_session.prepare_single_session_summary_input",
                 return_value=input_data,
             ),
             patch(
