@@ -8,6 +8,7 @@ import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
+import { applyEventPropertyUpdates } from './person-update'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -155,8 +156,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
             // We have both fresh data and existing cache - merge them properly
             const freshPersonUpdate = fromInternalPerson(mainResult, distinctId)
-            // Preserve the existing changeset
-            freshPersonUpdate.property_changeset = existingCached.property_changeset
+            // Preserve the existing property changes
+            freshPersonUpdate.properties_to_set = existingCached.properties_to_set
+            freshPersonUpdate.properties_to_unset = existingCached.properties_to_unset
             // Preserve the needs_write flag if it was set
             freshPersonUpdate.needs_write = existingCached.needs_write
             freshPersonUpdate.is_identified = freshPersonUpdate.is_identified || existingCached.is_identified
@@ -294,6 +296,61 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             mainPersonResult.version
         )
         return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
+    }
+
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[]]> {
+        // Main store doesn't support this method, so we'll convert to the regular update
+        const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
+
+        const update: Partial<InternalPerson> = { ...otherUpdates }
+        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
+            update.properties = person.properties
+        }
+
+        const [mainPersonResult, mainKafkaMessages] = await this.mainStore.updatePersonForUpdate(
+            person,
+            update,
+            distinctId,
+            tx
+        )
+
+        // Secondary store supports the diff method directly
+        const [secondaryPersonResult] = await this.secondaryStore.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            distinctId,
+            tx
+        )
+
+        // Compare results to ensure consistency between stores
+        this.compareUpdateResults(
+            'updatePersonWithPropertiesDiffForUpdate',
+            person.team_id,
+            person.id,
+            mainPersonResult,
+            secondaryPersonResult,
+            false
+        )
+
+        this.updateFinalState(
+            person.team_id,
+            distinctId,
+            mainPersonResult.id,
+            mainPersonResult,
+            false,
+            'updatePersonWithPropertiesDiffForUpdate',
+            mainPersonResult.version
+        )
+        return [mainPersonResult, mainKafkaMessages]
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
