@@ -40,18 +40,18 @@ class MessageSerializer(serializers.Serializer):
     ui_context = serializers.JSONField(required=False)
 
     def validate(self, data):
-        if not data["content"]:
-            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
-            # Because we intentionally don't add a HumanMessage, we currently can't recognize ui_context having changed
-            return data
-        try:
-            message_data = {"content": data["content"]}
-            if "ui_context" in data:
-                message_data["ui_context"] = data["ui_context"]
-            message = HumanMessage.model_validate(message_data)
+        # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+        # Because we intentionally don't add a HumanMessage, we currently can't recognize ui_context having changed
+        if data["content"] is not None:
+            try:
+                message = HumanMessage.model_validate(
+                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                )
+            except pydantic.ValidationError:
+                raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
-        except pydantic.ValidationError:
-            raise serializers.ValidationError("Invalid message content.")
+        else:
+            data["message"] = None
         return data
 
 
@@ -109,7 +109,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         assistant = Assistant(
             self.team,
             conversation,
-            new_message=serializer.validated_data.get("message"),
+            new_message=serializer.validated_data["message"],
             user=cast(User, request.user),
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
