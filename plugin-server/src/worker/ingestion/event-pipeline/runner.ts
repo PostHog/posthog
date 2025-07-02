@@ -335,6 +335,7 @@ export class EventPipelineRunner {
             () => ({
                 step: step.name,
                 teamId: teamId,
+                event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
             this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
