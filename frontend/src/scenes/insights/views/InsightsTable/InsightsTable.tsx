@@ -82,6 +82,7 @@ export function InsightsTable({
         isSingleSeries,
         hiddenLegendIndexes,
         getTrendsColor,
+        insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
@@ -283,6 +284,7 @@ export function InsightsTable({
                     indexedResults={indexedResults}
                     compare={compareFilter?.compare}
                     interval={interval}
+                    queryDateRange={insightData?.query_date_range}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
