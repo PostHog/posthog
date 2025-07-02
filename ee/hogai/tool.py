@@ -126,7 +126,7 @@ class MaxTool(BaseTool):
         try:
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
-            return await super()._arun(*args, config, **kwargs)
+            return await super()._arun(*args, config=config, **kwargs)
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})

@@ -579,12 +579,13 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_4), "root")
 
-    def test_run_no_assistant_message(self):
+    async def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
+        result = await node.arun(state, {})
+        self.assertEqual(result, PartialAssistantState(root_tool_calls_count=0))
 
-    def test_run_valid_tool_call(self):
+    async def test_run_valid_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -601,13 +602,13 @@ class TestRootNodeTools(BaseTest):
                 )
             ]
         )
-        result = node.run(state, {})
+        result = await node.arun(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
         self.assertEqual(result.root_tool_insight_type, "trends")
 
-    def test_run_valid_contextual_tool_call(self):
+    async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -629,7 +630,7 @@ class TestRootNodeTools(BaseTest):
             "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
             return_value=("Success", {}),
         ):
-            result = node.run(
+            result = await node.arun(
                 state,
                 {
                     "configurable": {
@@ -646,7 +647,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
         self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
-    def test_run_multiple_tool_calls_raises(self):
+    async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -669,10 +670,10 @@ class TestRootNodeTools(BaseTest):
             ]
         )
         with self.assertRaises(ValueError) as cm:
-            node.run(state, {})
+            await node.arun(state, {})
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
-    def test_run_increments_tool_count(self):
+    async def test_run_increments_tool_count(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -690,20 +691,20 @@ class TestRootNodeTools(BaseTest):
             ],
             root_tool_calls_count=2,  # Starting count
         )
-        result = node.run(state, {})
+        result = await node.arun(state, {})
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
 
-    def test_run_resets_tool_count(self):
+    async def test_run_resets_tool_count(self):
         node = RootNodeTools(self.team, self.user)
 
         # Test reset when no tool calls in AssistantMessage
         state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
-        result = node.run(state_1, {})
+        result = await node.arun(state_1, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
         # Test reset when last message is HumanMessage
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
-        result = node.run(state_2, {})
+        result = await node.arun(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
 
