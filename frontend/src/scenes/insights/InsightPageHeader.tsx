@@ -27,6 +27,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -611,7 +612,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 dataAttr="insight-tags"
                             />
                         )}
-
+                        <SceneFile />
                         <SceneActivityIndicator
                             at={insight.last_modified_at}
                             by={insight.last_modified_by}
