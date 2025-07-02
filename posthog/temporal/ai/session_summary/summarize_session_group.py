@@ -31,7 +31,6 @@ from posthog.temporal.ai.session_summary.state import (
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
-    SessionGroupSummarySingleSessionOutput,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -165,17 +164,18 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return session_inputs
 
     @staticmethod
-    async def _run_summary(inputs: SingleSessionSummaryInputs) -> SessionGroupSummarySingleSessionOutput | Exception:
+    async def _run_summary(inputs: SingleSessionSummaryInputs) -> None | Exception:
         """
         Run and handle the summary for a single session to avoid one activity failing the whole group.
         """
         try:
-            return await temporalio.workflow.execute_activity(
+            await temporalio.workflow.execute_activity(
                 get_llm_single_session_summary_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            return None
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
             return err
