@@ -70,12 +70,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     {children}
                     <div
                         className={clsx(
-                            'flex flex-col',
+                            'flex flex-col m-1',
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary',
-                            isThreadVisible && 'm-1'
+                            isFloating && 'border-primary'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
