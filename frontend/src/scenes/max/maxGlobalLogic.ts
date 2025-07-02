@@ -4,10 +4,15 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { routes } from 'scenes/scenes'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
-    name: string
+    name: AssistantContextualTool
     /** A user-friendly display name for the tool */
     displayName: string
     /** Contextual data to be included for use by the LLM */
@@ -33,6 +38,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
         values: [organizationLogic, ['currentOrganization']],
+        actions: [router, ['locationChanged']],
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
@@ -45,7 +51,37 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         toolMap: [
-            {} as Record<string, ToolDefinition>,
+            {
+                // The navigation tool is available everywhere
+                navigate: {
+                    name: 'navigate' as const,
+                    displayName: 'Navigate',
+                    context: { current_page: location.pathname },
+                    callback: async (toolOutput) => {
+                        const { page_key: pageKey } = toolOutput
+                        if (!(pageKey in urls)) {
+                            throw new Error(`${pageKey} not in urls`)
+                        }
+                        const url = urls[pageKey as AssistantNavigateUrls]()
+                        router.actions.push(url)
+                        // First wait for navigation to complete
+                        await new Promise<void>((resolve, reject) => {
+                            const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
+                            const startTime = performance.now()
+                            const checkPathname = (): void => {
+                                if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                                    resolve()
+                                } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
+                                    reject(new Error('Navigation timeout'))
+                                } else {
+                                    setTimeout(checkPathname, 50)
+                                }
+                            }
+                            checkPathname()
+                        })
+                    },
+                },
+            } as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
@@ -89,10 +125,17 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
+            })
+        },
+        locationChanged: ({ pathname }) => {
+            // Update navigation tool with the current page
+            actions.registerTool({
+                ...values.toolMap.navigate,
+                context: { current_page: pathname },
             })
         },
     })),
