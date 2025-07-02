@@ -328,10 +328,10 @@ const ExperimentFormFields = (): JSX.Element => {
                                             checked={value}
                                         />
                                         <div className="text-secondary text-sm pl-7">
-                                            If your feature flag is evaluated on anonymous users, use this to ensure
-                                            that the flag value remains consistent when the user logs in. Depending on
-                                            your setup, this option might not always be suitable. This feature requires
-                                            creating profiles for anonymous users.{' '}
+                                            If your feature flag is evaluated for anonymous users, use this option to
+                                            ensure the flag value remains consistent after the user logs in. Depending
+                                            on your setup, this option may not always be appropriate. Note that this
+                                            feature requires creating profiles for anonymous users.{' '}
                                             <Link
                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                 target="_blank"
