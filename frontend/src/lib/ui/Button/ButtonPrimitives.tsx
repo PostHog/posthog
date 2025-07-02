@@ -124,7 +124,7 @@ export const buttonPrimitiveVariants = cva({
             outline: 'button-primitive--variant-outline',
         },
         size: {
-            sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
+            sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
