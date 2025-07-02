@@ -23,7 +23,8 @@ import {
 } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
-import { MarketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/MarketingAnalyticsConfigurationDescriber'
+import { marketingAnalyticsConfigurationDescriber } from './marketing_analytics_config/marketingAnalyticsConfigurationDescriber'
+import { revenueAnalyticsConfigurationDescriber } from './revenue_analytics_config/revenueAnalyticsConfigurationDescriber'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/geography/currency'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -811,10 +812,8 @@ const teamActionsMapping: Record<
             description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
         }
     },
-    marketing_analytics_config: MarketingAnalyticsConfigurationDescriber,
-
-    // TODO implement these when possible
-    revenue_analytics_config: () => null,
+    marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
+    revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
 
     // should never come from the backend
     created_at: () => null,
