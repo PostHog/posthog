@@ -3,13 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { BillingType, UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
 
-import { getDefaultFunnelMetric, getDefaultTrendsMetric, shouldUseNewQueryRunnerForNewObjects } from '../utils'
+import { getDefaultFunnelMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -133,12 +133,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         ],
         action: [() => [(_, props) => props.action], (action: 'create' | 'update' | 'duplicate') => action],
         newSharedMetric: [
-            (s) => [s.featureFlags, s.billing],
-            (featureFlags: FeatureFlagsSet, billing: BillingType) => ({
+            () => [],
+            () => ({
                 ...NEW_SHARED_METRIC,
-                query: shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)
-                    ? getDefaultFunnelMetric()
-                    : getDefaultTrendsMetric(),
+                query: getDefaultFunnelMetric(),
             }),
         ],
     }),
