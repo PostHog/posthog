@@ -117,7 +117,7 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
 ) -> tuple[str, dict[str, Any]]:
-    query = f"SELECT * FROM `{schema}`.`{table_name}`"
+    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
 
     if not should_use_incremental_field:
         return query, {}
@@ -412,9 +412,8 @@ def _get_table_average_row_size(
 
         columns = [row[0] for row in rows]
 
-        # Build the LENGTH sum for each column
-        # Use COALESCE to handle NULL values (they take up space too)
-        length_sum = " + ".join(f"LENGTH(COALESCE(`{col}`, ''))" for col in columns)
+        # Build the LENGTH sum for each column with proper sanitization
+        length_sum = " + ".join(f"LENGTH(COALESCE({_sanitize_identifier(col)}, ''))" for col in columns)
 
         # Sample the first 1000 rows to calculate average row size
         size_query = f"""
