@@ -54,21 +54,28 @@ export const storiesMap: storyGroup[] = [
         title: 'Changelog',
         stories: [
             {
-                id: 'changelog_save_filters_replay_1',
+                id: 'changelog_hog_templating',
+                title: 'Changelog',
+                description: 'In-app Hog templating',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_hog_templating_e21396dadf.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'changelog_linear_share_modal',
+                title: 'Changelog',
+                description: 'Share session replays on Linear',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_4d21aef711.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'changelog_save_filters_session_replay',
                 title: 'Changelog',
                 description: 'Save filters for session replay',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
                 mediaUrl:
-                    'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_wide_684b8b7844_82b2ffd07c.mp4',
-                type: StoryType.Video,
-            },
-            {
-                id: 'changelog_linear_share_1',
-                title: 'Changelog',
-                description: 'Share session replays on Linear',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
-                mediaUrl:
-                    'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_linear_share_wide_0d3520bba5_64049c56b6.mp4',
+                    'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_save_filters_replay_59939f9908.mp4',
                 type: StoryType.Video,
             },
             {
@@ -90,23 +97,20 @@ export const storiesMap: storyGroup[] = [
         title: 'Toolbar',
         stories: [
             {
-                id: 'toolbar_overview_1',
+                id: 'toolbar_overview',
                 title: 'Toolbar',
                 description: 'Overview of the toolbar',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_wide_5df781bfb4_e455df0d27.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_overview_2320038fa8.mp4',
                 type: StoryType.Video,
-                durationMs: 41000,
             },
             {
-                id: 'toolbar_actions_1',
+                id: 'toolbar_create_actions',
                 title: 'Toolbar',
                 description: 'Create actions',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_builder_dc64451e64.png',
-                mediaUrl:
-                    'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_actions_wide_fbe2f78e7e_e60dd23156.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/toolbar_actions_e0d6b18b99.mp4',
                 type: StoryType.Video,
-                durationMs: 45000,
             },
             {
                 id: 'toolbar_inspect_1',
@@ -168,6 +172,20 @@ export const storiesMap: storyGroup[] = [
                 mediaUrl:
                     'https://res.cloudinary.com/dmukukwp6/image/upload/toolbar_cool_features_357aa7fc36_dc294f7fca.png',
                 type: StoryType.Image,
+            },
+        ],
+    },
+    {
+        id: 'max-ai',
+        title: 'Max AI',
+        stories: [
+            {
+                id: 'meet-max-ai-overview',
+                title: 'Max AI',
+                description: 'Say hi to Max!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/max_ai_overview_9e72208fda.mp4',
+                type: StoryType.Video,
             },
         ],
     },
