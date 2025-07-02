@@ -91,7 +91,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -112,7 +112,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -133,7 +133,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -703,7 +703,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1105,7 +1105,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1335,7 +1335,7 @@ mod tests {
             );
 
             matcher
-                .prepare_flag_evaluation_state(&[flag.clone()])
+                .prepare_flag_evaluation_state(&[&flag])
                 .await
                 .unwrap();
 
@@ -1467,17 +1467,17 @@ mod tests {
         );
 
         matcher_test_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
         matcher_example_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
         matcher_another_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1580,7 +1580,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1708,17 +1708,17 @@ mod tests {
         );
 
         matcher_test_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
         matcher_example_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
         matcher_another_id
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1832,7 +1832,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -1925,7 +1925,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -2132,7 +2132,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -2213,7 +2213,7 @@ mod tests {
             None,
         );
 
-        let matcher = FeatureFlagMatcher::new(
+        let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
@@ -2223,6 +2223,11 @@ mod tests {
             None,
             None,
         );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
 
         let result = matcher.get_match(&flag, None, None).unwrap();
 
@@ -2311,7 +2316,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -2476,7 +2481,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -2963,7 +2968,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3018,7 +3023,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag_invalid_override.clone()])
+            .prepare_flag_evaluation_state(&[&flag_invalid_override])
             .await
             .unwrap();
 
@@ -3191,7 +3196,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag_with_holdout.clone()])
+            .prepare_flag_evaluation_state(&[&flag_with_holdout])
             .await
             .unwrap();
 
@@ -3214,9 +3219,9 @@ mod tests {
 
         matcher2
             .prepare_flag_evaluation_state(&[
-                flag_with_holdout.clone(),
-                flag_without_holdout.clone(),
-                other_flag_with_holdout.clone(),
+                &flag_with_holdout,
+                &flag_without_holdout,
+                &other_flag_with_holdout,
             ])
             .await
             .unwrap();
@@ -3457,7 +3462,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3584,7 +3589,7 @@ mod tests {
         );
 
         matcher_numeric
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3604,7 +3609,7 @@ mod tests {
         );
 
         matcher_string
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3636,7 +3641,7 @@ mod tests {
         );
 
         matcher_float
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3657,7 +3662,7 @@ mod tests {
         );
 
         matcher_bool
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3798,7 +3803,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3823,7 +3828,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3848,7 +3853,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
@@ -3915,7 +3920,7 @@ mod tests {
         );
 
         matcher
-            .prepare_flag_evaluation_state(&[flag.clone()])
+            .prepare_flag_evaluation_state(&[&flag])
             .await
             .unwrap();
 
