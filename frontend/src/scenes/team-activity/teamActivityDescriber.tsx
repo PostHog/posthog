@@ -575,6 +575,27 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    flags_persistence_default: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [
+                <>
+                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong>{' '}
+                    <Link
+                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                        target="_blank"
+                    >
+                        flag persistence
+                    </Link>{' '}
+                    by default
+                </>,
+            ],
+        }
+    },
+
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -608,7 +629,6 @@ const teamActionsMapping: Record<
     person_display_name_properties: () => null,
     primary_dashboard: () => null,
     revenue_analytics_config: () => null,
-    flags_persistence_default: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     onboarding_tasks: () => null,
