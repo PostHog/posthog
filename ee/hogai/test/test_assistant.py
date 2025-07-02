@@ -18,17 +18,23 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.tool import search_documentation
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import (
+    AssistantMode,
+    AssistantNodeName,
+    AssistantOutput,
+    AssistantState,
+    PartialAssistantState,
+)
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
+    AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -138,41 +144,28 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         if test_graph:
             assistant._graph = test_graph
         # Capture and parse output of assistant.stream()
-        output: list[tuple[str, Any]] = []
-        for _message in assistant.stream():
-            output.append(self._parse_stringified_message(_message))
+        output: list[AssistantOutput] = []
+        for event in assistant.stream():
+            output.append(event)
         return output, assistant
 
-    def assertConversationEqual(self, output: list[tuple[str, Any]], expected_output: list[tuple[str, Any]]):
+    def assertConversationEqual(self, output: list[AssistantOutput], expected_output: list[AssistantOutput]):
         self.assertEqual(len(output), len(expected_output), output)
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
-            if output_msg_type == "conversation" and expected_msg_type == "conversation":
-                self.assertConversationDictsEqual(output_msg, expected_msg)
-            else:
-                self.assertEqual(output_msg_type, expected_msg_type, f"Message type mismatch at index {i}")
+            if (
+                output_msg_type == AssistantEventType.CONVERSATION
+                and expected_msg_type == AssistantEventType.CONVERSATION
+            ):
+                self.assertEqual(output_msg, expected_msg)
+            elif output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE:
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
                 self.assertDictContainsSubset(msg_dict, output_msg, f"Message content mismatch at index {i}")
-
-    def assertConversationDictsEqual(self, dict1: dict[str, Any], dict2: dict[str, Any]):
-        self.assertEqual(dict1["id"], dict2["id"])
-        self.assertEqual(dict1["status"], dict2["status"])
-        self.assertEqual(dict1["title"], dict2["title"])
-        self.assertIn("created_at", dict1)
-        self.assertIn("created_at", dict2)
-        self.assertIn("updated_at", dict1)
-        self.assertIn("updated_at", dict2)
-
-    def _serialize_conversation(self, conversation: Conversation | None = None) -> dict[str, Any]:
-        conversation = conversation or self.conversation
-        return {
-            **ConversationMinimalSerializer(conversation).data,
-            # Status is set in progress because conversation was generating.
-            "status": Conversation.Status.IN_PROGRESS,
-        }
+            else:
+                raise ValueError(f"Unexpected message type: {output_msg_type} and {expected_msg_type}")
 
     def assertStateMessagesEqual(self, messages: list[Any], expected_messages: list[Any]):
         self.assertEqual(len(messages), len(expected_messages))
@@ -512,7 +505,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
         ]
         self.assertConversationEqual(output[:1], expected_output)
 
@@ -612,7 +605,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -686,7 +679,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -760,7 +753,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -825,7 +818,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run
         actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
@@ -865,7 +858,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
         )
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
             (
                 "message",
@@ -926,7 +919,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
         )
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
             (
                 "message",
@@ -1000,7 +993,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=True,
         )
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="We use a subscription model")),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -1522,7 +1515,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         expected_output = [
-            ("conversation", self._serialize_conversation()),
+            ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
