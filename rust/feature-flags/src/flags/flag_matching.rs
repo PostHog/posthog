@@ -555,6 +555,8 @@ impl FeatureFlagMatcher {
             Ok(stages) => stages,
             Err(e) => {
                 self.handle_dependency_graph_error("get evaluation stages", &e);
+                // This path should never happen. Normally I'd call unreachable here but if I'm wrong,
+                // I want the prod service to fail gracefully. But not while we're developing.
                 debug_assert!(
                     false,
                     "evaluation_stages() failed after dependency graph construction: {e:?}"
