@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0783_remove_segment_engage_destinations"),
+        ("posthog", "0784_fix_null_event_triggers"),
     ]
 
     operations = [
