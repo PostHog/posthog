@@ -3,17 +3,15 @@ import hashlib
 import hmac
 import time
 import jwt
-from datetime import timedelta, datetime
+from datetime import timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
 from prometheus_client import Counter
 import requests
-from requests import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -931,12 +929,37 @@ class LinearIntegration:
         teams = dot_get(response.json(), "data.teams.nodes")
         return teams
 
+    def create_issue(self, title, description):
+        # query = f"mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: {teamId} }}) {{ success issue {{ id }} }} }}"
+
+        query = """mutation IssueCreate {
+    issueCreate(
+        input: {
+        title: "New exception", description: "More detailed error report in markdown"
+        teamId: "9cfb482a-81e3-4154-b5b9-2c805e70a02d"
+        }
+    ) {
+        success
+        issue { id }
+    }
+}"""
+
+        response = requests.post(
+            "https://api.linear.app/graphql",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            json={"query": query},
+        )
+
+        # teams = dot_get(response.json(), "data.teams.nodes")
+        # return teams
+        return None
+
 
 class GitHubIntegration:
     integration: Integration
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> Response:
+    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
         jwt_token = jwt.encode(
             {
                 "iat": int(time.time()),
@@ -1030,3 +1053,6 @@ class GitHubIntegration:
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+    def create_issue(self, title, description):
+        pass

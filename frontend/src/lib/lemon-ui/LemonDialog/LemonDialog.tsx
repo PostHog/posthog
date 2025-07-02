@@ -13,7 +13,9 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
-        content?: ((isLoading: boolean) => ReactNode) | ReactNode
+        content?:
+            | (({ isLoading, values }: { isLoading: boolean; values: Record<string, any> }) => ReactNode)
+            | ReactNode
     }
 
 export type LemonDialogProps = Pick<
@@ -139,6 +141,8 @@ export const LemonFormDialog = ({
         [formValidationErrors]
     )
 
+    console.log(form)
+
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
         children: 'Submit',
@@ -154,7 +158,7 @@ export const LemonFormDialog = ({
     }
 
     // Resolve content, supporting both function and static content
-    const resolvedContent = typeof content === 'function' ? content(isLoading) : content
+    const resolvedContent = typeof content === 'function' ? content({ isLoading, values: form }) : content
 
     useEffect(() => {
         setFormValues(initialValues)

@@ -2021,6 +2021,12 @@ export interface ErrorTrackingIssueAggregations {
     volumeRange: number[]
 }
 
+export interface ErrorTrackingExternalReference {
+    id: string
+    provider: string
+    external_id: string
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2029,6 +2035,7 @@ export interface ErrorTrackingRelationalIssue {
     status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
+    external_issues: ErrorTrackingExternalReference[]
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {

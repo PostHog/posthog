@@ -23,8 +23,7 @@ import { ISSUE_STATUS_OPTIONS } from './utils'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
-import { urls } from 'scenes/urls'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -60,7 +59,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        <ConnectIssueButton />
+                        {issue && <ConnectIssueButton externalIssues={issue.external_issues} />}
                         <LemonButton
                             type="secondary"
                             onClick={() => openSidePanel(SidePanelTab.Discussion)}
@@ -115,19 +114,4 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             </div>
         </ErrorTrackingSetupPrompt>
     )
-}
-
-const ConnectIssueButton = (): JSX.Element | null => {
-    const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
-
-    const errorTrackingIntegrations = [...linearIntegrations, ...githubIntegrations]
-
-    if (errorTrackingIntegrations.length === 0) {
-        return (
-            <LemonButton type="secondary" to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
-                Connect issue
-            </LemonButton>
-        )
-    }
-    return null
 }

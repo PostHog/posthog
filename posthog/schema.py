@@ -930,6 +930,15 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class ErrorTrackingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_id: str
+    id: str
+    provider: str
+
+
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2950,6 +2959,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
+    external_issues: list[ErrorTrackingExternalReference]
     first_seen: datetime
     id: str
     name: Optional[str] = None
@@ -6711,6 +6721,7 @@ class ErrorTrackingIssue(BaseModel):
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
+    external_issues: list[ErrorTrackingExternalReference]
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str

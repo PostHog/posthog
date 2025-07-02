@@ -14,7 +14,7 @@ import {
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
@@ -56,6 +56,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
+        }),
+        createExternalReference: (title: string, description: string, integration: IntegrationType) => ({
+            title,
+            description,
+            integration,
         }),
     }),
 
@@ -109,6 +114,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            createExternalReference: async ({ title, description, integration }) => {
+                const response = await api.errorTracking.createExternalReference(
+                    props.id,
+                    title,
+                    description,
+                    integration.id
+                )
+                debugger
+            },
         },
         firstSeenEvent: {
             loadFirstSeenEvent: async ({ timestamp }) => {

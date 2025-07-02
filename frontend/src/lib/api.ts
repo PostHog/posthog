@@ -921,6 +921,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
+    public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('external_references')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -2558,6 +2562,17 @@ const api = {
 
         async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
+        },
+
+        async createExternalReference(
+            issueId: string,
+            title: string,
+            description: string,
+            integrationId: number
+        ): Promise<void> {
+            return await new ApiRequest()
+                .errorTrackingExternalReference()
+                .create({ data: { title, description, integration: integrationId, issue: issueId } })
         },
     },
 

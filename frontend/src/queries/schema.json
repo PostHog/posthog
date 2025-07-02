@@ -8975,6 +8975,22 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "provider", "external_id"],
+            "type": "object"
+        },
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
@@ -8993,6 +9009,12 @@
                 },
                 "description": {
                     "type": ["string", "null"]
+                },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "first_event": {
                     "additionalProperties": false,
@@ -9032,7 +9054,17 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
+            "required": [
+                "assignee",
+                "description",
+                "external_issues",
+                "first_seen",
+                "id",
+                "last_seen",
+                "library",
+                "name",
+                "status"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -9245,6 +9277,12 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -9260,7 +9298,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
+            "required": ["id", "name", "description", "assignee", "status", "first_seen", "external_issues"],
             "type": "object"
         },
         "EventDefinition": {

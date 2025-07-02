@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.utils import action
 from posthog.models.utils import UUIDT
+from posthog.models.integration import GitHubIntegration, LinearIntegration
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingRelease,
@@ -30,6 +31,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingExternalReference,
 )
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -67,13 +69,59 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         return "role" if obj.role else "user"
 
 
+class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingExternalReference
+        fields = ["id", "issue", "integration", "provider", "external_id"]
+        read_only_fields = ["provider", "external_id"]
+
+    def validate(self, data):
+        issue = data["issue"]
+        integration = data["integration"]
+        team = self.context["get_team"]()
+
+        if issue.team_id != team.id:
+            raise serializers.ValidationError("Issue does not belong to this team.")
+
+        if integration.team_id != team.id:
+            raise serializers.ValidationError("Integration does not belong to this team.")
+
+        return data
+
+    def create(self, validated_data: dict[str, Any]) -> ErrorTrackingExternalReference:
+        issue = validated_data.get("issue")
+        integration = validated_data.get("integration")
+
+        title = validated_data.get("title")
+        description = validated_data.get("description")
+
+        if integration.kind == "github":
+            external_id = GitHubIntegration(integration).create_issue(title, description)
+        elif integration.kind == "linear":
+            external_id = LinearIntegration(integration).create_issue(title, description)
+        else:
+            raise ValidationError("Provider not supported")
+
+        instance = ErrorTrackingExternalReference.objects.create(
+            issue=issue, integration=integration, external_id=external_id, provider=integration.kind
+        )
+        return instance
+
+
+class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingExternalReference.objects.all()
+    serializer_class = ErrorTrackingExternalReferenceSerializer
+
+
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
 
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues"]
 
     def update(self, instance, validated_data):
         team = instance.team
