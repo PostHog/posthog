@@ -67,6 +67,7 @@ class Integration(models.Model):
         EMAIL = "email"
         LINEAR = "linear"
         GITHUB = "github"
+        TWILIO = "twilio"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
