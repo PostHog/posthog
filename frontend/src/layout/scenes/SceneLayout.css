@@ -1,15 +1,12 @@
 .scene-layout {
-    --scene-layout-panel-info-width: 300px;
-    --scene-header-height: 42px;
-
     container-name: scenelayout;
     container-type: size;
-    min-height: calc(100vh - var(--scene-header-height));
+    min-height: calc(100vh - var(--scene-layout-header-height));
 }
 
 .scene-layout__content-panel {
     z-index: var(--z-top-navigation);
-    width: var(--scene-layout-panel-info-width);
+    width: var(--scene-layout-panel-width);
     border-color: var(--border-primary);
     border-style: solid;
     border-width: 0 0 0 1px;

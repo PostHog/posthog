@@ -31,7 +31,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         <>
             <div
                 className={cn(
-                    'flex items-center gap-2 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-header-height)]',
+                    'flex items-center gap-2 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
                     className,
                     {
                         'pr-2': panelInfoActive,

@@ -20,6 +20,7 @@ import { themeLogic } from './themeLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
+import { cn } from 'lib/utils/css-classes'
 
 export function Navigation({
     children,
@@ -49,7 +50,14 @@ export function Navigation({
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
+        <div
+            className={cn(
+                'Navigation3000',
+                mobileLayout && 'Navigation3000--mobile',
+                useMinimalSceneLayout && 'Navigation3000--minimal-scene-layout'
+            )}
+            style={theme?.mainStyle}
+        >
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href="#main-content"

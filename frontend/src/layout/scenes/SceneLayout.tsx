@@ -105,12 +105,12 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 {
                                     hidden: !panelInfoOpen,
                                     // When it's a modal, we do fixed positioning to keep it floating and not scrolling relative to the page
-                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-info-width)-1px)]':
+                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
                                         showPanelOverlay,
                                 }
                             )}
                         >
-                            <div className="h-[var(--scene-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
+                            <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
                                 <div className="flex items-center gap-2">
                                     <IconInfo className="size-5 text-tertiary" />
                                     <h4 className="text-base font-medium text-primary m-0">Info</h4>
