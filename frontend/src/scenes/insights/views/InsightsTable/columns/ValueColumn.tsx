@@ -7,7 +7,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '~/queries/schema/schema-general'
+import { QueryDateRangeResponse, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType, TrendsFilterType } from '~/types'
 
 type ValueColumnTitleProps = {
@@ -15,14 +15,22 @@ type ValueColumnTitleProps = {
     indexedResults: IndexedTrendResult[]
     compare?: boolean | null
     interval?: IntervalType | null
+    queryDateRange?: QueryDateRangeResponse
 }
 
-export function ValueColumnTitle({ index, indexedResults, compare, interval }: ValueColumnTitleProps): JSX.Element {
+export function ValueColumnTitle({
+    index,
+    indexedResults,
+    compare,
+    interval,
+    queryDateRange,
+}: ValueColumnTitleProps): JSX.Element {
     const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
 
     return (
         <DateDisplay
             interval={interval || 'day'}
+            queryDateRange={queryDateRange}
             date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
             secondaryDate={previousResult ? (previousResult.dates || previousResult.days)[index] : undefined} // previous
             hideWeekRange
