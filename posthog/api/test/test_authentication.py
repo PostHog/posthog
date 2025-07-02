@@ -670,7 +670,7 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
         mock_capture.assert_any_call(
-            "user password reset",
+            event="user password reset",
             distinct_id=self.user.distinct_id,
             groups={
                 "instance": ANY,

@@ -765,7 +765,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_capture.assert_called_once_with(
             self.user,
             "dashboard created",
-            properties={
+            {
                 "$current_url": None,
                 "$session_id": mock.ANY,
                 "created_at": mock.ANY,
@@ -1228,7 +1228,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_capture.assert_called_once_with(
             self.user,
             "dashboard created",
-            properties={
+            {
                 "$current_url": "https://posthog.com/my-referer",
                 "$session_id": "my-session-id",
                 "created_at": mock.ANY,

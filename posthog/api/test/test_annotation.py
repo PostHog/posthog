@@ -130,7 +130,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         mock_capture.assert_called_once_with(
             self.user,
             "annotation created",
-            properties={"scope": "organization", "date_marker": date_marker},
+            {"scope": "organization", "date_marker": date_marker},
         )
 
     @patch("posthog.api.annotation.report_user_action")

@@ -112,7 +112,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_email_verification(user.id, token)
 
         mock_capture.assert_called_once_with(
-            "verification email sent",
+            event="verification email sent",
             distinct_id=user.distinct_id,
             groups={"organization": str(user.current_organization_id)},
         )
