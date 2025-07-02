@@ -19,8 +19,6 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_event,
-    _create_person,
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
@@ -86,36 +84,6 @@ LAST_6_MONTHS_FAKEDATETIMES = ALL_MONTHS_FAKEDATETIMES[:7].copy()
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-05-30"
-
-    def _create_purchase_events(self, data):
-        person_result = []
-        for distinct_id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
-                person = _create_person(
-                    team_id=self.team.pk,
-                    distinct_ids=[distinct_id],
-                    properties={
-                        "name": distinct_id,
-                        **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
-                    },
-                )
-            event_ids: list[str] = []
-            for timestamp, session_id, revenue, currency in timestamps:
-                event_ids.append(
-                    _create_event(
-                        team=self.team,
-                        event="purchase",
-                        distinct_id=distinct_id,
-                        timestamp=timestamp,
-                        properties={
-                            "$session_id": session_id,
-                            "revenue": revenue,
-                            "currency": currency,
-                        },
-                    )
-                )
-            person_result.append((person, event_ids))
-        return person_result
 
     def setUp(self):
         super().setUp()
