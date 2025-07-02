@@ -118,20 +118,14 @@ def _build_query(
     db_incremental_field_last_value: Any | None,
 ) -> tuple[str, dict[str, Any]]:
     query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
-    query_args = {}
 
-    if should_use_incremental_field:
-        if incremental_field is None or incremental_field_type is None:
-            raise ValueError("incremental_field and incremental_field_type can't be None")
+    if not should_use_incremental_field:
+        return query, {}
 
-        if db_incremental_field_last_value is None:
-            raise ValueError("db_incremental_field_last_value can't be None for incremental sync")
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
 
-        query += f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
-        query += f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
-        query_args["incremental_value"] = db_incremental_field_last_value
-
-    return query, query_args
+    if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)} WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s ORDER BY {_sanitize_identifier(incremental_field)} ASC"
@@ -423,9 +417,7 @@ def _get_table_average_row_size(
 
         # Sample the first 1000 rows to calculate average row size
         # Note: inner_query is safe SQL from _build_query with sanitized identifiers
-        size_query = (
-            f"SELECT AVG({length_sum}) as avg_row_size FROM ({inner_query} LIMIT 1000) as t"
-        )
+        size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
 
         cursor.execute(size_query, inner_query_args)
         row = cursor.fetchone()
