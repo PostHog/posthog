@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -419,33 +419,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const changes = detectFeatureFlagChanges(values.originalFeatureFlag, featureFlag)
 
                     if (changes.length > 0) {
-                        // Show confirmation dialog using LemonDialog
-                        LemonDialog.open({
-                            title: `Confirm changes to feature flag "${featureFlag.key}"?`,
-                            description: `You are about to save the following changes:\n\n${changes
-                                .map((change) => `• ${change}`)
-                                .join(
-                                    '\n'
-                                )}\n\nThese changes will immediately affect users matching the release conditions.`,
-                            primaryButton: {
-                                children: 'Save changes',
-                                onClick: () => {
-                                    // Proceed with original save logic
-                                    if (featureFlag.id) {
-                                        actions.saveFeatureFlag(featureFlag)
-                                    } else {
-                                        openSaveToModal({
-                                            defaultFolder: 'Unfiled/Feature Flags',
-                                            callback: (folder) =>
-                                                actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
-                                        })
-                                    }
-                                },
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
+                        // Show confirmation modal using state management
+                        actions.showConfirmationModal(changes, featureFlag)
                         return // Don't proceed with save
                     }
                 }
