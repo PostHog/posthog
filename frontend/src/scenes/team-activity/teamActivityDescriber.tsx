@@ -471,6 +471,16 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    completed_snippet_onboarding: (change): ChangeMapping | null => {
+        if (!change || !change.after) {
+            return null
+        }
+
+        return {
+            description: [<>completed their onboarding</>],
+        }
+    },
+
     human_friendly_comparison_periods: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -498,7 +508,6 @@ const teamActionsMapping: Record<
     // TODO implement these when possible
     access_control: () => null,
     app_urls: () => null,
-    completed_snippet_onboarding: () => null,
     correlation_config: () => null,
     data_attributes: () => null,
     effective_membership_level: () => null,
