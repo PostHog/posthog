@@ -223,6 +223,7 @@ async def assign_events_to_patterns_activity(
         ]
         # Split sessions summaries into chunks of 10 sessions each
         # TODO: Define in constants after testing optimal chunk size quality-wise
+        # TODO: Run activity for each chunk instead to avoid retrying the whole workflow
         session_summaries_chunks_str = [
             intermediate_session_summaries_str[i : i + 10]
             for i in range(0, len(intermediate_session_summaries_str), 10)

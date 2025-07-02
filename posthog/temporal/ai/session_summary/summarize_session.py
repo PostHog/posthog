@@ -120,7 +120,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,
