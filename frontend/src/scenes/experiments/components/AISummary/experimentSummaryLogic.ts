@@ -23,6 +23,7 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
         generateSummary: true,
         resetSummary: true,
         updateSummary: (chunk: string) => ({ chunk }),
+        setGenerating: (generating: boolean) => ({ generating }),
     })),
 
     reducers(() => ({
@@ -34,7 +35,14 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
                 updateSummary: (_, { chunk }) => chunk,
             },
         ],
-        isGenerating: [false, { generateSummary: () => true, resetSummary: () => false }],
+        isGenerating: [
+            false,
+            {
+                generateSummary: () => true,
+                resetSummary: () => false,
+                setGenerating: (_, { generating }) => generating,
+            },
+        ],
     })),
 
     selectors(() => ({
@@ -63,7 +71,6 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
             }
 
             try {
-                // Use api.stream() which handles CSRF automatically
                 await api.stream(`/api/environments/@current/max_tools/experiment_results_summary/`, {
                     method: 'POST',
                     data: {
@@ -75,24 +82,21 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
                             if (data.content) {
                                 actions.updateSummary(data.content)
                             }
-                            if (data === '[DONE]') {
-                                lemonToast.success('Summary generated successfully!')
-                                return
-                            }
                         } catch (e) {
-                            console.error('Error generating summary:', e)
-                            lemonToast.error('Failed to generate summary')
+                            lemonToast.error(`Failed to generate summary, ${e}`)
+                            actions.setGenerating(false)
                         }
                     },
                     onError: (error) => {
-                        console.error('Error generating summary:', error)
-                        lemonToast.error('Failed to generate summary')
+                        lemonToast.error(`Failed to generate summary, ${error}`)
+                        actions.setGenerating(false)
                     },
                 })
+                // cleanup the isGenerating state
+                actions.setGenerating(false)
             } catch (error) {
-                console.error('Error generating summary:', error)
-                lemonToast.error('Failed to generate summary')
-                actions.resetSummary()
+                lemonToast.error(`Failed to generate summary, ${error}`)
+                actions.setGenerating(false)
             }
         },
     })),

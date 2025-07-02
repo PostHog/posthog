@@ -57,9 +57,11 @@ const AISummary = ({ experimentId }: { experimentId: ExperimentIdType }): JSX.El
                                     </div>
 
                                     <LemonButton
-                                        size="small"
+                                        type="secondary"
+                                        size="xsmall"
                                         loading={isGenerating}
                                         icon={<IconSparkles />}
+                                        sideIcon={null}
                                         onClick={generateSummary}
                                     >
                                         {isGenerating ? 'Generating...' : 'Generate Results Summary'}
