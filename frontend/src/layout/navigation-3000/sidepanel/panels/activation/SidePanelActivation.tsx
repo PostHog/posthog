@@ -7,7 +7,7 @@ import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useEffect, useRef } from 'react'
+import React from 'react'
 
 import {
     activationLogic,
@@ -202,19 +202,11 @@ const ActivationTask = ({
     const { runTask, markTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
     const { expandedTaskId, taskContentHeights } = useValues(activationLogic)
-    const contentRef = useRef<HTMLDivElement>(null)
-
     const isActive = !completed && !skipped && !lockedReason
     const hasContent = Boolean(activationTaskContentMap[id])
     const expanded = expandedTaskId === id
     const ContentComponent = hasContent ? activationTaskContentMap[id] : undefined
     const contentHeight = taskContentHeights[id] || 0
-
-    useEffect(() => {
-        if (contentRef.current) {
-            setTaskContentHeight(id, contentRef.current.scrollHeight)
-        }
-    }, [expanded, ContentComponent, id, setTaskContentHeight])
 
     const handleRowClick = (e: React.MouseEvent): void => {
         if ((e.target as HTMLElement).closest('.activation-task-skip')) {
@@ -292,7 +284,14 @@ const ActivationTask = ({
                         marginTop: expanded ? '0px' : '0px',
                     }}
                 >
-                    <div className="pt-2" ref={contentRef}>
+                    <div
+                        className="pt-2"
+                        ref={(el) => {
+                            if (el && expanded && contentHeight !== el.scrollHeight) {
+                                setTaskContentHeight(id, el.scrollHeight)
+                            }
+                        }}
+                    >
                         {ContentComponent && <ContentComponent />}
                         <LemonButton
                             type="primary"
