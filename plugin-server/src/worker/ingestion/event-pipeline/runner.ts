@@ -318,7 +318,7 @@ export class EventPipelineRunner {
         }
     }
 
-    reportStalled(stepName: string) {
+    private reportStalled(stepName: string) {
         pipelineStepStalledCounter.labels(stepName).inc()
     }
 
