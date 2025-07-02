@@ -161,7 +161,7 @@ export function BatchExportsEditFields({
                                 name="file_format"
                                 label="Format"
                                 className="flex-1"
-                                info="Parquet with zstd compression has shown to offer the best performance"
+                                info="We recommend Parquet with zstd compression for the best performance"
                             >
                                 <LemonSelect
                                     options={[
