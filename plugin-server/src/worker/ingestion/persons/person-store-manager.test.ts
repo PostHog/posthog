@@ -283,7 +283,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         it('should overwrite existing cache in batch store, but keep changeset', async () => {
             // Pre-populate batch store cache
             const existingUpdate = fromInternalPerson(person, 'test-distinct')
-            existingUpdate.property_changeset = { pre_existing: 'value' }
+            existingUpdate.properties_to_set = { pre_existing: 'value' }
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'test-distinct', existingUpdate)
 
             const result = await shadowManager.fetchForUpdate(teamId, 'test-distinct')
@@ -296,7 +296,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const updateCache = batchStoreForBatch.getUpdateCache()
             const cachedUpdate = updateCache.get(`${teamId}:${person.id}`)
             expect(cachedUpdate!.properties).toEqual(person.properties)
-            expect(cachedUpdate!.property_changeset).toEqual(existingUpdate.property_changeset)
+            expect(cachedUpdate!.properties_to_set).toEqual(existingUpdate.properties_to_set)
         })
     })
 
