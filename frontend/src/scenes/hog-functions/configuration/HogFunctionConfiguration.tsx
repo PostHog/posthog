@@ -448,127 +448,231 @@ export function HogFunctionConfiguration({
                             <HogFunctionMappings />
 
                             {canEditSource && (
-                                <div
-                                    ref={sourceCodeRef}
-                                    className={clsx(
-                                        'p-3 rounded border deprecated-space-y-2',
-                                        showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
-                                    )}
-                                >
-                                    <div className="flex gap-2 justify-end items-center">
-                                        <div className="flex-1 deprecated-space-y-2">
-                                            <h2 className="mb-0">Edit source</h2>
-                                            {!showSource ? <p>Click here to edit the function's source code</p> : null}
-                                        </div>
-
-                                        {!showSource ? (
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() => {
-                                                    setShowSource(true)
-                                                    setTimeout(() => {
-                                                        sourceCodeRef.current?.scrollIntoView({
-                                                            behavior: 'smooth',
-                                                            block: 'start',
-                                                        })
-                                                    }, 100)
-                                                }}
-                                                disabledReason={
-                                                    // We allow editing the source code for transformations without the Data Pipelines addon
-                                                    !hasAddon && type !== 'transformation'
-                                                        ? 'Editing the source code requires the Data Pipelines addon'
-                                                        : undefined
-                                                }
+                                <>
+                                    {aiHogFunctionCreation ? (
+                                        <MaxTool
+                                            name="create_hog_transformation_function"
+                                            displayName="Write and tweak Hog code"
+                                            context={{
+                                                current_hog_code: configuration.hog ?? '',
+                                            }}
+                                            callback={(toolOutput: string) => {
+                                                // Store the old value before changing
+                                                setOldHogCode(configuration.hog ?? '')
+                                                // Store the new value from Max Tool
+                                                setNewHogCode(toolOutput)
+                                                // Report that AI was prompted
+                                                reportAIHogFunctionPrompted()
+                                                // Don't immediately update the form - let user accept/reject
+                                            }}
+                                            onMaxOpen={() => {
+                                                reportAIHogFunctionPromptOpen()
+                                            }}
+                                            suggestions={[]}
+                                            introOverride={{
+                                                headline: 'What transformation do you want to create?',
+                                                description:
+                                                    'Let me help you quickly write the code for your transformation, and tweak it.',
+                                            }}
+                                        >
+                                            <div
+                                                ref={sourceCodeRef}
+                                                className={clsx(
+                                                    'p-3 rounded border deprecated-space-y-2',
+                                                    showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
+                                                )}
                                             >
-                                                Edit source code
-                                            </LemonButton>
-                                        ) : (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() => setShowSource(false)}
-                                            >
-                                                Hide source code
-                                            </LemonButton>
-                                        )}
-                                    </div>
+                                                <div className="flex gap-2 justify-end items-center">
+                                                    <div className="flex-1 deprecated-space-y-2">
+                                                        <h2 className="mb-0">Edit source</h2>
+                                                        {!showSource ? (
+                                                            <p>Click here to edit the function's source code</p>
+                                                        ) : null}
+                                                    </div>
 
-                                    {showSource ? (
-                                        <LemonField name="hog">
-                                            {({ value, onChange }) => (
-                                                <>
-                                                    {!type.startsWith('site_') ? (
-                                                        <span className="text-xs text-secondary">
-                                                            This is the underlying Hog code that will run whenever this
-                                                            triggers.{' '}
-                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
-                                                            for more info
-                                                        </span>
-                                                    ) : null}
-                                                    {mightDropEvents && (
-                                                        <LemonBanner type="warning" className="mt-2">
-                                                            <b>Warning:</b> Returning null or undefined will drop the
-                                                            event. If this is unintentional, return the event object
-                                                            instead.
-                                                        </LemonBanner>
-                                                    )}
-                                                    {aiHogFunctionCreation ? (
-                                                        <MaxTool
-                                                            name="create_hog_transformation_function"
-                                                            displayName="Write and tweak Hog code"
-                                                            context={{
-                                                                current_hog_code: value ?? '',
+                                                    {!showSource ? (
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            onClick={() => {
+                                                                setShowSource(true)
+                                                                setTimeout(() => {
+                                                                    sourceCodeRef.current?.scrollIntoView({
+                                                                        behavior: 'smooth',
+                                                                        block: 'start',
+                                                                    })
+                                                                }, 100)
                                                             }}
-                                                            callback={(toolOutput: string) => {
-                                                                // Store the old value before changing
-                                                                setOldHogCode(value ?? '')
-                                                                // Store the new value from Max Tool
-                                                                setNewHogCode(toolOutput)
-                                                                // Report that AI was prompted
-                                                                reportAIHogFunctionPrompted()
-                                                                // Don't immediately update the form - let user accept/reject
-                                                            }}
-                                                            onMaxOpen={() => {
-                                                                reportAIHogFunctionPromptOpen()
-                                                            }}
-                                                            suggestions={[]}
-                                                            introOverride={{
-                                                                headline: 'What transformation do you want to create?',
-                                                                description:
-                                                                    'Let me help you quickly write the code for your transformation, and tweak it.',
-                                                            }}
+                                                            disabledReason={
+                                                                // We allow editing the source code for transformations without the Data Pipelines addon
+                                                                !hasAddon && type !== 'transformation'
+                                                                    ? 'Editing the source code requires the Data Pipelines addon'
+                                                                    : undefined
+                                                            }
                                                         >
+                                                            Edit source code
+                                                        </LemonButton>
+                                                    ) : (
+                                                        <LemonButton
+                                                            size="xsmall"
+                                                            type="secondary"
+                                                            onClick={() => setShowSource(false)}
+                                                        >
+                                                            Hide source code
+                                                        </LemonButton>
+                                                    )}
+                                                </div>
+
+                                                {showSource ? (
+                                                    <LemonField name="hog">
+                                                        {({ value, onChange }) => (
+                                                            <>
+                                                                {!type.startsWith('site_') ? (
+                                                                    <span className="text-xs text-secondary">
+                                                                        This is the underlying Hog code that will run
+                                                                        whenever this triggers.{' '}
+                                                                        <Link to="https://posthog.com/docs/hog">
+                                                                            See the docs
+                                                                        </Link>{' '}
+                                                                        for more info
+                                                                    </span>
+                                                                ) : null}
+                                                                {mightDropEvents && (
+                                                                    <LemonBanner type="warning" className="mt-2">
+                                                                        <b>Warning:</b> Returning null or undefined will
+                                                                        drop the event. If this is unintentional, return
+                                                                        the event object instead.
+                                                                    </LemonBanner>
+                                                                )}
+                                                                <CodeEditorResizeable
+                                                                    language={
+                                                                        type.startsWith('site_') ? 'typescript' : 'hog'
+                                                                    }
+                                                                    value={newHogCode ?? value ?? ''}
+                                                                    originalValue={
+                                                                        oldHogCode && newHogCode
+                                                                            ? oldHogCode
+                                                                            : undefined
+                                                                    }
+                                                                    onChange={(v) => {
+                                                                        // If user manually edits while diff is showing, clear the diff
+                                                                        if (oldHogCode && newHogCode) {
+                                                                            clearHogCodeDiff()
+                                                                        }
+                                                                        onChange(v ?? '')
+                                                                    }}
+                                                                    globals={sampleGlobalsWithInputs}
+                                                                    showDiffActions={!!(oldHogCode && newHogCode)}
+                                                                    onAcceptChanges={() => {
+                                                                        if (newHogCode) {
+                                                                            onChange(newHogCode)
+                                                                        }
+                                                                        reportAIHogFunctionAccepted()
+                                                                        clearHogCodeDiff()
+                                                                    }}
+                                                                    onRejectChanges={() => {
+                                                                        if (oldHogCode) {
+                                                                            onChange(oldHogCode)
+                                                                        }
+                                                                        reportAIHogFunctionRejected()
+                                                                        clearHogCodeDiff()
+                                                                    }}
+                                                                    options={{
+                                                                        minimap: {
+                                                                            enabled: false,
+                                                                        },
+                                                                        wordWrap: 'on',
+                                                                        scrollBeyondLastLine: false,
+                                                                        automaticLayout: true,
+                                                                        fixedOverflowWidgets: true,
+                                                                        suggest: {
+                                                                            showInlineDetails: true,
+                                                                        },
+                                                                        quickSuggestionsDelay: 300,
+                                                                        readOnly: !!(oldHogCode && newHogCode),
+                                                                    }}
+                                                                />
+                                                            </>
+                                                        )}
+                                                    </LemonField>
+                                                ) : null}
+                                            </div>
+                                        </MaxTool>
+                                    ) : (
+                                        <div
+                                            ref={sourceCodeRef}
+                                            className={clsx(
+                                                'p-3 rounded border deprecated-space-y-2',
+                                                showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
+                                            )}
+                                        >
+                                            <div className="flex gap-2 justify-end items-center">
+                                                <div className="flex-1 deprecated-space-y-2">
+                                                    <h2 className="mb-0">Edit source</h2>
+                                                    {!showSource ? (
+                                                        <p>Click here to edit the function's source code</p>
+                                                    ) : null}
+                                                </div>
+
+                                                {!showSource ? (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => {
+                                                            setShowSource(true)
+                                                            setTimeout(() => {
+                                                                sourceCodeRef.current?.scrollIntoView({
+                                                                    behavior: 'smooth',
+                                                                    block: 'start',
+                                                                })
+                                                            }, 100)
+                                                        }}
+                                                        disabledReason={
+                                                            // We allow editing the source code for transformations without the Data Pipelines addon
+                                                            !hasAddon && type !== 'transformation'
+                                                                ? 'Editing the source code requires the Data Pipelines addon'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        Edit source code
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        onClick={() => setShowSource(false)}
+                                                    >
+                                                        Hide source code
+                                                    </LemonButton>
+                                                )}
+                                            </div>
+
+                                            {showSource ? (
+                                                <LemonField name="hog">
+                                                    {({ value, onChange }) => (
+                                                        <>
+                                                            {!type.startsWith('site_') ? (
+                                                                <span className="text-xs text-secondary">
+                                                                    This is the underlying Hog code that will run
+                                                                    whenever this triggers.{' '}
+                                                                    <Link to="https://posthog.com/docs/hog">
+                                                                        See the docs
+                                                                    </Link>{' '}
+                                                                    for more info
+                                                                </span>
+                                                            ) : null}
+                                                            {mightDropEvents && (
+                                                                <LemonBanner type="warning" className="mt-2">
+                                                                    <b>Warning:</b> Returning null or undefined will
+                                                                    drop the event. If this is unintentional, return the
+                                                                    event object instead.
+                                                                </LemonBanner>
+                                                            )}
                                                             <CodeEditorResizeable
                                                                 language={
                                                                     type.startsWith('site_') ? 'typescript' : 'hog'
                                                                 }
-                                                                value={newHogCode ?? value ?? ''}
-                                                                originalValue={
-                                                                    oldHogCode && newHogCode ? oldHogCode : undefined
-                                                                }
-                                                                onChange={(v) => {
-                                                                    // If user manually edits while diff is showing, clear the diff
-                                                                    if (oldHogCode && newHogCode) {
-                                                                        clearHogCodeDiff()
-                                                                    }
-                                                                    onChange(v ?? '')
-                                                                }}
+                                                                value={value ?? ''}
+                                                                onChange={(v) => onChange(v ?? '')}
                                                                 globals={sampleGlobalsWithInputs}
-                                                                showDiffActions={!!(oldHogCode && newHogCode)}
-                                                                onAcceptChanges={() => {
-                                                                    if (newHogCode) {
-                                                                        onChange(newHogCode)
-                                                                    }
-                                                                    reportAIHogFunctionAccepted()
-                                                                    clearHogCodeDiff()
-                                                                }}
-                                                                onRejectChanges={() => {
-                                                                    if (oldHogCode) {
-                                                                        onChange(oldHogCode)
-                                                                    }
-                                                                    reportAIHogFunctionRejected()
-                                                                    clearHogCodeDiff()
-                                                                }}
                                                                 options={{
                                                                     minimap: {
                                                                         enabled: false,
@@ -581,36 +685,15 @@ export function HogFunctionConfiguration({
                                                                         showInlineDetails: true,
                                                                     },
                                                                     quickSuggestionsDelay: 300,
-                                                                    readOnly: !!(oldHogCode && newHogCode),
                                                                 }}
                                                             />
-                                                        </MaxTool>
-                                                    ) : (
-                                                        <CodeEditorResizeable
-                                                            language={type.startsWith('site_') ? 'typescript' : 'hog'}
-                                                            value={value ?? ''}
-                                                            onChange={(v) => onChange(v ?? '')}
-                                                            globals={sampleGlobalsWithInputs}
-                                                            options={{
-                                                                minimap: {
-                                                                    enabled: false,
-                                                                },
-                                                                wordWrap: 'on',
-                                                                scrollBeyondLastLine: false,
-                                                                automaticLayout: true,
-                                                                fixedOverflowWidgets: true,
-                                                                suggest: {
-                                                                    showInlineDetails: true,
-                                                                },
-                                                                quickSuggestionsDelay: 300,
-                                                            }}
-                                                        />
+                                                        </>
                                                     )}
-                                                </>
-                                            )}
-                                        </LemonField>
-                                    ) : null}
-                                </div>
+                                                </LemonField>
+                                            ) : null}
+                                        </div>
+                                    )}
+                                </>
                             )}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
