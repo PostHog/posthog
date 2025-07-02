@@ -40,6 +40,7 @@ export const externalAdsCostTile = (table: ExternalTable, baseCurrency: string):
         distinct_id_field: 'id',
         timestamp_field: table.source_map.date,
         table_name: table.name,
+        dw_source_type: table.dw_source_type,
         math: PropertyMathType.Sum,
         math_property: table.source_map.total_cost,
         math_property_revenue_currency: {

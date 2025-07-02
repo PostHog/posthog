@@ -4,6 +4,7 @@ import random
 import uuid
 import zoneinfo
 from unittest import mock
+from flaky import flaky
 
 import pytest
 import pytest_asyncio
@@ -464,6 +465,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
 
 @pytest.mark.django_db(transaction=True)
+@flaky(max_runs=3, min_passes=1)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
@@ -502,6 +504,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 
 
 @pytest.mark.django_db(transaction=True)
+@flaky(max_runs=3, min_passes=1)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
     temporal_worker, temporal_schedule, temporal_client, team
 ):

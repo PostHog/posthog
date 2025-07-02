@@ -101,3 +101,51 @@ class TestWebExperiment(APIBaseTest):
         del_response = self.client.delete(f"/api/projects/{self.team.id}/web_experiments/{experiment_id}")
         assert del_response.status_code == status.HTTP_204_NO_CONTENT
         assert WebExperiment.objects.filter(id=experiment_id).exists() is False
+
+    def test_list_excludes_deleted_web_experiments(self):
+        # Create two web experiments
+        response1 = self._create_web_experiment("Active Experiment")
+        response_data1 = response1.json()
+        assert response1.status_code == status.HTTP_201_CREATED
+        active_id = response_data1["id"]
+
+        response2 = self._create_web_experiment("Deleted Experiment")
+        response_data2 = response2.json()
+        assert response2.status_code == status.HTTP_201_CREATED
+        deleted_id = response_data2["id"]
+
+        # Soft delete one experiment
+        deleted_experiment = WebExperiment.objects.get(id=deleted_id)
+        deleted_experiment.deleted = True
+        deleted_experiment.save()
+
+        # List experiments via API - should only show active experiment
+        list_response = self.client.get(f"/api/projects/{self.team.id}/web_experiments/")
+        assert list_response.status_code == status.HTTP_200_OK
+        response_data = list_response.json()
+
+        # Should only contain the active experiment
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["id"] == active_id
+        assert response_data["results"][0]["name"] == "Active Experiment"
+
+    def test_detail_can_access_deleted_web_experiment(self):
+        # Create a web experiment
+        response = self._create_web_experiment("Test Experiment")
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED
+        experiment_id = response_data["id"]
+
+        # Soft delete the experiment
+        experiment = WebExperiment.objects.get(id=experiment_id)
+        experiment.deleted = True
+        experiment.save()
+
+        # Try to retrieve the deleted experiment via detail endpoint
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/web_experiments/{experiment_id}/")
+
+        # Should return 200 since safely_get_queryset only filters for list actions
+        assert detail_response.status_code == status.HTTP_200_OK
+        response_data = detail_response.json()
+        assert response_data["id"] == experiment_id
+        assert response_data["name"] == "Test Experiment"

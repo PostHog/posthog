@@ -13,7 +13,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, Feature
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_cache import QueryCacheManager
@@ -204,7 +204,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
     dashboard = None
 
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2")
+    tag_queries(team_id=insight.team_id, insight_id=insight.pk, trigger="warmingV2", feature=Feature.CACHE_WARMUP)
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()

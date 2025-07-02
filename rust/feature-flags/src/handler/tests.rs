@@ -1095,8 +1095,8 @@ fn test_decode_request_content_types() {
 
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
-    let redis_reader_client = setup_redis_client(None);
-    let redis_writer_client = setup_redis_client(None);
+    let redis_reader_client = setup_redis_client(None).await;
+    let redis_writer_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
     let flag_service = FlagService::new(
         redis_reader_client.clone(),

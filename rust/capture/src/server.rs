@@ -133,7 +133,9 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"),
+        RedisClient::new(config.redis_url.clone())
+            .await
+            .expect("failed to create redis client"),
     );
 
     let billing_limiter = RedisLimiter::new(

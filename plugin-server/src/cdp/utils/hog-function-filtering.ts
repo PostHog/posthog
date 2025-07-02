@@ -167,6 +167,7 @@ export function convertToHogFunctionFilterGlobal(
     return response
 }
 
+const HOG_FILTERING_TIMEOUT_MS = 100
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
@@ -184,7 +185,6 @@ export async function filterFunctionInstrumented(options: {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
-    const start = performance.now()
     const logs: LogEntry[] = []
     const metrics: MinimalAppMetric[] = []
 
@@ -205,6 +205,20 @@ export async function filterFunctionInstrumented(options: {
             telemetry: enabledTelemetry,
         })
 
+        if (execHogOutcome) {
+            hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
+        }
+
+        if (execHogOutcome.durationMs > HOG_FILTERING_TIMEOUT_MS) {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
+                functionId: fn.id,
+                functionName: fn.name,
+                teamId: fn.team_id,
+                duration: execHogOutcome.durationMs,
+                eventId: options?.eventUuid,
+            })
+        }
+
         execResult = execHogOutcome.execResult
 
         if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
@@ -223,7 +237,7 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[${fnKind}] Error filtering function`, {
+        logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,
@@ -249,24 +263,6 @@ export async function filterFunctionInstrumented(options: {
             message: `Error filtering event ${eventUuid}: ${error.message}`,
         })
         result.error = error.message
-    } finally {
-        const duration = performance.now() - start
-
-        // Re-using the constant from hog-executor.service.ts
-        const DEFAULT_TIMEOUT_MS = 100
-
-        hogFunctionFilterDuration.observe({ type }, duration)
-
-        if (duration > DEFAULT_TIMEOUT_MS) {
-            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
-                functionId: fn.id,
-                functionName: fn.name,
-                teamId: fn.team_id,
-                duration,
-                eventId: options?.eventUuid,
-            })
-        }
     }
-
     return result
 }
