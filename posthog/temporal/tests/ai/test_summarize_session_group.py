@@ -17,6 +17,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternStats,
     EnrichedSessionGroupSummaryPatternsList,
+    RawSessionGroupSummaryPatternsList,
 )
 from posthog.temporal.ai.session_summary.state import generate_state_key, store_data_in_redis
 from posthog.redis import get_client
@@ -177,6 +178,100 @@ async def test_extract_session_group_patterns_activity_standalone(
         assert spy_setex.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_assign_events_to_patterns_activity_standalone(
+    mocker: MockerFixture,
+    mock_session_id: str,
+    mock_enriched_llm_json_response: dict[str, Any],
+    mock_single_session_summary_inputs: Callable,
+    mock_single_session_summary_llm_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    mock_patterns_assignment_yaml_response: str,
+    redis_test_setup: RedisTestContext,
+):
+    """Test assign_events_to_patterns_activity standalone"""
+    # Prepare input data
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
+    redis_client = get_client()
+    enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
+
+    # Store session summaries in Redis for each session to be able to get them from inside the activity
+    for single_session_input in single_session_inputs:
+        session_summary_key = generate_state_key(
+            key_base=single_session_input.redis_key_base,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+            state_id=single_session_input.session_id,
+        )
+        store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        redis_test_setup.keys_to_cleanup.append(session_summary_key)
+
+    # Store single session LLM inputs in Redis to be able to enrich assigned events
+    for session_id, single_session_input in zip(session_ids, single_session_inputs):
+        llm_input = mock_single_session_summary_llm_inputs(session_id)
+        session_db_data_key = generate_state_key(
+            key_base=single_session_input.redis_key_base,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=single_session_input.session_id,
+        )
+        store_data_in_redis(
+            redis_client=redis_client, redis_key=session_db_data_key, data=json.dumps(dataclasses.asdict(llm_input))
+        )
+        redis_test_setup.keys_to_cleanup.append(session_db_data_key)
+
+    # Store extracted patterns in Redis to able able to assign events to them
+    mock_patterns = RawSessionGroupSummaryPatternsList.model_validate_json(
+        '{"patterns": [{"pattern_id": 1, "pattern_name": "Mock Pattern", "pattern_description": "A test pattern", "severity": "medium", "indicators": ["test indicator"]}]}'
+    )
+    patterns_key = generate_state_key(
+        key_base=activity_input.redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=",".join(session_ids),
+    )
+    store_data_in_redis(
+        redis_client=redis_client, redis_key=patterns_key, data=mock_patterns.model_dump_json(exclude_none=True)
+    )
+    redis_test_setup.keys_to_cleanup.append(patterns_key)
+
+    # Set up spies to track Redis operations
+    spy_get = mocker.spy(redis_client, "get")
+
+    # Execute the activity
+    with (
+        patch("ee.session_recordings.session_summary.llm.consume.call_llm") as mock_call_llm,
+        patch("temporalio.activity.info") as mock_activity_info,
+    ):
+        mock_activity_info.return_value.workflow_id = "test_workflow_id"
+        # Mock the LLM response for pattern assignment
+        mock_llm_response = ChatCompletion(
+            id="test_id",
+            model="test_model",
+            object="chat.completion",
+            created=int(datetime.now().timestamp()),
+            choices=[
+                Choice(
+                    finish_reason="stop",
+                    index=0,
+                    message=ChatCompletionMessage(
+                        content=mock_patterns_assignment_yaml_response,
+                        role="assistant",
+                    ),
+                )
+            ],
+        )
+        mock_call_llm.return_value = mock_llm_response
+        result = await assign_events_to_patterns_activity(activity_input)
+        # Verify the activity completed successfully
+        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+        assert len(result.patterns) >= 1  # Should have at least one pattern
+        # Verify LLM was called (for pattern assignment)
+        mock_call_llm.assert_called()  # May be called multiple times for chunks
+        # Verify Redis operations - gets session summaries, patterns, and session data
+        assert spy_get.call_count >= len(session_ids) + 2  # Session summaries + patterns + session data
+        # Note: This activity doesn't store in Redis, it returns the result directly
+
+
 class TestSummarizeSessionGroupWorkflow:
     @contextmanager
     def execute_test_environment(
@@ -193,12 +288,9 @@ class TestSummarizeSessionGroupWorkflow:
         custom_content: str | None = None,
     ):
         """Test environment for sync Django functions to run the workflow from"""
-        # Mock LLM responses:
-        # Session calls - mock_valid_llm_yaml_response to simulate single-session-summary (YAML)
-        # Pattern extraction call - returns mock patterns data
-        # Pattern assignment calls - returns mockassignment data
+        # Mock LLM responses
         call_llm_side_effects = (
-            [mock_call_llm(custom_content=custom_content) for _ in range(len(session_ids))]  # Session summaries
+            [mock_call_llm(custom_content=custom_content) for _ in range(len(session_ids))]  # Single-session summaries
             + [mock_call_llm(custom_content=mock_patterns_extraction_yaml_response)]  # Pattern extraction
             + [mock_call_llm(custom_content=mock_patterns_assignment_yaml_response)]  # Pattern assignment
         )
