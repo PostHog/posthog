@@ -1,5 +1,3 @@
-import './SceneHeader.scss'
-
 import { IconChevronDown, IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
