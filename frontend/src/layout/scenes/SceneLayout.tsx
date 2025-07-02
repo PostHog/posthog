@@ -94,7 +94,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 } as React.CSSProperties
             }
         >
-            <div className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative')}>
+            <div className={cn('grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] relative min-h-screen')}>
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
 
                 {panelInfoActive && (
@@ -142,9 +142,12 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     </>
                 )}
                 <div
-                    className={cn('flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1', {
-                        'p-0': layoutConfig?.layout === 'app-raw-no-header',
-                    })}
+                    className={cn(
+                        'flex-1 flex flex-col p-4 w-full order-1 row-span-1 col-span-1 col-start-1 relative',
+                        {
+                            'p-0': layoutConfig?.layout === 'app-raw-no-header',
+                        }
+                    )}
                 >
                     {children}
                 </div>

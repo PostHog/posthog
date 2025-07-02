@@ -81,6 +81,10 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
@@ -131,6 +135,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
     const siteUrl = preflight?.site_url || window.location.origin
+    const useMinimalSceneLayout = useFeatureFlag('MINIMAL_SCENE_LAYOUT')
 
     return (
         <>
@@ -252,53 +257,58 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                     </div>
                 }
-                // caption={
-                //     <>
-                //         {/* {!!(canEditInsight || insight.description) && (
-                //             <EditableField
-                //                 multiline
-                //                 markdown
-                //                 name="description"
-                //                 value={insight.description || ''}
-                //                 placeholder="Description (optional)"
-                //                 onSave={(value) => setInsightMetadata({ description: value })}
-                //                 saveOnBlur={true}
-                //                 maxLength={400} // Sync with Insight model
-                //                 mode={!canEditInsight ? 'view' : undefined}
-                //                 data-attr="insight-description"
-                //                 compactButtons
-                //             />
-                //         )} */}
-                //         {/* {canEditInsight ? (
-                //             <ObjectTags
-                //                 tags={tags ?? []}
-                //                 saving={insightSaving}
-                //                 onChange={(tags) => setTags(tags)}
-                //                 onBlur={() => {
-                //                     if (tags !== insight.tags) {
-                //                         setInsightMetadata({ tags: tags ?? [] })
-                //                     }
-                //                 }}
-                //                 tagsAvailable={allExistingTags}
-                //                 className="mt-2"
-                //                 data-attr="insight-tags"
-                //             />
-                //         ) : tags?.length ? (
-                //             <ObjectTags
-                //                 tags={tags}
-                //                 saving={insightSaving}
-                //                 className="mt-2"
-                //                 data-attr="insight-tags"
-                //                 staticOnly
-                //             />
-                //         ) : null}
-                //         <UserActivityIndicator
-                //             at={insight.last_modified_at}
-                //             by={insight.last_modified_by}
-                //             className="mt-2"
-                //         /> */}
-                //     </>
-                // }
+                caption={
+                    <>
+                        {!useMinimalSceneLayout && (
+                            <>
+                                {!!(canEditInsight || insight.description) && (
+                                    <EditableField
+                                        multiline
+                                        markdown
+                                        name="description"
+                                        value={insight.description || ''}
+                                        placeholder="Description (optional)"
+                                        onSave={(value) => setInsightMetadata({ description: value })}
+                                        saveOnBlur={true}
+                                        maxLength={400} // Sync with Insight model
+                                        mode={!canEditInsight ? 'view' : undefined}
+                                        data-attr="insight-description"
+                                        compactButtons
+                                    />
+                                )}
+                                {canEditInsight ? (
+                                    <ObjectTags
+                                        tags={tags ?? []}
+                                        saving={insightSaving}
+                                        onChange={(tags) => setTags(tags)}
+                                        onBlur={() => {
+                                            if (tags !== insight.tags) {
+                                                setInsightMetadata({ tags: tags ?? [] })
+                                            }
+                                        }}
+                                        tagsAvailable={allExistingTags}
+                                        className="mt-2"
+                                        data-attr="insight-tags"
+                                    />
+                                ) : tags?.length ? (
+                                    <ObjectTags
+                                        tags={tags}
+                                        saving={insightSaving}
+                                        className="mt-2"
+                                        data-attr="insight-tags"
+                                        staticOnly
+                                    />
+                                ) : null}
+
+                                <UserActivityIndicator
+                                    at={insight.last_modified_at}
+                                    by={insight.last_modified_by}
+                                    className="mt-2"
+                                />
+                            </>
+                        )}
+                    </>
+                }
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
 
