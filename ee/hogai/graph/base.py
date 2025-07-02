@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
@@ -39,7 +39,6 @@ class AssistantNode(ABC):
         except NotImplementedError:
             return await sync_to_async(self.run)(state, config)
 
-    @abstractmethod
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
 

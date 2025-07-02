@@ -246,7 +246,8 @@ class Assistant:
                     posthoganalytics.capture_exception(e)
 
                     # This is an unhandled error, so we just stop further generation at this point
-                    state_snapshot = validate_state_update(await self._graph.aget_state(config).values)
+                    snapshot = await self._graph.aget_state(config)
+                    state_snapshot = validate_state_update(snapshot.values)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
