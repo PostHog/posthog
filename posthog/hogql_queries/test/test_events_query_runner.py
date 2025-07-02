@@ -663,3 +663,36 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"Test User With Spaces"}
+
+    def test_orderby_person_display_name_field(self):
+        # Default: no custom display name properties
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["person_display_name -- Person"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        # Should use default display name property (email)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"user@email.com"}
