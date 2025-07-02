@@ -6,7 +6,6 @@ import RE2 from 're2'
 import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
-import { execHog } from '../services/hog-executor.service'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
@@ -14,6 +13,7 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
+import { execHog } from './hog-exec'
 
 const hogFunctionFilterDuration = new Histogram({
     name: 'cdp_hog_function_filter_duration_ms',
@@ -167,11 +167,12 @@ export function convertToHogFunctionFilterGlobal(
     return response
 }
 
+const HOG_FILTERING_TIMEOUT_MS = 100
 /**
  * Shared utility to check if an event matches the filters of a HogFunction.
  * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
  */
-export function filterFunctionInstrumented(options: {
+export async function filterFunctionInstrumented(options: {
     fn: HogFunctionType | HogFlow
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
@@ -180,11 +181,10 @@ export function filterFunctionInstrumented(options: {
     enabledTelemetry?: boolean
     /** The event UUID to use for logging */
     eventUuid?: string
-}): HogFilterResult {
+}): Promise<HogFilterResult> {
     const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
-    const start = performance.now()
     const logs: LogEntry[] = []
     const metrics: MinimalAppMetric[] = []
 
@@ -200,16 +200,32 @@ export function filterFunctionInstrumented(options: {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        execResult = execHog(filters.bytecode, {
+        const execHogOutcome = await execHog(filters.bytecode, {
             globals: filterGlobals,
             telemetry: enabledTelemetry,
         })
 
-        if (execResult.error) {
-            throw execResult.error
+        if (execHogOutcome) {
+            hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
         }
 
-        result.match = typeof execResult.result === 'boolean' && execResult.result
+        if (execHogOutcome.durationMs > HOG_FILTERING_TIMEOUT_MS) {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
+                functionId: fn.id,
+                functionName: fn.name,
+                teamId: fn.team_id,
+                duration: execHogOutcome.durationMs,
+                eventId: options?.eventUuid,
+            })
+        }
+
+        execResult = execHogOutcome.execResult
+
+        if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
+            throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
+        }
+
+        result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
         if (!result.match) {
             metrics.push({
@@ -221,7 +237,7 @@ export function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[${fnKind}] Error filtering function`, {
+        logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,
@@ -247,24 +263,6 @@ export function filterFunctionInstrumented(options: {
             message: `Error filtering event ${eventUuid}: ${error.message}`,
         })
         result.error = error.message
-    } finally {
-        const duration = performance.now() - start
-
-        // Re-using the constant from hog-executor.service.ts
-        const DEFAULT_TIMEOUT_MS = 100
-
-        hogFunctionFilterDuration.observe({ type }, duration)
-
-        if (duration > DEFAULT_TIMEOUT_MS) {
-            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
-                functionId: fn.id,
-                functionName: fn.name,
-                teamId: fn.team_id,
-                duration,
-                eventId: options?.eventUuid,
-            })
-        }
     }
-
     return result
 }

@@ -1,3 +1,4 @@
+import dataclasses
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional, Union, cast
@@ -8,7 +9,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
@@ -18,24 +18,36 @@ from products.revenue_analytics.backend.utils import (
     REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
     REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
     REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY,
     revenue_selects_from_database,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsBaseView,
+    RevenueAnalyticsChargeView,
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+    RevenueAnalyticsSubscriptionView,
+)
 
 # If we are running a query that has no date range ("all"/all time),
 # we use this as a fallback for the earliest timestamp that we have data for
 EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 
 
+@dataclasses.dataclass(frozen=True)
+class RevenueSubqueries:
+    charge: ast.SelectSetQuery | None
+    customer: ast.SelectSetQuery | None
+    invoice_item: ast.SelectSetQuery | None
+    product: ast.SelectSetQuery | None
+    subscription: ast.SelectSetQuery | None
+
+
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -62,16 +74,14 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     # why we'll never see a join for the `invoice_items` table - it's supposed to be there already
     @cached_property
     def joins_for_properties(self) -> list[ast.JoinExpr]:
-        _, customer_subquery, _, product_subquery = self.revenue_subqueries
-
         joins = []
         for join in self.joins_set_for_properties:
             if join == "products":
-                if product_subquery is not None:
-                    joins.append(self.create_product_join(product_subquery))
+                if self.revenue_subqueries.product is not None:
+                    joins.append(self.create_product_join(self.revenue_subqueries.product))
             elif join == "customers":
-                if customer_subquery is not None:
-                    joins.append(self.create_customer_join(customer_subquery))
+                if self.revenue_subqueries.customer is not None:
+                    joins.append(self.create_customer_join(self.revenue_subqueries.customer))
 
         return joins
 
@@ -96,6 +106,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             return self.create_customer_join(subquery)
         elif join_to == RevenueAnalyticsChargeView:
             return self.create_charge_join(subquery)
+        elif join_to == RevenueAnalyticsSubscriptionView:
+            return self.create_subscription_join(subquery)
         else:
             raise ValueError(f"Invalid join to: {join_to}")
 
@@ -144,51 +156,44 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             ),
         )
 
+    def create_subscription_join(self, subscription_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.JoinExpr:
+        return ast.JoinExpr(
+            alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
+            table=subscription_subquery,
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                constraint_type="ON",
+                expr=ast.CompareOperation(
+                    left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                    right=ast.Field(
+                        chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "subscription_id"]
+                    ),
+                    op=ast.CompareOperationOp.Eq,
+                ),
+            ),
+        )
+
     @cached_property
     def revenue_selects(self) -> defaultdict[str, dict[str, ast.SelectQuery | None]]:
         return revenue_selects_from_database(self.database)
 
     @cached_property
-    def revenue_subqueries(
-        self,
-    ) -> tuple[
-        ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None, ast.SelectSetQuery | None
-    ]:
-        # Remove the view name because it's not useful for the select query
-        parsed_charge_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY])
-            for _, selects in self.revenue_selects.items()
-            if selects[REVENUE_SELECT_OUTPUT_CHARGE_KEY] is not None
-        ]
-        parsed_customer_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY])
-            for _, selects in self.revenue_selects.items()
-            if selects[REVENUE_SELECT_OUTPUT_CUSTOMER_KEY] is not None
-        ]
-        parsed_invoice_item_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY])
-            for _, selects in self.revenue_selects.items()
-            if selects[REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY] is not None
-        ]
-        parsed_product_selects: list[ast.SelectQuery] = [
-            cast(ast.SelectQuery, selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY])
-            for _, selects in self.revenue_selects.items()
-            if selects[REVENUE_SELECT_OUTPUT_PRODUCT_KEY] is not None
-        ]
+    def revenue_subqueries(self) -> RevenueSubqueries:
+        def parse_selects(select_key: str) -> ast.SelectSetQuery | None:
+            queries = [
+                cast(ast.SelectQuery, selects[select_key])
+                for _, selects in self.revenue_selects.items()
+                if selects[select_key] is not None
+            ]
 
-        return (
-            ast.SelectSetQuery.create_from_queries(parsed_charge_selects, set_operator="UNION ALL")
-            if parsed_charge_selects
-            else None,
-            ast.SelectSetQuery.create_from_queries(parsed_customer_selects, set_operator="UNION ALL")
-            if parsed_customer_selects
-            else None,
-            ast.SelectSetQuery.create_from_queries(parsed_invoice_item_selects, set_operator="UNION ALL")
-            if parsed_invoice_item_selects
-            else None,
-            ast.SelectSetQuery.create_from_queries(parsed_product_selects, set_operator="UNION ALL")
-            if parsed_product_selects
-            else None,
+            return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL") if queries else None
+
+        return RevenueSubqueries(
+            charge=parse_selects(REVENUE_SELECT_OUTPUT_CHARGE_KEY),
+            customer=parse_selects(REVENUE_SELECT_OUTPUT_CUSTOMER_KEY),
+            invoice_item=parse_selects(REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY),
+            product=parse_selects(REVENUE_SELECT_OUTPUT_PRODUCT_KEY),
+            subscription=parse_selects(REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY),
         )
 
     @cached_property
@@ -201,21 +206,33 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
-    def timestamp_where_clause(self, chain: Optional[list[str | int]] = None) -> ast.Expr:
+    def timestamp_where_clause(
+        self,
+        chain: Optional[list[str | int]] = None,
+        extra_days_before: int = 0,
+    ) -> ast.Expr:
         if chain is None:
             chain = ["timestamp"]
+
+        date_from = self.query_date_range.date_from_as_hogql()
+        if extra_days_before > 0:
+            date_from = ast.Call(
+                name="addDays",
+                args=[date_from, ast.Constant(value=-extra_days_before)],
+            )
+        date_to = self.query_date_range.date_to_as_hogql()
 
         return ast.Call(
             name="and",
             args=[
                 ast.CompareOperation(
                     left=ast.Field(chain=chain),
-                    right=self.query_date_range.date_from_as_hogql(),
+                    right=date_from,
                     op=ast.CompareOperationOp.GtEq,
                 ),
                 ast.CompareOperation(
                     left=ast.Field(chain=chain),
-                    right=self.query_date_range.date_to_as_hogql(),
+                    right=date_to,
                     op=ast.CompareOperationOp.LtEq,
                 ),
             ],
