@@ -248,17 +248,6 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
     }
 
-    updatePersonWithPropertiesDiffForUpdate(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        throw new Error('updatePersonWithPropertiesDiffForUpdate not implemented for MeasuringPersonsStoreForBatch')
-    }
-
     private async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
