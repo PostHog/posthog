@@ -1163,7 +1163,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             try {
                 /**
-                 * get the experiment url for the dashbaord description
+                 * get the experiment url for the dashboard description
                  */
                 const experimentUrl =
                     window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
