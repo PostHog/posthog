@@ -1,5 +1,5 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -62,6 +62,25 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     When enabled, editing existing feature flags will show a confirmation modal before saving changes.
                     This helps prevent accidental changes that could impact your users' experience.
                 </p>
+
+                {!!currentTeam?.feature_flag_confirmation_enabled && (
+                    <div className="mt-4">
+                        <LemonTextArea
+                            value={currentTeam?.feature_flag_confirmation_message || ''}
+                            onChange={(value) => {
+                                updateCurrentTeam({
+                                    feature_flag_confirmation_message: value,
+                                })
+                            }}
+                            placeholder="These changes will take effect immediately and may impact your users' experience. Please make sure you understand the consequences before proceeding."
+                            rows={3}
+                            className="w-full"
+                        />
+                        <p className="text-xs text-muted mt-1">
+                            Custom message to show in the confirmation modal after the list of changes.
+                        </p>
+                    </div>
+                )}
             </div>
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
