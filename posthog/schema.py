@@ -1737,6 +1737,15 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
+class QueryDateRangeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
+    interval: Optional[IntervalType] = None
+
+
 class QueryIndexUsage(StrEnum):
     UNDECISIVE = "undecisive"
     NO = "no"
@@ -3515,6 +3524,9 @@ class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -3544,6 +3556,9 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -3566,6 +3581,9 @@ class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -3587,6 +3605,9 @@ class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4009,6 +4030,9 @@ class TrendsQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -4982,6 +5006,9 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5048,6 +5075,9 @@ class CachedLifecycleQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5199,6 +5229,9 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5229,6 +5262,9 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5260,6 +5296,9 @@ class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5291,6 +5330,9 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -5571,6 +5613,9 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: datetime
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6343,6 +6388,9 @@ class Response10(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6363,6 +6411,9 @@ class Response11(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -6386,6 +6437,9 @@ class Response12(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -6407,6 +6461,9 @@ class Response13(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7205,6 +7262,9 @@ class FunnelsQueryResponse(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7359,6 +7419,9 @@ class LifecycleQueryResponse(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7888,6 +7951,9 @@ class QueryResponseAlternative25(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7908,6 +7974,9 @@ class QueryResponseAlternative26(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -7931,6 +8000,9 @@ class QueryResponseAlternative27(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -7952,6 +8024,9 @@ class QueryResponseAlternative28(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8239,6 +8314,9 @@ class QueryResponseAlternative40(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8259,6 +8337,9 @@ class QueryResponseAlternative41(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8282,6 +8363,9 @@ class QueryResponseAlternative42(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8303,6 +8387,9 @@ class QueryResponseAlternative43(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -8429,6 +8516,9 @@ class QueryResponseAlternative51(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8473,6 +8563,9 @@ class QueryResponseAlternative53(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
@@ -8514,6 +8607,30 @@ class QueryResponseAlternative56(BaseModel):
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[dict[str, Any]]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative57(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_date_range: Optional[QueryDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
     )
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11277,6 +11394,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative54,
             QueryResponseAlternative55,
             QueryResponseAlternative56,
+            QueryResponseAlternative57,
             QueryResponseAlternative58,
             QueryResponseAlternative59,
             QueryResponseAlternative60,
@@ -11343,6 +11461,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative54,
         QueryResponseAlternative55,
         QueryResponseAlternative56,
+        QueryResponseAlternative57,
         QueryResponseAlternative58,
         QueryResponseAlternative59,
         QueryResponseAlternative60,
