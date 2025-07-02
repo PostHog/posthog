@@ -36,8 +36,6 @@ export function Navigation({
 
     const useMinimalSceneLayout = featureFlags[FEATURE_FLAGS.MINIMAL_SCENE_LAYOUT]
 
-    console.log('useMinimalSceneLayout', useMinimalSceneLayout)
-
     if (mode !== 'full') {
         return (
             // eslint-disable-next-line react/forbid-dom-props
@@ -64,11 +62,8 @@ export function Navigation({
             <PanelLayout mainRef={mainRef} />
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
-
                 {useMinimalSceneLayout ? (
-                    <SceneLayout layoutConfig={sceneConfig}>
-                        {children}
-                    </SceneLayout>
+                    <SceneLayout layoutConfig={sceneConfig}>{children}</SceneLayout>
                 ) : (
                     <>
                         {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
