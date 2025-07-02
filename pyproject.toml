@@ -20,6 +20,7 @@ dependencies = [
     "conditional-cache==1.2",
     "cryptography==39.0.2",
     "dagster==1.10.18",
+    "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
     "dagster-celery==0.26.18",
     "dagster-postgres==0.26.18",

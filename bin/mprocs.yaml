@@ -46,6 +46,11 @@ procs:
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
 
+    feature-flags:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/start-rust-service feature-flags
+
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \

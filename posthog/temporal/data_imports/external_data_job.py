@@ -333,8 +333,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
         except exceptions.ActivityError as e:
-            # Check if this is a WorkerShuttingDownError - implement Buffer One retry
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(
                     trigger_schedule_buffer_one_activity,
@@ -342,6 +342,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+            elif (
+                isinstance(e.cause, exceptions.ApplicationError)
+                and e.cause.type == "BillingLimitsWillBeReachedException"
+            ):
+                # Check if this is a BillingLimitsWillBeReachedException - update the job status
+                update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
