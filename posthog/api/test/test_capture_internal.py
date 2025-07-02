@@ -57,7 +57,7 @@ class TestCaptureInternal(BaseTest):
             return mock_response
 
         mock_session = MagicMock()
-        mock_session.return_value.post.side_effect = spy_post
+        mock_session.post.side_effect = spy_post
         mock_session_class.return_value.__enter__.return_value = mock_session
 
         response = new_capture_internal(token, distinct_id, test_event)
@@ -109,7 +109,7 @@ class TestCaptureInternal(BaseTest):
             return mock_response
 
         mock_session = MagicMock()
-        mock_session.return_value.post.side_effect = spy_replay_post
+        mock_session.post.side_effect = spy_replay_post
         mock_session_class.return_value.__enter__.return_value = mock_session
 
         response = new_capture_internal(token, distinct_id, test_replay_event)
@@ -148,7 +148,7 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e.value) == "API token is required"
+            assert str(e) == "API token is required"
 
     def test_new_capture_internal_invalid_distinct_id(self):
         token = "abc123"
@@ -174,7 +174,7 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e.value) == "distinct ID is required"
+            assert str(e) == "distinct ID is required"
 
     def test_new_capture_internal_invalid_event_name(self):
         token = "abc123"
@@ -198,4 +198,4 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e.value) == "event name is required"
+            assert str(e) == "event name is required"

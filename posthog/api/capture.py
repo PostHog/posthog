@@ -931,6 +931,7 @@ class CaptureInternalError(Exception):
     pass
 
 
+# TODO: replace raw_event input with structured inputs after transition off old capture_internal
 def new_capture_internal(
     token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
 ) -> Response:
@@ -944,7 +945,6 @@ def new_capture_internal(
     )
 
     event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
-
     # determine if this is a recordings or events type, route to correct capture endpoint
     resolved_capture_path = NEW_ANALYTICS_CAPTURE_ENDPOINT
     if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
@@ -959,6 +959,7 @@ def new_capture_internal(
                 )
             ),
         )
+
         return s.post(
             f"{NEW_CAPTURE_RUST_BASE_URL}{resolved_capture_path}",
             json=event_payload,
@@ -974,7 +975,7 @@ def prepare_capture_internal_payload(
     process_person_profile: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability
-    properties = raw_event.pop("properties", {})
+    properties = raw_event.get("properties", {})
     properties["capture_internal"] = True
 
     # be specific about this in internal events; person processing is resource intensive at the moment
@@ -983,22 +984,22 @@ def prepare_capture_internal_payload(
     # ensure args passed into capture_internal that
     # override event attributes are well formed
     if token is None:
-        token = raw_event.pop("api_token", raw_event.pop("token", None))
+        token = raw_event.get("api_token", raw_event.get("token", None))
     if token is None:
         raise CaptureInternalError("capture_internal: API token is required")
 
     if distinct_id is None:
-        distinct_id = raw_event.pop("distinct_id", None)
+        distinct_id = raw_event.get("distinct_id", None)
     if distinct_id is None:
-        distinct_id = properties.pop("distinct_id", None)
+        distinct_id = properties.get("distinct_id", None)
     if distinct_id is None:
         raise CaptureInternalError("capture_internal: distinct ID is required")
 
-    event_name = raw_event.pop("event", None)
+    event_name = raw_event.get("event", None)
     if event_name is None:
         raise CaptureInternalError("capture_internal: event name is required")
 
-    event_timestamp = raw_event.pop("timestamp", None)
+    event_timestamp = raw_event.get("timestamp", None)
     if event_timestamp is None:
         event_timestamp = datetime.now(UTC).isoformat()
 
@@ -1019,7 +1020,6 @@ def capture_internal(
     now,
     sent_at,
     to_capture_rs=False,
-    # TODO(eli): add optional arg here to default to NOT processing persons profiles!
     event_uuid=None,
     token=None,
     historical=False,
