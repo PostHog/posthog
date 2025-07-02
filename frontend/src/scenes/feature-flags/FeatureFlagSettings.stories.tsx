@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType } from '~/types'
 
 import { FeatureFlagSettings } from './FeatureFlagSettings'
 
@@ -22,11 +23,11 @@ const meta: Meta<typeof FeatureFlagSettings> = {
 
 export default meta
 
-// Helper to wrap stories with proper Kea context
-const Template = (teamOverrides: any = {}): JSX.Element => {
+// Helper to setup common test environment
+const setupTestEnvironment = (teamOverrides: Partial<TeamType> = {}): TeamType => {
     initKeaTests()
 
-    const team = {
+    const team: TeamType = {
         ...MOCK_DEFAULT_TEAM,
         ...teamOverrides,
     }
@@ -42,6 +43,13 @@ const Template = (teamOverrides: any = {}): JSX.Element => {
 
     // Load team data
     teamLogic.actions.loadCurrentTeamSuccess(team)
+
+    return team
+}
+
+// Helper to wrap stories with proper Kea context
+const Template = (teamOverrides: Partial<TeamType> = {}): JSX.Element => {
+    setupTestEnvironment(teamOverrides)
 
     return (
         <Provider>
@@ -109,37 +117,20 @@ export const InModal: Story = {
 
 export const InModalWithConfirmation: Story = {
     render: () => {
-        const Template = (): JSX.Element => {
-            initKeaTests()
+        // Use shared setup logic
+        setupTestEnvironment({
+            feature_flag_confirmation_enabled: true,
+            feature_flag_confirmation_message: 'Custom modal confirmation message',
+        })
 
-            const team = {
-                ...MOCK_DEFAULT_TEAM,
-                feature_flag_confirmation_enabled: true,
-                feature_flag_confirmation_message: 'Custom modal confirmation message',
-            }
-
-            useMocks({
-                patch: {
-                    '/api/projects/:id': async (req, res, ctx) => {
-                        const updatedTeam = { ...team, ...(await req.json()) }
-                        return res(ctx.json(updatedTeam))
-                    },
-                },
-            })
-
-            teamLogic.actions.loadCurrentTeamSuccess(team)
-
-            return (
-                <Provider>
-                    <div className="max-w-2xl bg-bg-3000 border border-border rounded p-6">
-                        <h2 className="text-lg font-semibold mb-4">Feature Flag Settings (Modal)</h2>
-                        <FeatureFlagSettings inModal />
-                    </div>
-                </Provider>
-            )
-        }
-
-        return <Template />
+        return (
+            <Provider>
+                <div className="max-w-2xl bg-bg-3000 border border-border rounded p-6">
+                    <h2 className="text-lg font-semibold mb-4">Feature Flag Settings (Modal)</h2>
+                    <FeatureFlagSettings inModal />
+                </div>
+            </Provider>
+        )
     },
     parameters: {
         docs: {
