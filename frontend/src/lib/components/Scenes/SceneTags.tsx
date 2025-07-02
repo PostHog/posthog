@@ -1,4 +1,4 @@
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -78,10 +78,20 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
     ) : (
         <div className="gap-0">
             <Label intent="menu">Tags</Label>
-            <div className="flex gap-1 items-center">
-                <ObjectTags tags={tags ?? []} data-attr="scene-tags" staticOnly />
-                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="sm">
-                    <IconPencil />
+            <div className="-ml-1.5">
+                <ButtonPrimitive
+                    className="hyphens-auto flex gap-1 items-center"
+                    lang="en"
+                    onClick={() => setLocalIsEditing(true)}
+                    tooltip="Edit tags"
+                    autoHeight
+                    menuItem
+                >
+                    {tags && tags.length > 0 ? (
+                        <ObjectTags tags={tags ?? []} data-attr="scene-tags" staticOnly />
+                    ) : (
+                        <>Add tags</>
+                    )}
                 </ButtonPrimitive>
             </div>
         </div>

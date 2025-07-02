@@ -1,8 +1,8 @@
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
-import { Label } from 'lib/ui/Label/Label'
 
 type SceneDescriptionProps = {
     defaultValue: string
@@ -69,12 +69,18 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
     ) : (
         <div className="gap-0">
             <Label intent="menu">Description</Label>
-            <p className="m-0 hyphens-auto flex gap-1 items-center" lang="en">
-                {defaultValue || <span className="text-tertiary font-normal">No description</span>}
-                <ButtonPrimitive iconOnly onClick={() => setLocalIsEditing(true)} className="inline-block" size="sm">
-                    <IconPencil />
+            <div className="-ml-1.5">
+                <ButtonPrimitive
+                    className="hyphens-auto flex gap-1 items-center"
+                    lang="en"
+                    onClick={() => setLocalIsEditing(true)}
+                    tooltip="Edit description"
+                    autoHeight
+                    menuItem
+                >
+                    {defaultValue || <span className="text-tertiary font-normal">No description</span>}
                 </ButtonPrimitive>
-            </p>
+            </div>
         </div>
     )
 }

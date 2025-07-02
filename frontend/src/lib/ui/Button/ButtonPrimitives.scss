@@ -103,6 +103,10 @@
     &.icon-only {
         width: var(--button-height-sm);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-sm);
+    }
 }
 
 .button-primitive--height-base {
@@ -110,6 +114,10 @@
 
     &.icon-only {
         width: var(--button-height-base);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-base);
     }
 }
 
@@ -119,6 +127,10 @@
     &.icon-only {
         width: var(--button-height-base);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-base-tall);
+    }
 }
 
 .button-primitive--height-lg {
@@ -126,6 +138,10 @@
 
     &.icon-only {
         width: var(--button-height-lg);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-lg);
     }
 }
 
@@ -161,4 +177,8 @@
 
 .button-primitive--full-width {
     width: 100%;
+}
+
+.button-primitive--height-auto {
+    height: auto;
 }
