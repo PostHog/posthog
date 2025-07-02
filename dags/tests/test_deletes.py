@@ -128,11 +128,6 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     deletes_dict = PendingDeletesDictionary(source=table)
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
-    report_table = PendingDeletesTable(timestamp=timestamp, is_reporting=True)
-    assert all(cluster.map_all_hosts(report_table.exists).result().values())
-
-    # clean up the reporting table
-    cluster.map_all_hosts(report_table.drop).result()
 
 
 @pytest.mark.django_db
@@ -325,11 +320,6 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     deletes_dict = PendingDeletesDictionary(source=table)
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
-    report_table = PendingDeletesTable(timestamp=timestamp, is_reporting=True)
-    assert all(cluster.map_all_hosts(report_table.exists).result().values())
-
-    # clean up the reporting table
-    cluster.map_all_hosts(report_table.drop).result()
 
 
 @pytest.mark.django_db

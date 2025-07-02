@@ -176,7 +176,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "^1.256.0",
+        "posthog-js": "^1.256.1",
         "posthog-js-lite": "catalog:",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
