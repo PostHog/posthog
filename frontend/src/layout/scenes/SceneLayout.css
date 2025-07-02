@@ -23,21 +23,9 @@
 }
 
 .scene-layout__content-panel {
-    /* position: absolute;
-    top: 0;
-    bottom: 0; */
     z-index: var(--z-top-navigation);
     width: var(--scene-layout-panel-info-width);
     border-color: var(--border-primary);
     border-style: solid;
     border-width: 0 0 0 1px;
-}
-
-@container scenelayout (width >= 1300px) {
-    .scene-layout__content-panel {
-        border-color: var(--border-primary);
-        border-style: solid;
-        border-width: 0 0 0 1px;
-        border-radius: 0;
-    }
 }
