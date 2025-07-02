@@ -1,5 +1,5 @@
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
-const COOKIELESS_REGEX = /^cookielessd?_[0-9a-z+\/]+$/i
+const COOKIELESS_REGEX = /^cookieless([db])?_[0-9a-z+\/]+$/i
 
 /**
  * Helper method that takes an object and replaces all UUIDs or given keys with placeholders

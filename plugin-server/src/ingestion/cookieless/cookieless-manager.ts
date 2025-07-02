@@ -70,6 +70,7 @@ const TIMEZONE_FALLBACK = 'UTC'
 export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
 export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
+export const COOKIELESS_MODE_BASE_HASH_PROPERTY = '$cookieless_base_hash'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 
@@ -297,8 +298,8 @@ export class CookielessManager {
 
             // only cookieless events past this point
 
-            if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
-                // $alias and $merge events are not supported in cookieless mode, drop them
+            if (event.event === '$merge_dangerously') {
+                // $merge events are not supported in cookieless mode, drop them
                 eventDroppedCounter
                     .labels({
                         event_type: 'analytics',
@@ -424,6 +425,11 @@ export class CookielessManager {
                     $distinct_id: distinctId,
                     $device_id: deviceId,
                     $session_id: sessionId,
+                    [COOKIELESS_MODE_BASE_HASH_PROPERTY]: baseHashToBaseHashProperty(baseHash),
+                }
+                if (newProperties['distinct_id'] === COOKIELESS_SENTINEL_VALUE) {
+                    // some events (e.g. alias) may send the distinct id as a property, too
+                    newProperties['distinct_id'] = distinctId
                 }
                 eventWithProcessing.event = stripPIIProperties({
                     ...eventWithProcessing.event,
@@ -546,6 +552,7 @@ export class CookielessManager {
                 $distinct_id: undefined,
                 $device_id: baseHashToDeviceId(baseHash),
                 $session_id: sessionId.toString(),
+                [COOKIELESS_MODE_BASE_HASH_PROPERTY]: baseHashToBaseHashProperty(baseHash),
             }
             const newEvent = { ...eventWithProcessing.event, properties: newProperties }
 
@@ -555,6 +562,11 @@ export class CookielessManager {
             } else if (eventWithProcessing.event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
                 // event before identify has been called, distinct id is the sentinel and needs to be replaced
                 newEvent.distinct_id = distinctId
+            }
+
+            if (newProperties['distinct_id'] === COOKIELESS_SENTINEL_VALUE) {
+                // some events (e.g. alias) may send the distinct id as a property, too
+                newProperties['distinct_id'] = distinctId
             }
 
             eventWithProcessing.event = stripPIIProperties(newEvent)
@@ -688,12 +700,21 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
 
 export function hashToDistinctId(hash: Buffer): string {
     // add a prefix so that we can recognise one of these in the wild
-    return 'cookieless_' + hash.toString('base64').replace(/=+$/, '')
+    return 'cookieless_' + hashToB64(hash)
 }
 
 export function baseHashToDeviceId(baseHash: Buffer): string {
     // add a prefix so that we can recognise one of these in the wild
-    return 'cookielessd_' + baseHash.toString('base64').replace(/=+$/, '')
+    return 'cookielessd_' + hashToB64(baseHash)
+}
+
+export function baseHashToBaseHashProperty(baseHash: Buffer): string {
+    // add a prefix so that we can recognise one of these in the wild
+    return 'cookielessb_' + hashToB64(baseHash)
+}
+
+export function hashToB64(baseHash: Buffer): string {
+    return baseHash.toString('base64').replace(/=+$/, '')
 }
 
 export function getRedisIdentifiesKey(hash: Buffer, teamId: number): string {

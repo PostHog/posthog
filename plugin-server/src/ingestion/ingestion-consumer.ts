@@ -4,6 +4,11 @@ import { z } from 'zod'
 
 import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
+import {
+    COOKIELESS_MODE_BASE_HASH_PROPERTY,
+    COOKIELESS_MODE_FLAG_PROPERTY,
+} from '~/ingestion/cookieless/cookieless-manager'
+import { PersonStoreManager } from '~/worker/ingestion/persons/person-store-manager'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -661,7 +666,15 @@ export class IngestionConsumer {
             const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
-            const eventKey = `${token}:${distinctId}`
+            let eventKey: string
+            if (
+                event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY] &&
+                event.properties?.[COOKIELESS_MODE_BASE_HASH_PROPERTY]
+            ) {
+                eventKey = `${token}:${event.properties[COOKIELESS_MODE_BASE_HASH_PROPERTY]}`
+            } else {
+                eventKey = `${token}:${distinctId}`
+            }
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel
             // whilst keeping the order of events for a given distinct_id.
