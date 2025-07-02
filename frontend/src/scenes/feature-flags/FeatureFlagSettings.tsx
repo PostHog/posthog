@@ -42,6 +42,27 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     .
                 </p>
             </div>
+
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="feature-flag-confirmation-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            feature_flag_confirmation_enabled: checked,
+                        })
+                    }}
+                    label="Require confirmation for feature flag changes"
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    checked={!!currentTeam?.feature_flag_confirmation_enabled}
+                />
+
+                <p>
+                    When enabled, editing existing feature flags will show a confirmation modal before saving changes.
+                    This helps prevent accidental changes that could impact your users' experience.
+                </p>
+            </div>
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
             </div>
