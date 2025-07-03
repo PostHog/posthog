@@ -39,7 +39,7 @@ def generate_session_group_summary_prompt(
     summary_example = load_custom_template(template_dir, f"example.md")
     summary_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "SESSION_SUMMARIES": combined_session_summaries,
             "SUMMARY_EXAMPLE": summary_example,
@@ -61,10 +61,10 @@ def generate_session_group_patterns_extraction_prompt(
     combined_session_summaries = "\n\n".join(session_summaries_str)
     template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_extraction"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
-    patterns_example = load_custom_template(template_dir, f"example.yml")
+    patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "SESSION_SUMMARIES": combined_session_summaries,
             "PATTERNS_EXTRACTION_EXAMPLE": patterns_example,
@@ -87,10 +87,10 @@ def generate_session_group_patterns_assignment_prompt(
     combined_session_summaries = "\n\n".join(session_summaries_str)
     template_dir = Path(__file__).parent / "templates" / "session-group-summary" / "patterns_assignment"
     system_prompt = load_custom_template(template_dir, "system-prompt.djt")
-    patterns_example = load_custom_template(template_dir, f"example.yml")
+    patterns_example = load_custom_template(template_dir, "example.yml")
     patterns_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "PATTERNS": patterns.model_dump_json(exclude_none=True),
             "SESSION_SUMMARIES": combined_session_summaries,
