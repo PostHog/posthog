@@ -40,6 +40,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -72,7 +73,7 @@ from posthog.schema import (
     TrendsQueryResponse,
     TrendsFormulaNode,
 )
-from posthog.utils import format_label_date, multisort
+from posthog.utils import multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
 
@@ -222,7 +223,7 @@ class TrendsQueryRunner(QueryRunner):
             if self._trends_display.is_total_value()
             else [
                 DayItem(
-                    label=format_label_date(value, self.query_date_range.interval_name),
+                    label=format_label_date(value, self.query_date_range, self.team.week_start_day),
                     value=value,
                 )
                 for value in self.query_date_range.all_values()
@@ -552,7 +553,8 @@ class TrendsQueryRunner(QueryRunner):
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
-                        format_label_date(item, self.query_date_range.interval_name) for item in get_value("date", val)
+                        format_label_date(item, self.query_date_range, self.team.week_start_day)
+                        for item in get_value("date", val)
                     ],
                     "days": [
                         item.strftime(
