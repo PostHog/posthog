@@ -144,7 +144,7 @@ AS SELECT
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
-    JSONExtractString(log_comment, 'lc_route_id') as lc_route_id,
+    JSONExtractString(log_comment, 'route_id') as lc_route_id,
 
     JSONExtractString(log_comment, 'query_type') as lc_query_type,
     JSONExtractString(log_comment, 'product') as lc_product,
