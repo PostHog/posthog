@@ -42,7 +42,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -66,6 +66,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
+from tenacity import retry, wait_random_exponential, retry_if_exception_type
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -800,6 +801,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
+    @retry(
+        # our clickhouse error types are dynamic so we can't import them here, and have to match on message
+        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        # if retrying doesn't work, raise the actual error, not a retry error
+        reraise=True,
+        # try again after 0.2 seconds and then exponential waits up to 4 seconds
+        wait=wait_random_exponential(multiplier=0.2, max=4),
+    )
     def _gather_session_recording_sources(
         self,
         recording: SessionRecording,
