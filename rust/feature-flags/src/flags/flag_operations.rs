@@ -8,14 +8,6 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
-    if filter.depends_on_feature_flag() {
-        filter.get_feature_flag_id()
-    } else {
-        None
-    }
-}
-
 impl FeatureFlag {
     /// Returns the group type index for the flag, or None if it's not set.
     ///
@@ -53,13 +45,21 @@ impl FeatureFlag {
         for group in &self.filters.groups {
             if let Some(properties) = &group.properties {
                 for filter in properties {
-                    if let Some(feature_flag_id) = extract_feature_flag_dependency(filter) {
+                    if let Some(feature_flag_id) = Self::extract_feature_flag_dependency(filter) {
                         dependencies.insert(feature_flag_id);
                     }
                 }
             }
         }
         Ok(dependencies)
+    }
+
+    fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
+        if filter.depends_on_feature_flag() {
+            filter.get_feature_flag_id()
+        } else {
+            None
+        }
     }
 
     /// Returns true if the flag requires DB preparation in order to evaluate the flag.
