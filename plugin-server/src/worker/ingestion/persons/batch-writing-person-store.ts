@@ -44,7 +44,7 @@ type MethodName =
     | 'updatePersonNoAssert'
     | 'updatePersonWithTransaction'
     | 'createPerson'
-    | 'updatePersonForUpdate'
+    | 'updatePersonWithPropertiesDiffForUpdate'
     | 'updatePersonForMerge'
     | 'deletePerson'
     | 'addDistinctId'
@@ -52,7 +52,6 @@ type MethodName =
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
-    | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addPersonUpdateToBatch'
 
 type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert' | 'updatePersonWithTransaction'
@@ -348,16 +347,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return fetchPromise
     }
 
-    updatePersonForUpdate(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        this.incrementCount('updatePersonForUpdate', distinctId)
-        return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
-    }
-
     updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
@@ -375,10 +364,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        return Promise.resolve(
-            this.addPersonPropertiesUpdateToBatch(person, propertiesToSet, propertiesToUnset, otherUpdates, distinctId)
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            distinctId
         )
+        return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {

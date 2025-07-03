@@ -8,7 +8,6 @@ import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
-import { applyEventPropertyUpdates } from './person-update'
 import { fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -230,40 +229,6 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         return mainResult
     }
 
-    async updatePersonForUpdate(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const [[mainPersonResult, mainKafkaMessages, mainVersionDisparity], [secondaryPersonResult]] =
-            await Promise.all([
-                this.mainStore.updatePersonForUpdate(person, update, distinctId, tx),
-                this.secondaryStore.updatePersonForUpdate(person, update, distinctId, tx),
-            ])
-
-        // Compare results to ensure consistency between stores
-        this.compareUpdateResults(
-            'updatePersonForUpdate',
-            person.team_id,
-            person.id,
-            mainPersonResult,
-            secondaryPersonResult,
-            mainVersionDisparity
-        )
-
-        this.updateFinalState(
-            person.team_id,
-            distinctId,
-            mainPersonResult.id,
-            mainPersonResult,
-            mainVersionDisparity,
-            'updatePersonForUpdate',
-            mainPersonResult.version
-        )
-        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
-    }
-
     async updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
@@ -305,23 +270,17 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        // Main store doesn't support this method, so we'll convert to the regular update
-        const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const [mainPersonResult, mainKafkaMessages, mainVersionDisparity] =
+            await this.mainStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                propertiesToSet,
+                propertiesToUnset,
+                otherUpdates,
+                distinctId,
+                tx
+            )
 
-        const update: Partial<InternalPerson> = { ...otherUpdates }
-        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
-            update.properties = person.properties
-        }
-
-        const [mainPersonResult, mainKafkaMessages] = await this.mainStore.updatePersonForUpdate(
-            person,
-            update,
-            distinctId,
-            tx
-        )
-
-        // Secondary store supports the diff method directly
         const [secondaryPersonResult] = await this.secondaryStore.updatePersonWithPropertiesDiffForUpdate(
             person,
             propertiesToSet,
@@ -338,7 +297,7 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             person.id,
             mainPersonResult,
             secondaryPersonResult,
-            false
+            mainVersionDisparity
         )
 
         this.updateFinalState(
@@ -346,11 +305,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
             distinctId,
             mainPersonResult.id,
             mainPersonResult,
-            false,
+            mainVersionDisparity,
             'updatePersonWithPropertiesDiffForUpdate',
             mainPersonResult.version
         )
-        return [mainPersonResult, mainKafkaMessages]
+        return [mainPersonResult, mainKafkaMessages, mainVersionDisparity]
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {

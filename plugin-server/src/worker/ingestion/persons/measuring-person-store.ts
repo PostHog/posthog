@@ -14,6 +14,7 @@ import {
     personMethodCallsPerBatchHistogram,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -248,15 +249,27 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
     }
 
-    updatePersonWithPropertiesDiffForUpdate(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        throw new Error('updatePersonWithPropertiesDiffForUpdate not implemented for MeasuringPersonsStoreForBatch')
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
+        // We must make a deep copy of person since applyEventPropertyUpdates will mutate it
+        const personCopy = {
+            ...person,
+            properties: { ...person.properties }, // Deep copy properties to avoid mutation
+        }
+
+        const update: Partial<InternalPerson> = { ...otherUpdates }
+        if (applyEventPropertyUpdates(mainStorePropertyUpdates, personCopy.properties)) {
+            update.properties = personCopy.properties
+        }
+
+        return await this.updatePersonForUpdate(personCopy, update, distinctId, tx)
     }
 
     private async updatePerson(

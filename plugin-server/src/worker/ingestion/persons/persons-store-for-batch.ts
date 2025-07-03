@@ -43,16 +43,6 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     /**
-     * Updates an existing person for regular updates
-     */
-    updatePersonForUpdate(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
-
-    /**
      * Updates an existing person for merge operations
      */
     updatePersonForMerge(
@@ -63,7 +53,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
-     * Updates person with specific properties to set and unset
+     * Updates person for regular updates with specific properties to set and unset
      */
     updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
@@ -72,7 +62,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
      * Deletes a person
