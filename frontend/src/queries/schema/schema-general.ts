@@ -27,6 +27,8 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
+    IntegrationKind,
+    IntegrationType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
@@ -2019,8 +2021,8 @@ export interface ErrorTrackingIssueAggregations {
 
 export interface ErrorTrackingExternalReference {
     id: string
-    provider: string
-    external_id: string
+    external_url: string
+    integration: Pick<IntegrationType, 'display_name' | 'id' | 'kind'>
 }
 
 export interface ErrorTrackingRelationalIssue {

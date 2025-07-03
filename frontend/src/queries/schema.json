@@ -9000,17 +9000,30 @@
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
-                "external_id": {
+                "external_url": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "provider": {
-                    "type": "string"
+                "integration": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "display_name": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "kind": {
+                            "$ref": "#/definitions/IntegrationKind"
+                        }
+                    },
+                    "required": ["display_name", "id", "kind"],
+                    "type": "object"
                 }
             },
-            "required": ["id", "provider", "external_id"],
+            "required": ["id", "external_url", "integration"],
             "type": "object"
         },
         "ErrorTrackingIssue": {
@@ -13502,6 +13515,23 @@
                 }
             },
             "type": "object"
+        },
+        "IntegrationKind": {
+            "enum": [
+                "slack",
+                "salesforce",
+                "hubspot",
+                "google-pubsub",
+                "google-cloud-storage",
+                "google-ads",
+                "linkedin-ads",
+                "snapchat",
+                "intercom",
+                "email",
+                "linear",
+                "github"
+            ],
+            "type": "string"
         },
         "IntervalType": {
             "enum": ["minute", "hour", "day", "week", "month"],

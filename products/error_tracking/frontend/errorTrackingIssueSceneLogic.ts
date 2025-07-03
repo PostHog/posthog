@@ -21,6 +21,7 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -38,7 +39,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         const filtersLogic = errorFiltersLogic()
         const issueActions = issueActionsLogic()
         return {
-            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+            values: [
+                filtersLogic,
+                ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+                integrationsLogic,
+                ['integrations'],
+            ],
             actions: [
                 filtersLogic,
                 ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
@@ -57,10 +63,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
-        createExternalReference: (title: string, description: string, integration: IntegrationType) => ({
+        createExternalReference: (
+            title: string,
+            description: string,
+            integrationId: IntegrationType['id'],
+            config: Record<string, string>
+        ) => ({
             title,
             description,
-            integration,
+            integrationId,
+            config,
         }),
     }),
 
@@ -114,14 +126,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
-            createExternalReference: async ({ title, description, integration }) => {
+            createExternalReference: async ({ title, description, integrationId, config }) => {
                 const response = await api.errorTracking.createExternalReference(
                     props.id,
                     title,
                     description,
-                    integration.id
+                    integrationId,
+                    config
                 )
-                debugger
+                const externalReferences = values.issue?.external_issues ?? []
+                return { ...values.issue, external_issues: [...externalReferences, response] }
             },
         },
         firstSeenEvent: {

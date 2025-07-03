@@ -976,15 +976,6 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
-class ErrorTrackingExternalReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    external_id: str
-    id: str
-    provider: str
-
-
 class FirstEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1496,6 +1487,21 @@ class InsightsThresholdBounds(BaseModel):
     )
     lower: Optional[float] = None
     upper: Optional[float] = None
+
+
+class IntegrationKind(StrEnum):
+    SLACK = "slack"
+    SALESFORCE = "salesforce"
+    HUBSPOT = "hubspot"
+    GOOGLE_PUBSUB = "google-pubsub"
+    GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+    GOOGLE_ADS = "google-ads"
+    LINKEDIN_ADS = "linkedin-ads"
+    SNAPCHAT = "snapchat"
+    INTERCOM = "intercom"
+    EMAIL = "email"
+    LINEAR = "linear"
+    GITHUB = "github"
 
 
 class IntervalType(StrEnum):
@@ -3018,6 +3024,24 @@ class ElementPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["element"] = "element"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class Integration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
+
+
+class ErrorTrackingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: Integration
 
 
 class ErrorTrackingIssueAssignee(BaseModel):

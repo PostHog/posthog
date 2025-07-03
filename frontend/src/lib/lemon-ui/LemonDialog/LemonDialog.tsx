@@ -141,8 +141,6 @@ export const LemonFormDialog = ({
         [formValidationErrors]
     )
 
-    console.log(form)
-
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
         children: 'Submit',

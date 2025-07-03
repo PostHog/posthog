@@ -1,110 +1,77 @@
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ErrorTrackingExternalReference } from '~/queries/schema/schema-general'
-import { IntegrationKind } from '~/types'
+import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { IntegrationType } from '~/types'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconPlus } from '@posthog/icons'
-import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 
-export const IssueExternalReferenceCreationModal = (): JSX.Element | null => {
-    return <LemonModal></LemonModal>
-}
+type onSubmitFormType = (
+    title: string,
+    description: string,
+    integrationId: number,
+    config: Record<string, string>
+) => void
 
 export const ConnectIssueButton = ({
-    externalIssues,
+    externalReferences,
 }: {
-    externalIssues: ErrorTrackingExternalReference[]
-}): JSX.Element => {
+    externalReferences: ErrorTrackingExternalReference[]
+}): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
-    const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
+    const { linearIntegrations, githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
     const errorTrackingIntegrations = [...linearIntegrations, ...githubIntegrations]
 
-    if (externalIssues.length === 1) {
-        const kind = externalIssues[0].provider
+    if (!issue || integrationsLoading) {
+        return null
+    }
+
+    if (externalReferences.length === 1) {
+        const reference = externalReferences[0]
 
         return (
-            <LemonButton
-                type="secondary"
-                onClick={() => console.log('Create issue')}
-                sideAction={{
-                    icon: <IconArrowDown />,
-                    dropdown: {
-                        overlay: <LemonButton onClick={() => console.log('Unlink issue')}>Unlink</LemonButton>,
-                    },
-                }}
-            >
-                {kind} issue
+            <LemonButton type="secondary" to={reference.external_url} tooltip={reference.integration.display_name}>
+                {reference.integration.display_name} issue
             </LemonButton>
         )
-    } else if (errorTrackingIntegrations.length > 0) {
+    } else if (errorTrackingIntegrations.length === 1) {
         const integration = errorTrackingIntegrations[0]
-        const kind = getProviderFromIntegrationKind(integration.kind)
 
         return (
             <LemonButton
                 icon={<IconPlus />}
                 type="secondary"
-                onClick={() => {
-                    if (issue) {
-                        LemonDialog.openForm({
-                            title: 'Create issue',
-                            initialValues: {
-                                title: issue.name,
-                                description: issue.description,
-                                integration: errorTrackingIntegrations[0],
-                                config: {},
-                            },
-                            content: ({ values }) => {
-                                console.log(values)
-                                return (
-                                    <div className="flex flex-col gap-y-2">
-                                        {errorTrackingIntegrations.length > 1 && (
-                                            <LemonField name="integration">
-                                                <LemonSelect
-                                                    size="small"
-                                                    options={errorTrackingIntegrations.map((i) => ({
-                                                        label: i.display_name,
-                                                        value: i,
-                                                    }))}
-                                                    className="w-30"
-                                                />
-                                            </LemonField>
-                                        )}
-                                        {/* {values?.integration?.kind == 'linear' && <p>Linear integration choose team</p>} */}
-                                        <LemonField name="title">
-                                            <LemonInput
-                                                data-attr="issue-title"
-                                                placeholder="Issue title"
-                                                size="small"
-                                            />
-                                        </LemonField>
-                                        <LemonField name="description">
-                                            <LemonTextArea
-                                                data-attr="issue-description"
-                                                placeholder="Start typing..."
-                                            />
-                                        </LemonField>
-                                        {integration.kind == 'linear' && <LinearConfig />}
-                                    </div>
-                                )
-                            },
-                            errors: {
-                                title: (title) => (!title ? 'You must enter a title' : undefined),
-                            },
-                            onSubmit: ({ title, description, integration }) =>
-                                createExternalReference(title, description, integration),
-                        })
+                onClick={() => createLinearIssueForm(issue, integration, createExternalReference)}
+            >
+                Create {integration.display_name} issue
+            </LemonButton>
+        )
+    } else if (errorTrackingIntegrations.length > 1) {
+        return (
+            <LemonSelect
+                placeholder="Create external issue"
+                onSelect={(integrationId) => {
+                    const integration = errorTrackingIntegrations.find((i) => i.id === integrationId)
+
+                    if (integration) {
+                        if (integration.kind === 'github') {
+                            // TODO
+                        } else if (integration && integration.kind === 'linear') {
+                            createLinearIssueForm(issue, integration, createExternalReference)
+                        }
                     }
                 }}
-            >
-                Create {kind} issue
-            </LemonButton>
+                options={errorTrackingIntegrations.map((i) => ({
+                    label: i.display_name,
+                    value: i.id,
+                }))}
+            />
         )
     }
 
@@ -115,30 +82,36 @@ export const ConnectIssueButton = ({
     )
 }
 
-const LinearConfig = (): JSX.Element => {
-    return (
-        <LemonField name="config">
-            <LemonSelect
-                size="small"
-                fullWidth
-                options={[
-                    { id: 1, name: 'Team 1' },
-                    { id: 2, name: 'Team 2' },
-                ].map((i) => ({
-                    label: i.name,
-                    value: i,
-                }))}
-            />
-        </LemonField>
-    )
-}
-
-const getProviderFromIntegrationKind = (kind: IntegrationKind): string => {
-    if (kind === 'linear') {
-        return 'Linear'
-    } else if (kind === 'github') {
-        return 'GitHub'
-    } else {
-        throw Error('Not a valid error tracking external provider type')
-    }
+const createLinearIssueForm = (
+    issue: ErrorTrackingRelationalIssue,
+    integration: IntegrationType,
+    onSubmit: onSubmitFormType
+): void => {
+    LemonDialog.openForm({
+        title: 'Create Linear issue',
+        initialValues: {
+            title: issue.name,
+            description: issue.description,
+            integrationId: integration.id,
+            teamIds: [],
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <LinearTeamSelectField integrationId={integration.id} />
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+            teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
+        },
+        onSubmit: ({ title, description, teamIds }) => {
+            onSubmit(title, description, integration.id, { team_id: teamIds[0] })
+        },
+    })
 }

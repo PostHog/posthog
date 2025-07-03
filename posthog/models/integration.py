@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import time
 import jwt
+import json
 from datetime import timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
@@ -292,8 +293,12 @@ class OauthIntegration:
                 additional_authorize_params={"actor": "application"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
-                token_info_graphql_query="{ viewer { organization { id name } } }",
-                token_info_config_fields=["data.viewer.organization.id", "data.viewer.organization.name"],
+                token_info_graphql_query="{ viewer { organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
@@ -917,42 +922,36 @@ class LinearIntegration:
 
         self.integration = integration
 
+    def url_key(self) -> str:
+        return dot_get(self.integration.config, "data.viewer.organization.urlKey")
+
     def list_teams(self) -> list[dict]:
-        query = f"{{ teams {{ nodes {{ id name }} }} }}"
-
-        response = requests.post(
-            "https://api.linear.app/graphql",
-            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
-            json={"query": query},
-        )
-
-        teams = dot_get(response.json(), "data.teams.nodes")
+        body = self.query(f"{{ teams {{ nodes {{ id name }} }} }}")
+        teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, title, description):
-        # query = f"mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: {teamId} }}) {{ success issue {{ id }} }} }}"
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
+        title: str = json.dumps(config.pop("title"))
+        description: str = json.dumps(config.pop("description"))
+        team_id = config.pop("team_id")
 
-        query = """mutation IssueCreate {
-    issueCreate(
-        input: {
-        title: "New exception", description: "More detailed error report in markdown"
-        teamId: "9cfb482a-81e3-4154-b5b9-2c805e70a02d"
-        }
-    ) {
-        success
-        issue { id }
-    }
-}"""
+        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{team_id}" }}) {{ success issue {{ identifier }} }} }}'
+        body = self.query(issue_create_query)
+        linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
+        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
+        link_attachment_query = f'mutation AttachmentLinkURL {{ attachmentLinkURL(url: "{attachment_url}", issueId: "{linear_issue_id}", title: "PostHog issue") {{ success }} }}'
+        self.query(link_attachment_query)
+
+        return linear_issue_id
+
+    def query(self, query):
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query},
         )
-
-        # teams = dot_get(response.json(), "data.teams.nodes")
-        # return teams
-        return None
+        return response.json()
 
 
 class GitHubIntegration:
@@ -1054,5 +1053,5 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
-    def create_issue(self, title, description):
+    def create_issue(self, title, description, config):
         pass

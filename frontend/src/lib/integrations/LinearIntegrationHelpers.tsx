@@ -5,6 +5,7 @@ import { useEffect, useMemo } from 'react'
 import { IntegrationType } from '~/types'
 
 import { linearIntegrationLogic } from './linearIntegrationLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 export type LinearTeamPickerProps = {
     integration: IntegrationType
@@ -51,5 +52,24 @@ export function LinearTeamPicker({ onChange, value, integration, disabled }: Lin
                 loading={linearTeamsLoading}
             />
         </>
+    )
+}
+
+export const LinearTeamSelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
+    const logic = linearIntegrationLogic({ id: integrationId })
+    const { linearTeams, linearTeamsLoading } = useValues(logic)
+    const { loadAllLinearTeams } = useActions(logic)
+
+    return (
+        <LemonField name="teamIds" label="Title">
+            <LemonInputSelect
+                onFocus={() => !linearTeams.length && !linearTeamsLoading && loadAllLinearTeams()}
+                mode="single"
+                data-attr="select-linear-team"
+                placeholder="Select a team..."
+                options={linearTeams.map((t) => ({ key: t.id, label: t.name }))}
+                loading={linearTeamsLoading}
+            />
+        </LemonField>
     )
 }

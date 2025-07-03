@@ -21,6 +21,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
     DatabaseSerializedFieldType,
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemCount,
@@ -2573,11 +2574,12 @@ const api = {
             issueId: string,
             title: string,
             description: string,
-            integrationId: number
-        ): Promise<void> {
+            integrationId: number,
+            config: Record<string, string>
+        ): Promise<ErrorTrackingExternalReference> {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
-                .create({ data: { title, description, integration: integrationId, issue: issueId } })
+                .create({ data: { integration: integrationId, issue: issueId, title, description, config } })
         },
     },
 
