@@ -113,10 +113,20 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     # by using the `next_join` field of the last dangling join
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         base_join = initial_join
-        for current_join in joins:
-            while base_join.next_join is not None:
-                base_join = base_join.next_join
+
+        # Collect all existing joins aliases
+        existing_joins_alias = set(base_join.alias)
+        while base_join.next_join is not None:
+            base_join = base_join.next_join
+            existing_joins_alias.add(base_join.alias)
+
+        # Remove joins whose aliases are already included
+        cleaned_up_joins = [join for join in joins if join.alias is not None and join.alias not in existing_joins_alias]
+
+        # Append the new joins
+        for current_join in cleaned_up_joins:
             base_join.next_join = current_join
+            base_join = current_join
         return initial_join
 
     def _create_subquery_join(
