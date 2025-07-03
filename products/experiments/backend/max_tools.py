@@ -45,7 +45,7 @@ Focus on key metrics, statistical significance, and actionable insights for the 
 
             messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-            result = self._model.invoke(messages)
+            result = self._model.invoke(messages, self._config)
             content = result.content
 
             return content, None  # Return tuple of (content, artifact)
