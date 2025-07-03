@@ -41,11 +41,7 @@ class ConversionGoalProcessor:
 
     def get_table_name(self):
         """Get table name for conversion goal"""
-        name = self.goal.name
         kind = self.goal.kind
-
-        if not name:
-            return "events"
 
         if kind == "EventsNode":
             return "events"
