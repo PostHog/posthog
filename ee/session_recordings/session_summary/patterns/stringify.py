@@ -18,7 +18,7 @@ def convert_patterns_to_markdown(json_data: dict[str, Any], session_ids_file_pat
     total_sessions = len(session_ids)
 
     # Sort patterns by severity: critical, medium, high
-    severity_order = {"critical": 0, "high": 1, "medium": 2}
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     patterns.sort(key=lambda p: severity_order.get(p["severity"]))
 
     markdown_lines = [f"# Session Summaries Report - {domain}", ""]
