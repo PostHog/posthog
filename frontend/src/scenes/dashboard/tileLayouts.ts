@@ -5,15 +5,14 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
-export const sortTilesByLayout = (
-    tiles: Array<DashboardTile<QueryBasedInsightModel>>,
-    col: DashboardLayoutSize
+export const sortTilesByMultiColumnLayout = (
+    tiles: Array<DashboardTile<QueryBasedInsightModel>>
 ): Array<DashboardTile<QueryBasedInsightModel>> => {
     return [...tiles].sort((a: DashboardTile<QueryBasedInsightModel>, b: DashboardTile<QueryBasedInsightModel>) => {
-        const ax = a.layouts?.[col]?.x ?? 0
-        const ay = a.layouts?.[col]?.y ?? 0
-        const bx = b.layouts?.[col]?.x ?? 0
-        const by = b.layouts?.[col]?.y ?? 0
+        const ax = a.layouts?.sm?.x ?? 0
+        const ay = a.layouts?.sm?.y ?? 0
+        const bx = b.layouts?.sm?.x ?? 0
+        const by = b.layouts?.sm?.y ?? 0
 
         if (ay < by || (ay == by && ax < bx)) {
             return -1
@@ -28,22 +27,12 @@ export const calculateLayouts = (
 ): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
-    let referenceOrder: number[] | undefined = undefined
+    const tilesOrderedByDesktopLayout = sortTilesByMultiColumnLayout(tiles)
 
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
-        if (referenceOrder === undefined) {
-            sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
-        } else {
-            sortedDashboardTiles = tiles.sort((a, b) => {
-                return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
-            })
-        }
-
-        const layouts = (sortedDashboardTiles || []).map((tile) => {
+        const layouts = [...tilesOrderedByDesktopLayout].map((tile) => {
             const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
             // Base constraints
             let defaultW = 6
