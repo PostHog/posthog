@@ -56,6 +56,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantMessageType,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -160,7 +161,7 @@ class Assistant:
         messages = []
 
         async for event_type, message in self.astream(stream_messages=False):
-            if event_type == AssistantEventType.MESSAGE:
+            if event_type == AssistantEventType.MESSAGE and message.type != AssistantMessageType.AI_REASONING:
                 messages.append({"type": event_type, "data": message.model_dump(exclude_none=True)})
 
         return messages
