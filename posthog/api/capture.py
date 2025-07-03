@@ -706,6 +706,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                             "extra_headers": [
                                 ("lib_version", lib_version),
                             ],
+                            "to_capture_rs": False,
                         }
                         this_future = capture_internal(*capture_args, **capture_kwargs)
                         replay_futures.append((this_future, capture_args, capture_kwargs))
@@ -1022,7 +1023,7 @@ def capture_internal(
     event_uuid=None,
     token=None,
     historical=False,
-    *args,  # ensure we clearly delimit positional from keyword args
+    *_args,  # ensure we clearly delimit positional from keyword args
     extra_headers: list[tuple[str, str]] | None = None,
     to_capture_rs: bool = False,
 ):
