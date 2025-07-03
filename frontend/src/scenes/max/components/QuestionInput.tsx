@@ -168,8 +168,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     >
                         <span>Tools here:</span>
                         {tools.map((tool) => (
-                            <Tooltip title={tool.description}>
-                                <i key={tool.name} className="flex items-center gap-1 cursor-help">
+                            <Tooltip key={tool.name} title={tool.description}>
+                                <i className="flex items-center gap-1 cursor-help">
                                     {tool.icon || <IconWrench />}
                                     {tool.displayName}
                                 </i>
