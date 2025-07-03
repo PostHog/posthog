@@ -13,6 +13,7 @@ from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
+from posthog.models import Integration
 from posthog.temporal.data_imports.pipelines.google_ads.schemas import RESOURCE_SCHEMAS
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -53,23 +54,34 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
 
 
 @config.config
-class GoogleAdsOAuthSourceConfig:
+class GoogleAdsOAuthSourceConfig(config.Config):
     """Google Ads source config using OAuth2 flow for authentication."""
 
     resource_name: str
-    customer_id: str
+    google_ads_integration_id: str
+    customer_id: str = config.value(converter=_clean_customer_id)
     developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
+    client_id: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_APP_CLIENT_ID"))
+    client_secret: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_APP_CLIENT_SECRET"))
 
 
 GoogleAdsSourceConfig = GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig
 
 
-def google_ads_client(
-    config: GoogleAdsSourceConfig,
-) -> GoogleAdsClient:
+def google_ads_client(config: GoogleAdsSourceConfig, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
     if isinstance(config, GoogleAdsOAuthSourceConfig):
-        raise NotImplementedError("OAuth not supported yet")
+        integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
+
+        client = GoogleAdsClient.load_from_dict(
+            {
+                "developer_token": config.developer_token,
+                "refresh_token": integration.refresh_token,
+                "client_id": config.client_id,
+                "client_secret": config.client_secret,
+                "use_proto_plus": False,
+            }
+        )
     else:
         credentials = service_account.Credentials.from_service_account_info(
             {
@@ -185,7 +197,7 @@ def _traverse_attributes(thing: typing.Any, *path: str):
     return current
 
 
-def get_incremental_fields():
+def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
     d = {}
     for alias, contents in RESOURCE_SCHEMAS.items():
         assert isinstance(contents, dict)
@@ -208,7 +220,7 @@ class GoogleAdsTable(Table[GoogleAdsColumn]):
 TableSchemas = dict[str, GoogleAdsTable]
 
 
-def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
+def get_schemas(config: GoogleAdsSourceConfig, team_id: int) -> TableSchemas:
     """Obtain Google Ads schemas.
 
     This is a two step process:
@@ -217,7 +229,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
 
     Only selectable fields are, well, selected.
     """
-    client = google_ads_client(config)
+    client = google_ads_client(config, team_id)
     gaf_service = client.get_service("GoogleAdsFieldService")
     fields_query = gaf_service.search_google_ads_fields(
         query=f"select name, data_type, is_repeated, type_url where selectable = true"
@@ -270,6 +282,7 @@ def get_schemas(config: GoogleAdsSourceConfig) -> TableSchemas:
 
 def google_ads_source(
     config: GoogleAdsSourceConfig,
+    team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -281,7 +294,7 @@ def google_ads_source(
     yield batches of rows as `pyarrow.Table`.
     """
     name = NamingConvention().normalize_identifier(config.resource_name)
-    table = get_schemas(config)[config.resource_name]
+    table = get_schemas(config, team_id)[config.resource_name]
 
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
@@ -312,7 +325,7 @@ def google_ads_source(
                 # TODO: Make sure to bump this before 2100-01-01.
                 query += f" AND {incremental_field} < '2100-01-01'"
 
-        client = google_ads_client(config)
+        client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v19")
         stream = service.search_stream(query=query, customer_id=config.customer_id)
 

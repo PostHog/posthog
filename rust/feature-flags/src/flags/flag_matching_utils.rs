@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
+// Add thread-local imports for test-specific counter
+#[cfg(test)]
+use std::cell::RefCell;
+
 use crate::{
     api::{errors::FlagError, types::FlagValue},
     cohorts::cohort_models::CohortId,
@@ -19,7 +23,7 @@ use crate::{
     },
     properties::{
         property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter, PropertyType},
+        property_models::{OperatorType, PropertyFilter},
     },
 };
 
@@ -29,6 +33,12 @@ use super::{
 };
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
+
+// Replace the static counter with thread-local storage
+#[cfg(test)]
+thread_local! {
+    static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
+}
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
 ///
@@ -65,6 +75,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
+    // Add the test-specific counter increment
+    #[cfg(test)]
+    increment_fetch_calls_count();
+
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
@@ -295,9 +309,7 @@ pub fn locally_computable_property_overrides(
 
 /// Checks if any property filters involve cohorts that require database lookup
 fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
-    property_filters
-        .iter()
-        .any(|prop| prop.prop_type == PropertyType::Cohort)
+    property_filters.iter().any(|prop| prop.is_cohort())
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs
@@ -605,13 +617,28 @@ pub async fn should_write_hash_key_override(
 }
 
 #[cfg(test)]
+pub fn get_fetch_calls_count() -> u64 {
+    FETCH_CALLS.with(|counter| *counter.borrow())
+}
+
+#[cfg(test)]
+pub fn reset_fetch_calls_count() {
+    FETCH_CALLS.with(|counter| *counter.borrow_mut() = 0);
+}
+
+#[cfg(test)]
+pub fn increment_fetch_calls_count() {
+    FETCH_CALLS.with(|counter| *counter.borrow_mut() += 1);
+}
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use serde_json::json;
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,

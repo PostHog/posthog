@@ -3,6 +3,9 @@ from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+import posthoganalytics
+import uuid
+from datetime import timedelta
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -183,6 +186,25 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "import_config",
         ]
 
+    def validate(self, data):
+        """Validate the date range doesn't exceed 1 year"""
+        data = super().validate(data)
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if start_date and end_date:
+            if end_date <= start_date:
+                raise serializers.ValidationError("End date must be after start date")
+
+            one_year_after_start = start_date + timedelta(days=365)
+            if end_date > one_year_after_start:
+                raise serializers.ValidationError(
+                    "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
+                )
+
+        return data
+
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
         """Create a new BatchImport from Date Range Source"""
         validated_data["team_id"] = self.context["team_id"]
@@ -328,6 +350,27 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()
+
+        source_type = request.data.get("source_type", "unknown")
+        content_type = request.data.get("content_type", "unknown")
+
+        distinct_id = (
+            request.user.distinct_id
+            if request.user.is_authenticated and request.user.distinct_id
+            else str(uuid.uuid4())
+        )
+
+        posthoganalytics.capture(
+            "batch import created",
+            distinct_id=distinct_id,
+            properties={
+                "batch_import_id": migration.id,
+                "source_type": source_type,
+                "content_type": content_type,
+                "team_id": self.team_id,
+                "$process_person_profile": False,
+            },
+        )
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

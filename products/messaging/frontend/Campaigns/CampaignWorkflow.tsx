@@ -1,24 +1,17 @@
 import { SpinnerOverlay } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
 import { campaignLogic, CampaignLogicProps } from './campaignLogic'
-import { WorkflowEditor } from './Workflows/WorkflowEditor'
+import { HogFlowEditor } from './hogflows/HogFlowEditor'
 
 export function CampaignWorkflow(props: CampaignLogicProps): JSX.Element {
-    const logic = useMountedLogic(campaignLogic(props))
-    const { campaign, campaignLoading } = useValues(logic)
-    const { setCampaignValues } = useActions(logic)
+    const { originalCampaign, campaignLoading } = useValues(campaignLogic(props))
 
     return (
-        <div className="relative h-[calc(100vh-220px)] border rounded-md">
-            {campaignLoading ? (
-                <SpinnerOverlay />
-            ) : (
-                <WorkflowEditor
-                    initialValues={campaign}
-                    onChange={({ actions, edges }) => setCampaignValues({ actions, edges })}
-                />
-            )}
+        <div className="relative border rounded-md h-[calc(100vh-210px)]">
+            <BindLogic logic={campaignLogic} props={props}>
+                {!originalCampaign && campaignLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
+            </BindLogic>
         </div>
     )
 }

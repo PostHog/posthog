@@ -133,6 +133,7 @@ export class SessionRecordingIngester {
     consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
+    private metadataSwitchoverDate: Date | null = null
 
     private promises: Set<Promise<any>> = new Set()
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
@@ -146,6 +147,23 @@ export class SessionRecordingIngester {
         captureRedis: Redis | undefined
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+
+        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
+        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
+            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
+            if (!isNaN(parsed)) {
+                this.metadataSwitchoverDate = new Date(parsed)
+                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                    parsedDate: this.metadataSwitchoverDate.toISOString(),
+                })
+            } else {
+                throw new Error(
+                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
+                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
+                )
+            }
+        }
 
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -456,14 +474,16 @@ export class SessionRecordingIngester {
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
                 this.sharedClusterProducerWrapper,
-                this.persistentHighWaterMarker
+                this.persistentHighWaterMarker,
+                this.metadataSwitchoverDate
             )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
                 this.sharedClusterProducerWrapper,
-                this.persistentHighWaterMarker
+                this.persistentHighWaterMarker,
+                this.metadataSwitchoverDate
             )
         }
 

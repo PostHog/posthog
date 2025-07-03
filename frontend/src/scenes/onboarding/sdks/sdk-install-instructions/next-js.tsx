@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
 import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -47,7 +48,7 @@ export default function App({ Component, pageProps }: AppProps) {
               ? ``
               : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
-      defaults: '2025-05-24',
+      defaults: '${SDK_DEFAULTS_DATE}',
       // Enable debug mode in development
       loaded: (posthog) => {
         if (process.env.NODE_ENV === 'development') posthog.debug()
@@ -112,13 +113,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
               ? ``
               : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
-      defaults: '2025-05-24'
+      defaults: '${SDK_DEFAULTS_DATE}'
     })
   }, [])
 
   return (
     <PHProvider client={posthog}>
-      <SuspendedPostHogPageView />
       {children}
     </PHProvider>
   )
@@ -136,7 +136,7 @@ import posthog from 'posthog-js'
 
 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-    capture_pageview: 'history_change'
+    defaults: '${SDK_DEFAULTS_DATE}'
 });
             `}
         </CodeSnippet>
