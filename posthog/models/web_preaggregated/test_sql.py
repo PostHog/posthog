@@ -6,7 +6,6 @@ import pytest
 from unittest.mock import patch
 from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
-    DROP_PARTITION_IF_EXISTS_SQL,
     TABLE_TEMPLATE,
     HOURLY_TABLE_TEMPLATE,
     WEB_STATS_COLUMNS,
@@ -70,25 +69,23 @@ class TestPartitionDropSQL:
     """
         assert sql.strip() == expected.strip()
 
-    def test_drop_partition_if_exists_daily(self):
-        """Test daily partition drop IF EXISTS SQL generation."""
-        sql = DROP_PARTITION_IF_EXISTS_SQL("web_bounces_daily", "2024-01-15", on_cluster=False)
+    def test_drop_partition_daily_different_table(self):
+        """Test daily partition drop SQL generation with different table name."""
+        sql = DROP_PARTITION_SQL("web_bounces_daily", "2024-01-15", on_cluster=False)
 
         expected = """
     ALTER TABLE web_bounces_daily
-    DROP PARTITION IF EXISTS '20240115'
+    DROP PARTITION '20240115'
     """
         assert sql.strip() == expected.strip()
 
-    def test_drop_partition_if_exists_hourly(self):
-        """Test hourly partition drop IF EXISTS SQL generation."""
-        sql = DROP_PARTITION_IF_EXISTS_SQL(
-            "web_bounces_hourly", "2024-01-15 08", on_cluster=False, granularity="hourly"
-        )
+    def test_drop_partition_hourly_different_table(self):
+        """Test hourly partition drop SQL generation with different table name."""
+        sql = DROP_PARTITION_SQL("web_bounces_hourly", "2024-01-15 08", on_cluster=False, granularity="hourly")
 
         expected = """
     ALTER TABLE web_bounces_hourly
-    DROP PARTITION IF EXISTS '2024011508'
+    DROP PARTITION '2024011508'
     """
         assert sql.strip() == expected.strip()
 
@@ -155,13 +152,13 @@ class TestPartitionIDFormatting:
     )
     def test_partition_id_formatting(self, date_input, granularity, expected_partition):
         """Test various date inputs produce correct partition IDs."""
-        sql = DROP_PARTITION_IF_EXISTS_SQL("test_table", date_input, on_cluster=False, granularity=granularity)
+        sql = DROP_PARTITION_SQL("test_table", date_input, on_cluster=False, granularity=granularity)
         assert f"'{expected_partition}'" in sql
 
     def test_invalid_hourly_format_defaults_to_00(self):
         """Test that malformed hourly input defaults gracefully."""
         # Test with date only for hourly granularity
-        sql = DROP_PARTITION_IF_EXISTS_SQL("test_table", "2024-01-15", on_cluster=False, granularity="hourly")
+        sql = DROP_PARTITION_SQL("test_table", "2024-01-15", on_cluster=False, granularity="hourly")
         assert "'2024011500'" in sql
 
 
@@ -178,7 +175,7 @@ class TestHourlyPartitioningIntegration:
         ]
 
         for date_input, expected_partition in test_cases:
-            sql = DROP_PARTITION_IF_EXISTS_SQL("web_stats_hourly", date_input, on_cluster=False, granularity="hourly")
+            sql = DROP_PARTITION_SQL("web_stats_hourly", date_input, on_cluster=False, granularity="hourly")
             assert f"'{expected_partition}'" in sql
 
     def test_hourly_table_creation_with_ttl(self):
@@ -198,8 +195,8 @@ class TestHourlyPartitioningIntegration:
         """Test that hourly and daily partitions produce different results."""
         date = "2024-01-15"
 
-        daily_sql = DROP_PARTITION_IF_EXISTS_SQL("web_stats_daily", date, on_cluster=False, granularity="daily")
-        hourly_sql = DROP_PARTITION_IF_EXISTS_SQL("web_stats_hourly", date, on_cluster=False, granularity="hourly")
+        daily_sql = DROP_PARTITION_SQL("web_stats_daily", date, on_cluster=False, granularity="daily")
+        hourly_sql = DROP_PARTITION_SQL("web_stats_hourly", date, on_cluster=False, granularity="hourly")
 
         # Daily should be YYYYMMDD format
         assert "'20240115'" in daily_sql
