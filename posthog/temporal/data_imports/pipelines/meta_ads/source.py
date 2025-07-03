@@ -62,7 +62,7 @@ class MetaAdsSchema:
 # Note: can make this static but keeping schemas.py to match other schema files for now
 def get_schemas() -> dict[str, MetaAdsSchema]:
     """Obtain Meta Ads schemas using predefined field definitions."""
-    schemas = {}
+    schemas: dict[str, MetaAdsSchema] = {}
 
     for resource_name, schema_def in RESOURCE_SCHEMAS.items():
         field_names = schema_def["field_names"].copy()
