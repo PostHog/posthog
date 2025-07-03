@@ -8,6 +8,7 @@ import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models import Integration
+from posthog.models.integration import MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalFieldType
@@ -40,7 +41,10 @@ class MetaAdsSourceConfig(config.Config):
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     """Get the Meta Ads integration."""
-    return Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
+    integration = Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
+    meta_ads_integration = MetaAdsIntegration(integration)
+    meta_ads_integration.refresh_access_token()
+    return meta_ads_integration.integration
 
 
 @dataclass
