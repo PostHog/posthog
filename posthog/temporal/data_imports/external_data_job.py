@@ -196,9 +196,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
         if has_non_retryable_error:
             posthoganalytics.capture(
-                get_machine_id(),
-                "schema non-retryable error",
-                {
+                distinct_id=get_machine_id(),
+                event="schema non-retryable error",
+                properties={
                     "schemaId": inputs.schema_id,
                     "sourceId": inputs.source_id,
                     "sourceType": source.source_type,

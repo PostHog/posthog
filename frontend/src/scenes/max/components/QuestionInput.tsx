@@ -1,9 +1,8 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
+import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconTools } from 'lib/lemon-ui/icons'
 import { ReactNode } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -167,12 +166,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 : `w-full pb-1`
                         )}
                     >
-                        <span>Tools in context:</span>
+                        <span>Tools here:</span>
                         {tools.map((tool) => (
-                            <i key={tool.name} className="flex items-center gap-1">
-                                <IconTools />
-                                {tool.displayName}
-                            </i>
+                            <Tooltip key={tool.name} title={tool.description}>
+                                <i className="flex items-center gap-1 cursor-help">
+                                    {tool.icon || <IconWrench />}
+                                    {tool.displayName}
+                                </i>
+                            </Tooltip>
                         ))}
                     </div>
                 )}
