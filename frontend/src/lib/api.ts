@@ -2341,6 +2341,7 @@ const api = {
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    limit: 250,
                 })
                 .get()
         },
