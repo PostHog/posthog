@@ -92,19 +92,19 @@ class GetEventCountsInputs:
 
 
 @dataclass
-class EventCountsOutput:
+class EventCountForInterval:
     interval_start: str
     interval_end: str
     count: int
 
 
 @dataclass
-class GetEventCountsOutputs:
-    results: list[EventCountsOutput]
+class EventCounts:
+    results: list[EventCountForInterval]
 
 
 @activity.defn
-async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutputs:
+async def get_event_counts(inputs: GetEventCountsInputs) -> EventCounts:
     """Get the total number of events for a given team over a set of time intervals."""
 
     query = EVENT_COUNT_BY_INTERVAL
@@ -135,16 +135,16 @@ async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutput
         for line in response.decode("utf-8").splitlines():
             interval_start, interval_end, count = line.strip().split("\t")
             results.append(
-                EventCountsOutput(interval_start=interval_start, interval_end=interval_end, count=int(count))
+                EventCountForInterval(interval_start=interval_start, interval_end=interval_end, count=int(count))
             )
 
-        return GetEventCountsOutputs(results=results)
+        return EventCounts(results=results)
 
 
 @dataclass
 class UpdateBatchExportRunsInputs:
     batch_export_id: UUID
-    results: list[EventCountsOutput]
+    results: list[EventCountForInterval]
 
 
 @activity.defn
