@@ -17,7 +17,6 @@ from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SC
 
 # Meta Ads API only supports data from the last 3 years
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
-API_VERSION = "v23.0"
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -206,7 +205,7 @@ def meta_ads_source(
                 "until": dt.date.today().strftime("%Y-%m-%d"),
             }
 
-        formatted_url = schema.url.format(API_VERSION=API_VERSION, account_id=config.account_id)
+        formatted_url = schema.url.format(API_VERSION=MetaAdsIntegration.api_version, account_id=config.account_id)
         params = {
             "fields": ",".join(schema.field_names),
             "limit": 100,

@@ -1,3 +1,4 @@
+from typing import Any
 from enum import StrEnum
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
@@ -80,7 +81,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
 }
 
-RESOURCE_SCHEMAS = {
+RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.Ads: {
         "primary_keys": ["id", "account_id"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/ads",

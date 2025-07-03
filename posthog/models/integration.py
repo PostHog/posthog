@@ -309,9 +309,9 @@ class OauthIntegration:
                 raise NotImplementedError("Meta Ads app not configured")
 
             return OauthConfig(
-                authorize_url="https://www.facebook.com/v23.0/dialog/oauth",
-                token_url="https://graph.facebook.com/v23.0/oauth/access_token",
-                token_info_url="https://graph.facebook.com/v23.0/me",
+                authorize_url=f"https://www.facebook.com/{MetaAdsIntegration.api_version}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me",
                 token_info_config_fields=["id", "name", "email"],
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
@@ -1051,6 +1051,7 @@ class GitHubIntegration:
 
 class MetaAdsIntegration:
     integration: Integration
+    api_version: str = "v23.0"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "meta-ads":
