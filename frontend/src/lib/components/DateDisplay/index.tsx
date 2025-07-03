@@ -3,7 +3,7 @@ import './DateDisplay.scss'
 import { dayjs } from 'lib/dayjs'
 
 import { IntervalType } from '~/types'
-import { QueryDateRangeResponse } from '~/queries/schema/schema-general'
+import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { getWeekBoundaries } from 'lib/utils/dateTimeUtils'
 
 interface DateDisplayProps {
@@ -11,7 +11,7 @@ interface DateDisplayProps {
     secondaryDate?: string
     interval: IntervalType
     hideWeekRange?: boolean
-    queryDateRange?: QueryDateRangeResponse
+    resolvedDateRange?: ResolvedDateRangeResponse
     weekStartDay?: number
 }
 
@@ -48,15 +48,15 @@ export function DateDisplay({
     secondaryDate,
     interval,
     hideWeekRange,
-    queryDateRange,
+    resolvedDateRange,
     weekStartDay,
 }: DateDisplayProps): JSX.Element {
     let parsedDate = dayjs.utc(date)
     let weekEnd = null
 
-    if (interval === 'week' && queryDateRange?.date_from && queryDateRange?.date_to) {
-        const dateFrom = dayjs.utc(queryDateRange?.date_from)
-        const dateTo = dayjs.utc(queryDateRange?.date_to)
+    if (interval === 'week' && resolvedDateRange?.date_from && resolvedDateRange?.date_to) {
+        const dateFrom = dayjs.utc(resolvedDateRange?.date_from)
+        const dateTo = dayjs.utc(resolvedDateRange?.date_to)
         let boundaryDateRange = null
         if (dateFrom && dateTo && dateFrom.isValid() && dateTo.isValid()) {
             boundaryDateRange = {

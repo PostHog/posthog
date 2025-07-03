@@ -158,7 +158,7 @@ export function ActionsLineGraph({
                                       {label} on{' '}
                                       <DateDisplay
                                           interval={interval || 'day'}
-                                          queryDateRange={insightData?.query_date_range}
+                                          resolvedDateRange={insightData?.resolved_date_range}
                                           weekStartDay={weekStartDay}
                                           date={day?.toString() || ''}
                                       />

@@ -60,8 +60,8 @@ export function FunnelLineGraph({
                         }
                         return (
                             getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
-                                interval: insightData?.query_date_range?.interval,
-                                dateRange: insightData?.query_date_range,
+                                interval: insightData?.resolved_date_range?.interval,
+                                dateRange: insightData?.resolved_date_range,
                                 timezone: insightData?.timezone,
                                 weekStartDay,
                             }) +

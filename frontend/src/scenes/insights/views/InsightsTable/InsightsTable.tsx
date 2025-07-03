@@ -284,7 +284,7 @@ export function InsightsTable({
                     indexedResults={indexedResults}
                     compare={compareFilter?.compare}
                     interval={interval}
-                    queryDateRange={insightData?.query_date_range}
+                    resolvedDateRange={insightData?.resolved_date_range}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
