@@ -653,6 +653,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+                logger.exception("capture_submit_failure", exc_info=exc)
 
                 return cors_response(
                     request,
@@ -1065,7 +1066,7 @@ def capture_internal(
     event_uuid=None,
     token=None,
     historical=False,
-    *_args,  # ensure we clearly delimit positional from keyword args
+    *_args,  # clearly partition positional vs. keyword args for callers
     extra_headers: list[tuple[str, str]] | None = None,
     to_capture_rs: bool = False,
 ):
