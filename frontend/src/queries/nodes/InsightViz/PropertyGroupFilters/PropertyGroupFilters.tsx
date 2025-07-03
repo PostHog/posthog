@@ -24,7 +24,6 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    isDataWarehouseSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -34,7 +33,6 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    isDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -48,9 +46,6 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isDataWarehouseSeries
-        ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
-        : undefined
     return (
         <div className="deprecated-space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
@@ -62,7 +57,6 @@ export function PropertyGroupFilters({
                             onClick={addFilterGroup}
                             icon={<IconPlusSmall />}
                             sideIcon={null}
-                            disabledReason={disabledReason}
                             className="PropertyGroupFilters__add-filter-group-inline"
                         >
                             Add filter group
@@ -70,7 +64,6 @@ export function PropertyGroupFilters({
 
                         <div className="flex-1">
                             <InsightTestAccountFilter
-                                disabledReason={disabledReason}
                                 query={query}
                                 setQuery={setQuery as (node: InsightQueryNode) => void}
                             />
@@ -157,7 +150,6 @@ export function PropertyGroupFilters({
                         onClick={addFilterGroup}
                         icon={<IconPlusSmall />}
                         sideIcon={null}
-                        disabledReason={disabledReason}
                         // This class hides this button in some situations to improve layout
                         // We don't want to hide it in Cypress tests because it'll complain the button isn't clickable
                         // so let's simply avoid adding the class in that case
