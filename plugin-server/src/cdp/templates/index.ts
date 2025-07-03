@@ -50,7 +50,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
 
 export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [
     nativeWebhook
-]
+].map(plugin => ({ ...plugin, hog: 'return event;' }))
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 

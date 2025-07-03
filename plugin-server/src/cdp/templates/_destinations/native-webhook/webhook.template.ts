@@ -88,6 +88,5 @@ export const template: NativeTemplate = {
             required: false,
             default: false,
         },
-    ],
-    hog: 'return event;'
+    ]
 }

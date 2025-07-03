@@ -32,7 +32,6 @@ export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
         searchParams?: Record<string, any>
     }) => Response, 
     inputs: Record<string, any>) => Response
-    hog: 'return event;'
 }
 
 const pluginExecutionDuration = new Histogram({
