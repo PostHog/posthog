@@ -87,7 +87,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
                                 className="w-full"
                                 value={localConversionGoalName}
                                 onChange={(value) => setLocalConversionGoalName(value)}
-                                placeholder="e.g., Purchase, Sign Up, Download"
+                                placeholder="e.g., Purchase, sign up, download"
                             />
                             <LemonButton
                                 type="primary"

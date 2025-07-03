@@ -80,20 +80,20 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
             {/* Add New Conversion Goal Form */}
             <div className="border rounded p-4 space-y-4">
-                <h4 className="font-medium">Add New Conversion Goal</h4>
+                <h4 className="font-medium">Add new conversion goal</h4>
 
                 <div className="space-y-3">
                     <div>
-                        <label className="block text-sm font-medium mb-1">Conversion Goal Name</label>
+                        <label className="block text-sm font-medium mb-1">Conversion goal name</label>
                         <LemonInput
                             value={formState.name}
                             onChange={(value) => setFormState((prev) => ({ ...prev, name: value }))}
-                            placeholder="e.g., Purchase, Sign Up, Download"
+                            placeholder="e.g., Purchase, sign up, download"
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1">Select Event or Data Warehouse Table</label>
+                        <label className="block text-sm font-medium mb-1">Select event or data warehouse table</label>
                         <ConversionGoalDropdown
                             value={formState.filter}
                             typeKey="conversion-goal"
@@ -111,7 +111,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
                     <div className="flex gap-2">
                         <LemonButton type="primary" onClick={handleAddConversionGoal} disabled={!isFormValid}>
-                            Add Conversion Goal
+                            Add conversion goal
                         </LemonButton>
 
                         <LemonButton onClick={() => setFormState(createEmptyFormState())}>Clear</LemonButton>
@@ -121,7 +121,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
             {/* Existing Conversion Goals Table */}
             <div>
-                <h4 className="font-medium mb-3">Configured Conversion Goals ({conversion_goals.length})</h4>
+                <h4 className="font-medium mb-3">Configured conversion goals ({conversion_goals.length})</h4>
 
                 <LemonTable
                     rowKey={(item) => item.conversion_goal_id}
@@ -129,7 +129,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                     columns={[
                         {
                             key: 'name',
-                            title: 'Goal Name',
+                            title: 'Goal name',
                             render: (_, goal: ConversionGoalFilter) => {
                                 if (editingGoalId === goal.conversion_goal_id && editingGoal) {
                                     return (
@@ -170,7 +170,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                         },
                         {
                             key: 'schema',
-                            title: 'Schema Mapping',
+                            title: 'Schema mapping',
                             render: (_, goal: ConversionGoalFilter) =>
                                 goal.schema_map ? (
                                     <div className="text-xs text-muted">
