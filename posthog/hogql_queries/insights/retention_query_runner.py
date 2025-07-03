@@ -878,6 +878,8 @@ class RetentionQueryRunner(QueryRunner):
         self, minimum_occurrences: int, start_of_interval_sql: Expr, return_entity_expr: Expr
     ) -> Expr:
         if minimum_occurrences > 1:
+            # return_event_counts_by_interval is only calculated when minimum_occurrences > 1.
+            # See _get_minimum_occurrences_aliases method.
             return parse_expr(
                 """
                 arrayFilter(
