@@ -147,6 +147,7 @@ RESOURCE_SCHEMAS = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "partition_keys": ["date_start"],
+        "is_stats": True,
     },
     MetaAdsResource.Adsets: {
         "resource_name": "adsets",
@@ -212,6 +213,7 @@ RESOURCE_SCHEMAS = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "partition_keys": ["date_start"],
+        "is_stats": True,
     },
     MetaAdsResource.Campaigns: {
         "resource_name": "campaigns",
@@ -273,5 +275,6 @@ RESOURCE_SCHEMAS = {
         "partition_mode": "datetime",
         "partition_format": "month",
         "partition_keys": ["date_start"],
+        "is_stats": True,
     },
 }

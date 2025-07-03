@@ -53,6 +53,7 @@ class MetaAdsSchema:
     partition_keys: list[str]
     partition_mode: PartitionMode
     partition_format: PartitionFormat
+    is_stats: bool
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -68,6 +69,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
         partition_keys = schema_def["partition_keys"]
         partition_mode = schema_def["partition_mode"]
         partition_format = schema_def["partition_format"]
+        is_stats = schema_def.get("is_stats", False)
 
         schema = MetaAdsSchema(
             name=resource_name,
@@ -78,6 +80,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             partition_keys=partition_keys,
             partition_mode=partition_mode,
             partition_format=partition_format,
+            is_stats=is_stats,
         )
 
         schemas[resource_name] = schema
@@ -193,7 +196,7 @@ def meta_ads_source(
                 "since": start_date,
                 "until": end_date,
             }
-        else:
+        elif schema.is_stats:
             time_range = {
                 "since": (dt.date.today() - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)).strftime("%Y-%m-%d"),
                 "until": dt.date.today().strftime("%Y-%m-%d"),
