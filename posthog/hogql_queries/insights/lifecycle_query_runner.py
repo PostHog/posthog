@@ -26,7 +26,7 @@ from posthog.schema import (
     IntervalType,
     StatusItem,
     DayItem,
-    QueryDateRangeResponse,
+    ResolvedDateRangeResponse,
 )
 from posthog.utils import format_label_date
 
@@ -209,7 +209,7 @@ class LifecycleQueryRunner(QueryRunner):
             timings=response.timings,
             hogql=hogql,
             modifiers=self.modifiers,
-            query_date_range=QueryDateRangeResponse(
+            resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
                 interval=self.query_date_range.interval_type,

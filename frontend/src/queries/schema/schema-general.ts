@@ -1084,7 +1084,7 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<s
     /** Wether more breakdown values are available. */
     hasMore?: boolean
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -1237,7 +1237,7 @@ export interface FunnelsQueryResponse
     > {
     isUdf?: boolean
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
@@ -1580,7 +1580,7 @@ export type QueryStatus = {
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -1954,7 +1954,7 @@ export interface RevenueAnalyticsRevenueQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
@@ -1972,7 +1972,7 @@ export interface RevenueAnalyticsOverviewItem {
 export interface RevenueAnalyticsOverviewQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
 
@@ -1984,7 +1984,7 @@ export interface RevenueAnalyticsGrowthRateQuery
 export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     columns?: string[]
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
@@ -1998,7 +1998,7 @@ export interface RevenueAnalyticsTopCustomersQuery
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     columns?: string[]
     /** The date range used for the query */
-    query_date_range?: QueryDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsTopCustomersQueryResponse =
     CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
@@ -2726,7 +2726,7 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export interface QueryDateRangeResponse {
+export interface ResolvedDateRangeResponse {
     /**  @format date-time */
     date_from?: string
     /**  @format date-time */
