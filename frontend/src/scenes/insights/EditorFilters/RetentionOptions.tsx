@@ -20,13 +20,14 @@ export function RetentionOptions(): JSX.Element {
                 <RetentionReferencePicker />
             </div>
             <div className="flex items-center gap-2">
-                <div>When users return at least</div>
-                <MinimumOccurrencesInput />
-                <div>time{minimumOccurrences === 1 ? '' : 's'}</div>
+                <div>When users return</div>
+                <RetentionCumulativeButton />
+                <div>the interval</div>
             </div>
             <div className="flex items-center gap-2">
-                <RetentionCumulativeButton />
-                <div>the period</div>
+                <div>When users return at least</div>
+                <MinimumOccurrencesInput />
+                <div>time{minimumOccurrences === 1 ? '' : 's'} in an interval</div>
             </div>
             <div className="flex items-center gap-2">
                 <div>Mean calculation logic</div>
