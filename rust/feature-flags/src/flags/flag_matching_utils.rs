@@ -23,7 +23,7 @@ use crate::{
     },
     properties::{
         property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter, PropertyType},
+        property_models::{OperatorType, PropertyFilter},
     },
 };
 
@@ -309,9 +309,7 @@ pub fn locally_computable_property_overrides(
 
 /// Checks if any property filters involve cohorts that require database lookup
 fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
-    property_filters
-        .iter()
-        .any(|prop| prop.prop_type == PropertyType::Cohort)
+    property_filters.iter().any(|prop| prop.is_cohort())
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs
@@ -640,7 +638,7 @@ mod tests {
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
