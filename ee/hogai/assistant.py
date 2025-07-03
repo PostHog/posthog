@@ -533,3 +533,32 @@ class Assistant:
         finally:
             self._conversation.status = Conversation.Status.IDLE
             self._conversation.save(update_fields=["status", "updated_at"])
+
+
+class ExperimentsAssistant(Assistant):
+    """Custom Assistant for experiments that enables streaming for ROOT_TOOLS."""
+
+    # Custom streaming nodes that include ROOT_TOOLS for experiments
+    _EXPERIMENTS_STREAMING_NODES = STREAMING_NODES | {AssistantNodeName.ROOT_TOOLS}
+    _EXPERIMENTS_VERBOSE_NODES = _EXPERIMENTS_STREAMING_NODES | {
+        AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    }
+
+    def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
+        langchain_message, langgraph_state = update[1]
+        if isinstance(langchain_message, AIMessageChunk):
+            node_name = langgraph_state["langgraph_node"]
+            # Use experiments-specific streaming nodes
+            if node_name in self._EXPERIMENTS_STREAMING_NODES:
+                self._chunks += langchain_message  # type: ignore
+                if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+                    if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
+                        return None
+                    else:
+                        return AssistantMessage(
+                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
+                        )
+                if self._chunks.content:
+                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
+                    return AssistantMessage(content=cast(str, self._chunks.content))
+        return None

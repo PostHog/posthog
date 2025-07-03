@@ -94,12 +94,12 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["experiment:read"],
     )
     def experiment_results_summary(self, request: Request, *args, **kwargs):
-        from ee.hogai.assistant import Assistant
+        from ee.hogai.assistant import ExperimentsAssistant
 
         serializer = ExperimentResultsSummaryToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant(
+        assistant = ExperimentsAssistant(
             self.team,
             conversation,
             user=cast(User, request.user),

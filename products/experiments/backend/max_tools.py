@@ -54,4 +54,4 @@ Focus on key metrics, statistical significance, and actionable insights for the 
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True)
