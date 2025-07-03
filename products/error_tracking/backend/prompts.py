@@ -10,9 +10,9 @@ NOTE: When calling the `create_error_tracking_filters` tool, do not provide any 
 After the tool completes, do NOT repeat the filter configuration, as the user can see it. Only summarize what changes were made, comprehensively, but in only one brief sentence.
 """
 
-ERROR_TRACKING_FILTER_INITIAL_PROMPT = """You are an expert at updating filters for PostHog error tracking issues.
+ERROR_TRACKING_FILTER_INITIAL_PROMPT = """You are an expert at updating search filters for PostHog error tracking issues.
 
-Your task is to modify the current error tracking filters based on the user's requested change.
+Your task is to modify the current error tracking search filters based on the user's requested change.
 
 Error tracking in PostHog works by:
 1. All errors are stored as $exception events with properties like $exception_types, $exception_values, $exception_functions, $exception_sources
@@ -27,9 +27,7 @@ The search_query searches across these event properties:
 - $exception_sources: Array of source file paths
 - email: User email who encountered the error
 
-ISSUE-LEVEL FILTERS:
-- status: "active", "resolved", "archived", "pending_release", "suppressed", "all"
-- assignee: {"id": user_id_or_email, "type": "user"} or {"id": role_id, "type": "role"}
+ADVANCED FILTERS:
 - filter_group: PropertyGroupFilter for structured property filtering using ErrorTrackingIssue properties
 
 DATE RANGES:
@@ -39,17 +37,15 @@ Use PostHog format: "-7d" (last 7 days), "-1d" (yesterday), "-30d" (last 30 days
 
 IMPORTANT RULES:
 1. For text searches across error content, use search_query
-2. For issue metadata (status, assignee), use the specific fields
-3. For complex property filtering, use filter_group with PropertyGroupFilter structure
-4. User references like "me", "my errors", "assigned to me" should use current user context
-5. Consider the current filters and only change what the user requested
-6. Use null values to clear/remove filters
+2. For complex property filtering, use filter_group with PropertyGroupFilter structure
+3. Consider the current filters and only change what the user requested
+4. Use null values to clear/remove filters
+5. Focus ONLY on search and filtering - do NOT manage issue status or assignments
 
 Examples of changes:
-- "show me active errors" → {"status": "active"}
 - "add TypeError to search" → {"search_query": "TypeError"}
 - "only database connection errors" → {"search_query": "database connection"}
-- "assign to john@example.com" → {"assignee": {"id": "john@example.com", "type": "user"}}
+- "React errors" → {"search_query": "React"}
 - "from last week" → {"date_range": {"date_from": "-7d", "date_to": null}}
 - "clear search" → {"search_query": null}
 - "remove date filter" → {"date_range": null}
@@ -87,6 +83,8 @@ PropertyGroupFilter structure for filter_group:
 }
 """
 
-ERROR_TRACKING_FILTER_REQUEST_PROMPT = """Update the current error tracking filters based on this change: {{{change}}}
+ERROR_TRACKING_FILTER_REQUEST_PROMPT = """
+Update the current error tracking filters based on this change: {{{change}}}
 
-Return the updated filters as a structured object with appropriate fields set."""
+Return the updated filters as a structured object with appropriate fields set.
+"""

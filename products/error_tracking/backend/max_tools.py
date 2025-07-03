@@ -19,10 +19,6 @@ class ErrorTrackingFiltersOutput(BaseModel):
     search_query: Optional[str] = Field(
         default=None, description="Text search across error messages, stack traces, exception types"
     )
-    status: Optional[str] = Field(
-        default=None, description="Issue status: active, resolved, archived, pending_release, suppressed, all"
-    )
-    assignee: Optional[dict[str, Any]] = Field(default=None, description="Assignee with id and type (user/role)")
     date_range: Optional[dict[str, Any]] = Field(default=None, description="Date range with date_from and date_to")
     filter_test_accounts: Optional[bool] = Field(default=None, description="Whether to filter out test accounts")
     filter_group: Optional[dict[str, Any]] = Field(
