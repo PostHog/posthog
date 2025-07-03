@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Any
-from unittest.case import skip
 from unittest.mock import MagicMock, Mock, patch
 from uuid import uuid4
 import gzip
@@ -1032,9 +1031,7 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
 
 
-# Too flaky, commenting out for now
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    @skip("Flaky in CI, skipping for now")
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
@@ -1076,7 +1073,6 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
             assert report.query_api_rows_read == 0
             assert report.event_explorer_api_rows_read == 0
 
-    @skip("Flaky in CI, skipping for now")
     @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
     def test_usage_report_api_queries(self) -> None:
         for _ in range(0, 100):
