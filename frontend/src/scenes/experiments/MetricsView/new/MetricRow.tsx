@@ -90,9 +90,7 @@ export function MetricRow({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${panelHeight}px` }}
                 >
-                    {resultsLoading ? (
-                        <ChartLoadingState height={panelHeight} />
-                    ) : result && hasMinimumExposureForResults ? (
+                    {result && hasMinimumExposureForResults ? (
                         <div className="relative">
                             <Chart
                                 chartSvgRef={chartSvgRef}
@@ -118,6 +116,8 @@ export function MetricRow({
                                 isSecondary={isSecondary}
                             />
                         </div>
+                    ) : resultsLoading ? (
+                        <ChartLoadingState height={panelHeight} />
                     ) : (
                         <ChartEmptyState
                             height={panelHeight}
