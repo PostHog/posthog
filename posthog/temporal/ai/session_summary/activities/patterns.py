@@ -41,6 +41,7 @@ def _get_session_group_single_session_summaries_inputs_from_redis(
     redis_client: Redis,
     redis_input_keys: list[str],
 ) -> list[SingleSessionSummaryLlmInputs]:
+    """Load input used for single-session-summaries generation, stored under given keys."""
     inputs = []
     for redis_input_key in redis_input_keys:
         llm_input = cast(
@@ -57,6 +58,7 @@ def _get_session_group_single_session_summaries_inputs_from_redis(
 
 
 def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -> list[str]:
+    """Return unique session IDs contained in the inputs."""
     return list(
         dict.fromkeys(
             [single_session_input.session_id for single_session_input in inputs.single_session_summaries_inputs]
@@ -67,6 +69,7 @@ def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -
 def _get_session_summaries_str_from_inputs(
     redis_client: Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
+    """Fetch stringified session summaries for all input sessions from Redis."""
     return [
         get_data_str_from_redis(
             redis_client=redis_client,
@@ -83,6 +86,7 @@ def _get_session_summaries_str_from_inputs(
 
 @temporalio.activity.defn
 async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> None:
+    """Extract patterns for a group of sessions and store them in Redis."""
     session_ids = _get_session_ids_from_inputs(inputs)
     redis_client, _, redis_output_key = get_redis_state_client(
         key_base=inputs.redis_key_base,
@@ -129,6 +133,7 @@ async def _generate_patterns_assignments_per_chunk(
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList | Exception:
+    """Assign events to patterns for a single chunk of summaries."""
     try:
         patterns_assignment_prompt = generate_session_group_patterns_assignment_prompt(
             patterns=patterns,
@@ -154,6 +159,7 @@ async def _generate_patterns_assignments(
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
 ) -> list[RawSessionGroupPatternAssignmentsList]:
+    """Run pattern assignments concurrently for multiple chunks."""
     patterns_assignments_list_of_lists = []
     tasks = {}
     async with asyncio.TaskGroup() as tg:

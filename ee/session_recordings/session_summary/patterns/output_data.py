@@ -134,6 +134,7 @@ class RawSessionGroupPatternAssignmentsList(BaseModel):
 
 
 def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> RawSessionGroupSummaryPatternsList:
+    """Parse YAML LLM output and validate extracted patterns."""
     if not raw_content:
         raise SummaryValidationError(
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
@@ -157,6 +158,7 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
 def load_pattern_assignments_from_llm_content(
     raw_content: str, sessions_identifier: str
 ) -> RawSessionGroupPatternAssignmentsList:
+    """Parse YAML output and validate pattern assignments."""
     if not raw_content:
         raise SummaryValidationError(
             f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
@@ -180,6 +182,7 @@ def load_pattern_assignments_from_llm_content(
 def combine_event_ids_mappings_from_single_session_summaries(
     single_session_summaries_inputs: list[SingleSessionSummaryLlmInputs],
 ) -> dict[str, str]:
+    """Merge event ID mappings from all session inputs."""
     combined_event_ids_mapping: dict[str, str] = {}
     for session_input in single_session_summaries_inputs:
         combined_event_ids_mapping.update(session_input.event_ids_mapping)
@@ -189,6 +192,7 @@ def combine_event_ids_mappings_from_single_session_summaries(
 def combine_patterns_assignments_from_single_session_summaries(
     patterns_assignments_list_of_lists: list[RawSessionGroupPatternAssignmentsList],
 ) -> dict[int, list[str]]:
+    """Merge pattern assignments from multiple sessions."""
     combined_patterns_assignments: dict[int, list[str]] = {}
     for assignments_list in patterns_assignments_list_of_lists:
         for pattern_assignment in assignments_list.patterns:
@@ -203,6 +207,7 @@ def combine_patterns_assignments_from_single_session_summaries(
 def _enriched_event_from_session_summary_event(
     pattern_assigned_event: PaternAssignedEvent, event: dict
 ) -> EnrichedPatternAssignedEvent:
+    """Build an enriched event from summary event data."""
     enriched_event = EnrichedPatternAssignedEvent(
         event_id=pattern_assigned_event.event_id,
         event_uuid=pattern_assigned_event.event_uuid,
@@ -225,6 +230,7 @@ def _enriched_event_from_session_summary_event(
 def _get_segment_name_and_outcome_from_session_summary(
     target_segment_index: int, session_summary: SessionSummarySerializer
 ) -> tuple[str, str, bool]:
+    """Return segment name and outcome for a given index."""
     segment_name = segment_outcome = segment_success = None
     for segment_state in session_summary.data["segments"]:
         if str(segment_state["index"]) != str(target_segment_index):
@@ -248,6 +254,7 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
     pattern_assigned_event: PaternAssignedEvent,
     session_summaries: list[SessionSummarySerializer],
 ) -> PatternAssignedEventSegmentContext:
+    """Attach session summary context to a pattern-assigned event."""
     for session_summary in session_summaries:
         key_actions = session_summary.data["key_actions"]
         for segment_key_actions in key_actions:
@@ -305,6 +312,7 @@ def combine_patterns_ids_with_events_context(
     combined_patterns_assignments: dict[int, list[str]],
     session_summaries: list[SessionSummarySerializer],
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
+    """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
@@ -331,6 +339,7 @@ def combine_patterns_ids_with_events_context(
 def _calculate_pattern_stats(
     pattern_events: list[PatternAssignedEventSegmentContext], total_sessions_count: int
 ) -> EnrichedSessionGroupSummaryPatternStats:
+    """Compute aggregate stats for a pattern based on assigned events."""
     # First, let calculate how occurences and sessions affected are calculated
     occurences = len(pattern_events)
     sessions_affected = len({event.target_event.session_id for event in pattern_events})
@@ -357,6 +366,7 @@ def combine_patterns_with_events_context(
     pattern_id_to_event_context_mapping: dict[int, list[PatternAssignedEventSegmentContext]],
     total_sessions_count: int,
 ) -> EnrichedSessionGroupSummaryPatternsList:
+    """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
     for pattern in patterns.patterns:
         pattern_id = pattern.pattern_id
@@ -377,6 +387,7 @@ def combine_patterns_with_events_context(
 
 
 def load_session_summary_from_string(session_summary_str: str) -> SessionSummarySerializer:
+    """Deserialize a stored session summary JSON string."""
     try:
         session_summary = SessionSummarySerializer(data=json.loads(session_summary_str))
         session_summary.is_valid(raise_exception=True)

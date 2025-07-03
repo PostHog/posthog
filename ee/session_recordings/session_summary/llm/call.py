@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_default_posthog_client() -> Client:
+    """Return the default analytics client after validating the environment."""
     if not settings.DEBUG and not is_cloud():
         raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
 
@@ -49,6 +50,7 @@ def get_async_openai_client() -> AsyncOpenAI:
 def _prepare_messages(
     input_prompt: str, session_id: str, assistant_start_text: str | None = None, system_prompt: str | None = None
 ):
+    """Compose message list for the OpenAI chat API."""
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -68,6 +70,7 @@ def _prepare_messages(
 
 
 def _prepare_user_param(user_key: int) -> str:
+    """Format user identifier for LLM calls."""
     instance_region = get_instance_region() or "HOBBY"
     user_param = f"{instance_region}/{user_key}"
     return user_param
