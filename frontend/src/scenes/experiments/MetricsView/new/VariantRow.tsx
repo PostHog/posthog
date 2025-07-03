@@ -11,10 +11,10 @@ import {
 import { InsightType } from '~/types'
 
 interface VariantRowProps {
-    variantResult: ExperimentVariantResult // For chart rendering (current variant)
-    baselineResult: ExperimentStatsBase | null // Baseline data for baseline column
+    variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
     testVariantResult: ExperimentVariantResult | null // Test variant data for variant column (null for baseline-only)
     isFirstRow: boolean
+    isBaseline?: boolean // Whether this row represents the baseline
     metric?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricType?: InsightType
     metricIndex: number
@@ -27,9 +27,9 @@ interface VariantRowProps {
 
 export function VariantRow({
     variantResult,
-    baselineResult,
     testVariantResult,
     isFirstRow,
+    isBaseline = false,
     metric,
     metricType,
     metricIndex,
@@ -68,39 +68,29 @@ export function VariantRow({
                 </td>
             )}
 
-            {/* Variant column - show only variant key */}
+            {/* Variant column - show variant key or "Baseline" */}
             <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
-                {testVariantResult ? (
+                {isBaseline ? (
+                    <div className="text-sm font-semibold text-text-primary">Baseline</div>
+                ) : testVariantResult ? (
                     <div className="text-sm font-semibold text-text-primary">{testVariantResult.key}</div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
                 )}
             </td>
 
-            {/* Baseline column - only render for first row with rowspan */}
-            {isFirstRow && (
-                <td
-                    className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left"
-                    rowSpan={totalVariantRows}
-                >
-                    {baselineResult ? (
-                        <div className="text-sm">
-                            <div className="font-semibold text-text-primary">
-                                {formatVariantData(baselineResult).formattedValue}
-                            </div>
-                            <div className="text-xs text-muted">
-                                {baselineResult.sum} / {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="text-xs text-muted">—</div>
-                    )}
-                </td>
-            )}
-
             {/* Value column - show conversion rate and raw counts */}
             <td className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left">
-                {testVariantResult ? (
+                {isBaseline ? (
+                    <div className="text-sm">
+                        <div className="font-semibold text-text-primary">
+                            {formatVariantData(variantResult as ExperimentStatsBase).formattedValue}
+                        </div>
+                        <div className="text-xs text-muted">
+                            {variantResult.sum} / {humanFriendlyNumber(variantResult.number_of_samples || 0)}
+                        </div>
+                    </div>
+                ) : testVariantResult ? (
                     <div className="text-sm">
                         <div className="font-semibold text-text-primary">
                             {formatVariantData(testVariantResult).formattedValue}
@@ -114,9 +104,11 @@ export function VariantRow({
                 )}
             </td>
 
-            {/* P-value column - show statistical significance */}
+            {/* P-value column - show statistical significance (empty for baseline) */}
             <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
-                {testVariantResult ? (
+                {isBaseline ? (
+                    <div className="text-xs text-muted">—</div>
+                ) : testVariantResult ? (
                     <div className="text-sm font-medium text-text-primary">
                         {isBayesianResult(testVariantResult)
                             ? formatChanceToWin(testVariantResult.chance_to_win)
@@ -131,13 +123,19 @@ export function VariantRow({
                 )}
             </td>
 
-            {/* Chart column - shows chart for current variant */}
-            <ChartCell
-                variantResult={variantResult}
-                chartRadius={chartRadius}
-                metricIndex={metricIndex}
-                isSecondary={isSecondary}
-            />
+            {/* Chart column - shows chart for current variant (empty for baseline) */}
+            {isBaseline ? (
+                <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
+                    <div className="text-xs text-muted">—</div>
+                </td>
+            ) : (
+                <ChartCell
+                    variantResult={variantResult as ExperimentVariantResult}
+                    chartRadius={chartRadius}
+                    metricIndex={metricIndex}
+                    isSecondary={isSecondary}
+                />
+            )}
         </tr>
     )
 }
