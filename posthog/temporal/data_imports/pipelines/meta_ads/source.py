@@ -1,117 +1,22 @@
+from dataclasses import dataclass
 import collections.abc
 import datetime as dt
 import json
 import typing
-from typing import Any
-from enum import StrEnum
 
 import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from posthog.warehouse.types import IncrementalFieldType
 from posthog.temporal.data_imports.pipelines.meta_ads.schemas import RESOURCE_SCHEMAS
 
 
 # Meta Ads API only supports data from the last 3 years
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
-API_VERSION = "v21.0"
-
-
-class MetaAdsResource(StrEnum):
-    Campaign = "campaign"
-    CampaignStats = "campaign_stats"
-    Adset = "adset"
-    AdStats = "ad_stats"
-    Ad = "ad"
-    AdsetStats = "adset_stats"
-    Creative = "creative"
-    Account = "account"
-
-
-RESOURCE_ENDPOINTS = {
-    MetaAdsResource.Campaign: "campaigns",
-    MetaAdsResource.Adset: "adsets",
-    MetaAdsResource.Ad: "ads",
-    MetaAdsResource.Creative: "adcreatives",
-    MetaAdsResource.Account: "",  # Account is accessed directly
-    MetaAdsResource.CampaignStats: "campaigns",
-    MetaAdsResource.AdsetStats: "adsets",
-    MetaAdsResource.AdStats: "ads",
-}
-
-ENDPOINTS = (
-    MetaAdsResource.Campaign,
-    MetaAdsResource.CampaignStats,
-    MetaAdsResource.Adset,
-    MetaAdsResource.AdsetStats,
-    MetaAdsResource.Ad,
-    MetaAdsResource.AdStats,
-)
-
-INCREMENTAL_ENDPOINTS = (
-    MetaAdsResource.Ad,
-    MetaAdsResource.Adset,
-    MetaAdsResource.Campaign,
-    MetaAdsResource.AdStats,
-    MetaAdsResource.AdsetStats,
-    MetaAdsResource.CampaignStats,
-)
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    MetaAdsResource.Ad: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Adset: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.Campaign: [
-        {
-            "label": "updated_time",
-            "type": IncrementalFieldType.Date,
-            "field": "updated_time",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.AdStats: [
-        {
-            "label": "date_start",
-            "type": IncrementalFieldType.Date,
-            "field": "date_start",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.AdsetStats: [
-        {
-            "label": "date_start",
-            "type": IncrementalFieldType.Date,
-            "field": "date_start",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-    MetaAdsResource.CampaignStats: [
-        {
-            "label": "date_start",
-            "type": IncrementalFieldType.Date,
-            "field": "date_start",
-            "field_type": IncrementalFieldType.Date,
-        }
-    ],
-}
+API_VERSION = "v23.0"
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -129,19 +34,8 @@ def _clean_account_id(s: str | None) -> str | None:
 
 @config.config
 class MetaAdsSourceConfig(config.Config):
-    """Meta Ads source config using OAuth2 flow for authentication."""
-
-    resource_name: str
     meta_ads_integration_id: str
     account_id: str = config.value(converter=_clean_account_id)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "MetaAdsSourceConfig":
-        return cls(
-            resource_name=data.get("resource_name", ""),
-            meta_ads_integration_id=data.get("meta_ads_integration_id", ""),
-            account_id=data.get("account_id", ""),
-        )
 
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
@@ -149,11 +43,16 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
 
 
+@dataclass
 class MetaAdsSchema:
-    def __init__(self, name: str, primary_key: list[str], field_names: list[str]):
-        self.name = name
-        self.primary_key = primary_key
-        self.field_names = field_names
+    name: str
+    primary_keys: list[str]
+    field_names: list[str]
+    url: str
+    extra_params: dict
+    partition_keys: list[str]
+    partition_mode: PartitionMode
+    partition_format: PartitionFormat
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -163,39 +62,32 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
 
     for resource_name, schema_def in RESOURCE_SCHEMAS.items():
         field_names = schema_def["field_names"].copy()
-        primary_key = schema_def["primary_key"]
+        primary_keys = schema_def["primary_keys"]
+        url = schema_def["url"]
+        extra_params = schema_def["extra_params"]
+        partition_keys = schema_def["partition_keys"]
+        partition_mode = schema_def["partition_mode"]
+        partition_format = schema_def["partition_format"]
 
         schema = MetaAdsSchema(
             name=resource_name,
-            primary_key=primary_key,
+            primary_keys=primary_keys,
             field_names=field_names,
+            url=url,
+            extra_params=extra_params,
+            partition_keys=partition_keys,
+            partition_mode=partition_mode,
+            partition_format=partition_format,
         )
+
         schemas[resource_name] = schema
 
     return schemas
 
 
-def _serialize_value(value: Any) -> Any:
-    """Serialize complex values to JSON strings."""
-    if isinstance(value, dict | list):
-        return json.dumps(value)
-    return value
-
-
-def _make_api_request(url: str, params: dict, access_token: str) -> dict:
-    """Make a request to the Meta Graph API."""
-    params["access_token"] = access_token
-    response = requests.get(url, params=params)
-
-    if response.status_code != 200:
-        raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
-
-    return response.json()
-
-
 def _make_paginated_api_request(
     url: str, params: dict, access_token: str, time_range: dict | None = None
-) -> collections.abc.Generator[dict, None, None]:
+) -> collections.abc.Generator[list[dict], None, None]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
     1. Standard pagination: Uses Meta's paging.next URLs to fetch all pages of results
@@ -216,10 +108,10 @@ def _make_paginated_api_request(
             if response.status_code != 200:
                 raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
-            data = response.json()
-            yield data
+            response_payload = response.json()
+            yield response_payload.get("data", [])
 
-            paging = data.get("paging", {})
+            paging = response_payload.get("paging", {})
             next_url = paging.get("next")
     else:
         start_date = dt.datetime.strptime(time_range["since"], "%Y-%m-%d")
@@ -253,16 +145,17 @@ def _make_paginated_api_request(
                 if response.status_code != 200:
                     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
-                data = response.json()
-                yield data
+                response_payload = response.json()
+                yield response_payload.get("data", [])
 
-                paging = data.get("paging", {})
+                paging = response_payload.get("paging", {})
                 next_url = paging.get("next")
 
             current_start = current_end + dt.timedelta(days=1)
 
 
 def meta_ads_source(
+    resource_name: str,
     config: MetaAdsSourceConfig,
     team_id: int,
     should_use_incremental_field: bool = False,
@@ -271,13 +164,15 @@ def meta_ads_source(
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     """A data warehouse Meta Ads source."""
-    name = NamingConvention().normalize_identifier(config.resource_name)
-    schema = get_schemas()[config.resource_name]
-    is_stats = config.resource_name.endswith("_stats")
+    name = NamingConvention().normalize_identifier(resource_name)
+    schema = get_schemas()[resource_name]
 
-    def get_rows() -> collections.abc.Iterator[list[dict]]:
+    def get_rows():
         integration = get_integration(config, team_id)
         access_token = integration.access_token
+
+        if access_token is None:
+            raise ValueError("Access token is required for Meta Ads integration")
 
         # Determine date range for incremental sync
         time_range = None
@@ -293,7 +188,7 @@ def meta_ads_source(
 
             start_date = last_value.strftime("%Y-%m-%d")
             # Meta Ads API is day based so only import if the day is complete
-            end_date = (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+            end_date = dt.date.today().strftime("%Y-%m-%d")
             time_range = {
                 "since": start_date,
                 "until": end_date,
@@ -304,127 +199,22 @@ def meta_ads_source(
                 "until": dt.date.today().strftime("%Y-%m-%d"),
             }
 
-        # Get data based on resource type
-        if is_stats:
-            yield from _get_insights_data(config.account_id, schema, time_range, access_token)
-        else:
-            yield from _get_resource_data(config.account_id, schema, config.resource_name, access_token)
+        formatted_url = schema.url.format(API_VERSION=API_VERSION, account_id=config.account_id)
+        params = {
+            "fields": ",".join(schema.field_names),
+            "limit": 100,
+            **schema.extra_params,
+        }
+
+        yield from _make_paginated_api_request(formatted_url, params, access_token, time_range)
 
     return SourceResponse(
         name=name,
         items=get_rows(),
-        primary_keys=schema.primary_key,
+        primary_keys=schema.primary_keys,
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime",
-        partition_format="month",  # the api is daily so bundle into months
-        partition_keys=["date_start"] if is_stats else ["created_time"],
+        partition_mode=schema.partition_mode,
+        partition_format=schema.partition_format,
+        partition_keys=schema.partition_keys,
     )
-
-
-def _get_insights_data(
-    account_id: str,
-    schema: MetaAdsSchema,
-    time_range: dict | None,
-    access_token: str,
-) -> collections.abc.Generator[list[dict], None, None]:
-    """Get insights data from Meta Ads API."""
-
-    params = {
-        "fields": ",".join(schema.field_names),
-        "level": schema.name,
-        "time_increment": 1,
-        "limit": 100,
-    }
-
-    try:
-        url = f"https://graph.facebook.com/{API_VERSION}/{account_id}/insights"
-        rows = []
-
-        for page_data in _make_paginated_api_request(url, params, access_token, time_range):
-            for insight in page_data.get("data", []):
-                row_data = {}
-                for k, v in insight.items():
-                    row_data[k] = _serialize_value(v)
-
-                rows.append(row_data)
-
-                if len(rows) >= DEFAULT_CHUNK_SIZE:
-                    yield rows
-                    rows = []
-
-        if rows:
-            yield rows
-
-    except Exception as e:
-        capture_exception(e)
-        raise
-
-
-def _get_resource_data(
-    account_id: str,
-    schema: MetaAdsSchema,
-    resource_name: str,
-    access_token: str,
-) -> collections.abc.Generator[list[dict], None, None]:
-    """Get regular resource data from Meta Ads API."""
-    field_names = [field for field in schema.field_names if field != "account_id"]
-
-    try:
-        endpoint = RESOURCE_ENDPOINTS.get(MetaAdsResource(resource_name))
-        if endpoint is None:
-            raise ValueError(f"Unknown resource: {resource_name}")
-
-        if resource_name == "account":
-            url = f"https://graph.facebook.com/{API_VERSION}/{account_id}"
-        else:
-            url = f"https://graph.facebook.com/{API_VERSION}/{account_id}/{endpoint}"
-
-        params = (
-            {
-                "fields": ",".join(field_names),
-                "limit": 100,
-            }
-            if field_names
-            else {}
-        )
-        rows = []
-
-        if resource_name == "account":
-            data = _make_api_request(url, params, access_token)
-            resources = [data]
-
-            for resource in resources:
-                row_data = {}
-
-                for field in field_names:
-                    value = resource.get(field)
-                    row_data[field] = _serialize_value(value)
-
-                rows.append(row_data)
-
-            if rows:
-                yield rows
-        else:
-            for page_data in _make_paginated_api_request(url, params, access_token):
-                resources = page_data.get("data", [])
-
-                for resource in resources:
-                    row_data = {}
-
-                    for field in field_names:
-                        value = resource.get(field)
-                        row_data[field] = _serialize_value(value)
-
-                    rows.append(row_data)
-
-                    if len(rows) >= DEFAULT_CHUNK_SIZE:
-                        yield rows
-                        rows = []
-
-            if rows:
-                yield rows
-
-    except Exception as e:
-        capture_exception(e)
-        raise

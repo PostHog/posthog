@@ -1,7 +1,91 @@
+from enum import StrEnum
+from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+
+class MetaAdsResource(StrEnum):
+    Campaigns = "campaigns"
+    CampaignStats = "campaign_stats"
+    Adsets = "adsets"
+    AdStats = "ad_stats"
+    Ads = "ads"
+    AdsetStats = "adset_stats"  # TODO: remove this
+
+
+ENDPOINTS = (
+    MetaAdsResource.Campaigns,
+    MetaAdsResource.CampaignStats,
+    MetaAdsResource.Adsets,
+    MetaAdsResource.AdsetStats,
+    MetaAdsResource.Ads,
+    MetaAdsResource.AdStats,
+)
+
+INCREMENTAL_ENDPOINTS = (
+    MetaAdsResource.Ads,
+    MetaAdsResource.Adsets,
+    MetaAdsResource.Campaigns,
+    MetaAdsResource.AdStats,
+    MetaAdsResource.AdsetStats,
+    MetaAdsResource.CampaignStats,
+)
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    MetaAdsResource.Ads: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.Adsets: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.Campaigns: [
+        {
+            "label": "updated_time",
+            "type": IncrementalFieldType.Date,
+            "field": "updated_time",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.AdStats: [
+        {
+            "label": "date_start",
+            "type": IncrementalFieldType.Date,
+            "field": "date_start",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.AdsetStats: [
+        {
+            "label": "date_start",
+            "type": IncrementalFieldType.Date,
+            "field": "date_start",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+    MetaAdsResource.CampaignStats: [
+        {
+            "label": "date_start",
+            "type": IncrementalFieldType.Date,
+            "field": "date_start",
+            "field_type": IncrementalFieldType.Date,
+        }
+    ],
+}
+
 RESOURCE_SCHEMAS = {
-    "ad": {
+    MetaAdsResource.Ads: {
         "resource_name": "ads",
-        "primary_key": ["id", "account_id"],
+        "primary_keys": ["id", "account_id"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/ads",
+        "extra_params": {},
         "field_names": [
             "id",
             "account_id",
@@ -18,10 +102,18 @@ RESOURCE_SCHEMAS = {
             "tracking_specs",
             "conversion_specs",
         ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["created_time"],
     },
-    "ad_stats": {
+    MetaAdsResource.AdStats: {
         "resource_name": "ads",
-        "primary_key": ["ad_id", "account_id", "date_start"],
+        "primary_keys": ["ad_id", "account_id", "date_start"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
+        "extra_params": {
+            "level": "ad",
+            "time_increment": 1,  # daily
+        },
         "field_names": [
             "ad_id",
             "account_id",
@@ -52,10 +144,15 @@ RESOURCE_SCHEMAS = {
             "video_p95_watched_actions",
             "video_p100_watched_actions",
         ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["date_start"],
     },
-    "adset": {
+    MetaAdsResource.Adsets: {
         "resource_name": "adsets",
-        "primary_key": ["id", "account_id"],
+        "primary_keys": ["id", "account_id"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/adsets",
+        "extra_params": {},
         "field_names": [
             "id",
             "account_id",
@@ -77,10 +174,18 @@ RESOURCE_SCHEMAS = {
             "targeting",
             "promoted_object",
         ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["created_time"],
     },
-    "adset_stats": {
+    MetaAdsResource.AdsetStats: {
         "resource_name": "adsets",
-        "primary_key": ["adset_id", "account_id", "date_start"],
+        "primary_keys": ["adset_id", "account_id", "date_start"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
+        "extra_params": {
+            "level": "adset",
+            "time_increment": 1,  # daily
+        },
         "field_names": [
             "adset_id",
             "account_id",
@@ -104,10 +209,15 @@ RESOURCE_SCHEMAS = {
             "conversion_values",
             "cost_per_action_type",
         ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["date_start"],
     },
-    "campaign": {
+    MetaAdsResource.Campaigns: {
         "resource_name": "campaigns",
-        "primary_key": ["id", "account_id"],
+        "primary_keys": ["id", "account_id"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/campaigns",
+        "extra_params": {},
         "field_names": [
             "id",
             "account_id",
@@ -126,10 +236,18 @@ RESOURCE_SCHEMAS = {
             "stop_time",
             "special_ad_categories",
         ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["created_time"],
     },
-    "campaign_stats": {
+    MetaAdsResource.CampaignStats: {
         "resource_name": "campaigns",
-        "primary_key": ["campaign_id", "account_id", "date_start"],
+        "primary_keys": ["campaign_id", "account_id", "date_start"],
+        "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
+        "extra_params": {
+            "level": "campaign",
+            "time_increment": 1,  # daily
+        },
         "field_names": [
             "campaign_id",
             "account_id",
@@ -152,46 +270,8 @@ RESOURCE_SCHEMAS = {
             "conversion_values",
             "cost_per_action_type",
         ],
-    },
-    "creative": {
-        "resource_name": "adcreatives",
-        "primary_key": ["id", "account_id"],
-        "field_names": [
-            "id",
-            "account_id",
-            "name",
-            "title",
-            "body",
-            "image_url",
-            "thumbnail_url",
-            "link_url",
-            "call_to_action_type",
-            "object_type",
-            "status",
-            "run_status",
-            "created_time",
-            "updated_time",
-        ],
-    },
-    "account": {
-        "resource_name": "adaccounts",
-        "primary_key": ["id"],
-        "field_names": [
-            "id",
-            "account_id",
-            "name",
-            "currency",
-            "timezone_name",
-            "timezone_offset_hours_utc",
-            "business_country_code",
-            "created_time",
-            "account_status",
-            "disable_reason",
-            "age",
-            "amount_spent",
-            "balance",
-            "spend_cap",
-            "funding_source_details",
-        ],
+        "partition_mode": "datetime",
+        "partition_format": "month",
+        "partition_keys": ["date_start"],
     },
 }

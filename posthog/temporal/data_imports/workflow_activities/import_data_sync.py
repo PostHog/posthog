@@ -752,6 +752,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
 
             source = meta_ads_source(
+                resource_name=schema.name,
                 config=meta_ads_config,
                 team_id=inputs.team_id,
                 should_use_incremental_field=schema.should_use_incremental_field,

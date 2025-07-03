@@ -32,7 +32,7 @@ from posthog.temporal.data_imports.pipelines.temporalio.source import (
     INCREMENTAL_ENDPOINTS as TEMPORALIO_INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS as TEMPORALIO_INCREMENTAL_FIELDS,
 )
-from posthog.temporal.data_imports.pipelines.meta_ads.source import (
+from posthog.temporal.data_imports.pipelines.meta_ads.schemas import (
     ENDPOINTS as META_ADS_ENDPOINTS,
     INCREMENTAL_ENDPOINTS as META_ADS_INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS as META_ADS_INCREMENTAL_FIELDS,
