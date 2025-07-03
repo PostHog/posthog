@@ -1,6 +1,5 @@
 import dagster
 
-from django.conf import settings
 from . import resources
 
 from dags.common import job_status_metrics_sensors
@@ -56,8 +55,3 @@ defs = dagster.Definitions(
     ],
     resources=resources,
 )
-
-if settings.DEBUG:
-    from dags import testing
-
-    defs.jobs.append(testing.error)
