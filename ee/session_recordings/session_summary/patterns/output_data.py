@@ -372,7 +372,7 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    combined_patterns.sort(key=lambda p: severity_order.get(p.severity))
+    combined_patterns.sort(key=lambda p: severity_order.get(p.severity.value, 3))
     return EnrichedSessionGroupSummaryPatternsList(patterns=combined_patterns)
 
 
