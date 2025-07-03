@@ -93,7 +93,14 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                 ),
                 self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
             ),
-            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+            where=ast.And(
+                exprs=[
+                    self.timestamp_where_clause(
+                        [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"],
+                    ),
+                    *self.where_property_exprs,
+                ]
+            ),
         )
 
     def calculate(self):

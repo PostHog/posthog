@@ -31,7 +31,15 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
         with self.timings.measure("subquery"):
             subquery = self._get_subquery()
             if subquery is None:
-                return ast.SelectQuery.empty()
+                return ast.SelectQuery.empty(
+                    columns=[
+                        "value",
+                        "day_start",
+                        "period_start",
+                        "is_recurring",
+                        "breakdown_by",
+                    ]
+                )
 
         return ast.SelectQuery(
             select=[

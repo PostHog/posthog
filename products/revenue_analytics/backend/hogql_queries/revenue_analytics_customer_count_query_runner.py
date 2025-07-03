@@ -27,7 +27,18 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         if self.revenue_subqueries.subscription is None:
-            return ast.SelectQuery.empty()
+            return ast.SelectQuery.empty(
+                columns=[
+                    "breakdown_by",
+                    "period_start",
+                    "subscription_count",
+                    "new_subscription_count",
+                    "churned_subscription_count",
+                    "customer_count",
+                    # "new_customer_count",
+                    # "churned_customer_count",
+                ]
+            )
 
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()
