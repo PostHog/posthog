@@ -258,18 +258,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
-        // We must make a deep copy of person since applyEventPropertyUpdates will mutate it
-        const personCopy = {
-            ...person,
-            properties: { ...person.properties }, // Deep copy properties to avoid mutation
-        }
 
         const update: Partial<InternalPerson> = { ...otherUpdates }
-        if (applyEventPropertyUpdates(mainStorePropertyUpdates, personCopy.properties)) {
-            update.properties = personCopy.properties
+        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
+            update.properties = person.properties
         }
 
-        return await this.updatePersonForUpdate(personCopy, update, distinctId, tx)
+        return await this.updatePersonForUpdate(person, update, distinctId, tx)
     }
 
     private async updatePerson(
