@@ -30,28 +30,124 @@ import { CurrencyCode } from '~/queries/schema/schema-general'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { keyFromFilter } from 'lib/components/PathCleanFilters/PathCleanFilters'
 
-const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
+// Helper functions for common change description patterns
+function createBooleanToggleHandler(featureName: string, options: { verb?: [string, string] } = {}) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        const { verb = ['enabled', 'disabled'] } = options
+
+        const [enabledVerb, disabledVerb] = verb
+        const verbText = change.after ? enabledVerb : disabledVerb
+
+        return {
+            description: [
+                <>
+                    {verbText} {featureName}
+                </>,
+            ],
+        }
+    }
+}
+
+function createSessionRecordingConfigHandler(configName: string) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        if (change.before === null && change.after === null) {
+            return null
+        }
+        return {
+            description: [<>Changed session replay {configName}</>],
+        }
+    }
+}
+
+function createApiTokenHandler(tokenType: string, createdVerb: string, changedVerb: string) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        if (change.after === undefined) {
+            return null
+        }
+
+        const prefix = change.action === 'created' ? createdVerb : changedVerb
+        return {
+            description: [
+                <>
+                    {prefix} the {tokenType}
+                </>,
+            ],
+        }
+    }
+}
+
+function createArrayChangeHandler(
+    fieldName: string,
+    options: { useEmphasis?: boolean; map?: (item: any) => string | null | undefined } = {}
+) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        const { useEmphasis = true, map } = options
+
+        if (change.after === undefined) {
+            return null
+        }
+
+        const array = change.after as any[]
+        const displayArray = map ? array.map(map).filter(Boolean) : array
+        const fieldNameElement = useEmphasis ? <em>{fieldName}</em> : fieldName
+
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the {fieldNameElement} to{' '}
+                    <code>[{displayArray.join(', ')}]</code>
+                </>,
+            ],
+        }
+    }
+}
+
+function createSimpleValueHandler(fieldName: string, options: { useEmphasis?: boolean; requireValue?: boolean } = {}) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        const { useEmphasis = false, requireValue = true } = options
+
+        if (requireValue && !change.after) {
+            return null
+        }
+
+        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        return {
+            description: [
+                <>
+                    {change.action === 'created' ? 'set' : 'changed'} the {fieldName} to {valueElement}
+                </>,
+            ],
+        }
+    }
+}
+
+function createFixedVerbValueHandler(
+    verb: string,
+    fieldName: string,
+    options: { useEmphasis?: boolean; checkBothNull?: boolean } = {}
+) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        const { useEmphasis = false, checkBothNull = false } = options
+
+        if (checkBothNull && change.before === null && change.after === null) {
+            return null
+        }
+
+        const valueElement = useEmphasis ? <em>{change.after}</em> : change.after
+        return {
+            description: [
+                <>
+                    {verb} {fieldName} to {valueElement}
+                </>,
+            ],
+        }
+    }
+}
+
+const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
     // API-related tokens
-    api_token: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        const prefix = change.action === 'created' ? 'set' : 'reset'
-        return {
-            description: [<>{prefix} the project API key</>],
-        }
-    },
-    secret_api_token: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        const prefix = change.action === 'created' ? 'generated' : 'rotated'
-        return {
-            description: [<>{prefix} the Feature Flags secure API key</>],
-        }
-    },
+    api_token: createApiTokenHandler('project API key', 'set', 'reset'),
+    secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {
             return null
@@ -63,6 +159,18 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
     },
 
     // Session replay config
+    session_recording_url_trigger_config: createSessionRecordingConfigHandler('URL triggers'),
+    session_recording_url_blocklist_config: createSessionRecordingConfigHandler('URL blocklist'),
+    session_recording_event_trigger_config: createSessionRecordingConfigHandler('event triggers'),
+    session_recording_trigger_match_type_config: createFixedVerbValueHandler(
+        'Changed',
+        'session replay trigger match type',
+        { checkBothNull: true }
+    ),
+    capture_console_log_opt_in: createBooleanToggleHandler('console log capture in session replay'),
+    capture_performance_opt_in: createBooleanToggleHandler('console network performance capture in session replay'),
+    capture_dead_clicks: createBooleanToggleHandler('dead clicks autocapture'),
+    session_recording_opt_in: createBooleanToggleHandler('session recording'),
     session_recording_minimum_duration_milliseconds: (change) => {
         const after = change.after
         if (after === undefined || typeof after !== 'number') {
@@ -79,56 +187,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
                     {prefix} the minimum session recording duration to {after / 1000} seconds
                 </>,
             ],
-        }
-    },
-    session_recording_url_trigger_config: (change) => {
-        if (change.before === null && change.after === null) {
-            return null
-        }
-
-        return {
-            description: [<>Changed session replay URL triggers</>],
-        }
-    },
-    session_recording_url_blocklist_config: (change) => {
-        if (change.before === null && change.after === null) {
-            return null
-        }
-
-        return {
-            description: [<>Changed session replay URL blocklist</>],
-        }
-    },
-    session_recording_event_trigger_config: (change) => {
-        if (change.before === null && change.after === null) {
-            return null
-        }
-
-        return {
-            description: [<>Changed session replay event triggers</>],
-        }
-    },
-    session_recording_trigger_match_type_config: (change) => {
-        if (change.before === null && change.after === null) {
-            return null
-        }
-        return {
-            description: [<>Changed session replay trigger match type to {change.after}</>],
-        }
-    },
-    capture_console_log_opt_in: (change) => {
-        return { description: [<>{change.after ? 'enabled' : 'disabled'} console log capture in session replay</>] }
-    },
-    capture_performance_opt_in: (change) => {
-        return {
-            description: [
-                <>{change.after ? 'enabled' : 'disabled'} console network performance capture in session replay</>,
-            ],
-        }
-    },
-    capture_dead_clicks: (change) => {
-        return {
-            description: [<>{change.after ? 'enabled' : 'disabled'} dead clicks autocapture</>],
         }
     },
     recording_domains: (change) => {
@@ -251,9 +309,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
               }
             : null
     },
-    session_recording_opt_in: (change) => {
-        return { description: [<>{change.after ? 'enabled' : 'disabled'} session recording</>] }
-    },
     session_recording_sample_rate: (change) => {
         return {
             description: [
@@ -277,6 +332,7 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
     },
 
     // Survey config
+    surveys_opt_in: createBooleanToggleHandler('surveys'),
     survey_config: (change) => {
         const before = change.before as TeamSurveyConfigType
         const after = change.after as TeamSurveyConfigType
@@ -321,44 +377,32 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
     },
 
     // Autocapture
-    autocapture_exceptions_errors_to_ignore: (change) => {
-        return {
-            description: [
-                <>
-                    changed the <em>autocapture exceptions errors to ignore</em> to{' '}
-                    <code>[{(change.after as string[]).join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    autocapture_exceptions_opt_in: (change) => {
-        return { description: [<>{change.after ? 'enabled' : 'disabled'} exception autocapture</>] }
-    },
-    autocapture_web_vitals_opt_in: (change) => {
-        return { description: [<>{change.after ? 'enabled' : 'disabled'} web vitals autocapture</>] }
-    },
+    autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
+    autocapture_exceptions_opt_in: createBooleanToggleHandler('exception autocapture'),
+    autocapture_web_vitals_opt_in: createBooleanToggleHandler('web vitals autocapture'),
+    autocapture_opt_out: createBooleanToggleHandler('autocapture', { verb: ['opted out of', 'opted in to'] }),
+    heatmaps_opt_in: createBooleanToggleHandler('heatmaps'),
     autocapture_web_vitals_allowed_metrics: (change) => {
         const after = change.after
         const metricsList = Array.isArray(after) ? after.join(', ') : 'CLS, FCP, INP, and LCP'
         return { description: [<>set allowed web vitals autocapture metrics to {metricsList}</>] }
     },
-    autocapture_opt_out: (change) => {
-        return { description: [<>{change.after ? 'opted out of' : 'opted in to'} autocapture</>] }
-    },
-    heatmaps_opt_in: (change) => {
-        return { description: [<>{change.after ? 'enabled' : 'disabled'} heatmaps</>] }
-    },
 
     // and.... many more random stuff
-    name: (change) => {
-        return {
-            description: [
-                <>
-                    {change?.action === 'created' ? 'set' : 'changed'} the team name to {change?.after}
-                </>,
-            ],
-        }
-    },
+    name: createSimpleValueHandler('team name', { requireValue: false }),
+    test_account_filters_default_checked: createBooleanToggleHandler(
+        '"internal & test account filters" for all insights'
+    ),
+    anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
+    slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
+    timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
+    data_attributes: createArrayChangeHandler('data attributes'),
+    live_events_columns: createArrayChangeHandler('live events columns'),
+    app_urls: createArrayChangeHandler('app URLs'),
+    group_types: createArrayChangeHandler('group types', { map: (group: GroupType) => group.name_plural }),
+    person_display_name_properties: createArrayChangeHandler('person display name properties'),
+    person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
+    human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -392,13 +436,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
             description: [
                 <>Updated the "internal and test" account filters</>,
                 <SentenceList key={0} listParts={listParts} />,
-            ],
-        }
-    },
-    test_account_filters_default_checked: (change) => {
-        return {
-            description: [
-                <>{change.after ? 'enabled' : 'disabled'} "internal & test account filters" for all insights</>,
             ],
         }
     },
@@ -470,15 +507,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
             ],
         }
     },
-    anonymize_ips: (change) => {
-        return {
-            description: [
-                <>
-                    <strong>{change.after ? 'enabled' : 'disabled'}</strong> anonymizing IP addresses
-                </>,
-            ],
-        }
-    },
     completed_snippet_onboarding: (change) => {
         if (!change.after) {
             return null
@@ -486,32 +514,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
 
         return {
             description: [<>completed their onboarding</>],
-        }
-    },
-    slack_incoming_webhook: (change) => {
-        if (!change.after) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    {change.action === 'created' ? 'set' : 'changed'} the Slack incoming webhook to {change.after}
-                </>,
-            ],
-        }
-    },
-    timezone: (change) => {
-        if (!change.after) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    {change.action === 'created' ? 'set' : 'changed'} the timezone to <em>{change.after}</em>
-                </>,
-            ],
         }
     },
     week_start_day: (change) => {
@@ -546,90 +548,11 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
             ],
         }
     },
-    data_attributes: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    changed <em>data attributes</em> to <code>[{(change.after as string[]).join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    live_events_columns: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    changed the <em>live events columns</em> (displayed on the Live Events page) to{' '}
-                    <code>[{(change.after as string[]).join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    app_urls: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    changed the <em>app URLs</em> to <code>[{(change.after as string[]).join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    group_types: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        const groupNames = (change.after as GroupType[]).map((group) => group.name_plural)
-
-        return {
-            description: [
-                <>
-                    {change.action === 'created' ? 'set' : 'changed'} the <em>group types</em> to{' '}
-                    <code>[{groupNames.join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    person_display_name_properties: (change) => {
-        if (change.after === undefined) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    changed the <em>person display name properties</em> to{' '}
-                    <code>[{(change.after as string[]).join(', ')}]</code>
-                </>,
-            ],
-        }
-    },
-    person_on_events_querying_enabled: (change) => {
-        return {
-            description: [
-                <>
-                    <strong>{change.after ? 'enabled' : 'disabled'}</strong> querying person on events
-                </>,
-            ],
-        }
-    },
     flags_persistence_default: (change) => {
         return {
             description: [
                 <>
-                    <strong>{change.after ? 'enabled' : 'disabled'}</strong>{' '}
+                    {change.after ? 'enabled' : 'disabled'}{' '}
                     <Link
                         to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                         target="_blank"
@@ -674,8 +597,7 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
                     {changedTasks.map(([key, value], index) => (
                         <span key={key}>
                             {index > 0 && <>, </>}
-                            <strong>{value === 'completed' ? 'completed' : 'uncompleted'}</strong> onboarding task{' '}
-                            <em>{key}</em>
+                            {value === 'completed' ? 'completed' : 'uncompleted'} onboarding task <em>{key}</em>
                         </span>
                     ))}
                 </>,
@@ -755,20 +677,6 @@ const teamActionsMapping: Record<keyof TeamType, (change: ActivityChange) => Cha
 
         return { description: descriptions }
     },
-    human_friendly_comparison_periods: (change) => {
-        return {
-            description: [
-                <>
-                    <strong>{change.after ? 'enabled' : 'disabled'}</strong> human friendly comparison periods
-                </>,
-            ],
-        }
-    },
-    surveys_opt_in: (change) => {
-        return {
-            description: [<>{change.after ? 'enabled' : 'disabled'} surveys</>],
-        }
-    },
 
     // Complex configs that require a custom describer
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
@@ -816,11 +724,11 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !(change.field in teamActionsMapping)) {
+            if (!change?.field || !(change.field in TEAM_PROPERTIES_MAPPING)) {
                 continue //  not all fields are describable
             }
 
-            const actionHandler = teamActionsMapping[change.field as keyof TeamType]
+            const actionHandler = TEAM_PROPERTIES_MAPPING[change.field as keyof TeamType]
             const processedChange = actionHandler(change)
             if (processedChange === null) {
                 continue // some logs are indescribable
