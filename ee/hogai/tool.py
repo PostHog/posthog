@@ -36,6 +36,14 @@ class create_and_query_insight(BaseModel):
     query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
+class search_insights(BaseModel):
+    """
+    This tool will return an insight if the insight query has found a match
+    """
+
+    search_query: str = Field(description="Describe insights that the you are looking for")
+
+
 class search_documentation(BaseModel):
     """
     Search PostHog documentation to answer questions about features, concepts, and usage.

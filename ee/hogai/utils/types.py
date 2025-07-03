@@ -126,6 +126,10 @@ class _SharedAssistantState(BaseModel):
     """
     The context for taxonomy agent.
     """
+    root_to_search_insights: Optional[str] = Field(default=None)
+    """
+    The insight to search for.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -192,6 +196,7 @@ class AssistantNodeName(StrEnum):
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
+    INSIGHTS_SEARCH = "insights_search"
 
 
 class AssistantMode(StrEnum):

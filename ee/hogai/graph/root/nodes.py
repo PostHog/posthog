@@ -62,7 +62,7 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -353,9 +353,14 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, search_documentation, _get_contextual_tool_class
+        from ee.hogai.tool import (
+            create_and_query_insight,
+            search_documentation,
+            _get_contextual_tool_class,
+            search_insights,
+        )
 
-        available_tools: list[type[BaseModel]] = []
+        available_tools: list[type[BaseModel]] = [search_insights]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -510,6 +515,12 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "search_insights":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                root_to_search_insights=tool_call.args["search_query"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := _get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(state)
             result = tool_class.invoke(tool_call.model_dump(), config)
@@ -555,6 +566,8 @@ class RootNodeTools(AssistantNode):
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
+            elif state.root_to_search_insights:
+                return "insights_search"
             else:
                 return "search_documentation"
         return "end"
