@@ -616,31 +616,45 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                 continue
 
             try:
-                futures.append(
-                    capture_internal(
-                        event,
-                        distinct_id,
-                        ip,
-                        site_url,
-                        now,
-                        sent_at,
-                        event_uuid,
-                        token,
-                        historical=historical,
-                    )
+                resp = capture_internal(
+                    event,
+                    distinct_id,
+                    ip,
+                    site_url,
+                    now,
+                    sent_at,
+                    event_uuid,
+                    token,
+                    historical,
                 )
+                # if this is a *legacy capture_internal response* then it's
+                # a future - collect it. new_capture_internal sends synchronous
+                # POST requests to capture-rs so no need to collect and check later
+                if isinstance(resp, FutureRecordMetadata):
+                    futures.append(resp)
+
             except Exception as exc:
                 capture_exception(exc, {"data": data})
-                statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
-                logger.exception("kafka_produce_failure", exc_info=exc)
+
+                if isinstance(resp, Response):
+                    logger.exception("capture_rs_post_failure", exc_info=exc)
+                    exc_status_code = resp.status_code
+                    endpoint_tag = "capture-rs"
+                else:
+                    logger.exception("kafka_produce_failure", exc_info=exc)
+                    exc_status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                    endpoint_tag = "capture"
+
+                statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": endpoint_tag})
+
                 return cors_response(
                     request,
                     generate_exception_response(
                         "capture",
                         "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
-                        code="server_error",
-                        type="server_error",
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        code="capture_error",
+                        type="capture_error",
+                        status_code=exc_status_code,
                     ),
                 )
 
@@ -712,8 +726,25 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                             "to_capture_rs": False,
                         }
 
-                        this_future = capture_internal(*capture_args, **capture_kwargs)
-                        replay_futures.append((this_future, capture_args, capture_kwargs))
+                        resp = capture_internal(*capture_args, **capture_kwargs)
+                        if isinstance(resp, Response):
+                            if resp.status_code > 399:
+                                capture_exception(
+                                    CaptureInternalError(f"response status: {resp.status_code}"),
+                                    {"capture-pathway": "rs-replay", "ph-team-token": token},
+                                )
+                                return cors_response(
+                                    request,
+                                    generate_exception_response(
+                                        "capture",
+                                        "Unable to store event",
+                                        code="capture_error",
+                                        type="capture_error",
+                                        status_code=resp.status_code,
+                                    ),
+                                )
+                        else:
+                            replay_futures.append((resp, capture_args, capture_kwargs))
 
                     start_time = time.monotonic()
                     for future, args, kwargs in replay_futures:
@@ -729,7 +760,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                                     warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
-    except ValueError as e:
+    except (ValueError, CaptureInternalError) as e:
         capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
