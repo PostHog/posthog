@@ -13,6 +13,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
@@ -40,7 +41,7 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-from langgraph.errors import NodeInterrupt
+
 from ..base import AssistantNode
 from .prompts import (
     ROOT_DASHBOARD_CONTEXT_PROMPT,
@@ -353,7 +354,7 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, search_documentation, get_contextual_tool_class
+        from ee.hogai.tool import create_and_query_insight, get_contextual_tool_class, search_documentation
 
         available_tools: list[type[BaseModel]] = []
         if settings.INKEEP_API_KEY:

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -762,7 +762,7 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
-    def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
+    async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
         """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
         node = RootNodeTools(self.team, self.user)
 
@@ -780,14 +780,14 @@ class TestRootNodeTools(BaseTest):
 
         with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
             # Mock the search_session_recordings tool
-            mock_search_session_recordings = MagicMock()
-            mock_search_session_recordings.invoke.return_value = LangchainToolMessage(
+            mock_search_session_recordings = AsyncMock()
+            mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
             mock_tools.return_value = lambda _: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
-            result = node.run(
+            result = await node.arun(
                 state,
                 {
                     "configurable": {
