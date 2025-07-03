@@ -1,7 +1,7 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall, IconX } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { moveToLogic } from 'lib/components/MoveTo/moveToLogic'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -29,7 +29,6 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
@@ -114,12 +113,9 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
-    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, showLayoutNavBar } =
-        useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned, isLayoutPanelVisible, isLayoutNavbarVisible } =
-        useValues(panelLayoutLogic)
+    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { mainContentRef } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -146,14 +142,6 @@ export function ProjectTree({
         }
     }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
-    function handleNodeClick(): void {
-        if (isMobileLayout && (isLayoutNavbarVisible || isLayoutPanelVisible)) {
-            showLayoutPanel(false)
-            showLayoutNavBar(false)
-            clearActivePanelIdentifier()
-        }
-    }
-
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         // Determine the separator component based on MenuItem type
@@ -174,17 +162,35 @@ export function ProjectTree({
         const productMenu =
             showProductMenuItems && item.name === 'Product analytics' ? (
                 <>
-                    <ProductAnalyticsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <ProductAnalyticsMenuItems
+                        MenuItem={MenuItem}
+                        MenuSeparator={MenuSeparator}
+                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
+                    />
                     <MenuSeparator />
                 </>
             ) : showProductMenuItems && item.name === 'Session replay' ? (
                 <>
-                    <SessionReplayMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <SessionReplayMenuItems
+                        MenuItem={MenuItem}
+                        MenuSub={MenuSub}
+                        MenuSubTrigger={MenuSubTrigger}
+                        MenuSubContent={MenuSubContent}
+                        MenuSeparator={MenuSeparator}
+                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
+                    />
                     <MenuSeparator />
                 </>
             ) : showProductMenuItems && item.name === 'Dashboards' ? (
                 <>
-                    <DashboardsMenuItems MenuItem={MenuItem} MenuSeparator={MenuSeparator} />
+                    <DashboardsMenuItems
+                        MenuItem={MenuItem}
+                        MenuSub={MenuSub}
+                        MenuSubTrigger={MenuSubTrigger}
+                        MenuSubContent={MenuSubContent}
+                        MenuSeparator={MenuSeparator}
+                        onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
+                    />
                     <MenuSeparator />
                 </>
             ) : null
@@ -390,11 +396,6 @@ export function ProjectTree({
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
                     )
-                    handleNodeClick()
-                }
-                if (!isLayoutPanelPinned || projectTreeMode === 'table') {
-                    clearActivePanelIdentifier()
-                    showLayoutPanel(false)
                 }
 
                 if (item?.record?.path) {
@@ -406,6 +407,9 @@ export function ProjectTree({
                         loadFolder(path)
                     }
                 }
+
+                // False, because we handle focus of content in LemonTree with mainContentRef prop
+                resetPanelLayout(false)
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -577,7 +581,8 @@ export function ProjectTree({
                             const width = header.width || 0
                             const offset = header.offset || 0
                             const value = header.key.split('.').reduce((obj, key) => obj?.[key], item)
-
+                            const isFolder =
+                                (item.children && item.children.length > 0) || item.record?.type === 'folder'
                             // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
                             const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
                             const offsetAdjusted = index === 0 ? offset : offset - 12
@@ -604,7 +609,15 @@ export function ProjectTree({
                                         }
                                         placement="top-start"
                                     >
-                                        <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
+                                        <span
+                                            className={cn(
+                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                {
+                                                    'font-semibold':
+                                                        index === 0 && isFolder && item.type !== 'empty-folder',
+                                                }
+                                            )}
+                                        >
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
@@ -733,70 +746,69 @@ export function ProjectTree({
                                 tooltip="New root folder"
                                 iconOnly
                                 data-attr="tree-panel-new-root-folder-button"
+                                size="sm"
                             >
-                                <IconFolderPlus className="text-tertiary" />
+                                <IconFolderPlus className="text-tertiary size-3" />
                             </ButtonPrimitive>
                         ) : null}
 
-                        {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                        <ButtonPrimitive
+                            onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
+                            tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
+                            iconOnly
+                            data-attr="tree-panel-enable-multi-select-button"
+                            size="sm"
+                            active={selectMode === 'multi'}
+                            aria-pressed={selectMode === 'multi'}
+                        >
+                            <IconCheckbox
+                                className={cn('size-3', {
+                                    'text-tertiary': selectMode === 'default',
+                                    'text-primary': selectMode === 'multi',
+                                })}
+                            />
+                        </ButtonPrimitive>
+
+                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' && (
                             <ButtonPrimitive
-                                onClick={() => setSelectMode('multi')}
-                                tooltip="Enable multi-select"
-                                iconOnly
-                                data-attr="tree-panel-enable-multi-select-button"
+                                onClick={() => {
+                                    setCheckedItems({})
+                                    setSelectMode('default')
+                                }}
+                                tooltip="Clear selected and disable multi-select"
+                                data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
+                                size="sm"
                             >
-                                <IconCheckbox className="text-tertiary size-4" />
+                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                             </ButtonPrimitive>
-                        ) : (
-                            <>
-                                {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                                    <ButtonPrimitive
-                                        onClick={() => {
-                                            setCheckedItems({})
-                                            setSelectMode('default')
-                                        }}
-                                        tooltip="Clear selected and disable multi-select"
-                                        data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
-                                    >
-                                        <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                                    </ButtonPrimitive>
-                                ) : (
-                                    <ButtonPrimitive
-                                        onClick={() => setSelectMode('default')}
-                                        tooltip="Disable multi-select"
-                                        iconOnly
-                                        data-attr="tree-panel-disable-multi-select-button"
-                                    >
-                                        <IconX className="text-tertiary size-4" />
-                                    </ButtonPrimitive>
-                                )}
-                            </>
                         )}
                     </>
                 ) : null
             }
         >
-            <ButtonPrimitive
-                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
-                data-attr="tree-panel-switch-view-button"
-            >
-                <IconChevronRight
-                    className={cn('size-4', {
-                        'rotate-180': projectTreeMode === 'table',
-                        'rotate-0': projectTreeMode === 'tree',
-                    })}
-                />
-            </ButtonPrimitive>
-
-            {showRecents ? (
+            {root === 'project://' && (
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    data-attr="tree-panel-switch-view-button"
+                    iconOnly
+                >
+                    <IconChevronRight
+                        className={cn('size-3', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            )}
+            {showRecents && (
                 <>
                     <div role="status" aria-live="polite" className="sr-only">
                         Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
                     </div>
                 </>
-            ) : null}
+            )}
 
             {tree}
         </PanelLayoutPanel>

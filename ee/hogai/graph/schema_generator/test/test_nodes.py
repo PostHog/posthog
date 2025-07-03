@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from langchain_core.agents import AgentAction
@@ -42,7 +42,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.schema = AssistantTrendsQuery(series=[])
 
     def test_node_runs(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump())
             new_state = node.run(
@@ -60,7 +60,7 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(new_state.messages[0].answer, self.schema)
 
     def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0")
         )
@@ -72,7 +72,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[1].content)
 
     def test_agent_reconstructs_conversation_adds_plan(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
@@ -94,7 +94,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Text", history[2].content)
 
     def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[
@@ -130,7 +130,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Follow Up", history[5].content)
 
     def test_agent_reconstructs_typical_conversation(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[
@@ -173,7 +173,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Query 3", history[8].content)
 
     def test_prompt_messages_merged(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Question 1", id="0"),
@@ -202,7 +202,7 @@ class TestSchemaGeneratorNode(BaseTest):
             node.run(state, {})
 
     def test_failover_with_incorrect_schema(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = DummySchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
@@ -222,7 +222,7 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(len(new_state.intermediate_steps), 2)
 
     def test_node_leaves_failover(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         with patch.object(
             DummyGeneratorNode,
             "_model",
@@ -250,7 +250,7 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(new_state.intermediate_steps, [])
 
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = DummySchema(query=None).model_dump()
             # Emulate an incorrect JSON. It should be an object.
@@ -274,7 +274,7 @@ class TestSchemaGeneratorNode(BaseTest):
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
@@ -300,7 +300,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("uniqexception", history[3].content)
 
     def test_agent_reconstructs_conversation_with_failed_messages(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[
@@ -324,7 +324,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Text", history[2].content)
 
     def test_router(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         state = node.router(AssistantState(messages=[], intermediate_steps=None))
         self.assertEqual(state, "next")
         state = node.router(
@@ -333,7 +333,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(state, "tools")
 
     def test_injects_insight_description(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
@@ -350,7 +350,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[1].content)
 
     def test_injects_insight_description_and_keeps_original_question(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         history = node._construct_messages(
             AssistantState(
                 messages=[
@@ -380,7 +380,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[4].content)
 
     def test_keeps_maximum_number_of_viz_messages(self):
-        node = DummyGeneratorNode(self.team)
+        node = DummyGeneratorNode(self.team, self.user)
         query = AssistantTrendsQuery(series=[])
         history = node._construct_messages(
             AssistantState(
@@ -443,9 +443,23 @@ class TestSchemaGeneratorNode(BaseTest):
 
 class TestSchemaGeneratorToolsNode(BaseTest):
     def test_tools_node(self):
-        node = SchemaGeneratorToolsNode(self.team)
+        node = SchemaGeneratorToolsNode(self.team, self.user)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = node.run(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         self.assertIsNotNone("validationerror", state.intermediate_steps[0][1])
         self.assertIn("validationerror", state.intermediate_steps[0][1])
         self.assertIn("pydanticexception", state.intermediate_steps[0][1])
+
+    def test_model_has_correct_max_retries(self):
+        with patch("ee.hogai.graph.schema_generator.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.with_structured_output.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = DummyGeneratorNode(self.team, self.user)
+
+            _ = node._model
+
+            mock_chat_openai.assert_called_once()
+            call_args = mock_chat_openai.call_args
+            self.assertEqual(call_args.kwargs["max_retries"], 3)

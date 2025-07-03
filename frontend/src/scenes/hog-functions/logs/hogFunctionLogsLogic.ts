@@ -274,7 +274,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
 
                             actions.addLogGroups([newLogGroup])
                             actions.retryInvocationSuccess(groupedLogEntry)
-                        } catch (e) {
+                        } catch {
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
                     })

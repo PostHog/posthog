@@ -16,7 +16,7 @@ from posthog.test.base import BaseTest
 
 class TestFunnelPlannerNode(BaseTest):
     def test_funnels_planner_prompt_has_tools(self):
-        node = FunnelPlannerNode(self.team)
+        node = FunnelPlannerNode(self.team, self.user)
         with patch.object(FunnelPlannerNode, "_model") as model_mock:
 
             def assert_prompt(prompt):
@@ -33,7 +33,7 @@ class TestFunnelsGeneratorNode(BaseTest):
         self.schema = AssistantFunnelsQuery(series=[])
 
     def test_node_runs(self):
-        node = FunnelGeneratorNode(self.team)
+        node = FunnelGeneratorNode(self.team, self.user)
         with patch.object(FunnelGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()

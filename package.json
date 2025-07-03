@@ -29,7 +29,7 @@
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "mypy-baseline-sync": "TEST=1 mypy -p posthog | mypy-baseline sync",
         "mypy-check": "TEST=1 mypy -p posthog | mypy-baseline filter",
-        "format:backend": "./bin/ruff.sh .",
+        "format:backend": "./bin/ruff.sh format .",
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
@@ -40,25 +40,14 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2"
+        "turbo": "^2.4.2",
+        "uuid": "^10.0.0"
     },
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-compat": "^4.2.0",
-        "eslint-plugin-cypress": "^2.15.1",
-        "eslint-plugin-eslint-comments": "^3.2.0",
-        "eslint-plugin-import": "^2.29.0",
-        "eslint-plugin-jest": "^28.6.0",
-        "eslint-plugin-posthog": "workspace:*",
-        "eslint-plugin-react": "^7.33.2",
-        "eslint-plugin-react-google-translate": "^0.0.114",
-        "eslint-plugin-react-hooks": "^4.6.2",
-        "eslint-plugin-simple-import-sort": "^10.0.0",
-        "eslint-plugin-storybook": "^0.6.15",
-        "eslint-plugin-unused-imports": "^3.1.0",
+        "@types/uuid": "^10.0.0",
+        "oxlint": "^1.1.0",
         "prettier": "^2.8.8",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.3.0",
@@ -73,7 +62,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.22.0"
+            "@posthog/icons": "0.24.0"
         },
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
@@ -87,36 +76,8 @@
             "stylelint --fix",
             "prettier --write"
         ],
-        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "products/*/manifest.tsx": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "common/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "frontend/*.mjs": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
+        "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
+            "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [

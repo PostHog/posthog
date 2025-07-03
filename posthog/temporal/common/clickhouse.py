@@ -4,19 +4,24 @@ import contextlib
 import datetime as dt
 import enum
 import json
+import re
 import ssl
 import typing
 import uuid
 import decimal
 import ipaddress
 from urllib.parse import urljoin
+from pympler import asizeof
 
 import aiohttp
 import pyarrow as pa
 import requests
 import structlog
 from django.conf import settings
+from temporalio import activity
 
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, TemporalTags
 from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_internal_logger
@@ -236,6 +241,36 @@ class ClickHouseQueryNotFound(ClickHouseError):
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
+def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
+    """
+    Updates query_tags with a temporal workflow's properties.
+
+    :param query_tags: QueryTags object to update, if None, then the global object is updated.
+    :return:
+    """
+    if not activity.in_activity():
+        return
+    if not query_tags:
+        query_tags = get_query_tags()
+    info = activity.info()
+    temporal_tags = TemporalTags(
+        workflow_namespace=info.workflow_namespace,
+        workflow_type=info.workflow_type,
+        workflow_id=info.workflow_id,
+        workflow_run_id=info.workflow_run_id,
+        activity_type=info.activity_type,
+        activity_id=info.activity_id,
+        attempt=info.attempt,
+    )
+    query_tags.with_temporal(temporal_tags)
+
+
+def add_log_comment_param(params: dict[str, typing.Any]):
+    query_tags = query_tagging.get_query_tags().model_copy()
+    update_query_tags_with_temporal_info(query_tags)
+    params["log_comment"] = query_tags.to_json()
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -319,9 +354,13 @@ class ClickHouseClient:
         if not query_parameters:
             return query
 
+        has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
+
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         query = query % format_parameters
-        query = query.format(**format_parameters)
+
+        if has_format_placeholders:
+            query = query.format(**format_parameters)
 
         return query
 
@@ -405,6 +444,8 @@ class ClickHouseClient:
                 if key in query:
                     params[f"param_{key}"] = str(value)
 
+        add_log_comment_param(params)
+
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
@@ -444,6 +485,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         request_data = self.prepare_request_data(data)
 
@@ -501,6 +543,7 @@ class ClickHouseClient:
             for key, value in query_parameters.items():
                 if key in query:
                     params[f"param_{key}"] = str(value)
+        add_log_comment_param(params)
 
         with requests.Session() as s:
             response = s.post(
@@ -548,11 +591,11 @@ class ClickHouseClient:
                 failed.
         """
         query = """
-        SELECT type, exception
-        FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
-        WHERE query_id = {{query_id:String}}
-        FORMAT JSONEachRow
-        """
+                SELECT type, exception
+                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+                WHERE query_id = {{query_id:String}}
+                    FORMAT JSONEachRow \
+                """
 
         resp = await self.read_query(
             query,
@@ -675,7 +718,8 @@ class ClickHouseClient:
         *data,
         query_parameters: dict[str, typing.Any] | None = None,
         query_id: str | None = None,
-        batch_size: int = 5000,
+        batch_size: typing.Optional[int] = None,
+        batch_size_mb: typing.Optional[int] = None,
         line_separator: bytes = b"\n",
     ) -> typing.AsyncGenerator[tuple[list[dict[str, typing.Any]], pa.Schema], None]:
         """Stream typed rows from a ClickHouse query using FORMAT TabSeparatedWithNamesAndTypes.
@@ -686,16 +730,22 @@ class ClickHouseClient:
             query: The SQL query to execute. Must end with FORMAT TabSeparatedWithNamesAndTypes.
             query_parameters: Optional query parameters to interpolate.
             query_id: Optional ClickHouse query ID.
-            batch_size: The number of rows per batch to yield.
+            batch_size: The number of rows per batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
+            batch_size_mb: The max size of the batch to yield. Either `batch_size` or `batch_size_mb` must be set. If both are set then `batch_size` wins.
             line_separator: The line separator used in the response (default: newline).
 
         Yields:
             Batches of parsed rows, each row as a dict[str, Any].
         """
+        if batch_size is None and batch_size_mb is None:
+            raise Exception("astream_query_in_batches: both batch_size and batch_size_mb is None")
+
         buffer = b""
         headers: list[str] | None = None
         types: list[str] | None = None
         rows: list[dict[str, typing.Any]] = []
+        bytes_in_batch = 0
+        batch_size_bytes = batch_size_mb * 1000 * 1000 if batch_size_mb else None
         line_index = 0
 
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
@@ -723,11 +773,21 @@ class ClickHouseClient:
                             key: parse_clickhouse_value(value, ch_type)
                             for key, value, ch_type in zip(headers, raw_values, types)
                         }
+                        if batch_size_bytes:
+                            row_size = asizeof.asizeof(parsed)
+                            bytes_in_batch += row_size
+
                         rows.append(parsed)
 
-                        if len(rows) >= batch_size:
-                            yield (rows, pa_schema)
-                            rows = []
+                        if batch_size:
+                            if len(rows) >= batch_size:
+                                yield (rows, pa_schema)
+                                rows = []
+                        elif batch_size_bytes:
+                            if bytes_in_batch >= batch_size_bytes:
+                                yield (rows, pa_schema)
+                                rows = []
+                                bytes_in_batch = 0
 
                     line_index += 1
 

@@ -201,17 +201,18 @@ impl JobModel {
         &mut self,
         context: Arc<AppContext>,
         reason: String,
-        display_reason: String,
+        display_reason: Option<String>,
     ) -> Result<(), Error> {
         self.status = JobStatus::Paused;
         self.status_message = Some(reason);
-        self.display_status_message = Some(display_reason);
+        self.display_status_message = display_reason;
         self.flush(&context.db, true).await
     }
 
     pub async fn unpause(&mut self, context: Arc<AppContext>) -> Result<(), Error> {
         self.status = JobStatus::Running;
         self.status_message = None;
+        self.display_status_message = None;
         self.flush(&context.db, true).await
     }
 
@@ -229,6 +230,7 @@ impl JobModel {
 
     pub async fn complete(&mut self, pool: &PgPool) -> Result<(), Error> {
         self.status = JobStatus::Completed;
+        self.display_status_message = None;
         self.flush(pool, false).await
     }
 }

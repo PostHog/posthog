@@ -1,5 +1,5 @@
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -25,7 +25,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 lambda _: LangchainAIMessage(content="Here's what I found in the documentation...")
             ),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="How do I use feature flags?")],
                 root_tool_call_id=test_tool_call_id,
@@ -53,7 +53,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content=response_with_continuation)),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Show me user stats")],
                 root_tool_call_id=test_tool_call_id,
@@ -66,7 +66,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(second_message.content, response_with_continuation)
 
     def test_node_constructs_messages(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message"),
@@ -85,7 +85,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[3], LangchainHumanMessage)
 
     def test_router_with_data_continuation(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Explain PostHog trends, and show me an example trends insight"),
@@ -95,7 +95,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(node.router(state), "root")  # Going back to root, so that the agent can continue with the task
 
     def test_router_without_data_continuation(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="How do I use feature flags?"),
@@ -106,7 +106,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_filters_empty_messages(self):
         """Test that messages with empty content are filtered out during message construction."""
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content=""),  # Empty message that should be filtered
@@ -130,7 +130,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id=test_tool_call_id,
@@ -151,7 +151,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id="test-id",
@@ -165,3 +165,16 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(first_message.id)
             self.assertIsNotNone(second_message.id)
             self.assertNotEqual(first_message.id, second_message.id)
+
+    def test_model_has_correct_max_retries(self) -> None:
+        with patch("ee.hogai.graph.inkeep_docs.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_chat_openai.return_value = mock_model
+
+            node = InkeepDocsNode(self.team, self.user)
+
+            node._get_model()
+
+            mock_chat_openai.assert_called_once()
+            call_args = mock_chat_openai.call_args
+            self.assertEqual(call_args.kwargs["max_retries"], 3)

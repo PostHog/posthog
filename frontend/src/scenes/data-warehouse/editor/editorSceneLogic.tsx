@@ -1,5 +1,5 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
@@ -107,6 +107,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
+        setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
+        setPreviousUrl: (previousUrl: string) => ({ previousUrl }),
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -114,6 +116,18 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             {
                 setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
                 selectSchema: (_, { schema }) => schema !== null,
+            },
+        ],
+        wasPanelActive: [
+            false,
+            {
+                setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
+            },
+        ],
+        previousUrl: [
+            '',
+            {
+                setPreviousUrl: (_, { previousUrl }) => previousUrl,
             },
         ],
     }),
@@ -239,89 +253,96 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-views',
                     noun: ['view', 'views'],
                     loading: initialDataWarehouseSavedQueryLoading,
-                    items: [
-                        ...relevantViews.map(([view, matches]) => {
-                            const isSavedQuery = checkIsSavedQuery(view)
-                            const isManagedView = checkIsManagedView(view)
+                    items: relevantViews.map(([view, matches]) => {
+                        const isSavedQuery = checkIsSavedQuery(view)
+                        const isManagedView = checkIsManagedView(view)
 
-                            const onClick = (): void => {
-                                isManagedView
-                                    ? multitabEditorLogic({
-                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                      }).actions.createTab(`SELECT * FROM ${view.name}`)
-                                    : isSavedQuery
-                                    ? multitabEditorLogic({
-                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                      }).actions.editView(view.query.query, view)
-                                    : null
-                            }
+                        const onClick = (): void => {
+                            isManagedView
+                                ? multitabEditorLogic({
+                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                  }).actions.createTab(`SELECT * FROM ${view.name}`)
+                                : isSavedQuery
+                                ? multitabEditorLogic({
+                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                  }).actions.editView(view.query.query, view)
+                                : null
+                        }
 
-                            const savedViewMenuItems = isSavedQuery
-                                ? [
-                                      {
-                                          label: 'Edit view definition',
-                                          onClick: () => {
-                                              multitabEditorLogic({
-                                                  key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                              }).actions.editView(view.query.query, view)
-                                          },
+                        const savedViewMenuItems = isSavedQuery
+                            ? [
+                                  {
+                                      label: 'Edit view definition',
+                                      onClick: () => {
+                                          multitabEditorLogic({
+                                              key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                          }).actions.editView(view.query.query, view)
                                       },
-                                      {
-                                          label: 'Add join',
-                                          onClick: () => {
-                                              actions.selectSourceTable(view.name)
-                                              actions.toggleJoinTableModal()
-                                          },
+                                  },
+                                  {
+                                      label: 'Add join',
+                                      onClick: () => {
+                                          actions.selectSourceTable(view.name)
+                                          actions.toggleJoinTableModal()
                                       },
-                                      {
-                                          label: 'Delete',
-                                          status: 'danger',
-                                          onClick: () => {
-                                              actions.deleteDataWarehouseSavedQuery(view.id)
-                                          },
+                                  },
+                                  {
+                                      label: 'Delete',
+                                      status: 'danger',
+                                      onClick: () => {
+                                          LemonDialog.open({
+                                              title: 'Delete view',
+                                              description:
+                                                  'Are you sure you want to delete this view? The query will be lost.',
+                                              primaryButton: {
+                                                  status: 'danger',
+                                                  children: 'Delete',
+                                                  onClick: () => actions.deleteDataWarehouseSavedQuery(view.id),
+                                              },
+                                          })
                                       },
-                                  ]
-                                : []
+                                  },
+                              ]
+                            : []
 
-                            return {
-                                key: view.id,
-                                name: view.name,
-                                url: '',
-                                icon:
-                                    isSavedQuery && view.last_run_at ? (
-                                        <Tooltip title="Materialized view">
-                                            <IconDatabase />
-                                        </Tooltip>
-                                    ) : (
-                                        <Tooltip title="View">
-                                            <IconDocument />
-                                        </Tooltip>
-                                    ),
-                                searchMatch: matches
-                                    ? {
-                                          matchingFields: matches.map((match) => match.key),
-                                          nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                      }
-                                    : null,
-                                onClick,
-                                menuItems: [
-                                    {
-                                        label: 'Open schema',
-                                        onClick: () => {
-                                            actions.selectSchema(view)
-                                        },
+                        return {
+                            key: view.id,
+                            name: view.name,
+                            url: '',
+                            icon:
+                                isSavedQuery && view.last_run_at ? (
+                                    <Tooltip title="Materialized view">
+                                        <IconDatabase />
+                                    </Tooltip>
+                                ) : (
+                                    <Tooltip title="View">
+                                        <IconDocument />
+                                    </Tooltip>
+                                ),
+                            searchMatch: matches
+                                ? {
+                                      matchingFields: matches.map((match) => match.key),
+                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                  }
+                                : null,
+                            onClick,
+                            menuItems: [
+                                {
+                                    label: 'Open schema',
+                                    onClick: () => {
+                                        actions.selectSchema(view)
                                     },
-                                    ...savedViewMenuItems,
-                                    {
-                                        label: 'Copy view name',
-                                        onClick: () => {
-                                            void copyToClipboard(view.name)
-                                        },
+                                },
+                                ...savedViewMenuItems,
+                                {
+                                    label: 'Copy view name',
+                                    onClick: () => {
+                                        void copyToClipboard(view.name)
                                     },
-                                ],
-                            }
-                        }),
-                    ],
+                                },
+                            ],
+                        }
+                    }),
                 } as SidebarCategory,
             ],
         ],
@@ -500,11 +521,31 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(({ values }) => ({
+    urlToAction(({ values, actions }) => ({
         [urls.sqlEditor()]: () => {
-            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
+            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && values.previousUrl !== urls.sqlEditor()) {
+                if (panelLayoutLogic.values.activePanelIdentifier === 'Database') {
+                    actions.setWasPanelActive(true)
+                } else {
+                    actions.setWasPanelActive(false)
+                }
+                panelLayoutLogic.actions.showLayoutPanel(true)
                 panelLayoutLogic.actions.setActivePanelIdentifier('Database')
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
             }
+            actions.setPreviousUrl(urls.sqlEditor())
+        },
+        '*': () => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
+                router.values.location.pathname !== urls.sqlEditor()
+            ) {
+                if (!values.wasPanelActive) {
+                    panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                    panelLayoutLogic.actions.showLayoutPanel(false)
+                }
+            }
+            actions.setPreviousUrl(router.values.location.pathname)
         },
     })),
     subscriptions({

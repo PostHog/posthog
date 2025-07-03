@@ -35,6 +35,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
+    /** Allow customization of file name when exporting */
+    fileNameForExport?: string
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -51,7 +53,7 @@ export type QueryContextColumnComponent = ComponentType<{
     value: unknown
 }>
 
-interface QueryContextColumn {
+export interface QueryContextColumn {
     title?: JSX.Element | string
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent

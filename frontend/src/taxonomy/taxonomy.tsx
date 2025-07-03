@@ -17,10 +17,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinit
             // ignore the comment
             return acc
         }
-        return {
-            ...acc,
-            [key]: transformFilterDefinitions(group),
-        }
+        return Object.assign(acc, { [key]: transformFilterDefinitions(group) })
     },
     {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 )
@@ -181,5 +178,15 @@ export const conversionGoalPopoverFields: DataWarehousePopoverField[] = [
         key: UTM_SOURCE_NAME_SCHEMA_FIELD,
         label: 'UTM Source Name',
         type: 'string',
+    },
+    {
+        key: 'timestamp_field',
+        label: 'Timestamp Field',
+        allowHogQL: true,
+    },
+    {
+        key: 'distinct_id_field',
+        label: 'Distinct ID Field',
+        allowHogQL: true,
     },
 ]

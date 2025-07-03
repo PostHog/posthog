@@ -1,4 +1,10 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -7,12 +13,6 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import {
-    AssigneeIconDisplay,
-    AssigneeLabelDisplay,
-    AssigneeResolver,
-} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 import { useEffect } from 'react'
 
 import {

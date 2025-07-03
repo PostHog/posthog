@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.core import mail
+from django.core.cache import cache
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -93,8 +94,8 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
@@ -333,8 +334,8 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
@@ -964,6 +965,65 @@ class TestSignupAPI(APIBaseTest):
         else:
             self.assertEqual(response_data["redirect_url"], "/next_path")
 
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_rate_limit_by_ip(self):
+        """Test that signup is rate limited by IP address to 5 signups per day"""
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        # Clear any existing rate limit cache
+        cache.clear()
+
+        for i in range(6):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+                HTTP_X_FORWARDED_FOR="192.168.1.100",
+            )
+
+            if i < 5:
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i+1} should succeed")
+                # Clean up the created org and user to allow next signup
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
+            else:
+                self.assertEqual(
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                )
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_rate_limit_different_ips(self):
+        """Test that different IPs can signup independently"""
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        # Clear any existing rate limit cache
+        cache.clear()
+
+        # Test that different IPs can each make 5 signups
+        for ip_suffix in range(2):
+            ip = f"192.168.1.{100 + ip_suffix}"
+            for i in range(5):
+                response = self.client.post(
+                    "/api/signup/",
+                    {
+                        "first_name": f"User{ip_suffix}_{i}",
+                        "email": f"user{ip_suffix}_{i}@example.com",
+                        "password": VALID_TEST_PASSWORD,
+                        "organization_name": f"Org{ip_suffix}_{i}",
+                    },
+                    HTTP_X_FORWARDED_FOR=ip,
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
+                # Clean up the created org and user to allow next signup
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
+
 
 class TestInviteSignupAPI(APIBaseTest):
     """
@@ -1135,8 +1195,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
         self.assertEqual(
             "Engineering",
             mock_capture.call_args[1]["properties"]["role_at_organization"],
@@ -1411,8 +1471,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user joined organization",
+            event="user joined organization",
+            distinct_id=user.distinct_id,
             properties={
                 "organization_id": str(new_org.id),
                 "user_number_of_org_membership": 2,
@@ -1480,8 +1540,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user joined organization",
+            event="user joined organization",
+            distinct_id=user.distinct_id,
             properties={
                 "organization_id": str(new_org.id),
                 "user_number_of_org_membership": 2,

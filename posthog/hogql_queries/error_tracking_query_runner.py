@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import re
 import structlog
 from typing import Any
+from django.core.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -315,8 +316,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             tokens = search_tokenizer(self.query.searchQuery)
             and_exprs: list[ast.Expr] = []
 
-            if len(tokens) > 10:
-                raise ValueError("Too many search tokens")
+            if len(tokens) > 100:
+                raise ValidationError("Too many search tokens")
 
             for token in tokens:
                 if not token:
@@ -324,29 +325,33 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
                 or_exprs: list[ast.Expr] = []
 
-                props_to_search = [
-                    "$exception_types",
-                    "$exception_values",
-                    "$exception_sources",
-                    "$exception_functions",
-                ]
-                for prop in props_to_search:
-                    or_exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    # This actually searches the entire stingified array rather than
-                                    # individual elements using the arrayExists function because the
-                                    # materialized column is a nullable string which causes typing issues
-                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                props_to_search = {
+                    ("properties",): [
+                        "$exception_types",
+                        "$exception_values",
+                        "$exception_sources",
+                        "$exception_functions",
+                        "email",
+                    ],
+                    ("person", "properties"): [
+                        "email",
+                    ],
+                }
+                for chain_prefix, properties in props_to_search.items():
+                    for prop in properties:
+                        or_exprs.append(
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Call(
+                                    name="position",
+                                    args=[
+                                        ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, prop])]),
+                                        ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                    ],
+                                ),
+                                right=ast.Constant(value=0),
+                            )
                         )
-                    )
 
                 and_exprs.append(ast.Or(exprs=or_exprs))
 
@@ -524,11 +529,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             # If we have an issueId, we should just use that
             return [self.query.issueId]
 
-        objects = ErrorTrackingIssue.objects
-        if self.query.dateRange.date_from:
-            objects = objects.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
-
-        queryset = objects.select_related("assignment").filter(team=self.team)
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team)
 
         if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True

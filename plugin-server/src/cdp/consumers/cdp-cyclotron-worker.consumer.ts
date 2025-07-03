@@ -1,15 +1,12 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { FetchExecutorService } from '../services/fetch-executor.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
-    MinimalAppMetric,
-    MinimalLogEntry,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -20,13 +17,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
     private queue: CyclotronJobQueueKind
-    protected fetchExecutor: FetchExecutorService
 
     constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
         super(hub)
         this.queue = queue
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
-        this.fetchExecutor = new FetchExecutorService(hub)
     }
 
     /**
@@ -35,51 +30,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private async processInvocation(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        let performedAsyncRequest = false
-        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
-        const metrics: MinimalAppMetric[] = []
-        const logs: MinimalLogEntry[] = []
-
-        while (!result || !result.finished) {
-            const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
-
-            if (nextInvocation.queue === 'hog') {
-                result = this.hogExecutor.execute(nextInvocation)
-                // Heartbeat and free the event loop to handle health checks
-                this.heartbeat()
-                await new Promise((resolve) => process.nextTick(resolve))
-            } else if (nextInvocation.queue === 'fetch') {
-                // Fetch requests we only perform if we haven't already performed one
-                if (result && performedAsyncRequest) {
-                    // if we have performed an async request already then we break the loop and return the result
-                    break
-                }
-                result = (await this.fetchExecutor.execute(
-                    nextInvocation
-                )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-                performedAsyncRequest = true
-            } else {
-                throw new Error(`Unhandled queue: ${nextInvocation.queue}`)
-            }
-
-            result?.logs?.forEach((log) => {
-                logs.push(log)
-            })
-            result?.metrics?.forEach((metric) => {
-                metrics.push(metric)
-            })
-
-            if (!result?.finished && result?.invocation.queueScheduledAt) {
-                // If the invocation is scheduled to run later then we break the loop and return the result for it to be queued
-                break
-            }
-        }
-
-        // Override the result with the metrics and logs we have gathered to ensure we have all the data
-        result.metrics = metrics
-        result.logs = logs
-
-        return result
+        return await this.hogExecutor.executeWithAsyncFunctions(invocation)
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
@@ -98,6 +49,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 const hogFunction = await this.hogFunctionManager.getHogFunction(item.functionId)
                 if (!hogFunction) {
                     logger.error('⚠️', 'Error finding hog function', {
+                        id: item.functionId,
+                    })
+
+                    failedInvocations.push(item)
+
+                    return null
+                }
+
+                if (!hogFunction.enabled || hogFunction.deleted) {
+                    logger.info('⚠️', 'Skipping invocation due to hog function being deleted or disabled', {
                         id: item.functionId,
                     })
 
@@ -162,9 +123,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async stop() {
-        await super.stop()
         logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
     }
 
     public isHealthy() {

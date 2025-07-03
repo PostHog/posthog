@@ -1,9 +1,6 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {},
-    "dependencies": {
-        "eslint-plugin-posthog": "workspace:*"
-    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/addon-actions": "*",
@@ -20,10 +17,11 @@
         "kea-loaders": "*",
         "kea-router": "*",
         "kea-subscriptions": "*",
-        "posthog-js": "*",
+        "posthog-js": "catalog:",
         "react": "*",
         "react-transition-group": "*",
         "ts-pattern": "*",
-        "use-resize-observer": "*"
+        "use-resize-observer": "*",
+        "use-debounce": "*"
     }
 }

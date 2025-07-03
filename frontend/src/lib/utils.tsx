@@ -604,7 +604,7 @@ export function humanFriendlyDuration(
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -1163,6 +1163,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
         return 'day'
     }
 
@@ -1733,7 +1742,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1741,7 +1750,7 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
 }

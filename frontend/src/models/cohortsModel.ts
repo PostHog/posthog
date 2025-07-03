@@ -5,6 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { v4 as uuidv4 } from 'uuid'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -43,22 +44,19 @@ export const DEFAULT_COHORT_FILTERS: CohortFilters = {
 export function processCohort(cohort: CohortType): CohortType {
     return {
         ...cohort,
-        ...{
-            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-            filters: {
-                properties: {
-                    ...cohort.filters.properties,
-                    values: (cohort.filters.properties?.values?.map((group) =>
-                        'values' in group
-                            ? {
-                                  ...group,
-                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      processCohortCriteria(c)
-                                  ),
-                              }
-                            : group
-                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                },
+
+        /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
+        filters: {
+            properties: {
+                ...cohort.filters.properties,
+                values: (cohort.filters.properties?.values?.map((group) =>
+                    'values' in group
+                        ? {
+                              ...group,
+                              values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
+                          }
+                        : group
+                ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
             },
         },
     }
@@ -98,6 +96,10 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
         COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
     ) {
         processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
+    }
+
+    if (processedCriteria.sort_key == null) {
+        processedCriteria.sort_key = uuidv4()
     }
 
     return processedCriteria

@@ -182,7 +182,7 @@ impl Issue {
         let assignments = sqlx::query_as!(
             Assignment,
             r#"
-            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            SELECT id, issue_id, user_id, role_id, created_at FROM posthog_errortrackingissueassignment
             WHERE issue_id = $1
             "#,
             self.id
@@ -393,9 +393,10 @@ async fn send_internal_event(
 
     if let Some(assignment) = new_assignment {
         let assignee = Assignee::try_from(&assignment)?;
+        let stringified_assignee = serde_json::to_string(&assignee)?;
 
         event
-            .insert_prop("assignee", assignee)
+            .insert_prop("assignee", stringified_assignee)
             .expect("Strings are serializable");
     }
 
@@ -442,11 +443,18 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::sanitize_string;
+    use crate::{assignment_rules::Assignee, sanitize_string};
 
     #[test]
     fn it_replaces_null_characters() {
         let content = sanitize_string("\u{0000} is not valid JSON".to_string());
         assert_eq!(content, "� is not valid JSON");
+    }
+
+    #[test]
+    fn it_correctly_orders_stringified_assignee_keys() {
+        let assignee = Assignee::User(1234);
+        let stringified_assignee = serde_json::to_string(&assignee).unwrap();
+        assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
     }
 }
