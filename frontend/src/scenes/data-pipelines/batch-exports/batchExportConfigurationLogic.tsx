@@ -254,7 +254,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
         },
         urls: {
             name: 'urls',
-            type: service == 'BigQuery' ? 'ARRAY<STRING>' : 'array',
+            type: 'array',
             hogql_value: 'urls',
             schema_valid: true,
         },
