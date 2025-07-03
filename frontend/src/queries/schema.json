@@ -830,7 +830,8 @@
                 "analyze_user_interviews",
                 "create_and_query_insight",
                 "create_hog_transformation_function",
-                "create_hog_function_filters"
+                "create_hog_function_filters",
+                "navigate"
             ],
             "type": "string"
         },
@@ -1224,7 +1225,7 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
@@ -1251,8 +1252,48 @@
                             ]
                         },
                         "value": {
-                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
                             "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "anyOf": [
+                                {
+                                    "const": "event",
+                                    "description": "Event properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "person",
+                                    "description": "Person properties",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "session",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "feature",
+                                    "description": "Event property with \"$feature/\" prepended",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "value": {
+                            "type": "number"
                         }
                     },
                     "required": ["key", "operator", "type", "value"],
@@ -1424,7 +1465,7 @@
                             "type": "string"
                         },
                         "operator": {
-                            "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                            "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
@@ -1432,8 +1473,33 @@
                             "type": "string"
                         },
                         "value": {
-                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
                             "type": "string"
+                        }
+                    },
+                    "required": ["group_type_index", "key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Index of the group type from the group mapping."
+                        },
+                        "key": {
+                            "description": "Use one of the properties the user has provided in the plan.",
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
                         }
                     },
                     "required": ["group_type_index", "key", "operator", "type", "value"],
@@ -1611,6 +1677,63 @@
                 }
             ]
         },
+        "AssistantNavigateUrls": {
+            "description": "Exact possible `urls` keys for the `navigate` tool.",
+            "enum": [
+                "createAction",
+                "actions",
+                "cohorts",
+                "projectHomepage",
+                "max",
+                "settings",
+                "eventDefinitions",
+                "propertyDefinitions",
+                "database",
+                "activity",
+                "ingestionWarnings",
+                "insights",
+                "insightNew",
+                "savedInsights",
+                "webAnalytics",
+                "webAnalyticsWebVitals",
+                "alerts",
+                "dashboards",
+                "experiments",
+                "featureFlags",
+                "surveys",
+                "surveyTemplates",
+                "replay",
+                "replaySettings",
+                "pipeline",
+                "sqlEditor",
+                "annotations",
+                "heatmaps",
+                "earlyAccessFeatures",
+                "errorTracking",
+                "game368hedgehogs",
+                "notebooks",
+                "persons",
+                "toolbarLaunch"
+            ],
+            "type": "string"
+        },
+        "AssistantNumericValuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "operator": {
+                    "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["operator", "value"],
+            "type": "object"
+        },
+        "AssistantNumericValuePropertyFilterOperator": {
+            "enum": ["exact", "gt", "lt"],
+            "type": "string"
+        },
         "AssistantPropertyFilter": {
             "anyOf": [
                 {
@@ -1777,34 +1900,37 @@
             "enum": ["is_set", "is_not_set"],
             "type": "string"
         },
-        "AssistantSingleValuePropertyFilter": {
+        "AssistantStringNumberOrBooleanPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantNumericValuePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
+                }
+            ]
+        },
+        "AssistantStringOrBooleanValuePropertyFilter": {
             "additionalProperties": false,
             "properties": {
                 "operator": {
-                    "$ref": "#/definitions/AssistantSingleValuePropertyFilterOperator",
+                    "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
                     "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                 },
                 "value": {
-                    "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value.",
+                    "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
                     "type": "string"
                 }
             },
             "required": ["operator", "value"],
             "type": "object"
         },
-        "AssistantSingleValuePropertyFilterOperator": {
+        "AssistantStringOrBooleanValuePropertyFilterOperator": {
             "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
             "type": "string"
-        },
-        "AssistantStringNumberOrBooleanPropertyFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/AssistantSingleValuePropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/AssistantArrayPropertyFilter"
-                }
-            ]
         },
         "AssistantToolCall": {
             "additionalProperties": false,
