@@ -8,7 +8,8 @@ from freezegun import freeze_time
 from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.models.team.team import Team
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.schema import (
     CacheMissResponse,
     HogQLQuery,
@@ -17,6 +18,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
+    IntervalType,
 )
 from posthog.test.base import BaseTest
 
@@ -110,8 +112,21 @@ class TestQueryRunner(BaseTest):
             "query_runner": "TestQueryRunner",
             "team_id": 42,
             "timezone": "UTC",
+            "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
         }
+
+    def test_cache_payload_week_interval(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
+        runner.query_date_range = QueryDateRange(
+            team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
+        )
+
+        cache_payload = runner.get_cache_payload()
+        assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -121,7 +136,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_81cddfbbf27c8656cc0c71e17917c8bd"
+        assert cache_key == "cache_7583c7c9c2ab66ba5ff7f55ccb617c9a"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -135,7 +150,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_ac85f6f0bfcc738665881287b9d86890"
+        assert cache_key == "cache_c2e0cd9925f875dba6539dc1b82078bf"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -146,7 +161,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_2c629e23e4015d311ade6565dcdf0387"
+        assert cache_key == "cache_af770db18dddd01c5c5d6b8f37a36006"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
