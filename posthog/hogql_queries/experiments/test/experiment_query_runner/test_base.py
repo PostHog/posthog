@@ -5,7 +5,6 @@ from typing import cast
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.exceptions import ExperimentValidationError
@@ -1399,7 +1398,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValidationError) as context:
+            with self.assertRaises(ExperimentValidationError) as context:
                 cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
             expected_errors = json.dumps(
@@ -1409,7 +1408,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                 }
             )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception.detail), expected_errors)
         else:
             result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
@@ -1784,7 +1783,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValidationError) as context:
+            with self.assertRaises(ExperimentValidationError) as context:
                 query_runner.calculate()
 
             expected_errors = json.dumps(
@@ -1794,7 +1793,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                 }
             )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception.detail), expected_errors)
         else:
             with freeze_time("2023-01-07"):
                 result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
