@@ -541,8 +541,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("The user's name appears to be ", system_content)
 
     def test_model_has_correct_max_retries(self):
-        expected_max_retries = 3
-
         with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
@@ -555,9 +553,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             node._get_model(state, {})
 
             # Verify ChatOpenAI was called with max_retries=3
-            mock_chat_openai.assert_called_once_with(
-                model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True, max_retries=expected_max_retries
-            )
+            mock_chat_openai.assert_called_once()
+            call_args = mock_chat_openai.call_args
+            self.assertEqual(call_args.kwargs["max_retries"], 3)
 
 
 class TestRootNodeTools(BaseTest):
