@@ -79,6 +79,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
+    CREATE_ERROR_TRACKING_FILTERS = "create_error_tracking_filters"
 
 
 class AssistantDateRange(BaseModel):

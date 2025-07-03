@@ -835,7 +835,8 @@
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
-                "navigate"
+                "navigate",
+                "create_error_tracking_filters"
             ],
             "type": "string"
         },
