@@ -31,7 +31,7 @@ class CreateErrorTrackingFiltersTool(MaxTool):
     description: str = "Update error tracking issue filters on this page to search for specific errors by any criteria."
     thinking_message: str = "Updating your error tracking filters..."
     root_system_prompt_template: str = "Current issue filters are: {current_filters}"
-    args_schema = UpdateIssueQueryArgs
+    args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingFiltersOutput]:
         model = (
