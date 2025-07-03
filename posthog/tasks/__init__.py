@@ -21,6 +21,7 @@ from . import (
     verify_persons_data_in_sync,
     warehouse,
     early_access_feature,
+    migrate_playlist_type,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "verify_persons_data_in_sync",
     "warehouse",
     "early_access_feature",
+    "migrate_playlist_type",
 ]
