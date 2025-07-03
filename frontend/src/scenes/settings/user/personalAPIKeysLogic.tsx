@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
 import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
-import { isAdminOrOwnerInOrganization, organizationAllowsPersonalApiKeys } from 'lib/utils/permissioning'
+import { isAdminOrOwnerInOrganization, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -154,7 +154,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return true
                 }
 
-                return organizationAllowsPersonalApiKeys(currentOrg)
+                return organizationAllowsPersonalApiKeysForMembers(currentOrg)
             },
         ],
 
@@ -223,7 +223,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                                 if (
                                     org &&
                                     !isAdminOrOwnerInOrganization(org) &&
-                                    !organizationAllowsPersonalApiKeys(org)
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
                                 ) {
                                     return org
                                 }
@@ -253,7 +253,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
 
                     // If key has all access, check all user's organizations
                     allOrganizations.forEach((org) => {
-                        if (!isAdminOrOwnerInOrganization(org) && !organizationAllowsPersonalApiKeys(org)) {
+                        if (!isAdminOrOwnerInOrganization(org) && !organizationAllowsPersonalApiKeysForMembers(org)) {
                             restrictedOrgs.push(org)
                         }
                     })
@@ -280,7 +280,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                                 if (
                                     org &&
                                     !isAdminOrOwnerInOrganization(org) &&
-                                    !organizationAllowsPersonalApiKeys(org)
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
                                 ) {
                                     return team
                                 }

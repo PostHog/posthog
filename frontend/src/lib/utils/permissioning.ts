@@ -60,7 +60,7 @@ export function isAdminOrOwnerInOrganization(org: OrganizationBasicType): boolea
 }
 
 /** Check if an organization allows personal API keys */
-export function organizationAllowsPersonalApiKeys(org: OrganizationBasicType): boolean {
+export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
     return !!org.members_can_use_personal_api_keys
 }
 
