@@ -1,5 +1,5 @@
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -165,3 +165,23 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(first_message.id)
             self.assertIsNotNone(second_message.id)
             self.assertNotEqual(first_message.id, second_message.id)
+
+    def test_model_has_correct_max_retries(self):
+        expected_max_retries = 3
+
+        with patch("ee.hogai.graph.inkeep_docs.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_chat_openai.return_value = mock_model
+
+            node = InkeepDocsNode(self.team, self.user)
+
+            node._get_model()
+
+            mock_chat_openai.assert_called_once_with(
+                model="inkeep-qa-expert",
+                base_url="https://api.inkeep.com/v1/",
+                api_key="",
+                streaming=True,
+                stream_usage=True,
+                max_retries=expected_max_retries,
+            )
