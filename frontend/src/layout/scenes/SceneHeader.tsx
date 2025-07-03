@@ -1,12 +1,12 @@
-import { IconChevronDown, IconInfo, IconX } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
+import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -62,18 +62,21 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         </div>
                     )}
                     <div className="flex gap-2 items-center">
-                        <div className="flex gap-1 items-center justify-end" ref={setActionsContainer} />
+                        <div className="flex gap-2 items-center justify-end" ref={setActionsContainer} />
 
-                        {scenePanelActive && (
-                            <ButtonPrimitive
-                                onClick={() => setScenePanelOpen(!scenePanelOpen)}
-                                iconOnly
-                                tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
-                                active={scenePanelOpen}
-                            >
-                                <IconInfo className="text-primary" />
-                            </ButtonPrimitive>
-                        )}
+                        <div className="flex gap-1 items-center">
+                            {scenePanelActive && (
+                                <LemonButton
+                                    onClick={() => setScenePanelOpen(!scenePanelOpen)}
+                                    icon={<IconInfo className="text-primary" />}
+                                    tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
+                                    active={scenePanelOpen}
+                                    size="small"
+                                />
+                            )}
+
+                            <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
+                        </div>
                     </div>
                 </div>
             </div>
