@@ -1,7 +1,13 @@
 import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
-import { type ExperimentVariantResult, isBayesianResult, formatChanceToWin } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    isBayesianResult,
+    formatChanceToWin,
+    getNiceTickValues,
+    valueToXCoordinate,
+} from '../shared/utils'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -9,6 +15,8 @@ import {
     ExperimentStatsBase,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN } from './constants'
+import { useChartColors } from '../shared/colors'
 
 interface VariantRowProps {
     variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
@@ -39,6 +47,8 @@ export function VariantRow({
     onDuplicateMetric,
     canDuplicateMetric,
 }: VariantRowProps): JSX.Element {
+    const colors = useChartColors()
+
     // Helper function to format variant data
     const formatVariantData = (variant: ExperimentStatsBase): { primaryValue: number; formattedValue: string } => {
         const primaryValue = variant.sum / variant.number_of_samples
@@ -123,10 +133,32 @@ export function VariantRow({
                 )}
             </td>
 
-            {/* Chart column - shows chart for current variant (empty for baseline) */}
+            {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
-                <td className="min-w-[400px] border-b border-border p-2 align-top text-center">
-                    <div className="text-xs text-muted">—</div>
+                <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
+                    {chartRadius && chartRadius > 0 ? (
+                        <svg
+                            viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                            preserveAspectRatio="none"
+                            className="block w-full h-full absolute inset-0"
+                        >
+                            {/* Grid lines - match ChartCell exactly */}
+                            {getNiceTickValues(chartRadius).map((value) => (
+                                <line
+                                    key={value}
+                                    x1={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                                    y1={0}
+                                    x2={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                                    y2={100}
+                                    stroke={value === 0 ? colors.ZERO_LINE : colors.BOUNDARY_LINES}
+                                    strokeWidth={value === 0 ? 1.5 : 0.75}
+                                    opacity={value === 0 ? 0.6 : 0.5}
+                                />
+                            ))}
+                        </svg>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                    )}
                 </td>
             ) : (
                 <ChartCell
