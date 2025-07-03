@@ -51,23 +51,30 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 
     -- columns extracted from log_comment, prefixed with lc_
     lc_workflow LowCardinality(String), -- comment 'log_comment[workflow]',
-    lc_kind String, -- comment 'log_comment[kind]',
+    lc_kind LowCardinality(String), -- comment 'log_comment[kind]',
     lc_id String, -- comment 'log_comment[id]',
-    lc_query_type String, -- comment 'log_comment[query_type]',
-    lc_product String, -- comment 'log_comment[product]',
+    lc_route_id String, -- comment 'log_comment[route_id]',
+
+    lc_query_type LowCardinality(String), -- comment 'log_comment[query_type]',
+    lc_product LowCardinality(String), -- comment 'log_comment[product]',
+    lc_chargeable Bool, -- comment 'log_comment[chargeable]',
+    lc_name String, -- comment 'log_comment[name]',
 
     lc_org_id String, -- comment 'log_comment[org_id]',
     lc_team_id Int64, -- comment 'log_comment[team_id]',
     lc_user_id Int64, -- comment 'log_comment[user_id]',
+    lc_session_id String, -- comment 'log_comment[session_id]',
 
     lc_dashboard_id Int64, -- comment 'log_comment[dashboard_id]',
     lc_insight_id Int64, -- comment 'log_comment[insight_id]',
     lc_cohort_id Int64, -- comment 'log_comment[cohort_id]',
-    lc_name String, -- comment 'log_comment[name]',
+    lc_batch_export_id String, -- comment 'log_comment[batch_export_id]'
+    lc_experiment_id Int64, -- comment 'log_comment[experiment_id]',
+    lc_experiment_feature_flag_key String, -- comment 'loc_comment[experiment_feature_flag_key]'
 
     -- for entries with 'query' tag
-    lc_query__kind String, -- comment 'log_comment[query][kind]',
-    lc_query__query String, -- comment 'log_comment[query][query]', -- comment 'HogQL query',
+    lc_query__kind LowCardinality(String), -- comment 'log_comment[query][kind]', if the query has a source, then source kind is used,
+    lc_query__query String, -- comment 'log_comment[query][query]', if query has source, the source query is used instead,
 
     -- for temporal worflows (ph_kind='temporal')
     lc_temporal__workflow_namespace String, -- comment 'JSONExtractString(log_comment, temporal, workflow_namespace)',
@@ -136,20 +143,32 @@ AS SELECT
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
+    JSONExtractString(log_comment, 'lc_route_id') as lc_route_id,
+
     JSONExtractString(log_comment, 'query_type') as lc_query_type,
     JSONExtractString(log_comment, 'product') as lc_product,
+    JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
+    JSONExtractString(log_comment, 'name') as lc_name,
 
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
     JSONExtractInt(log_comment, 'team_id') as lc_team_id,
     JSONExtractInt(log_comment, 'user_id') as lc_user_id,
+    JSONExtractString(log_comment, 'session_id') as lc_session_id,
 
     JSONExtractInt(log_comment, 'dashboard_id') as lc_dashboard_id,
     JSONExtractInt(log_comment, 'insight_id') as lc_insight_id,
     JSONExtractInt(log_comment, 'cohort_id') as lc_cohort_id,
-    JSONExtractString(log_comment, 'name') as lc_name,
+    JSONExtractString(log_comment, 'batch_export_id') as lc_batch_export_id,
+    JSONExtractInt(log_comment, 'experiment_id') as lc_experiment_id,
+    JSONExtractString(log_comment, 'experiment_feature_flag_key') as lc_experiment_feature_flag_key,
 
-    JSONExtractString(log_comment, 'query', 'kind') as lc_query__kind,
-    JSONExtractString(log_comment, 'query', 'query') as lc_query__query,
+    -- for entries with 'query' tag, some queries have source, we should use this
+    if(JSONHas(log_comment, 'query', 'source'),
+        JSONExtractString(log_comment, 'query', 'source', 'kind'),
+        JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
+    if(JSONHas(log_comment, 'query', 'source'),
+        JSONExtractString(log_comment, 'query', 'source', 'query'),
+        JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
