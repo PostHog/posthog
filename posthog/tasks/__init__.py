@@ -9,6 +9,7 @@ from . import (
     exporter,
     hog_functions,
     integrations,
+    migrate_playlist_type,
     plugin_server,
     process_scheduled_changes,
     remote_config,
@@ -21,7 +22,6 @@ from . import (
     verify_persons_data_in_sync,
     warehouse,
     early_access_feature,
-    migrate_playlist_type,
 )
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "exporter",
     "hog_functions",
     "integrations",
+    "migrate_playlist_type",
     "plugin_server",
     "process_scheduled_changes",
     "remote_config",
@@ -45,5 +46,4 @@ __all__ = [
     "verify_persons_data_in_sync",
     "warehouse",
     "early_access_feature",
-    "migrate_playlist_type",
 ]

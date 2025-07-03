@@ -41,10 +41,12 @@ def migrate_playlist_type(dry_run: bool = False) -> None:
             logger.info("Running in dry run mode, would have updated the following playlists:")
             for playlist in playlists_to_update:
                 if playlist.playlist_items.exists():
+                    new_type = SessionRecordingPlaylist.PlaylistType.COLLECTION
                     updated_collection_count += 1
                 else:
+                    new_type = SessionRecordingPlaylist.PlaylistType.FILTERS
                     updated_filters_count += 1
-                logger.info(f"Would have updated playlist {playlist.id} to {playlist.type}")
+                logger.info(f"Would have updated playlist {playlist.id} to {new_type}")
         else:
             logger.info("Running in live mode, updating playlists...")
             with transaction.atomic():
