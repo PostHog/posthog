@@ -41,11 +41,7 @@ class ConversionGoalProcessor:
 
     def get_table_name(self):
         """Get table name for conversion goal"""
-        name = self.goal.name
         kind = self.goal.kind
-
-        if not name:
-            return "events"
 
         if kind == "EventsNode":
             return "events"
@@ -63,9 +59,9 @@ class ConversionGoalProcessor:
         utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
 
         if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
-            # For events: properties.utm_campaign, properties.utm_source
-            utm_campaign_expr = ast.Field(chain=["properties", utm_campaign_field])
-            utm_source_expr = ast.Field(chain=["properties", utm_source_field])
+            # For events: events.properties.utm_campaign, events.properties.utm_source
+            utm_campaign_expr = ast.Field(chain=["events", "properties", utm_campaign_field])
+            utm_source_expr = ast.Field(chain=["events", "properties", utm_source_field])
         else:
             # For data warehouse: direct field access
             utm_campaign_expr = ast.Field(chain=[utm_campaign_field])
@@ -79,22 +75,23 @@ class ConversionGoalProcessor:
         # Handle different math types
         if math_type in [BaseMathType.DAU, "dau"]:
             if self.goal.kind == "EventsNode":
-                # uniq(distinct_id)
-                return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
+                # uniq(events.distinct_id)
+                return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
             elif self.goal.kind == "DataWarehouseNode":
                 distinct_id_field = self.goal.schema_map.get("distinct_id_field", "distinct_id")
                 return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
             else:
-                return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
+                return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
         elif math_type == "sum" or str(math_type).endswith("_sum") or math_type == PropertyMathType.SUM:
             math_property = self.goal.math_property
             if not math_property:
                 return ast.Constant(value=0)
             else:
                 if self.goal.kind == "EventsNode":
-                    # round(sum(toFloat(JSONExtractRaw(properties, 'math_property'))), DECIMAL_PRECISION)
+                    # round(sum(toFloat(JSONExtractRaw(events.properties, 'math_property'))), DECIMAL_PRECISION)
                     json_extract = ast.Call(
-                        name="JSONExtractRaw", args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
+                        name="JSONExtractRaw",
+                        args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=math_property)],
                     )
                     to_float = ast.Call(name="toFloat", args=[json_extract])
                     sum_expr = ast.Call(name="sum", args=[to_float])
@@ -107,7 +104,8 @@ class ConversionGoalProcessor:
                 else:
                     # Same as events node
                     json_extract = ast.Call(
-                        name="JSONExtractRaw", args=[ast.Field(chain=["properties"]), ast.Constant(value=math_property)]
+                        name="JSONExtractRaw",
+                        args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=math_property)],
                     )
                     to_float = ast.Call(name="toFloat", args=[json_extract])
                     sum_expr = ast.Call(name="sum", args=[to_float])
@@ -122,23 +120,29 @@ class ConversionGoalProcessor:
 
         # Add event filter for EventsNode
         if self.goal.kind == "EventsNode":
-            # team_id = {self.team.pk}
+            # events.team_id = {self.team.pk}
             team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["team_id"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=self.team.pk)
+                left=ast.Field(chain=["events", "team_id"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.team.pk),
             )
             conditions.append(team_condition)
 
             event_name = self.goal.event
             if event_name:
-                # event = 'event_name'
+                # events.event = 'event_name'
                 event_condition = ast.CompareOperation(
-                    left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=event_name)
+                    left=ast.Field(chain=["events", "event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=event_name),
                 )
                 conditions.append(event_condition)
         elif self.goal.kind == "ActionsNode":
-            # team_id = {self.team.pk}
+            # events.team_id = {self.team.pk}
             team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["team_id"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=self.team.pk)
+                left=ast.Field(chain=["events", "team_id"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.team.pk),
             )
             conditions.append(team_condition)
 
@@ -160,7 +164,7 @@ class ConversionGoalProcessor:
         if self.goal.kind == "DataWarehouseNode":
             return self.goal.schema_map.get("timestamp_field", "timestamp")
         else:
-            return "timestamp"
+            return "events.timestamp"
 
     def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate the complete CTE query for this conversion goal"""
