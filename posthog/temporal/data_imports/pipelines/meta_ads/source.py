@@ -208,7 +208,7 @@ def meta_ads_source(
         formatted_url = schema.url.format(API_VERSION=MetaAdsIntegration.api_version, account_id=config.account_id)
         params = {
             "fields": ",".join(schema.field_names),
-            "limit": 100,
+            "limit": 500,
             **schema.extra_params,
         }
 
