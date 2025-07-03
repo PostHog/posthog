@@ -95,7 +95,6 @@ class HogQLCohortQuery:
     ):
         if cohort is not None:
             self.team = team or cohort.team
-            # Create database with data warehouse tables
             self.database = create_hogql_database(team=self.team)
             self.hogql_context = HogQLContext(
                 team_id=cohort.team.pk, enable_select_queries=True, database=self.database
@@ -111,7 +110,6 @@ class HogQLCohortQuery:
             self.property_groups = filter.property_groups
         elif cohort_query is not None:
             self.team = team or cohort_query._team
-            # Create database with data warehouse tables
             self.database = create_hogql_database(team=self.team)
             self.hogql_context = HogQLContext(
                 team_id=cohort_query._team_id, enable_select_queries=True, database=self.database
@@ -121,10 +119,7 @@ class HogQLCohortQuery:
             raise
 
     def get_query_executor(self) -> HogQLQueryExecutor:
-        # Create a custom executor that preserves the database context
         query = self.get_query()
-
-        # Use execute_hogql_query approach but return the executor for compatibility
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
             query=query,
