@@ -245,8 +245,6 @@ services:
             # REDIS_TIMEOUT_MS: 200
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
-            SKIP_WRITES: 'false'
-            SKIP_READS: 'false'
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop

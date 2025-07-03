@@ -76,6 +76,8 @@ class AssistantContextualTool(StrEnum):
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
+    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
+    NAVIGATE = "navigate"
 
 
 class AssistantDateRange(BaseModel):
@@ -158,7 +160,7 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilter2(BaseModel):
+class AssistantGenericPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -176,7 +178,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
     )
 
 
-class AssistantGenericPropertyFilter3(BaseModel):
+class AssistantGenericPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -206,6 +208,49 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
+class AssistantNavigateUrls(StrEnum):
+    CREATE_ACTION = "createAction"
+    ACTIONS = "actions"
+    COHORTS = "cohorts"
+    PROJECT_HOMEPAGE = "projectHomepage"
+    MAX = "max"
+    SETTINGS = "settings"
+    EVENT_DEFINITIONS = "eventDefinitions"
+    PROPERTY_DEFINITIONS = "propertyDefinitions"
+    DATABASE = "database"
+    ACTIVITY = "activity"
+    INGESTION_WARNINGS = "ingestionWarnings"
+    INSIGHTS = "insights"
+    INSIGHT_NEW = "insightNew"
+    SAVED_INSIGHTS = "savedInsights"
+    WEB_ANALYTICS = "webAnalytics"
+    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    ALERTS = "alerts"
+    DASHBOARDS = "dashboards"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "featureFlags"
+    SURVEYS = "surveys"
+    SURVEY_TEMPLATES = "surveyTemplates"
+    REPLAY = "replay"
+    REPLAY_SETTINGS = "replaySettings"
+    PIPELINE = "pipeline"
+    SQL_EDITOR = "sqlEditor"
+    ANNOTATIONS = "annotations"
+    HEATMAPS = "heatmaps"
+    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
+    ERROR_TRACKING = "errorTracking"
+    GAME368HEDGEHOGS = "game368hedgehogs"
+    NOTEBOOKS = "notebooks"
+    PERSONS = "persons"
+    TOOLBAR_LAUNCH = "toolbarLaunch"
+
+
+class AssistantNumericValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    LT = "lt"
+
+
 class MeanRetentionCalculation(StrEnum):
     SIMPLE = "simple"
     WEIGHTED = "weighted"
@@ -222,7 +267,7 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
-class AssistantSingleValuePropertyFilterOperator(StrEnum):
+class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -795,6 +840,7 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
     REVENUE_ANALYTICS_INVOICE_ITEM = "revenue_analytics_invoice_item"
     REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
+    REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
 class DatabaseSchemaSchema(BaseModel):
@@ -1589,7 +1635,6 @@ class NodeKind(StrEnum):
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
-    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
     REVENUE_ANALYTICS_REVENUE_QUERY = "RevenueAnalyticsRevenueQuery"
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
@@ -1793,7 +1838,7 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1948,6 +1993,14 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class RevenueAnalyticsRevenueQueryResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gross: list
+    mrr: list
 
 
 class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
@@ -2496,7 +2549,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2509,12 +2562,22 @@ class AssistantGenericPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
 
-class AssistantGenericPropertyFilter4(BaseModel):
+class AssistantGenericPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: str
+    value: float
+
+
+class AssistantGenericPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2544,7 +2607,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2557,12 +2620,23 @@ class AssistantGroupPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
 
 class AssistantGroupPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["group"] = "group"
+    value: float
+
+
+class AssistantGroupPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2581,7 +2655,7 @@ class AssistantGroupPropertyFilter2(BaseModel):
     )
 
 
-class AssistantGroupPropertyFilter3(BaseModel):
+class AssistantGroupPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2592,7 +2666,7 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGroupPropertyFilter4(BaseModel):
+class AssistantGroupPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2615,6 +2689,14 @@ class AssistantMessageMetadata(BaseModel):
     form: Optional[AssistantForm] = None
 
 
+class AssistantNumericValuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    value: float
+
+
 class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2629,12 +2711,14 @@ class AssistantRetentionActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2658,12 +2742,14 @@ class AssistantRetentionEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2684,11 +2770,11 @@ class AssistantSetPropertyFilter(BaseModel):
     )
 
 
-class AssistantSingleValuePropertyFilter(BaseModel):
+class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2700,7 +2786,7 @@ class AssistantSingleValuePropertyFilter(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -3504,28 +3590,6 @@ class RevenueAnalyticsEventItem(BaseModel):
     revenueProperty: str
 
 
-class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: Any
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3581,6 +3645,7 @@ class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3592,7 +3657,7 @@ class RevenueAnalyticsRevenueQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[RevenueAnalyticsOverviewItem]
+    results: RevenueAnalyticsRevenueQueryResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -4304,22 +4369,6 @@ class AnyResponseType1(BaseModel):
     user_access_level: Optional[AccessControlLevel] = None
 
 
-class AssistantBasePropertyFilter(
-    RootModel[
-        Union[
-            AssistantDateTimePropertyFilter,
-            AssistantSetPropertyFilter,
-            Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-        ]
-    ]
-):
-    root: Union[
-        AssistantDateTimePropertyFilter,
-        AssistantSetPropertyFilter,
-        Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-    ]
-
-
 class AssistantFunnelNodeShared(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4341,12 +4390,14 @@ class AssistantFunnelNodeShared(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4377,12 +4428,14 @@ class AssistantFunnelsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4416,12 +4469,14 @@ class AssistantFunnelsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4464,12 +4519,14 @@ class AssistantFunnelsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4500,12 +4557,14 @@ class AssistantInsightsQueryBase(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4593,12 +4652,14 @@ class AssistantRetentionQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4642,12 +4703,14 @@ class AssistantTrendsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4688,12 +4751,14 @@ class AssistantTrendsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4728,12 +4793,14 @@ class AssistantTrendsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -5201,37 +5268,6 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    columns: Optional[list[str]] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: Any
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5302,6 +5338,7 @@ class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5316,7 +5353,7 @@ class CachedRevenueAnalyticsRevenueQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[RevenueAnalyticsOverviewItem]
+    results: RevenueAnalyticsRevenueQueryResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6405,7 +6442,7 @@ class Response10(BaseModel):
     )
 
 
-class Response12(BaseModel):
+class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6426,7 +6463,29 @@ class Response12(BaseModel):
     )
 
 
-class Response14(BaseModel):
+class Response12(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6448,7 +6507,7 @@ class Response14(BaseModel):
     )
 
 
-class Response15(BaseModel):
+class Response14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6474,7 +6533,7 @@ class Response15(BaseModel):
     types: Optional[list] = None
 
 
-class Response17(BaseModel):
+class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6501,7 +6560,7 @@ class Response17(BaseModel):
     types: Optional[list] = None
 
 
-class Response21(BaseModel):
+class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7929,7 +7988,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7950,7 +8009,29 @@ class QueryResponseAlternative27(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative27(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7972,7 +8053,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7999,7 +8080,7 @@ class QueryResponseAlternative30(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8025,7 +8106,7 @@ class QueryResponseAlternative31(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8052,7 +8133,7 @@ class QueryResponseAlternative32(BaseModel):
     types: Optional[list[str]] = None
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8079,7 +8160,7 @@ class QueryResponseAlternative33(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8109,7 +8190,7 @@ class QueryResponseAlternative34(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8131,6 +8212,34 @@ class QueryResponseAlternative35(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
+
+
+class QueryResponseAlternative35(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list
+    samplingRate: Optional[SamplingRate] = None
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
     usedPreAggregatedTables: Optional[bool] = None
 
 
@@ -8159,37 +8268,9 @@ class QueryResponseAlternative36(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-    usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative37(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list
-    samplingRate: Optional[SamplingRate] = None
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = None
-
-
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8210,7 +8291,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8236,7 +8317,7 @@ class QueryResponseAlternative40(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8258,7 +8339,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8279,7 +8360,29 @@ class QueryResponseAlternative43(BaseModel):
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative42(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: RevenueAnalyticsRevenueQueryResult
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8299,6 +8402,32 @@ class QueryResponseAlternative45(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class QueryResponseAlternative44(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[list] = None
 
 
 class QueryResponseAlternative46(BaseModel):
@@ -8320,32 +8449,6 @@ class QueryResponseAlternative46(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: Any
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: Optional[list] = None
-
-
-class QueryResponseAlternative48(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = Field(
@@ -8354,7 +8457,7 @@ class QueryResponseAlternative48(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8379,7 +8482,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8404,7 +8507,7 @@ class QueryResponseAlternative52(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8426,7 +8529,7 @@ class QueryResponseAlternative53(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8448,7 +8551,7 @@ class QueryResponseAlternative54(BaseModel):
     )
 
 
-class QueryResponseAlternative55(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8470,7 +8573,7 @@ class QueryResponseAlternative55(BaseModel):
     )
 
 
-class QueryResponseAlternative57(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8491,7 +8594,7 @@ class QueryResponseAlternative57(BaseModel):
     )
 
 
-class QueryResponseAlternative58(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8512,7 +8615,7 @@ class QueryResponseAlternative58(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8538,7 +8641,7 @@ class QueryResponseAlternative60(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8563,7 +8666,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8584,7 +8687,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8605,7 +8708,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8626,7 +8729,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8651,7 +8754,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8765,21 +8868,6 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8847,23 +8935,6 @@ class RevenueAnalyticsConfig(BaseModel):
     events: Optional[list[RevenueAnalyticsEventItem]] = []
     filter_test_accounts: Optional[bool] = False
     goals: Optional[list[RevenueAnalyticsGoal]] = []
-
-
-class RevenueAnalyticsGrossRevenueQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    groupBy: list[RevenueAnalyticsGroupBy]
-    interval: IntervalType
-    kind: Literal["RevenueAnalyticsGrossRevenueQuery"] = "RevenueAnalyticsGrossRevenueQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[RevenueAnalyticsPropertyFilter]
-    response: Optional[RevenueAnalyticsGrossRevenueQueryResponse] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -9404,6 +9475,30 @@ class AnyResponseType(
     ]
 
 
+class AssistantBasePropertyFilter(
+    RootModel[
+        Union[
+            AssistantDateTimePropertyFilter,
+            AssistantSetPropertyFilter,
+            Union[
+                AssistantStringOrBooleanValuePropertyFilter,
+                AssistantNumericValuePropertyFilter,
+                AssistantArrayPropertyFilter,
+            ],
+        ]
+    ]
+):
+    root: Union[
+        AssistantDateTimePropertyFilter,
+        AssistantSetPropertyFilter,
+        Union[
+            AssistantStringOrBooleanValuePropertyFilter,
+            AssistantNumericValuePropertyFilter,
+            AssistantArrayPropertyFilter,
+        ],
+    ]
+
+
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9592,7 +9687,7 @@ class Response3(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class Response18(BaseModel):
+class Response17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9841,7 +9936,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10216,7 +10311,7 @@ class CalendarHeatmapQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class Response20(BaseModel):
+class Response19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10876,7 +10971,7 @@ class QueryResponseAlternative16(BaseModel):
     variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10892,7 +10987,7 @@ class QueryResponseAlternative50(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11060,7 +11155,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
-class Response19(BaseModel):
+class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11224,7 +11319,7 @@ class PathsQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11267,23 +11362,27 @@ class QueryResponseAlternative(
             QueryResponseAlternative23,
             QueryResponseAlternative24,
             QueryResponseAlternative25,
+            QueryResponseAlternative26,
             QueryResponseAlternative27,
+            QueryResponseAlternative28,
             QueryResponseAlternative29,
-            QueryResponseAlternative30,
             Any,
+            QueryResponseAlternative30,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
             QueryResponseAlternative33,
             QueryResponseAlternative34,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
-            QueryResponseAlternative37,
+            QueryResponseAlternative38,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
             QueryResponseAlternative41,
+            QueryResponseAlternative42,
             QueryResponseAlternative43,
-            QueryResponseAlternative45,
+            QueryResponseAlternative44,
             QueryResponseAlternative46,
+            QueryResponseAlternative47,
             QueryResponseAlternative48,
             QueryResponseAlternative49,
             QueryResponseAlternative50,
@@ -11293,8 +11392,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative54,
             QueryResponseAlternative55,
             QueryResponseAlternative56,
-            QueryResponseAlternative57,
             QueryResponseAlternative58,
+            QueryResponseAlternative59,
             QueryResponseAlternative60,
             QueryResponseAlternative61,
             QueryResponseAlternative62,
@@ -11302,8 +11401,6 @@ class QueryResponseAlternative(
             QueryResponseAlternative64,
             QueryResponseAlternative65,
             QueryResponseAlternative66,
-            QueryResponseAlternative67,
-            QueryResponseAlternative68,
         ]
     ]
 ):
@@ -11331,23 +11428,27 @@ class QueryResponseAlternative(
         QueryResponseAlternative23,
         QueryResponseAlternative24,
         QueryResponseAlternative25,
+        QueryResponseAlternative26,
         QueryResponseAlternative27,
+        QueryResponseAlternative28,
         QueryResponseAlternative29,
-        QueryResponseAlternative30,
         Any,
+        QueryResponseAlternative30,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
         QueryResponseAlternative33,
         QueryResponseAlternative34,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
-        QueryResponseAlternative37,
+        QueryResponseAlternative38,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
         QueryResponseAlternative41,
+        QueryResponseAlternative42,
         QueryResponseAlternative43,
-        QueryResponseAlternative45,
+        QueryResponseAlternative44,
         QueryResponseAlternative46,
+        QueryResponseAlternative47,
         QueryResponseAlternative48,
         QueryResponseAlternative49,
         QueryResponseAlternative50,
@@ -11357,8 +11458,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative54,
         QueryResponseAlternative55,
         QueryResponseAlternative56,
-        QueryResponseAlternative57,
         QueryResponseAlternative58,
+        QueryResponseAlternative59,
         QueryResponseAlternative60,
         QueryResponseAlternative61,
         QueryResponseAlternative62,
@@ -11366,8 +11467,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative64,
         QueryResponseAlternative65,
         QueryResponseAlternative66,
-        QueryResponseAlternative67,
-        QueryResponseAlternative68,
     ]
 
 
@@ -11746,14 +11845,15 @@ class DataTableNode(BaseModel):
             Response8,
             Response9,
             Response10,
+            Response11,
             Response12,
+            Response13,
             Response14,
-            Response15,
+            Response16,
             Response17,
             Response18,
             Response19,
             Response20,
-            Response21,
         ]
     ] = None
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
@@ -11797,7 +11897,6 @@ class DataTableNode(BaseModel):
         WebVitalsPathBreakdownQuery,
         SessionAttributionExplorerQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -11842,7 +11941,6 @@ class HogQLAutocomplete(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsTopCustomersQuery,
@@ -11905,7 +12003,6 @@ class HogQLMetadata(BaseModel):
             HogQLMetadata,
             HogQLAutocomplete,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsTopCustomersQuery,
@@ -12014,7 +12111,6 @@ class MaxInsightContext(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -12084,7 +12180,6 @@ class QueryRequest(BaseModel):
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -12171,7 +12266,6 @@ class QuerySchemaRoot(
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsGrossRevenueQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsRevenueQuery,
             RevenueAnalyticsTopCustomersQuery,
@@ -12232,7 +12326,134 @@ class QuerySchemaRoot(
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsGrossRevenueQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class QueryUpgradeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class QueryUpgradeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
         RevenueAnalyticsTopCustomersQuery,
