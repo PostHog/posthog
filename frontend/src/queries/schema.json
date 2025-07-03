@@ -18764,9 +18764,6 @@
                 "date_to": {
                     "format": "date-time",
                     "type": "string"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType"
                 }
             },
             "type": "object"

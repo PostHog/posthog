@@ -1861,7 +1861,6 @@ class ResolvedDateRangeResponse(BaseModel):
     )
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
-    interval: Optional[IntervalType] = None
 
 
 class ResultCustomizationBase(BaseModel):
