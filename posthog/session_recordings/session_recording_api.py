@@ -761,15 +761,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            if e.__class__.__name__ == "CHQueryErrorCannotScheduleTask":
-                return Response(
-                    {"error": "ClickHouse over capacity. Please retry"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
-                )
-
-            return Response(
-                {"error": "An unexpected error has occurred. Please try again later."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            is_ch_error = isinstance(CHQueryErrorCannotScheduleTask, e)
+            message = (
+                "ClickHouse over capacity. Please retry"
+                if is_ch_error
+                else "An unexpected error has occurred. Please try again later."
             )
+            response_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+            return Response({"error": message}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
