@@ -34,6 +34,7 @@ const teamActionsMapping: Record<
     keyof TeamType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
+    // API-related tokens
     api_token: (change) => {
         if (change === undefined || change.after === undefined) {
             return null
@@ -61,7 +62,7 @@ const teamActionsMapping: Record<
         }
     },
 
-    // session replay
+    // Session replay config
     session_recording_minimum_duration_milliseconds: (change) => {
         const after = change?.after
         if (after === undefined || typeof after !== 'number') {
@@ -270,6 +271,19 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
+        // TODO we'll eventually need a deeper mapping for this nested object
+        const after = change?.after
+        const recordCanvasAfter =
+            after && typeof after === 'object' && !Array.isArray(after) ? after.record_canvas : null
+
+        if (recordCanvasAfter === null) {
+            return null
+        }
+        return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
+    },
+
+    // Survey config
     survey_config: (change: ActivityChange | undefined): ChangeMapping | null => {
         const before = change!.before as TeamSurveyConfigType
         const after = change!.after as TeamSurveyConfigType
@@ -312,19 +326,22 @@ const teamActionsMapping: Record<
 
         return { description: descriptions }
     },
-    session_replay_config(change: ActivityChange | undefined): ChangeMapping | null {
-        // TODO we'll eventually need a deeper mapping for this nested object
-        const after = change?.after
-        const recordCanvasAfter =
-            after && typeof after === 'object' && !Array.isArray(after) ? after.record_canvas : null
 
-        if (recordCanvasAfter === null) {
+    // Autocapture
+    autocapture_exceptions_errors_to_ignore: (change: ActivityChange | undefined): ChangeMapping | null => {
+        if (!change) {
             return null
         }
-        return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
+
+        return {
+            description: [
+                <>
+                    changed the <em>autocapture exceptions errors to ignore</em> to{' '}
+                    <code>[{(change.after as string[]).join(', ')}]</code>
+                </>,
+            ],
+        }
     },
-    // autocapture
-    autocapture_exceptions_errors_to_ignore: () => null,
     autocapture_exceptions_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} exception autocapture</>] }
     },
@@ -342,7 +359,8 @@ const teamActionsMapping: Record<
     heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
     },
-    // and.... many more
+
+    // and.... many more random stuff
     name(change: ActivityChange | undefined): ChangeMapping | null {
         return {
             description: [
@@ -618,19 +636,6 @@ const teamActionsMapping: Record<
             ],
         }
     },
-    has_group_types: (change): ChangeMapping | null => {
-        if (!change) {
-            return null
-        }
-
-        return {
-            description: [
-                <>
-                    <strong>{change?.after ? 'enabled' : 'disabled'}</strong> group types
-                </>,
-            ],
-        }
-    },
     person_on_events_querying_enabled: (change): ChangeMapping | null => {
         if (!change) {
             return null
@@ -833,6 +838,7 @@ const teamActionsMapping: Record<
     default_modifiers: () => null,
     is_demo: () => null,
     access_control: () => null,
+    has_group_types: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -857,7 +863,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field || !(change.field in teamActionsMapping)) {
-                continue //  not all notebook fields are describable
+                continue //  not all fields are describable
             }
 
             const actionHandler = teamActionsMapping[change.field as keyof TeamType]
