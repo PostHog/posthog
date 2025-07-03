@@ -56,14 +56,6 @@ export function PropertyGroupFilters({
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     <div className="flex flex-1 gap-2 flex-row space-between">
-                        <div className="flex-1">
-                            <InsightTestAccountFilter
-                                disabledReason={disabledReason}
-                                query={query}
-                                setQuery={setQuery as (node: InsightQueryNode) => void}
-                            />
-                        </div>
-
                         <LemonButton
                             data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"
@@ -75,6 +67,14 @@ export function PropertyGroupFilters({
                         >
                             Add filter group
                         </LemonButton>
+
+                        <div className="flex-1">
+                            <InsightTestAccountFilter
+                                disabledReason={disabledReason}
+                                query={query}
+                                setQuery={setQuery as (node: InsightQueryNode) => void}
+                            />
+                        </div>
                     </div>
 
                     {showHeader ? (
