@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="organization",
             name="members_can_use_personal_api_keys",
-            field=models.BooleanField(default=True, null=True, blank=True),
+            field=models.BooleanField(default=True),
         ),
     ]
