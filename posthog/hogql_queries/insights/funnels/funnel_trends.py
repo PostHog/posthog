@@ -13,7 +13,6 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelTrends(FunnelBase):
