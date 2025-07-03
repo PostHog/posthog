@@ -168,9 +168,33 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         else:
             non_retryable_errors.extend(Any_Source_Errors)
 
+        # Clean up Stripe permission errors
+        enhanced_latest_error = inputs.latest_error
+        if source.source_type == ExternalDataSource.Type.STRIPE and inputs.internal_error:
+            try:
+                from posthog.warehouse.models import ExternalDataSchema
+
+                schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
+
+                # Check for permission errors and simplify them
+                error_to_check = inputs.latest_error or inputs.internal_error or ""
+                if any(pattern in error_to_check.lower() for pattern in ["permission", "403", "401", "rak_"]):
+                    newer_tables = {
+                        "Dispute": "disputes",
+                        "Payout": "payouts",
+                        "CreditNote": "credit notes",
+                        "Account": "accounts",
+                    }
+                    display_name = newer_tables.get(schema.name, schema.name.lower())
+                    enhanced_latest_error = (
+                        f"Please double check that your API key has permission to read {display_name}"
+                    )
+
+            except Exception:
+                pass  # Fallback to original error
+
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
         if has_non_retryable_error:
-            logger.info("Schema has a non-retryable error - turning off syncing")
             posthoganalytics.capture(
                 get_machine_id(),
                 "schema non-retryable error",
@@ -187,8 +211,8 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
     job = update_external_job_status(
         job_id=job_id,
-        status=inputs.status,
-        latest_error=inputs.latest_error,
+        status=ExternalDataJob.Status(inputs.status),
+        latest_error=enhanced_latest_error,
         team_id=inputs.team_id,
     )
 
