@@ -41,7 +41,7 @@ class ThreadedWorker(Worker):
         finally:
             self._shutdown_event.set()
             # Give the worker a chance to shut down before exiting
-            max_wait = 10
+            max_wait = 10.0
             while t.is_alive() and max_wait > 0:
                 time.sleep(0.1)
                 max_wait -= 0.1
