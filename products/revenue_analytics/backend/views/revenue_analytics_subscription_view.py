@@ -20,7 +20,6 @@ SOURCE_VIEW_SUFFIX = "subscription_revenue_view"
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "source_label": StringDatabaseField(name="source_label"),
-    "timestamp": DateTimeDatabaseField(name="timestamp"),
     "plan_id": StringDatabaseField(name="plan_id"),
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
@@ -82,7 +81,6 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 ast.Alias(alias="plan_id", expr=extract_string("plan", "id")),
                 ast.Alias(alias="product_id", expr=extract_string("plan", "product")),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
