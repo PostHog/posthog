@@ -6,6 +6,7 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+import { type ExperimentVariantResult } from '../shared/utils'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -32,23 +33,36 @@ export function MetricRowGroup({
     const baselineResult = result?.baseline || null
     const variantResults = result?.variant_results || []
 
-    // Create all rows: one for each variant (baseline column will span all rows)
-    const allVariantRows = variantResults.map((variantResult) => ({
-        variantKey: variantResult.key,
-        variantResult,
-        isBaseline: false,
-    }))
+    // Create all rows: baseline first, then variants
+    const allRows = []
 
-    const totalRows = Math.max(1, allVariantRows.length)
+    // Add baseline row first
+    if (baselineResult) {
+        allRows.push({
+            variantKey: 'baseline',
+            variantResult: baselineResult,
+            isBaseline: true,
+        })
+    }
 
-    if (allVariantRows.length === 0) {
+    // Add variant rows
+    variantResults.forEach((variantResult) => {
+        allRows.push({
+            variantKey: variantResult.key,
+            variantResult,
+            isBaseline: false,
+        })
+    })
+
+    const totalRows = Math.max(1, allRows.length)
+
+    if (allRows.length === 0) {
         return (
             <tr className="hover:bg-bg-hover group">
                 <td className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative">
-                    <div className="p-4 text-muted text-sm">No variant data available</div>
+                    <div className="p-4 text-muted text-sm">No data available</div>
                 </td>
                 <td className="w-20 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="w-24 border-b border-r border-border p-3 align-top text-left">—</td>
                 <td className="w-24 border-b border-r border-border p-3 align-top text-left">—</td>
                 <td className="w-20 border-b border-r border-border p-3 align-top text-left">—</td>
                 <td className="min-w-[400px] border-b border-border p-2 align-top text-center">—</td>
@@ -58,13 +72,13 @@ export function MetricRowGroup({
 
     return (
         <>
-            {allVariantRows.map(({ variantKey, variantResult }, index) => (
+            {allRows.map(({ variantKey, variantResult, isBaseline }, index) => (
                 <VariantRow
                     key={`${metricIndex}-${variantKey}`}
                     variantResult={variantResult}
-                    baselineResult={baselineResult}
-                    testVariantResult={variantResult}
+                    testVariantResult={isBaseline ? null : (variantResult as ExperimentVariantResult)}
                     isFirstRow={index === 0}
+                    isBaseline={isBaseline}
                     metric={metric}
                     metricType={metricType}
                     metricIndex={metricIndex}
