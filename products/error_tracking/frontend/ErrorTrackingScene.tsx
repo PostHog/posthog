@@ -31,6 +31,7 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
+import { ErrorTrackingSceneTool } from './components/SceneTool'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -64,6 +65,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
+            <ErrorTrackingSceneTool />
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}

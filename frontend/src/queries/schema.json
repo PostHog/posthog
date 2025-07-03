@@ -836,7 +836,7 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "navigate",
-                "create_error_tracking_filters"
+                "search_error_tracking_issues"
             ],
             "type": "string"
         },
@@ -9397,6 +9397,44 @@
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
+            "type": "object"
+        },
+        "ErrorTrackingSceneToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "required": ["dateRange"],
             "type": "object"
         },
         "EventDefinition": {
