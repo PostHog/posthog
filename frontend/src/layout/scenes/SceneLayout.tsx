@@ -46,6 +46,15 @@ export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }):
     return <div className="pl-1 pt-4 flex flex-col gap-2">{children}</div>
 }
 
+export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        <>
+            <div className="flex flex-col gap-2">{children}</div>
+            <ScenePanelDivider />
+        </>
+    )
+}
+
 export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
