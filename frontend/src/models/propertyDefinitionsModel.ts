@@ -77,7 +77,7 @@ export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
     type?: PropertyDefinitionType,
-    groupTypeIndex?: GroupTypeIndex
+    groupTypeIndex?: GroupTypeIndex | null
 ) => string | string[] | null
 
 /** Update cached property definition metadata */

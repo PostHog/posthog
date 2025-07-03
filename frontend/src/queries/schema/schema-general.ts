@@ -117,7 +117,6 @@ export enum NodeKind {
 
     // Revenue analytics queries
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsGrossRevenueQuery = 'RevenueAnalyticsGrossRevenueQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
@@ -161,7 +160,6 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -227,7 +225,6 @@ export type QuerySchema =
 
     // Revenue analytics
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsGrossRevenueQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -754,7 +751,6 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
@@ -786,7 +782,6 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
@@ -1251,6 +1246,7 @@ export type RetentionFilter = {
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 8 */
     totalIntervals?: integer
+    minimumOccurrences?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
@@ -1462,6 +1458,14 @@ export interface QueryRequest {
     query: QuerySchema
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
+}
+
+export interface QueryUpgradeRequest {
+    query: QuerySchema
+}
+
+export interface QueryUpgradeResponse {
+    query: QuerySchema
 }
 
 /**
@@ -1930,18 +1934,21 @@ export enum RevenueAnalyticsGroupBy {
     PRODUCT = 'product',
 }
 
-export interface RevenueAnalyticsGrossRevenueQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
+export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsRevenueQuery
     groupBy: RevenueAnalyticsGroupBy[]
     interval: IntervalType
 }
 
-export interface RevenueAnalyticsGrossRevenueQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface RevenueAnalyticsRevenueQueryResult {
+    gross: unknown[]
+    mrr: unknown[]
+}
+export interface RevenueAnalyticsRevenueQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsRevenueQueryResult> {
     columns?: string[]
 }
-export type CachedRevenueAnalyticsGrossRevenueQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsGrossRevenueQueryResponse>
+export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -1957,16 +1964,6 @@ export interface RevenueAnalyticsOverviewItem {
 export interface RevenueAnalyticsOverviewQueryResponse
     extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
-
-export interface RevenueAnalyticsRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsRevenueQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsRevenueQuery
-    groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
-}
-
-export interface RevenueAnalyticsRevenueQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
-export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
@@ -2010,7 +2007,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'user_group' | 'user' | 'role'
+    type: 'user' | 'role'
     id: integer | string
 }
 
@@ -2633,6 +2630,7 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
     REVENUE_ANALYTICS_INVOICE_ITEM = 'revenue_analytics_invoice_item',
     REVENUE_ANALYTICS_PRODUCT = 'revenue_analytics_product',
+    REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
@@ -3228,6 +3226,8 @@ export interface MarketingAnalyticsTableQuery
     offset?: integer
     /** Filter test accounts */
     filterTestAccounts?: boolean
+    /** Dynamic conversion goal that can be set in the UI without saving */
+    dynamicConversionGoal?: ConversionGoalFilter | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
@@ -3306,7 +3306,7 @@ export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode) & {
     conversion_goal_id: string
     conversion_goal_name: string
-    schema: SchemaMap
+    schema_map: SchemaMap
 }
 
 export interface MarketingAnalyticsConfig {

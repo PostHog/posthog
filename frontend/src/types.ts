@@ -5217,6 +5217,7 @@ export interface CyclotronJobFiltersType {
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
+    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }
@@ -5498,12 +5499,6 @@ export enum UserRole {
     Marketing = 'marketing',
     Sales = 'sales',
     Other = 'other',
-}
-
-export type UserGroup = {
-    id: string
-    name: string
-    members: UserBasicType[]
 }
 
 export interface CoreMemory {
