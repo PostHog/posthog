@@ -761,7 +761,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(CHQueryErrorCannotScheduleTask, e)
+            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
             message = (
                 "ClickHouse over capacity. Please retry"
                 if is_ch_error
