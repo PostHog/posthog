@@ -5,7 +5,6 @@ from . import resources
 
 from dags.common import job_status_metrics_sensors
 from dags import (
-    exchange_rate,
     slack_alerts,
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
@@ -15,10 +14,6 @@ from dags import (
 
 defs = dagster.Definitions(
     assets=[
-        exchange_rate.daily_exchange_rates,
-        exchange_rate.hourly_exchange_rates,
-        exchange_rate.daily_exchange_rates_in_clickhouse,
-        exchange_rate.hourly_exchange_rates_in_clickhouse,
         web_preaggregated_ddl.web_analytics_preaggregated_tables,
         web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
         web_preaggregated_ddl.web_analytics_combined_views,
@@ -45,16 +40,12 @@ defs = dagster.Definitions(
         web_preaggregated_ddl.combined_bounces_view_exist,
     ],
     jobs=[
-        exchange_rate.daily_exchange_rates_job,
-        exchange_rate.hourly_exchange_rates_job,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated_asset_checks.web_analytics_data_quality_job,
         web_preaggregated_asset_checks.simple_data_checks_job,
     ],
     schedules=[
-        exchange_rate.daily_exchange_rates_schedule,
-        exchange_rate.hourly_exchange_rates_schedule,
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
         web_preaggregated_asset_checks.web_analytics_weekly_data_quality_schedule,
