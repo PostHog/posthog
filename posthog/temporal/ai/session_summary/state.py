@@ -24,7 +24,27 @@ def get_redis_state_client(
     output_label: StateActivitiesEnum | None = None,
     state_id: str | None = None,
 ) -> tuple[Redis, str | None, str | None]:
-    """Get a Redis client and state keys for input and output data"""
+    """Return a Redis client and generated state keys.
+
+    Parameters
+    ----------
+    key_base:
+        Base used for the Redis keys. When provided together with
+        `input_label` or `output_label` a state key will be generated.
+    input_label:
+        Activity label describing the input data.
+    output_label:
+        Activity label describing the output data.
+    state_id:
+        Unique identifier appended to the generated keys. Required when key
+        generation is requested.
+
+    Returns
+    -------
+    tuple[Redis, str | None, str | None]
+        The Redis client instance together with the generated input and output
+        keys. `None` is returned for a key when its label was not supplied.
+    """
     redis_client = get_client()
     redis_input_key, redis_output_key = None, None
     if key_base and input_label:
@@ -35,6 +55,22 @@ def get_redis_state_client(
 
 
 def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str | None = None) -> str:
+    """Construct a deterministic Redis key for workflow state.
+
+    Parameters
+    ----------
+    key_base:
+        Base prefix used for all state keys.
+    label:
+        Activity label describing the type of stored data.
+    state_id:
+        Unique identifier for the session(s) affected.
+
+    Returns
+    -------
+    str
+        Formatted key for Redis.
+    """
     if not state_id:
         raise ValueError("state_id is required")
     return f"{key_base}:{label.value}:{state_id}"
@@ -45,6 +81,8 @@ def _compress_redis_data(input_data: str) -> bytes:
 
 
 def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
+    """Decode data retrieved from Redis. If data is `bytes` it is assumed to be
+    gzip-compressed and will be decompressed. `str` values are returned unchanged."""
     if isinstance(raw_redis_data, bytes):
         return gzip.decompress(raw_redis_data).decode("utf-8")
     if isinstance(raw_redis_data, str):
@@ -52,17 +90,38 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
     raise ValueError(f"Invalid Redis data type: {type(raw_redis_data)}")
 
 
-def store_data_in_redis(redis_client: Redis, redis_key: str | None, data: str) -> None:
+def store_data_in_redis(
+    redis_client: Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+) -> None:
+    """Compress and store data in Redis with an expiry time."""
     if not redis_key:
         raise ValueError(f"Redis key is required to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
-    redis_client.setex(redis_key, SESSION_SUMMARIES_DB_DATA_REDIS_TTL, compressed_data)
+    redis_client.setex(redis_key, ttl, compressed_data)
     return None
 
 
 def get_data_class_from_redis(
     redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: type[T]
 ) -> T:
+    """Load and parse a dataclass instance stored as JSON in Redis.
+
+    Parameters
+    ----------
+    redis_client:
+        Redis client used to fetch the value.
+    redis_key:
+        Key from which the JSON value is retrieved.
+    label:
+        Activity label used solely for error messages.
+    target_class:
+        Dataclass type into which the JSON will be loaded.
+
+    Returns
+    -------
+    T
+        Instance of `target_class` reconstructed from the stored JSON.
+    """
     if not redis_key:
         raise ValueError(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
     redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
@@ -75,6 +134,7 @@ def get_data_class_from_redis(
 
 
 def get_data_str_from_redis(redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum) -> str:
+    """Retrieve and decompress a string value from Redis."""
     if not redis_key:
         raise ValueError(f"Redis key is required to get data from Redis ({label.value})")
     raw_redis_data = redis_client.get(redis_key)
