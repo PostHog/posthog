@@ -71,8 +71,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
 
     // Check if there are changes to apply
     const hasEvent = localConversionGoal.name !== defaultConversionGoalFilter.name
-    const hasChanges =
-        !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent && localConversionGoalName !== uniqueName
+    const hasChanges = !objectsEqual(localConversionGoal, dynamicConversionGoal) && hasEvent
     const hasAppliedGoal = !!dynamicConversionGoal
 
     return (
