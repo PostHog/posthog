@@ -16,11 +16,14 @@ def capture_exception(error=None, additional_properties=None):
 
         # Only log if captured
         if result is not None:
-            _, msg = result
-
             log_kwargs = {}
-            if isinstance(msg, dict):
-                log_kwargs["event_id"] = msg.get("uuid")
+
+            if isinstance(result, tuple) and len(result) == 2:
+                _, msg = result
+                if isinstance(msg, dict):
+                    log_kwargs["event_id"] = msg.get("uuid")
+            elif isinstance(result, str):
+                log_kwargs["event_id"] = result
 
             logger.exception(error, **log_kwargs)
     else:
