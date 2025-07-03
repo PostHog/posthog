@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantContextualTool
+from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -58,7 +58,7 @@ def _import_max_tools() -> None:
             pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
 
-def _get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
+def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     """Get the tool class for a given tool name, handling circular import."""
     _import_max_tools()  # Ensure max_tools are imported
     from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -77,7 +77,7 @@ class MaxTool(BaseTool):
     """
     root_system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's system prompt.
-    This helps the root node decide _when_ and _whether_ to use the tool.
+    Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
@@ -139,3 +139,31 @@ class MaxTool(BaseTool):
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
         return self.root_system_prompt_template.format(**formatted_context)
+
+
+class NavigateToolArgs(BaseModel):
+    page_key: AssistantNavigateUrls = Field(
+        description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
+    )
+
+
+class NavigateTool(MaxTool):
+    name: str = "navigate"
+    description: str = (
+        "Navigates to a specified, predefined page or section within the PostHog application using a specific page key. "
+        "This tool uses a fixed list of page keys and cannot navigate to arbitrary URLs or pages requiring dynamic IDs not already encoded in the page key. "
+        "After navigating, you'll be able to use that page's tools."
+    )
+    root_system_prompt_template: str = (
+        "You're currently on the {current_page} page. "
+        "You can navigate to one of the available pages using the 'navigate' tool. "
+        "Some of these pages have tools that you can use to get more information or perform actions. "
+        "After navigating to a new page, you'll have access to that page's specific tools."
+    )
+    thinking_message: str = "Navigating"
+    args_schema: type[BaseModel] = NavigateToolArgs
+
+    def _run_impl(self, page_key: AssistantNavigateUrls) -> tuple[str, Any]:
+        # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
+        # but it's useful for the LLM to still have the page_key in chat history
+        return f"Navigated to **{page_key}**.", {"page_key": page_key}
