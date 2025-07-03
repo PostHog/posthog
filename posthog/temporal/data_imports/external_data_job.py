@@ -172,9 +172,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         if has_non_retryable_error:
             logger.info("Schema has a non-retryable error - turning off syncing")
             posthoganalytics.capture(
-                get_machine_id(),
-                "schema non-retryable error",
-                {
+                distinct_id=get_machine_id(),
+                event="schema non-retryable error",
+                properties={
                     "schemaId": inputs.schema_id,
                     "sourceId": inputs.source_id,
                     "sourceType": source.source_type,
