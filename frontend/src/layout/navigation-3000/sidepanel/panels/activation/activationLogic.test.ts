@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { activationLogic } from './activationLogic'
+import { activationLogic, ActivationTask } from './activationLogic'
 
 describe('activationLogic', () => {
     let logic: ReturnType<typeof activationLogic.build>
@@ -21,5 +21,40 @@ describe('activationLogic', () => {
 
     it('should load custom events on mount', async () => {
         expectLogic(logic).toDispatchActions(['loadCustomEvents', 'loadInsights'])
+    })
+
+    describe('expandedTaskId functionality', () => {
+        it('should set and clear expanded task id', () => {
+            const taskId = ActivationTask.IngestFirstEvent
+
+            expectLogic(logic, () => {
+                logic.actions.setExpandedTaskId(taskId)
+            }).toMatchValues({
+                expandedTaskId: taskId,
+            })
+
+            expectLogic(logic, () => {
+                logic.actions.setExpandedTaskId(null)
+            }).toMatchValues({
+                expandedTaskId: null,
+            })
+        })
+
+        it('should switch between different expanded tasks', () => {
+            const firstTaskId = ActivationTask.IngestFirstEvent
+            const secondTaskId = ActivationTask.InviteTeamMember
+
+            expectLogic(logic, () => {
+                logic.actions.setExpandedTaskId(firstTaskId)
+            }).toMatchValues({
+                expandedTaskId: firstTaskId,
+            })
+
+            expectLogic(logic, () => {
+                logic.actions.setExpandedTaskId(secondTaskId)
+            }).toMatchValues({
+                expandedTaskId: secondTaskId,
+            })
+        })
     })
 })
