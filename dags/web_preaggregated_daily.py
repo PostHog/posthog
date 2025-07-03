@@ -22,10 +22,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-    DROP_PARTITION_IF_EXISTS_SQL,
-    get_s3_function_args,
-)
-from posthog.hogql.database.schema.web_analytics_s3 import (
+    DROP_PARTITION_SQL,
     get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
@@ -74,11 +71,16 @@ def pre_aggregate_web_analytics_data(
 
     try:
         # Drop the partition first for idempotency - ensures clean state before insertion
-        drop_partition_query = DROP_PARTITION_IF_EXISTS_SQL(table_name, date_start)
+        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=not DEBUG)
         context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
-        sync_execute(drop_partition_query)
-        
-        # Generate and execute the insert query
+
+        try:
+            sync_execute(drop_partition_query)
+            context.log.info(f"Successfully dropped partition for {date_start}")
+        except Exception as drop_error:
+            # Partition might not exist, which is fine for idempotency
+            context.log.info(f"Partition for {date_start} doesn't exist or couldn't be dropped: {drop_error}")
+
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -87,7 +89,7 @@ def pre_aggregate_web_analytics_data(
             table_name=table_name,
         )
 
-        # Intentionally log query details for debugging
+        # Intentionally logging query details for debugging the job
         context.log.info(f"Inserting data: {insert_query}")
 
         sync_execute(insert_query)
