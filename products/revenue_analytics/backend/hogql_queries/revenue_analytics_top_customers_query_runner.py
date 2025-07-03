@@ -109,13 +109,12 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
 
         # If there's a way to join with the customer table, then do it
         if self.revenue_subqueries.customer is not None:
-            query.select[0] = ast.Alias(
-                alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
-            )
-            self._append_joins(
-                cast(ast.JoinExpr, query.select_from),
-                [self._create_customer_join(RevenueAnalyticsInvoiceItemView, self.revenue_subqueries.customer)],
-            )
+            join = self._create_customer_join(RevenueAnalyticsInvoiceItemView, self.revenue_subqueries.customer)
+            if join is not None:
+                query.select[0] = ast.Alias(
+                    alias="name", expr=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "name"])
+                )
+                self._append_joins(cast(ast.JoinExpr, query.select_from), [join])
 
         return query
 

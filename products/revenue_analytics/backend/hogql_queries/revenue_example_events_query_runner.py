@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import Any, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -142,7 +142,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 row[8],
                 row[9],
             )
-            for row in cast(list[list[int | tuple]], response.results)
+            for row in cast(list[tuple[Any, ...]], response.results)
         ]
 
         return RevenueExampleEventsQueryResponse(
