@@ -40,6 +40,12 @@ export interface PropertyValueProps {
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
     preloadValues?: boolean
+    featureFlagData?: {
+        key: string
+        name: string
+        variants: Array<{ key: string; name?: string }>
+        isMultivariate: boolean
+    }
 }
 
 export function PropertyValue({
@@ -59,6 +65,7 @@ export function PropertyValue({
     groupTypeIndex = undefined,
     editable = true,
     preloadValues = false,
+    featureFlagData = undefined,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -72,6 +79,8 @@ export function PropertyValue({
 
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
+    const isFlagDependencyProperty = type === PropertyFilterType.FlagDependency
 
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
@@ -98,7 +107,25 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty])
 
-    const displayOptions = options[propertyKey]?.values || []
+    const baseDisplayOptions = options[propertyKey]?.values || []
+
+    // For feature flag properties, add true/false and variant options
+    let displayOptions = baseDisplayOptions
+    if (isFlagDependencyProperty) {
+        const featureFlagOptions = [{ name: 'true' }, { name: 'false' }]
+
+        // Add variant options if this is a multivariate flag
+        if (featureFlagData?.isMultivariate && featureFlagData.variants) {
+            featureFlagData.variants.forEach((variant) => {
+                featureFlagOptions.push({
+                    name: variant.name ? `${variant.key} - ${variant.name}` : variant.key,
+                })
+            })
+        }
+
+        // Override displayOptions for feature flag properties
+        displayOptions = featureFlagOptions
+    }
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
