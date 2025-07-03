@@ -266,7 +266,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         hogFunctionsLimit: [
             100 as number,
             {
-                loadMore: () => (state) => state + 100,
+                loadMore: (state) => state + 100,
             },
         ],
     }),
@@ -369,7 +369,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     }),
     listeners(({ values, actions, props }) => ({
-        hogFunctionsLimit: () => {
+        loadMore: () => {
             actions.loadHogFunctions()
         },
         toggleNode: ({ destination, enabled }) => {
@@ -399,11 +399,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     break
             }
         },
-        [destinationsFiltersLogic(props).actionTypes.setFilters]: async ({ filters }, breakpoint) => {
+        [destinationsFiltersLogic(props).actionTypes.setFilters]: async (_, breakpoint) => {
             await breakpoint(300) // Debounce for 300ms
-            if (filters.search) {
-                actions.loadHogFunctions()
-            }
+            actions.loadHogFunctions()
         },
         saveTransformationsOrderSuccess: () => {
             actions.closeReorderTransformationsModal()
