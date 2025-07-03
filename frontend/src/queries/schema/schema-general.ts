@@ -2005,6 +2005,13 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+// TODO - assignee is really hard for the tool to use, because it needs to use assigneeId, and doesn't know the ID's
+export interface ErrorTrackingSceneToolOutput
+    extends Pick<
+        ErrorTrackingQuery,
+        'orderBy' | 'orderDirection' | 'dateRange' | 'status' | 'assignee' | 'filterGroup' | 'searchQuery'
+    > {}
+
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'
     id: integer | string

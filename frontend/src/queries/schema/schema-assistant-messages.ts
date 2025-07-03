@@ -120,4 +120,4 @@ export type AssistantContextualTool =
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
-    | 'create_error_tracking_filters'
+    | 'search_error_tracking_issues'

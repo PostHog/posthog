@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
-from typing import Optional, Any
+from posthog.schema import ErrorTrackingSceneToolOutput
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -15,28 +15,17 @@ class UpdateIssueQueryArgs(BaseModel):
     change: str = Field(description="The specific change to be made to issue filters, briefly described.")
 
 
-class ErrorTrackingFiltersOutput(BaseModel):
-    search_query: Optional[str] = Field(
-        default=None, description="Text search across error messages, stack traces, exception types"
-    )
-    date_range: Optional[dict[str, Any]] = Field(default=None, description="Date range with date_from and date_to")
-    filter_test_accounts: Optional[bool] = Field(default=None, description="Whether to filter out test accounts")
-    filter_group: Optional[dict[str, Any]] = Field(
-        default=None, description="PropertyGroupFilter for structured property filtering"
-    )
-
-
-class CreateErrorTrackingFiltersTool(MaxTool):
-    name: str = "create_error_tracking_filters"
-    description: str = "Update error tracking issue filters on this page to search for specific errors by any criteria."
+class ErrorTrackingSceneTool(MaxTool):
+    name: str = "search_error_tracking_issues"
+    description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     thinking_message: str = "Updating your error tracking filters..."
-    root_system_prompt_template: str = "Current issue filters are: {current_filters}"
+    root_system_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
-    def _run_impl(self, change: str) -> tuple[str, ErrorTrackingFiltersOutput]:
+    def _run_impl(self, change: str) -> tuple[str, ErrorTrackingSceneToolOutput]:
         model = (
             ChatOpenAI(model="gpt-4o", temperature=0.2)
-            .with_structured_output(ErrorTrackingFiltersOutput, include_raw=False)
+            .with_structured_output(ErrorTrackingSceneToolOutput, include_raw=False)
             .with_retry()
         )
 
@@ -50,10 +39,10 @@ class CreateErrorTrackingFiltersTool(MaxTool):
 
         chain = prompt | model
 
-        if "current_filters" not in self.context:
-            raise ValueError("Context `current_filters` is required for the `create_error_tracking_filters` tool")
+        if "current_query" not in self.context:
+            raise ValueError("Context `current_query` is required for the `search_error_tracking_issues` tool")
 
         result = chain.invoke({"change": change, **self.context})
-        assert isinstance(result, ErrorTrackingFiltersOutput)
+        assert isinstance(result, ErrorTrackingSceneToolOutput)
 
         return "✅ Updated error tracking filters.", result
