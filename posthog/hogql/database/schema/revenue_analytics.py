@@ -133,7 +133,7 @@ def select_from_revenue_analytics_table(
 
 
 class RawRevenueAnalyticsTable(LazyTable):
-    fields: dict[str, FieldOrTable] = REVENUE_ANALYTICS_FIELDS
+    fields: dict[str, FieldOrTable] = {**REVENUE_ANALYTICS_FIELDS}
 
     def lazy_select(
         self,

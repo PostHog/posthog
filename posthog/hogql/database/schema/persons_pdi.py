@@ -15,12 +15,6 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 from posthog.models.organization import Organization
 
-FIELDS: dict[str, FieldOrTable] = {
-    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    "person_id": StringDatabaseField(name="person_id", nullable=False),
-}
-
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
@@ -91,7 +85,11 @@ def persons_pdi_join(
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
 class PersonsPDITable(LazyTable):
-    fields: dict[str, FieldOrTable] = FIELDS
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+        "person_id": StringDatabaseField(name="person_id", nullable=False),
+    }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         return persons_pdi_select(table_to_add.fields_accessed)
