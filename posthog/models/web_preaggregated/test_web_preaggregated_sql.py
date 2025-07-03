@@ -16,16 +16,21 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.context import HogQLContext
 
 
-class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
+class TestWebPreAggregatedMergeTree(ClickhouseTestMixin, APIBaseTest):
     TEST_TABLE_STATS = "test_web_stats_daily"
     TEST_TABLE_BOUNCES = "test_web_bounces_daily"
     TEST_DATE_START = "2023-01-01"
     TEST_DATE_END = "2023-01-02"
     TEST_TEAM_IDS = [1]
 
-    REPLACING_MERGE_TREE_PATTERNS = [
+    MERGE_TREE_PATTERNS = [
+        "MergeTree",
+    ]
+
+    SHOULD_NOT_CONTAIN_PATTERNS = [
         "ReplacingMergeTree",
         "updated_at DateTime64(6, 'UTC') DEFAULT now()",
+        "updated_at",
     ]
 
     AGGREGATE_FUNCTION_PATTERNS = {
@@ -65,8 +70,7 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         columns_text = match.group(1)
         lines = [line.strip().rstrip(",") for line in columns_text.split("\n") if line.strip()]
 
-        # Filter out updated_at and aggregate functions only
-        columns_to_ignore = {"updated_at"}
+        # Filter out aggregate functions only (no updated_at to filter since it's removed)
         aggregate_suffixes = {"_uniq_state", "_count_state", "_duration_state"}
 
         dimension_columns = []
@@ -75,10 +79,8 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
                 continue
             # Extract column name (first word)
             col_name = line.split()[0]
-            # Skip updated_at and aggregate functions
-            if col_name not in columns_to_ignore and not any(
-                col_name.endswith(suffix) for suffix in aggregate_suffixes
-            ):
+            # Skip aggregate functions
+            if not any(col_name.endswith(suffix) for suffix in aggregate_suffixes):
                 dimension_columns.append(col_name)
 
         return dimension_columns
@@ -110,11 +112,11 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
             ("web_bounces", _get_web_bounces_sql),
         ]
     )
-    def test_table_creation_uses_replacing_merge_tree(self, table_type: str, sql_generator):
+    def test_table_creation_uses_merge_tree(self, table_type: str, sql_generator):
         table_sql = sql_generator(self)
 
-        self._assert_sql_contains_patterns(table_sql, self.REPLACING_MERGE_TREE_PATTERNS)
-        self._assert_sql_contains_patterns(table_sql, ["AggregatingMergeTree"], should_contain=False)
+        self._assert_sql_contains_patterns(table_sql, self.MERGE_TREE_PATTERNS)
+        self._assert_sql_contains_patterns(table_sql, self.SHOULD_NOT_CONTAIN_PATTERNS, should_contain=False)
 
     def test_web_bounces_has_required_aggregate_functions(self):
         table_sql = self._get_web_bounces_sql()
@@ -164,7 +166,7 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         assert "pathname" not in WEB_BOUNCES_DIMENSIONS
 
     @patch("posthog.clickhouse.client.sync_execute")
-    def test_queries_use_final_keyword(self, mock_sync_execute):
+    def test_queries_do_not_use_final_keyword(self, mock_sync_execute):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from=self.TEST_DATE_START, date_to="2023-01-31"), properties=[]
         )
@@ -175,11 +177,11 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql = print_ast(hogql_query, context=context, dialect="clickhouse")
 
-        assert "web_bounces_combined FINAL" in sql
+        assert "web_bounces_combined FINAL" not in sql
 
-    def test_replacing_merge_tree_version_column(self):
+    def test_merge_tree_no_version_column(self):
         table_sql = WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False)
 
-        assert "updated_at" in table_sql
-
-        assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in table_sql
+        # Should not contain any updated_at references
+        assert "updated_at" not in table_sql
+        assert "DEFAULT now()" not in table_sql
