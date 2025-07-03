@@ -72,7 +72,7 @@ from posthog.schema import (
     TrendsQuery,
     TrendsQueryResponse,
     TrendsFormulaNode,
-    QueryDateRangeResponse,
+    ResolvedDateRangeResponse,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
@@ -487,7 +487,7 @@ class TrendsQueryRunner(QueryRunner):
             hogql=response_hogql,
             modifiers=self.modifiers,
             error=". ".join(debug_errors),
-            query_date_range=QueryDateRangeResponse(
+            resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
                 interval=self.query_date_range.interval_type,
