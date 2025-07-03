@@ -20,7 +20,6 @@ import clsx from 'clsx'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { SidePanelTab } from '~/types'
-import { router } from 'kea-router'
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -151,7 +150,7 @@ function MaxFloatingInputContent(): JSX.Element {
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { scene } = useValues(sceneLogic)
+    const { scene, sceneConfig } = useValues(sceneLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
@@ -167,7 +166,7 @@ export function MaxFloatingInput(): JSX.Element | null {
         return null
     }
 
-    if (router.values.location.pathname.includes('/onboarding')) {
+    if (sceneConfig?.layout === 'plain') {
         return null
     }
 
