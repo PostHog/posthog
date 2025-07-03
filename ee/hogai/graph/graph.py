@@ -6,9 +6,12 @@ from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.graph.base import AssistantNode
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.schema import AssistantToolCallMessage, AssistantMessage
+from langchain_core.runnables import RunnableConfig
 
 from .funnels.nodes import (
     FunnelGeneratorNode,
@@ -35,7 +38,7 @@ from .retention.nodes import (
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from .root.nodes import RootNode, RootNodeTools
+from .root.nodes import RootNode, RootNodeTools, RouteName
 from .sql.nodes import (
     SQLGeneratorNode,
     SQLGeneratorToolsNode,
@@ -467,3 +470,73 @@ class AssistantGraph(BaseAssistantGraph):
             .add_inkeep_docs()
             .compile()
         )
+
+
+class ExperimentsRootNode(AssistantNode):
+    """Custom RootNode for experiments that automatically calls the experiment tool."""
+
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # If we have experiment data, automatically create a tool call message
+        if state.root_tool_experiment_id and state.root_tool_experiment_results_data:
+            tool_call_message = AssistantMessage(
+                content="I'll analyze your experiment results.",
+                tool_calls=[
+                    {
+                        "id": state.root_tool_call_id,
+                        "name": "experiment_results_summary",
+                        "args": {
+                            "experiment_id": state.root_tool_experiment_id,
+                            "results_data": state.root_tool_experiment_results_data,
+                        },
+                    }
+                ],
+            )
+            return PartialAssistantState(messages=[tool_call_message])
+
+        # Fallback to regular root behavior if no experiment data
+        return PartialAssistantState(messages=[])
+
+
+class ExperimentsRootNodeTools(RootNodeTools):
+    """Custom RootNodeTools for experiments that doesn't route to search_documentation."""
+
+    def router(self, state: AssistantState) -> RouteName:
+        last_message = state.messages[-1]
+
+        # If we have a tool call result message, we're done - go to end
+        if isinstance(last_message, AssistantToolCallMessage):
+            return "end"
+
+        # If we have a tool call ID but no insight type, it's an experiment tool
+        if state.root_tool_call_id and not state.root_tool_insight_type:
+            return "end"  # Go to end after executing experiment tool
+
+        # If we have a tool call ID with insight type, it's an insight tool (shouldn't happen in experiments)
+        if state.root_tool_call_id and state.root_tool_insight_type:
+            return "end"  # Go to end
+
+        # No tool call, go to end
+        return "end"
+
+
+class ExperimentsAssistantGraph(BaseAssistantGraph):
+    def add_root(self):
+        builder = self._graph
+        self._has_start_node = True
+
+        root_node = ExperimentsRootNode(self._team, self._user)  # Use custom root node
+        builder.add_node(AssistantNodeName.ROOT, root_node)
+        root_node_tools = ExperimentsRootNodeTools(self._team, self._user)  # Use custom tools node
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
+
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROOT_TOOLS,
+            root_node_tools.router,
+            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
+        )
+        return self
+
+    def compile_full_graph(self):
+        return self.add_root().compile()
