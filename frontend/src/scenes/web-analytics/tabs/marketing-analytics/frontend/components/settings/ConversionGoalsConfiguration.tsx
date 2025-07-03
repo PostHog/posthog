@@ -71,7 +71,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
     return (
         <div className="space-y-6">
             <div>
-                <h3 className="mb-2">Conversion Goals</h3>
+                <h3 className="mb-2">Conversion goals</h3>
                 <p className="mb-4">
                     Define conversion goals by selecting events or data warehouse tables. These goals can be used to
                     track and analyze user conversions in your marketing analytics.
