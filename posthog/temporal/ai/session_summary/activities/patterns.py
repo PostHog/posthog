@@ -213,12 +213,8 @@ async def assign_events_to_patterns_activity(
             remove_excessive_content_from_session_summary_for_llm(session_summary_str)
             for session_summary_str in session_summaries_str
         ]
-        # Convert session summaries strings to objects to extract event-related data
-        session_summaries = [
-            load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
-        ]
-        # Split sessions summaries into chunks of 10 sessions each
-        # TODO: Run activity for each chunk instead to avoid retrying the whole workflow
+        # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
+        # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
         session_summaries_chunks_str = [
             intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
             for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
@@ -254,6 +250,10 @@ async def assign_events_to_patterns_activity(
                 for single_session_input in inputs.single_session_summaries_inputs
             ],
         )
+        # Convert session summaries strings to objects to extract event-related data
+        session_summaries = [
+            load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
+        ]
         # Combine event ids mappings from all the sessions to identify events and sessions assigned to patterns
         combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
             single_session_summaries_inputs=single_session_summaries_llm_inputs

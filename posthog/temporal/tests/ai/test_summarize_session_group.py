@@ -455,6 +455,16 @@ class TestSummarizeSessionGroupWorkflow:
             # Verify the result is of the correct type
             assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
             # Verify Redis operations count (more operations now due to pattern activities)
-            # Operations: session data storage (2) + session summaries (2) + pattern extraction (1) = 5
-            assert spy_setex.call_count >= len(session_ids)  # At least store DB query data for each session
-            assert spy_get.call_count >= len(session_ids)  # At least get DB query data for each session
+            # Operations: session data storage (2) + session summaries (2) + pattern extraction (1)
+            assert spy_setex.call_count == 5
+            # Operations:
+            # - try to get cached DB data (2)
+            # - try to get cached single-session summaries (2)
+            # - get cached DB data (2)
+            # - try to get cached extracted patterns (1)
+            # - get cached single-session summaries (2)
+            # - try to get cached patterns assignments (1)
+            # - get cached extracted patterns (1)
+            # - get cached single-session summaries (2)
+            # - get cached DB data (2)
+            assert spy_get.call_count == 15
