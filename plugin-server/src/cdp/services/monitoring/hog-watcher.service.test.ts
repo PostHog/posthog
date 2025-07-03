@@ -4,7 +4,7 @@ jest.mock('~/utils/posthog', () => {
     }
 })
 
-import { Hub } from '../../../types'
+import { CookielessServerHashMode, Hub, ProjectId } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { delay } from '../../../utils/utils'
 import { createExampleInvocation } from '../../_tests/fixtures'
@@ -52,6 +52,40 @@ describe('HogWatcher', () => {
     beforeEach(async () => {
         hub = await createHub()
         hub.celery.applyAsync = mockCeleryApplyAsync = jest.fn()
+
+        hub.teamManager.getTeam = jest.fn(async (teamId) => {
+            return Promise.resolve(
+                teamId === 2
+                    ? {
+                          id: 2,
+                          name: 'Test Team',
+                          project_id: 1 as ProjectId,
+                          cookieless_server_hash_mode: CookielessServerHashMode.Disabled,
+                          available_features: [],
+                          slack_incoming_webhook: null,
+                          person_processing_opt_out: false,
+                          heatmaps_opt_in: false,
+                          person_display_name_properties: [],
+                          access_control: false,
+                          test_account_filters_default_checked: false,
+                          uuid: 'test-uuid',
+                          organization_id: '1',
+                          anonymize_ips: false,
+                          api_token: 'test-token',
+                          app_urls: [],
+                          recording_domains: [],
+                          session_recording_opt_in: false,
+                          ingested_event: false,
+                          completed_snippet_onboarding: false,
+                          has_completed_onboarding_for: {},
+                          test_account_filters: [],
+                          path_cleaning_filters: [],
+                          timezone: 'UTC',
+                          data_attributes: [],
+                      }
+                    : null
+            )
+        })
 
         now = 1720000000000
         mockNow.mockReturnValue(now)
