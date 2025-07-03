@@ -206,6 +206,10 @@ export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolea
     return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
+export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
 export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
 }

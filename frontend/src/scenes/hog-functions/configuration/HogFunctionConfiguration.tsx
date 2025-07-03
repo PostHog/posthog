@@ -121,6 +121,7 @@ export function HogFunctionConfiguration({
 
     const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
     const isSegmentPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('segment-')
+    const isNativePlugin = (template?.id || hogFunction?.template?.id)?.startsWith('native-')
 
     const headerButtons = (
         <>
@@ -204,9 +205,10 @@ export function HogFunctionConfiguration({
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
-            !isSegmentPlugin &&
-            (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
-                (type === 'transformation' && canEditTransformationHogCode)))
+            !isNativePlugin &&
+                !isSegmentPlugin &&
+                (['destination', 'email', 'site_destination', 'site_app', 'source_webhook'].includes(type) ||
+                    (type === 'transformation' && canEditTransformationHogCode)))
     const showTesting =
         displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 

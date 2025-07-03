@@ -41,6 +41,7 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
+import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer '
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -273,6 +274,14 @@ export class PluginServer {
             if (capabilities.cdpCyclotronWorkerSegment) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerSegment(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerNative) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerNative(hub)
                     await worker.start()
                     return worker.service
                 })
