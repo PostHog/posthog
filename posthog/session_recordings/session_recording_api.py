@@ -802,7 +802,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             )
 
     @retry(
-        # our clickhouse error types are dynamic so we can't import them here, and have to match on message
         retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
         # if retrying doesn't work, raise the actual error, not a retry error
         reraise=True,
