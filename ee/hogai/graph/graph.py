@@ -6,10 +6,12 @@ from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.graph.base import AssistantNode
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantToolCallMessage, AssistantMessage
+from langchain_core.runnables import RunnableConfig
 
 from .funnels.nodes import (
     FunnelGeneratorNode,
@@ -470,6 +472,31 @@ class AssistantGraph(BaseAssistantGraph):
         )
 
 
+class ExperimentsRootNode(AssistantNode):
+    """Custom RootNode for experiments that automatically calls the experiment tool."""
+
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # If we have experiment data, automatically create a tool call message
+        if state.root_tool_experiment_id and state.root_tool_experiment_results_data:
+            tool_call_message = AssistantMessage(
+                content="I'll analyze your experiment results.",
+                tool_calls=[
+                    {
+                        "id": state.root_tool_call_id,
+                        "name": "experiment_results_summary",
+                        "args": {
+                            "experiment_id": state.root_tool_experiment_id,
+                            "results_data": state.root_tool_experiment_results_data,
+                        },
+                    }
+                ],
+            )
+            return PartialAssistantState(messages=[tool_call_message])
+
+        # Fallback to regular root behavior if no experiment data
+        return PartialAssistantState(messages=[])
+
+
 class ExperimentsRootNodeTools(RootNodeTools):
     """Custom RootNodeTools for experiments that doesn't route to search_documentation."""
 
@@ -497,7 +524,7 @@ class ExperimentsAssistantGraph(BaseAssistantGraph):
         builder = self._graph
         self._has_start_node = True
 
-        root_node = RootNode(self._team, self._user)
+        root_node = ExperimentsRootNode(self._team, self._user)  # Use custom root node
         builder.add_node(AssistantNodeName.ROOT, root_node)
         root_node_tools = ExperimentsRootNodeTools(self._team, self._user)  # Use custom tools node
         builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)

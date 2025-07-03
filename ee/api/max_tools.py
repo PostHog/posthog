@@ -39,11 +39,14 @@ class InsightsToolCallSerializer(serializers.Serializer):
 
 class ExperimentResultsSummaryToolCallSerializer(serializers.Serializer):
     experiment_id = serializers.CharField(required=True)
+    results_data = serializers.CharField(required=True)
 
     def validate(self, data: dict[str, Any]):
         try:
             tool_call_state = AssistantState(
                 root_tool_call_id=str(uuid4()),
+                root_tool_experiment_id=data["experiment_id"],
+                root_tool_experiment_results_data=data["results_data"],
                 messages=[],
             )
             data["state"] = tool_call_state

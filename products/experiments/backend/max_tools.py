@@ -1,11 +1,14 @@
 from ee.hogai.tool import MaxTool
 from pydantic import BaseModel, Field
 from typing import Any
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
 
 # Define your tool's arguments schema
 class ExperimentResultsSummaryArgs(BaseModel):
     experiment_id: str = Field(description="The ID of the experiment to summarize")
+    results_data: str = Field(description="The formatted experiment results data to analyze")
 
 
 class ExperimentResultsSummaryTool(MaxTool):
@@ -26,7 +29,29 @@ Examples:
 - "Control and test variants are performing similarly so far, with the test variant showing a slight, but not significant, improvement. Credible intervals overlap and the p-value is above the significance threshold."
 """
 
-    def _run_impl(self, experiment_id: str) -> tuple[str, Any]:
-        # tool implementation goes here :D
-        content = f"Summarized results for experiment {experiment_id}"
-        return content, None  # Return tuple of (content, artifact)
+    def _run_impl(self, experiment_id: str, results_data: str) -> tuple[str, Any]:
+        try:
+            system_content = self.root_system_prompt_template
+
+            user_content = f"""
+Please analyze the following experiment results and provide a comprehensive summary:
+
+Experiment ID: {experiment_id}
+
+{results_data}
+
+Focus on key metrics, statistical significance, and actionable insights for the product team.
+"""
+
+            messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
+
+            result = self._model.invoke(messages)
+            content = result.content
+
+            return content, None  # Return tuple of (content, artifact)
+        except Exception as e:
+            return f"Error generating experiment summary: {str(e)}", None
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True)

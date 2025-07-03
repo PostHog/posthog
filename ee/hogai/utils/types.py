@@ -122,6 +122,14 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
+    root_tool_experiment_id: Optional[str] = Field(default=None)
+    """
+    The experiment ID for experiment tools.
+    """
+    root_tool_experiment_results_data: Optional[str] = Field(default=None)
+    """
+    The experiment results data for experiment tools.
+    """
     rag_context: Optional[str] = Field(default=None)
     """
     The context for taxonomy agent.
@@ -153,6 +161,8 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_insight_plan="",
             root_tool_insight_type="",
             root_tool_calls_count=0,
+            root_tool_experiment_id="",
+            root_tool_experiment_results_data="",
             root_conversation_start_id="",
             rag_context="",
         )
