@@ -198,6 +198,7 @@ const ActivationTask = ({
     canSkip,
     lockedReason,
     url,
+    buttonText,
 }: ActivationTaskType): JSX.Element => {
     const { runTask, markTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
@@ -309,7 +310,7 @@ const ActivationTask = ({
                     >
                         {ContentComponent && <ContentComponent />}
                         <LemonButton type="primary" size="small" className="mt-2" onClick={handleGetStarted}>
-                            Get started
+                            {buttonText || 'Get started'}
                         </LemonButton>
                     </div>
                 </div>
