@@ -5,15 +5,7 @@ from typing import Any
 
 def convert_patterns_to_markdown(json_data: dict[str, Any], session_ids_file_path: str, domain: str) -> str:
     """
-    Convert EnrichedSessionGroupSummaryPatternsList JSON data to markdown format.
-
-    Args:
-        json_data: Dictionary containing patterns data
-        session_ids_file_path: Path to session_ids_processed.json file
-        domain: Domain name for the report title
-
-    Returns:
-        Formatted markdown string
+    Convert patterns JSON data to markdown format.
     """
     patterns = json_data.get("patterns", [])
 
@@ -26,7 +18,6 @@ def convert_patterns_to_markdown(json_data: dict[str, Any], session_ids_file_pat
     total_sessions = len(session_ids)
 
     # Sort patterns by severity: critical, medium, high
-    # TODO: Implement in actual summary also
     severity_order = {"critical": 0, "high": 1, "medium": 2}
     patterns.sort(key=lambda p: severity_order.get(p["severity"]))
 
@@ -179,15 +170,6 @@ def save_patterns_to_markdown(
 ) -> str:
     """
     Load JSON patterns file and save as markdown.
-
-    Args:
-        json_file_path: Path to the JSON file containing patterns
-        session_ids_file_path: Path to session_ids_processed.json file
-        domain: Domain name for the report title
-        output_file_path: Optional path for output markdown file
-
-    Returns:
-        Path to the created markdown file
     """
     # Load JSON data
     with open(json_file_path) as f:

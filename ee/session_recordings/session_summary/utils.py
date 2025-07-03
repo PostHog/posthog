@@ -136,5 +136,4 @@ def unpack_full_event_id(full_event_id: str | None, session_id: str | None = Non
 
 def strip_raw_llm_content(raw_content: str) -> str:
     """Strip the first and the last line of the content to load the YAML data only into JSON"""
-    # TODO Create a more robust solution
     return raw_content.strip("```yaml\n").strip("```").strip()  # noqa: B005
