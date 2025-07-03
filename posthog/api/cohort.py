@@ -514,6 +514,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     @action(
         methods=["GET"],
         detail=True,
+        required_scopes=["cohort:write"],
     )
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
