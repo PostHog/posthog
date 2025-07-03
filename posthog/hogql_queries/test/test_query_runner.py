@@ -9,12 +9,19 @@ from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models.team.team import Team
+from posthog.hogql.constants import LimitContext
 from posthog.schema import (
     CacheMissResponse,
     HogQLQuery,
     HogQLQueryModifiers,
+    InCohortVia,
     MaterializationMode,
+    BounceRatePageViewMode,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    SessionsV2JoinMode,
+    SessionTableVersion,
+    RevenueAnalyticsPersonsJoinModeModifier,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
 )
@@ -93,19 +100,20 @@ class TestQueryRunner(BaseTest):
         # memory usage (until old cache items are evicted).
         assert cache_payload == {
             "hogql_modifiers": {
-                "inCohortVia": "auto",
-                "materializationMode": "legacy_null_as_null",
-                "personsArgMaxVersion": "auto",
-                "optimizeJoinedFilters": False,
-                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                "bounceRatePageViewMode": "count_pageviews",
+                "bounceRatePageViewMode": BounceRatePageViewMode.COUNT_PAGEVIEWS,
                 "convertToProjectTimezone": True,
-                "sessionTableVersion": "auto",
+                "inCohortVia": InCohortVia.AUTO,
+                "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
+                "optimizeJoinedFilters": False,
+                "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
+                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinModeModifier.ID,
+                "sessionTableVersion": SessionTableVersion.AUTO,
+                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
                 "useMaterializedViews": True,
-                "sessionsV2JoinMode": "string",
                 "usePresortedEventsTable": False,
             },
-            "limit_context": "query",
+            "limit_context": LimitContext.QUERY,
             "query": {"kind": "TestQuery", "some_attr": "bla"},
             "query_runner": "TestQueryRunner",
             "team_id": 42,
@@ -121,7 +129,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_81cddfbbf27c8656cc0c71e17917c8bd"
+        assert cache_key == "cache_295f1bb6f5e9b9f9fed9bf721e16811f"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -135,7 +143,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_ac85f6f0bfcc738665881287b9d86890"
+        assert cache_key == "cache_09a65a8826f702415e763ed0ec9a8acb"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -146,7 +154,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_2c629e23e4015d311ade6565dcdf0387"
+        assert cache_key == "cache_10363a119fa9bd0bf020930e6ebcff5d"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
