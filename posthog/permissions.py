@@ -468,7 +468,10 @@ class APIScopePermission(ScopeBasePermission):
         Check if the organization being accessed allows personal API keys.
         Admins can always use personal API keys regardless of the organization setting.
         """
-        org = get_organization_from_view(view)
+        try:
+            org = get_organization_from_view(view)
+        except ValueError:
+            pass
 
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
