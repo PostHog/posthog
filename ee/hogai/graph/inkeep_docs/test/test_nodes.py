@@ -178,7 +178,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             node._get_model()
 
             mock_chat_openai.assert_called_once_with(
-                model="inkeep-qa-expert",
+                model="inkeep-qa-sonnet-4",
                 base_url="https://api.inkeep.com/v1/",
                 api_key="",
                 streaming=True,
