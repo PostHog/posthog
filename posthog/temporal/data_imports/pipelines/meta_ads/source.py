@@ -8,7 +8,7 @@ import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models import Integration
-from posthog.models.integration import MetaAdsIntegration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.source import config
 from posthog.warehouse.types import IncrementalFieldType
@@ -43,6 +43,10 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     integration = Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
     meta_ads_integration.refresh_access_token()
+
+    if meta_ads_integration.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+        raise Exception("Failed to refresh token for Meta Ads integration. Please re-authorize the integration.")
+
     return meta_ads_integration.integration
 
 
@@ -218,8 +222,6 @@ def meta_ads_source(
         name=name,
         items=get_rows(),
         primary_keys=schema.primary_keys,
-        partition_count=1,
-        partition_size=1,
         partition_mode=schema.partition_mode,
         partition_format=schema.partition_format,
         partition_keys=schema.partition_keys,

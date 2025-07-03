@@ -1061,11 +1061,11 @@ class MetaAdsIntegration:
     def refresh_access_token(self):
         oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
-        # check if refresh is necessary (less than 2 days)
+        # check if refresh is necessary (less than 7 days)
         if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
             if (
                 time.time()
-                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 172800
+                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
             ):
                 return
 
@@ -1089,6 +1089,7 @@ class MetaAdsIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
+            self.integration.errors = ""
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
