@@ -4612,6 +4612,10 @@ export interface DataModelingJob {
     last_run_at: string
     workflow_id: string
     workflow_run_id: string
+    total_rows_expected: number | null
+    progress_percentage: number
+    batches_processed: number
+    last_progress_update: string
 }
 
 export interface SimpleExternalDataSourceSchema {

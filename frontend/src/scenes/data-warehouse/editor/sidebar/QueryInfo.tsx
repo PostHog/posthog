@@ -1,5 +1,6 @@
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -246,13 +247,24 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, progress_percentage } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
                                             Running: 'warning',
                                         }
                                         const type = statusToType[status] || 'warning'
+
+                                        if (status === 'Running' && progress_percentage > 0) {
+                                            return (
+                                                <Tooltip title={`Running: ${progress_percentage.toFixed(1)}%`}>
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progress_percentage} />
+                                                    </div>
+                                                </Tooltip>
+                                            )
+                                        }
 
                                         return error ? (
                                             <Tooltip title={error}>
