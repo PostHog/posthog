@@ -14,7 +14,7 @@ export type PanelLayoutNavIdentifier =
     | 'Database'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
-export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
+export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
@@ -143,7 +143,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
                 actions.showLayoutPanel(false)
                 actions.clearActivePanelIdentifier()
-                actions.setPanelWidth(PANEL_LAYOUT_MIN_WIDTH)
+                actions.setPanelWidth(PANEL_LAYOUT_DEFAULT_WIDTH)
             }
         },
         resetPanelLayout: ({ keyboardAction = false }) => {
