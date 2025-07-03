@@ -4,8 +4,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-
 import { QuestionInput } from './components/QuestionInput'
 import { FloatingInputActions } from './components/FloatingInputActions'
 import { HedgehogAvatar } from './components/HedgehogAvatar'
@@ -56,7 +54,7 @@ const MaxQuestionInput = React.forwardRef<HTMLDivElement, MaxQuestionInputProps>
                     <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={false} />
                 ) : undefined
             }
-            containerClassName="w-full max-w-[45rem] self-center p-0"
+            containerClassName="w-full max-w-[45rem] self-center"
             onSubmit={() => {
                 setShowFloatingMaxSuggestions(false)
             }}
@@ -130,7 +128,8 @@ function MaxFloatingInputContent(): JSX.Element {
                                     <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={true} />
                                 </div>
                             </div>
-                            <div className="max-h-96 overflow-y-auto">
+                            {/* Negative bottom margin so that the scrollable area touches the input */}
+                            <div className="max-h-96 overflow-y-auto -mb-1">
                                 <ThreadAutoScroller>
                                     <Thread className="p-1" />
                                 </ThreadAutoScroller>
@@ -145,16 +144,15 @@ function MaxFloatingInputContent(): JSX.Element {
 
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { sidePanelOpen } = useValues(sidePanelLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState, showFloatingMax } =
         useValues(maxGlobalLogic)
-    const { threadLogicKey, conversation, threadVisible } = useValues(maxLogic)
+    const { threadLogicKey, conversation } = useValues(maxLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
     }
 
-    if (sidePanelOpen || !showFloatingMax) {
+    if (!showFloatingMax) {
         return null
     }
 
@@ -214,8 +212,7 @@ export function MaxFloatingInput(): JSX.Element | null {
                     : clsx(
                           getPositionClasses(),
                           'border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
-                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full mr-4',
-                          !threadVisible && isFloatingMaxExpanded ? 'p-1' : 'p-0.5'
+                          isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full mr-4'
                       )
             }
             style={floatingMaxDragState.isDragging || floatingMaxDragState.isAnimating ? {} : getAnimationStyle()}

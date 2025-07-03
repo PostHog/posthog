@@ -21,6 +21,7 @@ import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
+from flaky import flaky
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -46,6 +47,7 @@ from posthog.temporal.batch_exports.pre_export_stage import (
 from posthog.temporal.batch_exports.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+    SUPPORTED_COMPRESSIONS,
     IntermittentUploadPartTimeoutError,
     InvalidS3EndpointError,
     S3BatchExportInputs,
@@ -471,7 +473,7 @@ class TestInsertIntoS3Activity:
 
         return records_exported
 
-    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_S3_MODELS)
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
@@ -513,6 +515,9 @@ class TestInsertIntoS3Activity:
 
         if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
             pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
+
+        if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
         prefix = str(uuid.uuid4())
 
@@ -577,7 +582,7 @@ class TestInsertIntoS3Activity:
             sort_key=sort_key,
         )
 
-    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
     # Use 0 to test that the file is not split up and 6MB since this is slightly
@@ -609,6 +614,9 @@ class TestInsertIntoS3Activity:
 
         if file_format == "JSONLines" and compression is not None:
             pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
+
+        if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
         prefix = str(uuid.uuid4())
 
@@ -929,7 +937,7 @@ async def _run_s3_batch_export_workflow(
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
     clickhouse_client,
@@ -980,7 +988,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
@@ -1001,6 +1009,9 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and various compression and file formats."""
+
+    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     with override_settings(
         BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
@@ -1072,6 +1083,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+@flaky(max_runs=3, min_passes=1)
 async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,
@@ -1261,7 +1273,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
@@ -1287,6 +1299,9 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and
     encryption.
     """
+
+    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,

@@ -1,17 +1,31 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
-
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
+import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { routes } from 'scenes/scenes'
+import { IconCompass } from '@posthog/icons'
+import { Scene } from 'scenes/sceneTypes'
+import { SidePanelTab } from '~/types'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
     name: AssistantContextualTool
     /** A user-friendly display name for the tool */
     displayName: string
+    /** A user-friendly description for the tool */
+    description: `Max can ${string}`
+    /**
+     * Optional specific @posthog/icons icon
+     * @default <IconWrench />
+     */
+    icon?: React.ReactNode
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
     /**
@@ -28,13 +42,14 @@ export interface ToolDefinition {
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
-    callback: (toolOutput: any) => void
+    callback: (toolOutput: any) => void | Promise<void>
 }
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], sceneLogic, ['sceneConfig']],
+        values: [organizationLogic, ['currentOrganization'], sceneLogic, ['scene', 'sceneConfig']],
+        actions: [router, ['locationChanged']],
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
@@ -47,7 +62,39 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         toolMap: [
-            {} as Record<string, ToolDefinition>,
+            {
+                // The navigation tool is available everywhere
+                navigate: {
+                    name: 'navigate' as const,
+                    displayName: 'Navigate',
+                    description: 'Max can navigate to other places in PostHog',
+                    icon: <IconCompass />,
+                    context: { current_page: location.pathname },
+                    callback: async (toolOutput) => {
+                        const { page_key: pageKey } = toolOutput
+                        if (!(pageKey in urls)) {
+                            throw new Error(`${pageKey} not in urls`)
+                        }
+                        const url = urls[pageKey as AssistantNavigateUrls]()
+                        router.actions.push(url)
+                        // First wait for navigation to complete
+                        await new Promise<void>((resolve, reject) => {
+                            const NAVIGATION_TIMEOUT = 1000 // 1 second timeout
+                            const startTime = performance.now()
+                            const checkPathname = (): void => {
+                                if (sceneLogic.values.activeScene === routes[url]?.[0]) {
+                                    resolve()
+                                } else if (performance.now() - startTime > NAVIGATION_TIMEOUT) {
+                                    reject(new Error('Navigation timeout'))
+                                } else {
+                                    setTimeout(checkPathname, 50)
+                                }
+                            }
+                            checkPathname()
+                        })
+                    },
+                },
+            } as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
@@ -91,17 +138,36 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
         },
+        locationChanged: ({ pathname }) => {
+            // Update navigation tool with the current page
+            actions.registerTool({
+                ...values.toolMap.navigate,
+                context: { current_page: pathname },
+            })
+        },
     })),
     selectors({
         showFloatingMax: [
-            (s) => [s.sceneConfig],
-            (sceneConfig) => sceneConfig && !sceneConfig.onlyUnauthenticated && sceneConfig.layout !== 'plain',
+            (s) => [
+                s.scene,
+                s.sceneConfig,
+                s.isFloatingMaxExpanded,
+                sidePanelLogic.selectors.sidePanelOpen,
+                sidePanelLogic.selectors.selectedTab,
+            ],
+            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab) =>
+                sceneConfig &&
+                !sceneConfig.onlyUnauthenticated &&
+                sceneConfig.layout !== 'plain' &&
+                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
+                !(sidePanelOpen && selectedTab === SidePanelTab.Max), // The Max side panel is open
+            // ,
         ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
