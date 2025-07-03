@@ -27,15 +27,15 @@ export function SceneFile(): JSX.Element | null {
         <div className="flex flex-col">
             <Label intent="menu">File</Label>
             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <div className="-ml-1.5">
+                <div className="-ml-1.5">
+                    <DropdownMenuTrigger asChild>
                         <ButtonPrimitive menuItem>
                             <IconFolderOpen />
                             {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
                             <DropdownMenuOpenIndicator className="ml-auto" />
                         </ButtonPrimitive>
-                    </div>
-                </DropdownMenuTrigger>
+                    </DropdownMenuTrigger>
+                </div>
                 <DropdownMenuContent align="start" matchTriggerWidth>
                     <DropdownMenuItem className="w-full">
                         <ButtonPrimitive
