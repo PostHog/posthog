@@ -3868,38 +3868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "links"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum 0.7.5",
- "chrono",
- "common-alloc",
- "common-database",
- "common-metrics",
- "common-redis",
- "common-types",
- "envconfig",
- "health",
- "metrics",
- "moka",
- "once_cell",
- "rand 0.8.5",
- "reqwest 0.12.3",
- "rust_decimal",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 1.0.69",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
