@@ -1,7 +1,7 @@
 import dataclasses
 
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
-from posthog.temporal.ai.session_summary.shared import SingleSessionSummaryInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

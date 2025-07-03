@@ -29,10 +29,7 @@ from posthog.temporal.ai.session_summary.summarize_session import (
     execute_summarize_session_stream,
     stream_llm_single_session_summary_activity,
 )
-from posthog.temporal.ai.session_summary.shared import (
-    SingleSessionSummaryInputs,
-    fetch_session_data_activity,
-)
+from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.testing import WorkflowEnvironment
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
@@ -45,6 +42,7 @@ from unittest.mock import AsyncMock
 from temporalio.exceptions import ApplicationError
 from temporalio.client import WorkflowFailureError
 
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.ai.conftest import RedisTestContext
 
 pytestmark = pytest.mark.django_db

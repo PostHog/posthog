@@ -2,6 +2,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     extract_session_group_patterns_activity,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from .sync_vectors import (
     SyncVectorsInputs,
     SyncVectorsWorkflow,
@@ -22,7 +23,7 @@ from .session_summary.summarize_session_group import (
     get_llm_single_session_summary_activity,
 )
 
-from .session_summary.shared import SingleSessionSummaryInputs, fetch_session_data_activity
+from .session_summary.shared import fetch_session_data_activity
 
 WORKFLOWS = [SyncVectorsWorkflow, SummarizeSingleSessionWorkflow, SummarizeSessionGroupWorkflow]
 

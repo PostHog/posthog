@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
+from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.summarize_session import (
     prepare_data_for_single_session_summary,
     prepare_single_session_summary_input,
@@ -14,20 +14,9 @@ from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     store_data_in_redis,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 logger = structlog.get_logger(__name__)
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class SingleSessionSummaryInputs:
-    """Workflow input to get summary for a single session"""
-
-    session_id: str
-    user_id: int
-    team_id: int
-    redis_key_base: str
-    extra_summary_context: ExtraSummaryContext | None = None
-    local_reads_prod: bool = False
 
 
 @temporalio.activity.defn

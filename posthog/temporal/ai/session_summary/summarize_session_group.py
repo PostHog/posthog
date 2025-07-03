@@ -18,10 +18,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     extract_session_group_patterns_activity,
 )
-from posthog.temporal.ai.session_summary.shared import (
-    SingleSessionSummaryInputs,
-    fetch_session_data_activity,
-)
+from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import (
     get_data_class_from_redis,
     get_data_str_from_redis,
@@ -33,6 +30,7 @@ from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.exceptions import ApplicationError

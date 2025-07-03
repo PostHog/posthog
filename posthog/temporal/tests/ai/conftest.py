@@ -2,13 +2,13 @@ from collections.abc import Callable, Generator
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.tests.conftest import *
-from posthog.temporal.ai.session_summary.shared import SingleSessionSummaryInputs
 from unittest.mock import MagicMock
 import pytest
 from typing import Any
 from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 
 @pytest.fixture

@@ -15,16 +15,14 @@ from ee.session_recordings.session_summary.summarize_session import ExtraSummary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.models.team.team import Team
-from posthog.temporal.ai.session_summary.shared import (
-    SingleSessionSummaryInputs,
-    fetch_session_data_activity,
-)
+from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
     get_redis_state_client,
     store_data_in_redis,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
