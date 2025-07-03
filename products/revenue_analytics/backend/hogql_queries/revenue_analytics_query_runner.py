@@ -1,7 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from datetime import datetime
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 from posthog.hogql import ast
@@ -39,6 +39,18 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 # This is used to replace the breakdown value when there's no breakdown
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
+PROPERTY_TO_JOIN_MAP: dict[str, Literal["customers", "invoice_items", "products"]] = {
+    "source": "customers",
+    "amount": "invoice_items",
+    "country": "customers",
+    "cohort": "customers",
+    "coupon": "invoice_items",
+    "coupon_id": "invoice_items",
+    "initial_coupon": "customers",
+    "initial_coupon_id": "customers",
+    "product": "products",
+}
+
 
 @dataclasses.dataclass(frozen=True)
 class RevenueSubqueries:
@@ -67,24 +79,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     def joins_set_for_properties(self) -> set[str]:
         joins_set = set()
         for property in self.query.properties:
-            if property.key == "source":
-                joins_set.add("customers")
-            if property.key == "amount":
-                joins_set.add("invoice_items")
-            elif property.key == "country":
-                joins_set.add("customers")
-            elif property.key == "cohort":
-                joins_set.add("customers")
-            elif property.key == "coupon":
-                joins_set.add("invoice_items")
-            elif property.key == "coupon_id":
-                joins_set.add("invoice_items")
-            elif property.key == "initial_coupon":
-                joins_set.add("customers")
-            elif property.key == "initial_coupon_id":
-                joins_set.add("customers")
-            elif property.key == "product":
-                joins_set.add("products")
+            if property.key in PROPERTY_TO_JOIN_MAP:
+                joins_set.add(PROPERTY_TO_JOIN_MAP[property.key])
+
         return joins_set
 
     # This assumes there's a base select coming from the `invoice_items` view
