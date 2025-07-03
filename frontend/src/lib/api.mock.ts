@@ -189,6 +189,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     membership_level: OrganizationMembershipLevel.Admin,
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
+    members_can_use_personal_api_keys: true,
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
@@ -235,6 +236,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        members_can_use_personal_api_keys: true,
         logo_media_id: null,
     })),
     events_column_config: {
