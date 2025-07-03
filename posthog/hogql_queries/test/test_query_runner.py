@@ -8,7 +8,8 @@ from freezegun import freeze_time
 from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.models.team.team import Team
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.hogql.constants import LimitContext
 from posthog.schema import (
     CacheMissResponse,
@@ -24,6 +25,7 @@ from posthog.schema import (
     RevenueAnalyticsPersonsJoinModeModifier,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
+    IntervalType,
 )
 from posthog.test.base import BaseTest
 
@@ -118,8 +120,21 @@ class TestQueryRunner(BaseTest):
             "query_runner": "TestQueryRunner",
             "team_id": 42,
             "timezone": "UTC",
+            "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
         }
+
+    def test_cache_payload_week_interval(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
+        runner.query_date_range = QueryDateRange(
+            team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
+        )
+
+        cache_payload = runner.get_cache_payload()
+        assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
