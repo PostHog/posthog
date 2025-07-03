@@ -63,18 +63,6 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
-     * Updates person with specific properties to set and unset
-     */
-    updatePersonWithPropertiesDiffForUpdate(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson>,
-        distinctId: string,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
-
-    /**
      * Deletes a person
      */
     deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]>

@@ -395,6 +395,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             <MaxTool
                 name="create_hog_function_filters"
                 displayName="Set up filters with AI"
+                description="Max can set up filters for your Hog function"
                 context={{
                     current_filters: JSON.stringify(configuration?.filters ?? {}),
                     function_type: type,
