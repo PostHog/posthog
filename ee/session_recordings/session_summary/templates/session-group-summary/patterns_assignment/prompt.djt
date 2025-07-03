@@ -2,7 +2,7 @@
 You'll receive a list of extracted patterns in YAML format. Each pattern includes:
 
 - pattern_id: Unique identifier for the pattern
-- pattern_name: Concise name describing the reccuring issue
+- pattern_name: Concise name describing the reccurring issue
 - pattern_description: Detailed explanation of the pattern and its impact
 - severity: critical/high/medium indicating the pattern's impact level
 - indicators: List of observable behaviors that confirm this pattern

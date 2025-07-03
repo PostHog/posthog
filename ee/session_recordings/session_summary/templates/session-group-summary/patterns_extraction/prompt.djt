@@ -68,7 +68,7 @@ Pattern severity level should be higher if it happens often (medium-level patter
 - Does it point to a clear problem owner (frontend, backend, UX, etc.)?
 - Can success be measured after implementing fixes?
 
-# Step 3: Consolidate Patterns
+## Step 3: Consolidate Patterns
 
 AGGRESSIVELY consolidate similar patterns.
 

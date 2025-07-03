@@ -21,7 +21,7 @@ class _SeverityLevel(str, Enum):
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class PaternAssignedEvent:
+class PatternAssignedEvent:
     """Event assigned to a pattern with actual ids attached. Dataclass, as not values validation is needed"""
 
     event_id: str
@@ -30,7 +30,7 @@ class PaternAssignedEvent:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class EnrichedPatternAssignedEvent(PaternAssignedEvent):
+class EnrichedPatternAssignedEvent(PatternAssignedEvent):
     """Event assigned to a pattern enriched with session summary data"""
 
     description: str
@@ -75,7 +75,7 @@ class RawSessionGroupSummaryPattern(BaseModel):
 
 
 class EnrichedSessionGroupSummaryPatternStats(BaseModel):
-    """How many pattern ocurrences, how pattern affected the success rate of segments, and similar"""
+    """How many pattern occurrences, how pattern affected the success rate of segments, and similar"""
 
     occurences: int = Field(..., description="How many times the pattern occurred")
     sessions_affected: int = Field(..., description="How many sessions were affected by the pattern")
@@ -111,7 +111,7 @@ class RawSessionGroupSummaryPatternsList(BaseModel):
 
 
 class EnrichedSessionGroupSummaryPatternsList(BaseModel):
-    """Enriched patterns with events context ready to be dipsplayed in UI"""
+    """Enriched patterns with events context ready to be displayed in UI"""
 
     patterns: list[EnrichedSessionGroupSummaryPattern] = Field(
         ..., description="List of patterns with events context", min_length=1
@@ -205,7 +205,7 @@ def combine_patterns_assignments_from_single_session_summaries(
 
 
 def _enriched_event_from_session_summary_event(
-    pattern_assigned_event: PaternAssignedEvent, event: dict
+    pattern_assigned_event: PatternAssignedEvent, event: dict
 ) -> EnrichedPatternAssignedEvent:
     """Build an enriched event from summary event data."""
     enriched_event = EnrichedPatternAssignedEvent(
@@ -251,7 +251,7 @@ def _get_segment_name_and_outcome_from_session_summary(
 
 
 def _enrich_pattern_assigned_event_with_session_summary_data(
-    pattern_assigned_event: PaternAssignedEvent,
+    pattern_assigned_event: PatternAssignedEvent,
     session_summaries: list[SessionSummarySerializer],
 ) -> PatternAssignedEventSegmentContext:
     """Attach session summary context to a pattern-assigned event."""
@@ -326,7 +326,7 @@ def combine_patterns_ids_with_events_context(
                 )
             # Map them to the pattern id to be able to enrich summaries and calculate patterns stats
             session_id, event_uuid = unpack_full_event_id(full_event_id)
-            full_id_event = PaternAssignedEvent(event_id=event_id, event_uuid=event_uuid, session_id=session_id)
+            full_id_event = PatternAssignedEvent(event_id=event_id, event_uuid=event_uuid, session_id=session_id)
             event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
                 full_id_event, session_summaries
             )
