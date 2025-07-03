@@ -439,6 +439,8 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
+        self._check_organization_personal_api_key_restrictions(request, view)
+
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -460,6 +462,26 @@ class APIScopePermission(ScopeBasePermission):
             except ValueError:
                 # Indicates this is not an organization scoped view
                 pass
+
+    def _check_organization_personal_api_key_restrictions(self, request, view) -> None:
+        """
+        Check if the organization being accessed allows personal API keys.
+        Admins can always use personal API keys regardless of the organization setting.
+        """
+        org = get_organization_from_view(view)
+
+        try:
+            membership = OrganizationMembership.objects.get(cast(User, request.user), organization=org)
+            if membership.level >= OrganizationMembership.Level.ADMIN:
+                return True
+        except OrganizationMembership.DoesNotExist:
+            pass
+
+        if not org.members_can_use_personal_api_keys:
+            raise PermissionDenied(
+                f"Organization '{org.name}' does not allow using personal API keys. "
+                f"Contact an admin to enable personal API keys for this organization."
+            )
 
 
 class AccessControlPermission(ScopeBasePermission):
@@ -647,30 +669,3 @@ class UserCanInvitePermission(BasePermission):
             return True
 
         return members_can_invite
-
-
-class PersonalApiKeyUsePermission(BasePermission):
-    """
-    Only allows use of personal API keys if organization permits it.
-    Admins can always use keys regardless of the setting.
-    """
-
-    message = "Your organization does not allow using personal API keys."
-
-    def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-
-        if view.action != "create":
-            return True
-
-        try:
-            membership = user.organization_memberships.get(organization=user.organization)
-            if membership.level >= OrganizationMembership.Level.ADMIN:
-                return True
-        except OrganizationMembership.DoesNotExist:
-            pass
-
-        if user.organization:
-            return bool(user.organization.members_can_use_personal_api_keys)
-
-        return True
