@@ -93,7 +93,9 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     <td>
                                         <span className="RetentionTable__TextTab">
                                             {noBreakdown
-                                                ? ((meanData?.totalCohortSize ?? 0) / cohortRows.length).toFixed(1)
+                                                ? cohortRows.length
+                                                    ? Math.round((meanData?.totalCohortSize ?? 0) / cohortRows.length)
+                                                    : 0
                                                 : meanData?.totalCohortSize ?? 0}
                                         </span>
                                     </td>
