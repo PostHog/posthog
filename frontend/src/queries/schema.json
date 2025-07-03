@@ -830,7 +830,8 @@
                 "analyze_user_interviews",
                 "create_and_query_insight",
                 "create_hog_transformation_function",
-                "create_hog_function_filters"
+                "create_hog_function_filters",
+                "navigate"
             ],
             "type": "string"
         },
@@ -1675,6 +1676,46 @@
                     "$ref": "#/definitions/AssistantGenericMultipleBreakdownFilter"
                 }
             ]
+        },
+        "AssistantNavigateUrls": {
+            "description": "Exact possible `urls` keys for the `navigate` tool.",
+            "enum": [
+                "createAction",
+                "actions",
+                "cohorts",
+                "projectHomepage",
+                "max",
+                "settings",
+                "eventDefinitions",
+                "propertyDefinitions",
+                "database",
+                "activity",
+                "ingestionWarnings",
+                "insights",
+                "insightNew",
+                "savedInsights",
+                "webAnalytics",
+                "webAnalyticsWebVitals",
+                "alerts",
+                "dashboards",
+                "experiments",
+                "featureFlags",
+                "surveys",
+                "surveyTemplates",
+                "replay",
+                "replaySettings",
+                "pipeline",
+                "sqlEditor",
+                "annotations",
+                "heatmaps",
+                "earlyAccessFeatures",
+                "errorTracking",
+                "game368hedgehogs",
+                "notebooks",
+                "persons",
+                "toolbarLaunch"
+            ],
+            "type": "string"
         },
         "AssistantNumericValuePropertyFilter": {
             "additionalProperties": false,
