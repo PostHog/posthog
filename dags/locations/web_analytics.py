@@ -2,9 +2,7 @@ import dagster
 
 from . import resources
 
-from dags.common import job_status_metrics_sensors
 from dags import (
-    slack_alerts,
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
     web_preaggregated_ddl,
@@ -48,10 +46,6 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
         web_preaggregated_asset_checks.web_analytics_weekly_data_quality_schedule,
-    ],
-    sensors=[
-        slack_alerts.notify_slack_on_failure,
-        *job_status_metrics_sensors,
     ],
     resources=resources,
 )
