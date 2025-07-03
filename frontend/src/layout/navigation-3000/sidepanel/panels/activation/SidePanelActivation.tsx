@@ -219,10 +219,7 @@ const ActivationTask = ({
         }
     }
 
-    const handleRowClick = (e: React.MouseEvent): void => {
-        if ((e.target as HTMLElement).closest('.activation-task-skip')) {
-            return
-        }
+    const handleRowClick = (): void => {
         if (!isActive) {
             return
         }
