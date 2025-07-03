@@ -131,6 +131,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
 
 async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
+    """Start the single-session workflow and return its handle."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
@@ -145,6 +146,7 @@ async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) 
 
 
 def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key: str) -> None:
+    """Remove temporary workflow data from Redis."""
     try:
         redis_client.delete(redis_input_key)
         redis_client.delete(redis_output_key)
@@ -158,6 +160,7 @@ def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key:
 
 
 async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionStatus | None, str | None]:
+    """Return workflow status and result if completed."""
     desc = await handle.describe()
     final_result = None
     if not desc.status:

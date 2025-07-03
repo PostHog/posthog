@@ -122,6 +122,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             return err
 
     async def _fetch_session_group_data(self, inputs: SessionGroupSummaryInputs) -> list[SingleSessionSummaryInputs]:
+        """Fetch DB data for each session and return successful inputs."""
         if not inputs.session_ids:
             raise ApplicationError(f"No sessions to fetch data for group summary: {inputs}")
         # Fetch data for each session and store in Redis
@@ -254,6 +255,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 async def _execute_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
 ) -> EnrichedSessionGroupSummaryPatternsList:
+    """Execute the workflow and return the final group summary."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     result: EnrichedSessionGroupSummaryPatternsList = await client.execute_workflow(
