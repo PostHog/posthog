@@ -37,17 +37,17 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     if (!dashboardLogicProps) {
                         return null
                     }
-                    const logic = dashboardLogic.build(dashboardLogicProps)
-                    logic.mount()
-                    const dashboard = logic.selectors.dashboard(state)
-                    return dashboard
+                    const logic = dashboardLogic.findMounted(dashboardLogicProps)
+                    if (!logic) {
+                        return null
+                    }
+                    return logic.selectors.dashboard(state)
                 },
             ],
             (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextSelector => {
                 if (!dashboard) {
                     return []
                 }
-
                 return [createMaxContextHelpers.dashboard(dashboard)]
             },
         ],
