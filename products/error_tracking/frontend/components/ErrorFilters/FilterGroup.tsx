@@ -1,7 +1,6 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
-import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -13,6 +12,8 @@ import { useDebouncedCallback } from 'use-debounce'
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorFiltersLogic } from './errorFiltersLogic'
+import { AIEnhancedTaxonomicFilterSearchInput } from './AIFilter'
+import { errorTrackingSceneLogic } from '../../errorTrackingSceneLogic'
 
 const taxonomicFilterLogicKey = 'error-tracking'
 const taxonomicGroupTypes = [
@@ -45,6 +46,7 @@ const UniversalSearch = (): JSX.Element => {
     const { searchQuery } = useValues(errorFiltersLogic)
     const { setSearchQuery } = useActions(errorFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
+    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
@@ -88,7 +90,7 @@ const UniversalSearch = (): JSX.Element => {
                 floatingRef={floatingRef}
                 onClickOutside={() => onClose()}
             >
-                <TaxonomicFilterSearchInput
+                <AIEnhancedTaxonomicFilterSearchInput
                     prefix={<UniversalFilterGroup />}
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
@@ -97,6 +99,7 @@ const UniversalSearch = (): JSX.Element => {
                     size="small"
                     fullWidth
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
+                    selectedIssueIds={selectedIssueIds}
                 />
             </LemonDropdown>
         </BindLogic>
