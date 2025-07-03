@@ -82,7 +82,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 RESOURCE_SCHEMAS = {
     MetaAdsResource.Ads: {
-        "resource_name": "ads",
         "primary_keys": ["id", "account_id"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/ads",
         "extra_params": {},
@@ -107,7 +106,6 @@ RESOURCE_SCHEMAS = {
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.AdStats: {
-        "resource_name": "ads",
         "primary_keys": ["ad_id", "account_id", "date_start"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
         "extra_params": {
@@ -150,7 +148,6 @@ RESOURCE_SCHEMAS = {
         "is_stats": True,
     },
     MetaAdsResource.Adsets: {
-        "resource_name": "adsets",
         "primary_keys": ["id", "account_id"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/adsets",
         "extra_params": {},
@@ -180,7 +177,6 @@ RESOURCE_SCHEMAS = {
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.AdsetStats: {
-        "resource_name": "adsets",
         "primary_keys": ["adset_id", "account_id", "date_start"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
         "extra_params": {
@@ -216,7 +212,6 @@ RESOURCE_SCHEMAS = {
         "is_stats": True,
     },
     MetaAdsResource.Campaigns: {
-        "resource_name": "campaigns",
         "primary_keys": ["id", "account_id"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/campaigns",
         "extra_params": {},
@@ -243,7 +238,6 @@ RESOURCE_SCHEMAS = {
         "partition_keys": ["created_time"],
     },
     MetaAdsResource.CampaignStats: {
-        "resource_name": "campaigns",
         "primary_keys": ["campaign_id", "account_id", "date_start"],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
         "extra_params": {
