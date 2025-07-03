@@ -1,56 +1,12 @@
 use crate::api::errors::FlagError;
-use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
-use crate::properties::property_models::{PropertyFilter, PropertyType};
+use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
-impl PropertyFilter {
-    /// Checks if the filter is a cohort filter
-    pub fn is_cohort(&self) -> bool {
-        self.prop_type == PropertyType::Cohort
-    }
-
-    /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
-    /// or if the value cannot be parsed as a cohort id
-    pub fn get_cohort_id(&self) -> Option<CohortId> {
-        if !self.is_cohort() {
-            return None;
-        }
-        self.value
-            .as_ref()
-            .and_then(|value| value.as_i64())
-            .map(|id| id as CohortId)
-    }
-
-    /// Checks if the filter depends on a feature flag
-    pub fn depends_on_feature_flag(&self) -> bool {
-        self.prop_type == PropertyType::Flag
-    }
-
-    /// Returns the feature flag id if the filter depends on a feature flag, or None if it's not a feature flag filter
-    /// or if the value cannot be parsed as a feature flag id
-    pub fn get_feature_flag_id(&self) -> Option<FeatureFlagId> {
-        if !self.depends_on_feature_flag() {
-            return None;
-        }
-        self.key.parse::<FeatureFlagId>().ok()
-    }
-
-    /// Returns true if the filter requires DB properties to be evaluated.
-    ///
-    /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
-    pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
-        if self.is_cohort() || self.depends_on_feature_flag() {
-            return false;
-        }
-        !overrides.contains_key(&self.key)
-    }
-}
 
 fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
     if filter.depends_on_feature_flag() {
@@ -1759,40 +1715,5 @@ mod tests {
         ]);
 
         assert!(!flag.requires_db_preparation(&HashMap::new()));
-    }
-
-    #[test]
-    fn test_filter_requires_db_property_if_override_not_present() {
-        let filter = create_simple_property_filter(
-            "some_property",
-            PropertyType::Person,
-            OperatorType::Exact,
-        );
-
-        {
-            // Wrong override.
-            let overrides =
-                HashMap::from([("not_cohort".to_string(), Value::String("value".to_string()))]);
-
-            assert!(filter.requires_db_property(&overrides));
-        }
-
-        {
-            // Correct override.
-            let overrides = HashMap::from([(
-                "some_property".to_string(),
-                Value::String("value".to_string()),
-            )]);
-
-            assert!(!filter.requires_db_property(&overrides));
-        }
-    }
-
-    #[test]
-    fn test_filter_does_not_require_db_property_if_cohort_or_flag_filter() {
-        // Cohort filter.
-        let filter =
-            create_simple_property_filter("cohort", PropertyType::Cohort, OperatorType::Exact);
-        assert!(!filter.requires_db_property(&HashMap::new()));
     }
 }
