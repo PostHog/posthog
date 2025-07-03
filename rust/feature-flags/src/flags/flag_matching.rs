@@ -23,6 +23,7 @@ use crate::metrics::consts::{
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
+use crate::utils::graph_utils::DependencyGraph;
 use anyhow::Result;
 use common_database::Client as DatabaseClient;
 use common_metrics::{inc, timing_guard};
@@ -425,54 +426,35 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<HashMap<String, String>>,
         request_id: Uuid,
     ) -> FlagsResponse {
-        // Initialize group type mappings if needed
-        let mut errors_while_computing_flags = self
+        let mut errors_while_computing_flags = false;
+        let mut evaluated_flags_map = HashMap::new();
+
+        // Step 1: Initialize group type mappings if needed
+        errors_while_computing_flags |= self
             .initialize_group_type_mappings_if_needed(&feature_flags)
             .await;
 
-        let flags_requiring_db_preparation = flags_require_db_preparation(
-            &feature_flags.flags,
-            person_property_overrides
-                .as_ref()
-                .unwrap_or(&HashMap::new()),
-        );
-
-        let mut evaluated_flags_map = HashMap::new();
-
-        if !flags_requiring_db_preparation.is_empty() {
-            if let Err(e) = self
-                .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
-                .await
-            {
-                errors_while_computing_flags = true;
-                let reason = parse_exception_for_prometheus_label(&e);
-                evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
-                    (
-                        flag.key.clone(),
-                        FlagDetails::create_error(flag, reason, None),
-                    )
-                }));
-                error!("Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}", self.team_id, self.project_id, self.distinct_id, e);
-                inc(
-                    FLAG_EVALUATION_ERROR_COUNTER,
-                    &[("reason".to_string(), reason.to_string())],
-                    1,
-                );
-            }
-        }
-
-        // Evaluate all flags in the current level
-        let (level_evaluated_flags_map, level_errors) = self
-            .evaluate_flags_in_level(
-                &feature_flags.flags,
+        // Step 2: Prepare evaluation state for flags requiring DB properties
+        let db_prep_errors = self
+            .prepare_evaluation_state_if_needed(
+                &feature_flags,
+                &person_property_overrides,
                 &mut evaluated_flags_map,
+            )
+            .await;
+        errors_while_computing_flags |= db_prep_errors;
+
+        // Step 3: Build dependency graph and evaluate flags in stages
+        let graph_evaluation_errors = self
+            .evaluate_flags_with_dependency_graph(
+                &feature_flags,
                 &person_property_overrides,
                 &group_property_overrides,
                 &hash_key_overrides,
+                &mut evaluated_flags_map,
             )
             .await;
-        errors_while_computing_flags |= level_errors;
-        evaluated_flags_map.extend(level_evaluated_flags_map);
+        errors_while_computing_flags |= graph_evaluation_errors;
 
         FlagsResponse {
             errors_while_computing_flags,
@@ -481,6 +463,157 @@ impl FeatureFlagMatcher {
             request_id,
             config: ConfigResponse::default(),
         }
+    }
+
+    /// Prepares evaluation state for flags that require database properties.
+    /// Returns true if there were errors during preparation.
+    async fn prepare_evaluation_state_if_needed(
+        &mut self,
+        feature_flags: &FeatureFlagList,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+    ) -> bool {
+        let flags_requiring_db_preparation = flags_require_db_preparation(
+            &feature_flags.flags,
+            person_property_overrides
+                .as_ref()
+                .unwrap_or(&HashMap::new()),
+        );
+
+        if flags_requiring_db_preparation.is_empty() {
+            return false;
+        }
+
+        match self
+            .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
+            .await
+        {
+            Ok(_) => false,
+            Err(e) => {
+                self.handle_db_preparation_error(
+                    &flags_requiring_db_preparation,
+                    &e,
+                    evaluated_flags_map,
+                );
+                true
+            }
+        }
+    }
+
+    /// Handles errors during database preparation by creating error responses for affected flags.
+    fn handle_db_preparation_error(
+        &self,
+        flags_requiring_db_preparation: &[&FeatureFlag],
+        error: &FlagError,
+        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+    ) {
+        let reason = parse_exception_for_prometheus_label(error);
+        evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
+            (
+                flag.key.clone(),
+                FlagDetails::create_error(flag, reason, None),
+            )
+        }));
+
+        error!(
+            "Error preparing flag evaluation state for team {} project {} distinct_id {}: {:?}",
+            self.team_id, self.project_id, self.distinct_id, error
+        );
+
+        inc(
+            FLAG_EVALUATION_ERROR_COUNTER,
+            &[("reason".to_string(), reason.to_string())],
+            1,
+        );
+    }
+
+    /// Evaluates flags using dependency graph to handle flag dependencies correctly.
+    /// Returns true if there were errors during evaluation.
+    async fn evaluate_flags_with_dependency_graph(
+        &mut self,
+        feature_flags: &FeatureFlagList,
+        person_property_overrides: &Option<HashMap<String, Value>>,
+        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+    ) -> bool {
+        let (flag_dependency_graph, errors) =
+            match DependencyGraph::from_nodes(&feature_flags.flags) {
+                Ok((graph, errors)) => (graph, errors),
+                Err(e) => {
+                    self.handle_dependency_graph_error("build feature flag dependency graph", &e);
+                    return true;
+                }
+            };
+
+        let mut errors_while_computing_flags = !errors.is_empty();
+        if errors_while_computing_flags {
+            self.handle_dependency_graph_errors(&errors);
+        }
+
+        let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
+            Ok(stages) => stages,
+            Err(e) => {
+                self.handle_dependency_graph_error("get evaluation stages", &e);
+                // This path should never happen. Normally I'd call unreachable here but if I'm wrong,
+                // I want the prod service to fail gracefully. But not while we're developing.
+                debug_assert!(
+                    false,
+                    "evaluation_stages() failed after dependency graph construction: {e:?}"
+                );
+                return true;
+            }
+        };
+
+        // Evaluate flags in dependency order
+        for stage in evaluation_stages {
+            let stage_flags: Vec<FeatureFlag> = stage.iter().map(|&flag| flag.clone()).collect();
+            let (level_evaluated_flags_map, level_errors) = self
+                .evaluate_flags_in_level(
+                    &stage_flags,
+                    evaluated_flags_map,
+                    person_property_overrides,
+                    group_property_overrides,
+                    hash_key_overrides,
+                )
+                .await;
+            errors_while_computing_flags |= level_errors;
+            evaluated_flags_map.extend(level_evaluated_flags_map);
+        }
+
+        errors_while_computing_flags
+    }
+
+    /// Handles errors during dependency graph operations.
+    fn handle_dependency_graph_error(&self, error_type: &str, error: &dyn std::fmt::Debug) {
+        error!(
+            "Failed to {} for team {}: {:?}",
+            error_type, self.team_id, error
+        );
+        inc(
+            FLAG_EVALUATION_ERROR_COUNTER,
+            &[(
+                "reason".to_string(),
+                format!("{}_error", error_type.replace(" ", "_")),
+            )],
+            1,
+        );
+    }
+
+    /// Handles errors found during dependency graph construction.
+    fn handle_dependency_graph_errors(
+        &self,
+        errors: &[crate::utils::graph_utils::GraphError<i32>],
+    ) {
+        inc(
+            FLAG_EVALUATION_ERROR_COUNTER,
+            &[("reason".to_string(), "dependency_graph_error".to_string())],
+            1,
+        );
+        error!(
+            "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
+            self.team_id, errors
+        );
     }
 
     /// Evaluates a set of flags with a combination of property overrides and DB properties
