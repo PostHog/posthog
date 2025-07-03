@@ -68,7 +68,7 @@ def generate_session_group_patterns_extraction_prompt(
         {
             "SESSION_SUMMARIES": combined_session_summaries,
             "PATTERNS_EXTRACTION_EXAMPLE": patterns_example,
-            # TODO: Add focus area to the prompt
+            "FOCUS_AREA": extra_summary_context.focus_area,
         },
     )
     return PatternsPrompt(
@@ -95,7 +95,7 @@ def generate_session_group_patterns_assignment_prompt(
             "PATTERNS": patterns.model_dump_json(exclude_none=True),
             "SESSION_SUMMARIES": combined_session_summaries,
             "PATTERNS_ASSIGNMENT_EXAMPLE": patterns_example,
-            # TODO: Add focus area to the prompt
+            "FOCUS_AREA": extra_summary_context.focus_area,
         },
     )
     return PatternsPrompt(
