@@ -1,4 +1,10 @@
-import { EitherMemberType, ExplicitTeamMemberType, OrganizationMemberType, UserType } from '../../types'
+import {
+    EitherMemberType,
+    ExplicitTeamMemberType,
+    OrganizationMemberType,
+    UserType,
+    OrganizationBasicType,
+} from '../../types'
 import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 
 /** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
@@ -46,6 +52,16 @@ export function getReasonForAccessLevelChangeProhibition(
         return 'You can only change access level of members with level lower or equal to you.'
     }
     return null
+}
+
+/** Check if a user has membership level in the given organization gte then the provided */
+export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: OrganizationMembershipLevel): boolean {
+    return !!(org.membership_level && org.membership_level >= role)
+}
+
+/** Check if an organization allows personal API keys */
+export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
+    return !!org.members_can_use_personal_api_keys
 }
 
 export const membershipLevelToName = new Map<EitherMembershipLevel, string>([

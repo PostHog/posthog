@@ -23,6 +23,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "is_member_join_email_enabled": true,
     "logo_media_id": null,
     "member_count": 2,
+    "members_can_use_personal_api_keys": true,
     "membership_level": 8,
     "metadata": {},
     "name": "MockHog",

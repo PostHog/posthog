@@ -136,7 +136,11 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        TimeSensitiveActionPermission,
+        PersonalApiKeySelfAccessPermission,
+    ]
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
     queryset = PersonalAPIKey.objects.none()
 

@@ -102,6 +102,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": slugify(self.organization.name),
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -109,6 +110,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": "new-organization",
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
             ],
         )
