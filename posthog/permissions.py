@@ -475,16 +475,14 @@ class APIScopePermission(ScopeBasePermission):
 
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
-            if membership.level >= OrganizationMembership.Level.ADMIN:
-                pass
+
+            if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+                raise PermissionDenied(
+                    f"Organization '{org.name}' does not allow using personal API keys. "
+                    f"Contact an admin to enable personal API keys for this organization."
+                )
         except OrganizationMembership.DoesNotExist:
             pass
-
-        if not org.members_can_use_personal_api_keys:
-            raise PermissionDenied(
-                f"Organization '{org.name}' does not allow using personal API keys. "
-                f"Contact an admin to enable personal API keys for this organization."
-            )
 
 
 class AccessControlPermission(ScopeBasePermission):
