@@ -43,8 +43,25 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     stack_trace                           String, -- comment 'Stack trace. An empty string, if the query was completed successfully.',
 
     -- the above columns are copied directly from system.query_log
-    ProfileEvents_RealTimeMicroseconds Float64, -- comment 'ProfileEvents[RealTimeMicroseconds]',
-    ProfileEvents_OSCPUVirtualTimeMicroseconds Float64, -- comment 'ProfileEvents[OSCPUVirtualTimeMicroseconds]',
+    ProfileEvents_RealTimeMicroseconds Int64, -- comment 'ProfileEvents[RealTimeMicroseconds]',
+    ProfileEvents_OSCPUVirtualTimeMicroseconds Int64, -- comment 'ProfileEvents[OSCPUVirtualTimeMicroseconds]',
+
+    -- s3 stats in query_log.ProfileEvents
+    ProfileEvents_S3Clients Int64, -- comment 'ProfileEvents[S3Clients]'
+    ProfileEvents_S3DeleteObjects Int64, -- comment 'ProfileEvents[S3DeleteObjects]'
+    ProfileEvents_S3CopyObject Int64, -- comment 'ProfileEvents[S3CopyObject]'
+    ProfileEvents_S3ListObjects Int64, -- comment 'ProfileEvents[S3ListObjects]'
+    ProfileEvents_S3HeadObject Int64, -- comment 'ProfileEvents[S3HeadObject]'
+    ProfileEvents_S3GetObjectAttributes Int64, -- comment 'ProfileEvents[S3GetObjectAttributes]'
+    ProfileEvents_S3CreateMultipartUpload Int64, -- comment 'ProfileEvents[S3CreateMultipartUpload]'
+    ProfileEvents_S3UploadPartCopy Int64, -- comment 'ProfileEvents[S3UploadPartCopy]'
+    ProfileEvents_S3UploadPart Int64, -- comment 'ProfileEvents[S3UploadPart]'
+    ProfileEvents_S3AbortMultipartUpload Int64, -- comment 'ProfileEvents[S3AbortMultipartUpload]'
+    ProfileEvents_S3CompleteMultipartUpload Int64, -- comment 'ProfileEvents[S3CompleteMultipartUpload]'
+    ProfileEvents_S3PutObject Int64, -- comment 'ProfileEvents[S3PutObject]'
+    ProfileEvents_S3GetObject Int64, -- comment 'ProfileEvents[S3GetObject]'
+    ProfileEvents_ReadBufferFromS3Bytes Int64, -- comment 'ProfileEvents[ReadBufferFromS3Bytes]'
+    ProfileEvents_WriteBufferFromS3Bytes Int64, -- comment 'ProfileEvents[WriteBufferFromS3Bytes]'
 
     -- log_comment contains mixed data quality, we may want to copy something from it, but overall is full of data
     -- log_comment                           String, -- comment 'Log comment. It can be set to arbitrary string no longer than max_query_size. An empty string if it is not defined.',
@@ -140,6 +157,22 @@ AS SELECT
 
     ProfileEvents['RealTimeMicroseconds'] as ProfileEvents_RealTimeMicroseconds,
     ProfileEvents['OSCPUVirtualTimeMicroseconds'] as ProfileEvents_OSCPUVirtualTimeMicroseconds,
+
+    ProfileEvents['S3Clients'] as ProfileEvents_S3Clients,
+    ProfileEvents['S3DeleteObjects'] as ProfileEvents_S3DeleteObjects,
+    ProfileEvents['S3CopyObject'] as ProfileEvents_S3CopyObject,
+    ProfileEvents['S3ListObjects'] as ProfileEvents_S3ListObjects,
+    ProfileEvents['S3HeadObject'] as ProfileEvents_S3HeadObject,
+    ProfileEvents['S3GetObjectAttributes'] as ProfileEvents_S3GetObjectAttributes,
+    ProfileEvents['S3CreateMultipartUpload'] as ProfileEvents_S3CreateMultipartUpload,
+    ProfileEvents['S3UploadPartCopy'] as ProfileEvents_S3UploadPartCopy,
+    ProfileEvents['S3UploadPart'] as ProfileEvents_S3UploadPart,
+    ProfileEvents['S3AbortMultipartUpload'] as ProfileEvents_S3AbortMultipartUpload,
+    ProfileEvents['S3CompleteMultipartUpload'] as ProfileEvents_S3CompleteMultipartUpload,
+    ProfileEvents['S3PutObject'] as ProfileEvents_S3PutObject,
+    ProfileEvents['S3GetObject'] as ProfileEvents_S3GetObject,
+    ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
+    ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
 
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
