@@ -112,6 +112,7 @@ class TestQueryRunner(BaseTest):
             "query_runner": "TestQueryRunner",
             "team_id": 42,
             "timezone": "UTC",
+            "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
         }
 
