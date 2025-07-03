@@ -138,7 +138,7 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=True, granularity="dai
         on_cluster: Whether to run on cluster
         granularity: "daily" or "hourly" - determines partition format
     """
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    on_cluster_clause = f" ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     if granularity == "hourly":
         # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
@@ -153,39 +153,8 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=True, granularity="dai
         partition_id = date_start.replace("-", "")
 
     return f"""
-    ALTER TABLE {table_name} {on_cluster_clause}
+    ALTER TABLE {table_name}{on_cluster_clause}
     DROP PARTITION '{partition_id}'
-    """
-
-
-def DROP_PARTITION_IF_EXISTS_SQL(table_name, date_start, on_cluster=True, granularity="daily"):
-    """
-    Generate SQL to drop a partition if it exists for a specific date.
-    This is safer as it won't fail if the partition doesn't exist.
-
-    Args:
-        table_name: Name of the table
-        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
-        on_cluster: Whether to run on cluster
-        granularity: "daily" or "hourly" - determines partition format
-    """
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
-
-    if granularity == "hourly":
-        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
-        if " " in date_start:
-            date_part, hour_part = date_start.split(" ")
-            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
-        else:
-            # If only date provided for hourly, format as "YYYYMMDD00"
-            partition_id = date_start.replace("-", "") + "00"
-    else:
-        # For daily: format date as YYYYMMDD
-        partition_id = date_start.replace("-", "")
-
-    return f"""
-    ALTER TABLE {table_name} {on_cluster_clause}
-    DROP PARTITION IF EXISTS '{partition_id}'
     """
 
 
