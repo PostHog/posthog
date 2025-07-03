@@ -88,8 +88,9 @@ class MaxTool(BaseTool):
     _config: RunnableConfig
     _state: AssistantState
 
+    # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
-        """Tool execution, which should return a tuple of (content, artifact)"""
+        """DEPRECATED. Use `_arun_impl` instead."""
         raise NotImplementedError
 
     async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:

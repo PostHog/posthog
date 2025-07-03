@@ -39,7 +39,9 @@ class AssistantNode(ABC):
         except NotImplementedError:
             return await sync_to_async(self.run)(state, config)
 
+    # DEPRECATED: Use `arun` instead
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        """DEPRECATED. Use `arun` instead."""
         raise NotImplementedError
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
