@@ -3,7 +3,7 @@ from typing import cast
 from redis import Redis
 import structlog
 import temporalio
-from ee.hogai.session_summaries.constants import PATTERNS_ASSIGNMENT_CHUNK_SIZE
+from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
 from ee.session_recordings.session_summary.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
@@ -33,6 +33,7 @@ from posthog.temporal.ai.session_summary.state import (
     store_data_in_redis,
 )
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
 
@@ -182,6 +183,14 @@ async def _generate_patterns_assignments(
             )
             continue
         patterns_assignments_list_of_lists.append(res)
+    # Fail the activity if too many patterns failed to assign session events
+    if len(patterns_assignments_list_of_lists) < len(session_ids) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO:
+        exception_message = (
+            f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
+            f"sessions ({session_ids}) for user {user_id}"
+        )
+        logger.error(exception_message)
+        raise ApplicationError(exception_message)
     return patterns_assignments_list_of_lists
 
 
