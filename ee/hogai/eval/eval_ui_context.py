@@ -23,7 +23,7 @@ from .scorers import ToolRelevance
 def call_root_with_ui_context(demo_org_team_user):
     """Fixture to test root node with UI context containing actions and events"""
     graph = (
-        AssistantGraph(demo_org_team_user[1])
+        AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(
             {

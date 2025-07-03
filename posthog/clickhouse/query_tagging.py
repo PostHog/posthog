@@ -20,10 +20,14 @@ class AccessMethod(StrEnum):
 
 
 class Product(StrEnum):
-    BATCH_EXPORT = "batch_export"
-    PRODUCT_ANALYTICS = "product_analytics"
-    FEATURE_FLAGS = "feature_flags"
     API = "api"
+    BATCH_EXPORT = "batch_export"
+    FEATURE_FLAGS = "feature_flags"
+    MAX_AI = "max_ai"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REPLAY = "replay"
+    SESSION_SUMMARY = "session_summary"
+    WAREHOUSE = "warehouse"
 
 
 class Feature(StrEnum):
@@ -31,6 +35,7 @@ class Feature(StrEnum):
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
+    CACHE_WARMUP = "cache_warmup"
 
 
 class TemporalTags(BaseModel):
@@ -120,9 +125,9 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     # constant query tags
-    git_commit: str
-    container_hostname: str
-    service_name: str
+    git_commit: Optional[str] = None
+    container_hostname: Optional[str] = None
+    service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 

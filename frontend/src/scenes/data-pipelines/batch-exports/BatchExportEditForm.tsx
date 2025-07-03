@@ -6,6 +6,7 @@ import {
     LemonInput,
     LemonSelect,
     LemonTextArea,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -135,7 +136,22 @@ export function BatchExportsEditFields({
                                 />
                             </LemonField>
                         </div>
-                        <LemonField name="prefix" label="Key prefix">
+                        <LemonField
+                            name="prefix"
+                            label="Key prefix"
+                            info={
+                                <>
+                                    Template variables are supported. Please check out the{' '}
+                                    <Link
+                                        to="https://posthog.com/docs/cdp/batch-exports/s3#s3-key-prefix-template-variables"
+                                        target="_blank"
+                                    >
+                                        docs
+                                    </Link>{' '}
+                                    for more information.
+                                </>
+                            }
+                        >
                             <LemonInput placeholder="e.g. posthog-events/" />
                         </LemonField>
 
