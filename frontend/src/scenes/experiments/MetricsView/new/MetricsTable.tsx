@@ -90,7 +90,7 @@ export function MetricsTable({
                         if (!result && !error) {
                             return (
                                 <tr key={metricIndex}>
-                                    <td colSpan={6}>
+                                    <td colSpan={5}>
                                         <ChartLoadingState height={60} />
                                     </td>
                                 </tr>
@@ -100,7 +100,7 @@ export function MetricsTable({
                         if (error || !hasMinimumExposureForResults) {
                             return (
                                 <tr key={metricIndex}>
-                                    <td colSpan={6}>
+                                    <td colSpan={5}>
                                         <ChartEmptyState
                                             height={60}
                                             experimentStarted={!!experiment.start_date}
