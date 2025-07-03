@@ -54,7 +54,7 @@ async def get_llm_single_session_summary_activity(
     try:
         # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
         # TODO: Think about edge-cases like failed summaries
-        session_summary_str = get_data_str_from_redis(
+        get_data_str_from_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
             label=StateActivitiesEnum.SESSION_SUMMARY,
@@ -191,7 +191,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for single_session_input in inputs:
-                # TODO: When stories summaries in Redis (>50) - rework to use tuples also
                 # to have the same taskgroun function for both fetch/summarize tasks
                 tasks[single_session_input.session_id] = (
                     tg.create_task(self._run_summary(single_session_input)),
@@ -270,6 +269,12 @@ async def _execute_workflow(
     return result
 
 
+def _generate_shared_id(session_ids: list[str]) -> str:
+    """Generate a shared id for the group of sessions."""
+    # Using session ids instead of random UUID to be able to check the data in Redis. Hex to avoid hitting workflow id limit.
+    return hashlib.sha256("-".join(session_ids).encode()).hexdigest()[:16]
+
+
 def execute_summarize_session_group(
     session_ids: list[str],
     user_id: int,
@@ -280,10 +285,8 @@ def execute_summarize_session_group(
     """
     Start the workflow and return the final summary for the group of sessions.
     """
-    # Use shared identifier to be able to construct all the ids to check/debug. Using session ids instead
-    # of random UUID to be able to check the data in Redis. Hex to avoid hitting workflow id limit.
-    # TODO: Move into a separate function
-    shared_id = hashlib.sha256("-".join(session_ids).encode()).hexdigest()[:16]
+    # Use shared identifier to be able to construct all the ids to check/debug.
+    shared_id = _generate_shared_id(session_ids)
     # Prepare the input data
     redis_key_base = f"session-summary:group:{user_id}-{team.id}:{shared_id}"
     session_group_input = SessionGroupSummaryInputs(
