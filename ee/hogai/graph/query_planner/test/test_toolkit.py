@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from freezegun import freeze_time
 
-from ee.hogai.graph.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit, ToolkitTool
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -12,8 +12,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+    pass
 
 
 class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
@@ -348,5 +347,5 @@ class TestFinalAnswerTool(BaseTest):
                 - operator: equals
                 - property value: action
         """
-        tool = FinalAnswerTool(name="final_answer", arguments=dedent(original))
-        self.assertEqual(tool.arguments.strip(), dedent(normalized).strip())
+        tool = final_answer(query_kind="trends", plan=dedent(original))
+        self.assertEqual(tool.plan.strip(), dedent(normalized).strip())
