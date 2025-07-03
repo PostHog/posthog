@@ -179,7 +179,12 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
+        fields = [
+            "base_currency",
+            "events",
+            "goals",
+            "filter_test_accounts",
+        ]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)

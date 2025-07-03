@@ -45,6 +45,7 @@ Add to the `CORE_FILTER_DEFINITIONS_BY_GROUP` under the `"revenue_analytics"` gr
     "label": "Country",
     "description": "The country of the customer connected to the revenue event.",
     "type": "String",
+    "virtual": True,
 },
 ```
 

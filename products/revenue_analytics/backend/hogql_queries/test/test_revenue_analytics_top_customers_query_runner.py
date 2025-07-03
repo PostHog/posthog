@@ -35,6 +35,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
+from unittest.mock import ANY
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
@@ -273,8 +274,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
 
@@ -308,7 +309,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
