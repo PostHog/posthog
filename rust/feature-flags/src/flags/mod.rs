@@ -1,3 +1,4 @@
+pub mod feature_flag_list;
 pub mod flag_analytics;
 pub mod flag_filters;
 pub mod flag_group_type_mapping;
