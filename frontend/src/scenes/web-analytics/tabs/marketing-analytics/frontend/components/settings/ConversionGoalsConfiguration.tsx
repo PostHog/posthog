@@ -84,16 +84,14 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
                 <div className="space-y-3">
                     <div>
-                        <label className="block text-sm font-medium mb-1">Conversion goal name</label>
                         <LemonInput
                             value={formState.name}
                             onChange={(value) => setFormState((prev) => ({ ...prev, name: value }))}
-                            placeholder="e.g., Purchase, sign up, download"
+                            placeholder="Conversion goal name, e.g. purchase, sign up, download"
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1">Select event or data warehouse table</label>
                         <ConversionGoalDropdown
                             value={formState.filter}
                             typeKey="conversion-goal"
