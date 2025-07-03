@@ -102,6 +102,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": slugify(self.organization.name),
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -109,6 +110,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": "new-organization",
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
             ],
         )
@@ -454,7 +456,7 @@ class TestUserAPI(APIBaseTest):
 
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
-            self.assertIsNone(self.user.pending_email)
+            assert self.user.pending_email is None
             mock_is_email_available.assert_called_once()
             mock_send_email_change_emails.assert_called_once_with(
                 "2020-01-01T21:37:00+00:00",
