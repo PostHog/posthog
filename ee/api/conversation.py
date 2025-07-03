@@ -155,12 +155,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 yield item
                 q.task_done()
 
-        def handler():
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI":
-                return async_handler()
-            return sync_handler()
-
-        return StreamingHttpResponse(handler(), content_type="text/event-stream")
+        handler = async_handler() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else sync_handler()
+        return StreamingHttpResponse(handler, content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):

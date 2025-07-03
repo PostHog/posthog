@@ -1,4 +1,3 @@
-import asyncio
 import datetime
 from abc import ABC
 from collections.abc import Sequence
@@ -106,15 +105,7 @@ class AssistantNode(ABC):
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
         if not conversation:
-            team_count, conversation_count = await asyncio.gather(
-                Team.objects.all().acount(),
-                Conversation.objects.all().acount(),
-            )
-            raise ValueError(
-                f"Conversation {conversation_id} not found",
-                team_count,
-                conversation_count,
-            )
+            raise ValueError(f"Conversation {conversation_id} not found")
         return conversation.status == Conversation.Status.CANCELING
 
     def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:
