@@ -25,7 +25,8 @@ AIMessageUnion = Union[
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 AssistantOutput = (
-    tuple[AssistantEventType.CONVERSATION, Conversation] | tuple[AssistantEventType.MESSAGE, AssistantMessageUnion]
+    tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
 )
 
 

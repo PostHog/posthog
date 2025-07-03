@@ -66,4 +66,9 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tool_call_partial_state=serializer.validated_data["state"],
         )
 
-        return Response(assistant.invoke())
+        return Response(
+            [
+                {"type": event_type, "data": data.model_dump(exclude_none=True)}
+                for event_type, data in assistant.invoke()
+            ]
+        )

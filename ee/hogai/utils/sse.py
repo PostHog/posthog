@@ -1,21 +1,23 @@
 import json
+from typing import cast
 
 from pydantic import BaseModel
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
-from ee.hogai.utils.types import AssistantOutput
+from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
 from ee.models.assistant import Conversation
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent
 
 
-class SSESerializer:
+class AssistantSSESerializer:
     def dumps(self, event: AssistantOutput) -> str:
-        if event[0] == AssistantEventType.MESSAGE:
-            return self._serialize_message(event[1])
-        elif event[0] == AssistantEventType.CONVERSATION:
-            return self._serialize_conversation(event[1])
+        event_type, event_data = event
+        if event_type == AssistantEventType.MESSAGE:
+            return self._serialize_message(cast(AssistantMessageUnion, event_data))
+        elif event_type == AssistantEventType.CONVERSATION:
+            return self._serialize_conversation(cast(Conversation, event_data))
         else:
-            raise ValueError(f"Unknown event type: {event[0]}")
+            raise ValueError(f"Unknown event type: {event_type}")
 
     def _serialize_message(self, message: BaseModel) -> str:
         output = ""

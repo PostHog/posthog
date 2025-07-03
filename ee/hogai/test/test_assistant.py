@@ -1,4 +1,5 @@
 from itertools import cycle
+from asgiref.sync import async_to_sync
 from typing import Any, Literal, Optional, cast
 from unittest.mock import patch
 from uuid import uuid4
@@ -138,7 +139,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         if test_graph:
             assistant._graph = test_graph
-        # Capture and parse output of assistant.stream()
+        # Capture and parse output of assistant.astream()
         output: list[AssistantOutput] = []
         async for event in assistant.astream():
             output.append(event)
@@ -465,8 +466,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsInstance(snapshot.values["messages"][-1], AssistantMessage)
             self.assertEqual(snapshot.values["messages"][-1].content, "test")
 
-            async def interrupt_graph(_):
-                snapshot = await graph.aget_state(config)
+            def interrupt_graph(_):
+                snapshot = async_to_sync(graph.aget_state)(config)
                 self.assertEqual(snapshot.values["graph_status"], "resumed")
                 raise NodeInterrupt("test")
 
@@ -478,10 +479,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             def __init__(self, *args, **kwargs):
                 pass
 
-            def __iter__(self):
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
                 raise GraphRecursionError()
 
-        with patch("langgraph.pregel.Pregel.stream", side_effect=FakeStream):
+        with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
             output, _ = await self._run_assistant_graph(conversation=self.conversation)
             self.assertEqual(output[0][0], "message")
             self.assertEqual(output[0][1].content, "Hello")
@@ -1148,19 +1152,24 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        assistant = Assistant(self.team, self.conversation, user=self.user, new_message=HumanMessage(content="Test"))
+        assistant = Assistant(
+            self.team,
+            self.conversation,
+            user=self.user,
+            new_message=HumanMessage(content="Test"),
+            mode=AssistantMode.INSIGHTS_TOOL,
+        )
         assistant._graph = graph
 
         result = await assistant.ainvoke()
 
         # Should return list of tuples with correct structure
         self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 2)  # Human message + AI message
-
+        self.assertEqual(len(result), 1)
+        item = result[0]
         # Check structure of each result
-        for item in result:
-            self.assertIsInstance(item, dict)
-            self.assertIn("type", item)
-            self.assertIn("data", item)
-            self.assertEqual(item["type"], AssistantEventType.MESSAGE)
-            self.assertIsInstance(item["data"], dict)
+        self.assertIsInstance(item, tuple)
+        self.assertEqual(len(item), 2)
+        self.assertEqual(item[0], AssistantEventType.MESSAGE)
+        self.assertIsInstance(item[1], AssistantMessage)
+        self.assertEqual(item[1].content, "Response")

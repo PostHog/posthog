@@ -1,6 +1,6 @@
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID, uuid4
 
 import posthoganalytics
@@ -42,6 +42,7 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    AssistantMessageUnion,
     AssistantMode,
     AssistantNodeName,
     AssistantOutput,
@@ -156,18 +157,18 @@ class Assistant:
         self._trace_id = trace_id
         self._custom_update_ids = set()
 
-    async def ainvoke(self) -> list[tuple[AssistantEventType.MESSAGE, dict[str, Any]]]:
+    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
         messages = []
 
         async for event_type, message in self.astream(stream_messages=False):
             if event_type == AssistantEventType.MESSAGE and message.type != AssistantMessageType.AI_REASONING:
-                messages.append({"type": event_type, "data": message.model_dump(exclude_none=True)})
+                messages.append((event_type, message))
 
         return messages
 
     @async_to_sync
-    async def invoke(self) -> list[tuple[AssistantEventType.MESSAGE, dict[str, Any]]]:
+    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Sync method. Returns all messages in once without streaming."""
         return await self.ainvoke()
 
@@ -180,7 +181,9 @@ class Assistant:
         if stream_messages:
             stream_mode.append("messages")
 
-        generator = self._graph.astream(state, config=config, stream_mode=stream_mode, subgraphs=True)
+        generator: AsyncIterator[Any] = self._graph.astream(
+            state, config=config, stream_mode=stream_mode, subgraphs=True
+        )
 
         async with self._lock_conversation():
             # Assign the conversation id to the client.
@@ -204,7 +207,7 @@ class Assistant:
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            yield AssistantEventType.MESSAGE, message
+                            yield AssistantEventType.MESSAGE, cast(AssistantMessageUnion, message)
 
                 # Check if the assistant has requested help.
                 state = await self._graph.aget_state(config)
@@ -252,9 +255,6 @@ class Assistant:
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
-
-    def stream(self, stream_messages: bool = True) -> Generator[AssistantOutput, None, None]:
-        return async_to_sync(self.astream)(stream_messages)
 
     @property
     def _initial_state(self) -> AssistantState:

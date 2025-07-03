@@ -1,6 +1,8 @@
-from typing import cast
+import asyncio
+import threading
+from queue import Queue
+from typing import Any, cast
 
-import posthoganalytics
 import pydantic
 import structlog
 from django.conf import settings
@@ -15,7 +17,7 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
-from ee.hogai.utils.sse import SSESerializer
+from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -109,14 +111,46 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             mode=AssistantMode.ASSISTANT,
         )
 
-        async def handler():
-            try:
-                serializer = SSESerializer()
-                async for event in assistant.astream():
-                    yield serializer.dumps(event)
-            except Exception as e:
-                logger.exception("Error in assistant stream", error=e)
-                posthoganalytics.capture_exception(e)
+        async def async_handler():
+            """Async handler for ASGI servers."""
+            serializer = AssistantSSESerializer()
+            async for event in assistant.astream():
+                yield serializer.dumps(event)
+
+        def sync_handler():
+            """Convert async streaming to sync progressive streaming."""
+            q: Queue[Any] = Queue(maxsize=5000)
+            sentinel = object()
+
+            async def runner():
+                try:
+                    async for event in async_handler():
+                        q.put(event)
+                except:
+                    q.put(sentinel)
+                else:
+                    q.put(sentinel)
+
+            def run_event_loop():
+                asyncio.run(runner())
+
+            # Start async runner in separate thread
+            threading.Thread(target=run_event_loop, daemon=True).start()
+
+            # Yield items progressively as they arrive
+            while True:
+                item = q.get()
+                if item is sentinel:
+                    q.task_done()
+                    break
+
+                yield item
+                q.task_done()
+
+        def handler():
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI":
+                return async_handler()
+            return sync_handler()
 
         return StreamingHttpResponse(handler(), content_type="text/event-stream")
 
