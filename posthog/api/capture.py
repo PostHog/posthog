@@ -701,13 +701,17 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                             sent_at,
                             event_uuid,
                             token,
+                            False,  # historical
                         )
-                        capture_kwargs = {
-                            "extra_headers": [
-                                ("lib_version", lib_version),
-                            ],
+
+                        extra_headers: list[tuple[str, str]] = [
+                            ("lib_version", lib_version),
+                        ]
+                        capture_kwargs: dict[str, Any] = {
+                            "extra_headers": extra_headers,
                             "to_capture_rs": False,
                         }
+
                         this_future = capture_internal(*capture_args, **capture_kwargs)
                         replay_futures.append((this_future, capture_args, capture_kwargs))
 
