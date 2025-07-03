@@ -62,7 +62,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
             timestamp: {
                 name: 'timestamp',
                 hogql_value: 'timestamp',
-                type: 'datetime',
+                type: service == 'BigQuery' ? 'timestamp' : 'datetime',
                 schema_valid: true,
             },
             event: {
@@ -145,7 +145,7 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 bq_ingested_timestamp: {
                     name: 'bq_ingested_timestamp',
                     hogql_value: 'NOW64()',
-                    type: 'datetime',
+                    type: 'timestamp',
                     schema_valid: true,
                 },
             }),
@@ -199,7 +199,7 @@ const personsTable: DatabaseSchemaBatchExportTable = {
         created_at: {
             name: 'created_at',
             hogql_value: 'created_at',
-            type: 'datetime',
+            type: service == 'BigQuery' ? 'timestamp' : 'datetime',
             schema_valid: true,
         },
         is_deleted: {
@@ -242,19 +242,19 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
         },
         start_timestamp: {
             name: 'start_timestamp',
-            type: 'datetime',
+            type: service == 'BigQuery' ? 'timestamp' : 'datetime',
             hogql_value: 'start_timestamp',
             schema_valid: true,
         },
         end_timestamp: {
             name: 'end_timestamp',
-            type: 'datetime',
+            type: service == 'BigQuery' ? 'timestamp' : 'datetime',
             hogql_value: 'end_timestamp',
             schema_valid: true,
         },
         urls: {
             name: 'urls',
-            type: 'array',
+            type: service == 'BigQuery' ? 'ARRAY<STRING>' : 'array',
             hogql_value: 'urls',
             schema_valid: true,
         },
