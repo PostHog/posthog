@@ -30,6 +30,11 @@ CLICKHOUSE_SETTINGS_HOURLY = {
     "distributed_aggregation_memory_efficient": "1",
 }
 
+# Add higher partition limit for development environments (backfills)
+if DEBUG:
+    CLICKHOUSE_SETTINGS["max_partitions_per_insert_block"] = "1000"
+    CLICKHOUSE_SETTINGS_HOURLY["max_partitions_per_insert_block"] = "1000"
+
 
 def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
     """Convert a settings dictionary to ClickHouse settings string format."""
