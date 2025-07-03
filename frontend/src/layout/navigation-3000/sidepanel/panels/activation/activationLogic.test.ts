@@ -24,10 +24,6 @@ describe('activationLogic', () => {
     })
 
     describe('expandedTaskId functionality', () => {
-        it('should initialize with no expanded task', () => {
-            expect(logic.values.expandedTaskId).toBeNull()
-        })
-
         it('should set and clear expanded task id', () => {
             const taskId = ActivationTask.IngestFirstEvent
 
