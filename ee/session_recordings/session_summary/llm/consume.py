@@ -236,7 +236,6 @@ async def stream_llm_single_session_summary(
     try:
         accumulated_content = ""
         accumulated_usage = 0
-        # TODO: Find a way to time the first chunk and the time of total stream consumption (extend "openai_completion" timer)
         stream = await stream_llm(
             input_prompt=summary_prompt,
             user_key=user_id,
@@ -245,7 +244,6 @@ async def stream_llm_single_session_summary(
             trace_id=trace_id,
         )
         async for chunk in stream:
-            # TODO: Check if the usage is accumulated by itself or do we need to do it manually
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
             raw_content = _get_raw_content(chunk, session_id)
             if not raw_content:
