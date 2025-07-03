@@ -199,7 +199,8 @@ class EventsQueryRunner(QueryRunner):
                                 else:
                                     props.append(f"toString(person.properties.`{key}`)")
                             expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
-                            columns.append(expr)
+                            newCol = re.sub(r"person_display_name", expr, col)
+                            columns.append(newCol)
                         else:
                             columns.append(col)
                     order_by = [parse_order_expr(column, timings=self.timings) for column in columns]
