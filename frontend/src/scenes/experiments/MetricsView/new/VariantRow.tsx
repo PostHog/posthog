@@ -80,7 +80,7 @@ export function VariantRow({
                                 {formatVariantData(baselineResult).formattedValue}
                             </div>
                             <div className="text-xs text-muted">
-                                {baselineResult.sum}/{humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                                {baselineResult.sum} / {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
                             </div>
                         </div>
                     ) : (
@@ -106,7 +106,7 @@ export function VariantRow({
                             {formatVariantData(testVariantResult).formattedValue}
                         </div>
                         <div className="text-xs text-muted">
-                            {testVariantResult.sum}/{humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
+                            {testVariantResult.sum} / {humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
                         </div>
                     </div>
                 ) : (
