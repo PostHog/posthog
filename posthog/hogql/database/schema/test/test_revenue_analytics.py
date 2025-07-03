@@ -1,6 +1,7 @@
 from pathlib import Path
 from decimal import Decimal
 from freezegun import freeze_time
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -11,6 +12,9 @@ from posthog.schema import (
     RevenueAnalyticsEventItem,
     RevenueCurrencyPropertyConfig,
     RevenueAnalyticsPersonsJoinMode,
+    PersonsOnEventsMode,
+    TrendsQuery,
+    DateRange,
 )
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.test.base import (
@@ -20,11 +24,13 @@ from posthog.test.base import (
     _create_event,
 )
 from posthog.test.base import snapshot_clickhouse_queries
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     STRIPE_INVOICE_COLUMNS,
@@ -57,6 +63,13 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             uuid=self.person_id,
             team_id=self.team.pk,
             distinct_ids=[self.distinct_id],
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=self.QUERY_TIMESTAMP,
         )
 
         _create_event(
@@ -313,3 +326,39 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
             self.assertEqual(response.results, [(Decimal("429.7423999996"),), (None,)])
+
+    @parameterized.expand([e.value for e in PersonsOnEventsMode])
+    def test_virtual_property_in_trend(self, mode):
+        self.setup_events()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        query = TrendsQuery(
+            **{
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                "trendsFilter": {},
+                "breakdownFilter": {"breakdowns": [{"property": "$virt_revenue", "type": "person"}]},
+            },
+            dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=query)
+        results = tqr.calculate().results
+
+        # Doesnt make sense to breakdown by this, but this is just proving it works
+        poe_modes = [
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS.value,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value,
+        ]
+        expected = BREAKDOWN_NULL_STRING_LABEL if mode in poe_modes else "350.42"
+        assert results[0]["breakdown_value"] == [expected]

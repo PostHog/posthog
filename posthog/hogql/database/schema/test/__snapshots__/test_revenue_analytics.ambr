@@ -972,3 +972,531 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
+                  FROM
+                      events
+                  WHERE
+                      equals(events.team_id, 99999))]) AS `arrayMin([(SELECT min(toTimeZone(timestamp, 'UTC')) FROM events)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled.1
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM events AS e SAMPLE 1
+           INNER JOIN
+             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
+                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     person_distinct_id2.distinct_id AS distinct_id
+              FROM person_distinct_id2
+              WHERE equals(person_distinct_id2.team_id, 99999)
+              GROUP BY person_distinct_id2.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(person.id, person.version) AS e__pdi__person___id,
+                     person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 99999)
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+           LEFT JOIN
+             (SELECT revenue_analytics_customer.person_id AS person_id,
+                     sum(revenue_analytics_invoice_item.amount) AS revenue,
+                     sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+              FROM
+                (SELECT `revenue_analytics.purchase.customer_events_revenue_view`.id AS id,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.source_label AS source_label,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.timestamp AS timestamp,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.name AS name,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.email AS email,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.phone AS phone,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.metadata AS metadata,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.address AS address,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.country AS country,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.cohort AS cohort,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.person_id AS person_id
+                 FROM
+                   (SELECT toString(persons.id) AS id,
+                           'revenue_analytics.purchase' AS source_label,
+                           persons.created_at AS timestamp,
+                           persons.properties___name AS name,
+                           persons.properties___email AS email,
+                           persons.properties___phone AS phone,
+                           persons.properties AS metadata,
+                           persons.properties___address AS address,
+                           persons.`properties___$geoip_country_name` AS country,
+                           formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
+                           NULL AS initial_coupon,
+                           NULL AS initial_coupon_id,
+                           events.person_id AS person_id
+                    FROM
+                      (SELECT person.id AS id,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+                              toTimeZone(person.created_at, 'UTC') AS created_at,
+                              person.properties AS properties
+                       FROM person
+                       WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                     (SELECT person.id AS id, max(person.version) AS version
+                                                                      FROM person
+                                                                      WHERE equals(person.team_id, 99999)
+                                                                      GROUP BY person.id
+                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                                      ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                    INNER JOIN
+                      (SELECT DISTINCT events__pdi__person.id AS person_id
+                       FROM events
+                       INNER JOIN
+                         (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
+                                 argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                                 person_distinct_id2.distinct_id AS distinct_id
+                          FROM person_distinct_id2
+                          WHERE equals(person_distinct_id2.team_id, 99999)
+                          GROUP BY person_distinct_id2.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                       LEFT JOIN
+                         (SELECT person.id AS id
+                          FROM person
+                          WHERE equals(person.team_id, 99999)
+                          GROUP BY person.id
+                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+                       WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+                    ORDER BY persons.created_at DESC) AS `revenue_analytics.purchase.customer_events_revenue_view`) AS revenue_analytics_customer
+              LEFT JOIN
+                (SELECT `revenue_analytics.purchase.invoice_item_events_revenue_view`.id AS id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency AS currency,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.amount AS amount
+                 FROM
+                   (SELECT toString(events.uuid) AS id,
+                           toString(events.uuid) AS invoice_item_id,
+                           'revenue_analytics.purchase' AS source_label,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           timestamp AS created_at,
+                           0 AS is_recurring,
+                           NULL AS product_id,
+                           toString(events__pdi.person_id) AS customer_id,
+                           NULL AS invoice_id,
+                           NULL AS subscription_id,
+                           toString(events.`$session_id`) AS session_id,
+                           events.event AS event_name,
+                           NULL AS coupon,
+                           NULL AS coupon_id,
+                           'USD' AS original_currency,
+                           accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+                           in(original_currency,
+                              ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                             if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                             'USD' AS currency,
+                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                    FROM events
+                    INNER JOIN
+                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                              person_distinct_id2.distinct_id AS distinct_id
+                       FROM person_distinct_id2
+                       WHERE equals(person_distinct_id2.team_id, 99999)
+                       GROUP BY person_distinct_id2.distinct_id
+                       HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+                    ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_events_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
+              GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
+                  FROM
+                      events
+                  WHERE
+                      equals(events.team_id, 99999))]) AS `arrayMin([(SELECT min(toTimeZone(timestamp, 'UTC')) FROM events)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.1
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$virt_revenue'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
+                  FROM
+                      events
+                  WHERE
+                      equals(events.team_id, 99999))]) AS `arrayMin([(SELECT min(toTimeZone(timestamp, 'UTC')) FROM events)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$virt_revenue'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM events AS e SAMPLE 1
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined
+  '''
+  SELECT arrayMin([(SELECT
+                      min(toTimeZone(events.timestamp, 'UTC')) AS `min(toTimeZone(timestamp, 'UTC'))`
+                  FROM
+                      events
+                  WHERE
+                      equals(events.team_id, 99999))]) AS `arrayMin([(SELECT min(toTimeZone(timestamp, 'UTC')) FROM events)])`
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+           FROM events AS e SAMPLE 1
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(person.id, person.version) AS e__person___id,
+                     person.id AS id
+              FROM person
+              WHERE equals(person.team_id, 99999)
+              GROUP BY person.id
+              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+           LEFT JOIN
+             (SELECT revenue_analytics_customer.person_id AS person_id,
+                     sum(revenue_analytics_invoice_item.amount) AS revenue,
+                     sumIf(revenue_analytics_invoice_item.amount, ifNull(greaterOrEquals(revenue_analytics_invoice_item.timestamp, minus(today(), toIntervalDay(30))), 0)) AS revenue_last_30_days
+              FROM
+                (SELECT `revenue_analytics.purchase.customer_events_revenue_view`.id AS id,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.source_label AS source_label,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.timestamp AS timestamp,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.name AS name,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.email AS email,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.phone AS phone,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.metadata AS metadata,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.address AS address,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.country AS country,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.cohort AS cohort,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id,
+                        `revenue_analytics.purchase.customer_events_revenue_view`.person_id AS person_id
+                 FROM
+                   (SELECT toString(persons.id) AS id,
+                           'revenue_analytics.purchase' AS source_label,
+                           persons.created_at AS timestamp,
+                           persons.properties___name AS name,
+                           persons.properties___email AS email,
+                           persons.properties___phone AS phone,
+                           persons.properties AS metadata,
+                           persons.properties___address AS address,
+                           persons.`properties___$geoip_country_name` AS country,
+                           formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
+                           NULL AS initial_coupon,
+                           NULL AS initial_coupon_id,
+                           events.person_id AS person_id
+                    FROM
+                      (SELECT person.id AS id,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
+                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+                              toTimeZone(person.created_at, 'UTC') AS created_at,
+                              person.properties AS properties
+                       FROM person
+                       WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                     (SELECT person.id AS id, max(person.version) AS version
+                                                                      FROM person
+                                                                      WHERE equals(person.team_id, 99999)
+                                                                      GROUP BY person.id
+                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                                      ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                    INNER JOIN
+                      (SELECT DISTINCT events__person.id AS person_id
+                       FROM events
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       LEFT JOIN
+                         (SELECT person.id AS id
+                          FROM person
+                          WHERE equals(person.team_id, 99999)
+                          GROUP BY person.id
+                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                       WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
+                    ORDER BY persons.created_at DESC) AS `revenue_analytics.purchase.customer_events_revenue_view`) AS revenue_analytics_customer
+              LEFT JOIN
+                (SELECT `revenue_analytics.purchase.invoice_item_events_revenue_view`.id AS id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.invoice_item_id AS invoice_item_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.source_label AS source_label,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.timestamp AS timestamp,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.created_at AS created_at,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.is_recurring AS is_recurring,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.product_id AS product_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.customer_id AS customer_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.invoice_id AS invoice_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.subscription_id AS subscription_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.session_id AS session_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.event_name AS event_name,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.coupon AS coupon,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.coupon_id AS coupon_id,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.original_currency AS original_currency,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.original_amount AS original_amount,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.enable_currency_aware_divider AS enable_currency_aware_divider,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency_aware_divider AS currency_aware_divider,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency_aware_amount AS currency_aware_amount,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.currency AS currency,
+                        `revenue_analytics.purchase.invoice_item_events_revenue_view`.amount AS amount
+                 FROM
+                   (SELECT toString(events.uuid) AS id,
+                           toString(events.uuid) AS invoice_item_id,
+                           'revenue_analytics.purchase' AS source_label,
+                           toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                           timestamp AS created_at,
+                           0 AS is_recurring,
+                           NULL AS product_id,
+                           toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+                           NULL AS invoice_id,
+                           NULL AS subscription_id,
+                           toString(events.`$session_id`) AS session_id,
+                           events.event AS event_name,
+                           NULL AS coupon,
+                           NULL AS coupon_id,
+                           'USD' AS original_currency,
+                           accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+                           in(original_currency,
+                              ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+                             if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+                             'USD' AS currency,
+                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                    FROM events
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
+                    ORDER BY timestamp DESC) AS `revenue_analytics.purchase.invoice_item_events_revenue_view`) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
+              GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-03 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           GROUP BY day_start,
+                    breakdown_value_1)
+        GROUP BY day_start,
+                 breakdown_value_1
+        ORDER BY day_start ASC, breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---

@@ -395,14 +395,16 @@ def _use_virtual_person_fields(database: Database, modifiers: HogQLQueryModifier
             timings=timings,
             properties_path=["poe", "properties"],
         )
+
+    # TODO: POE is not well supported yet, that part is a stub
     with timings.measure("revenue"):
         field_name = "$virt_revenue"
         database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
     with timings.measure("revenue_last_30_days"):
         field_name = "$virt_revenue_last_30_days"
         database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
 
 
 TableStore = dict[str, Table | TableGroup]
