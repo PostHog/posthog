@@ -452,6 +452,16 @@ export const activationLogic = kea<activationLogicType>([
         if (values.currentTeam) {
             actions.onTeamLoad(values.currentTeam)
         }
+
+        // Auto-expand first available task with content
+        if (!values.expandedTaskId) {
+            const firstAvailableTask = values.activeTasks.find(
+                (task) => !task.completed && !task.skipped && !task.lockedReason
+            )
+            if (firstAvailableTask) {
+                actions.setExpandedTaskId(firstAvailableTask.id)
+            }
+        }
     }),
     permanentlyMount(),
 ])
