@@ -27,7 +27,7 @@ from openai.types.chat import (
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -760,9 +760,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
+            if e.__class__.__name__ == "CHQueryErrorCannotScheduleTask":
+                return Response(
+                    {"error": "ClickHouse over capacity. Please retry"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+
             return Response(
                 {"error": "An unexpected error has occurred. Please try again later."},
-                status=500,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
