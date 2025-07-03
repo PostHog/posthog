@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_product LowCardinality(String), -- comment 'log_comment[product]',
     lc_chargeable Bool, -- comment 'log_comment[chargeable]',
     lc_name String, -- comment 'log_comment[name]',
+    lc_client_query_id String, -- comment 'log_comment[client_query_id]'
 
     lc_org_id String, -- comment 'log_comment[org_id]',
     lc_team_id Int64, -- comment 'log_comment[team_id]',
@@ -149,6 +150,7 @@ AS SELECT
     JSONExtractString(log_comment, 'product') as lc_product,
     JSONExtractInt(log_comment, 'chargeable') == 1 as lc_chargeable,
     JSONExtractString(log_comment, 'name') as lc_name,
+    JSONExtractString(log_comment, 'client_query_id') as lc_client_query_id,
 
     JSONExtractString(log_comment, 'org_id') as lc_org_id,
     JSONExtractInt(log_comment, 'team_id') as lc_team_id,
