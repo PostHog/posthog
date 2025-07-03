@@ -2,8 +2,42 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import type { CachedNewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import type { ExperimentIdType } from '~/types'
 import type { experimentSummaryLogicType } from './experimentSummaryLogicType'
+
+export function formatExperimentResultsForAI(
+    primaryMetrics: CachedNewExperimentQueryResponse[],
+    secondaryMetrics: CachedNewExperimentQueryResponse[]
+): string {
+    const lines: string[] = []
+
+    // Format primary metrics
+    if (primaryMetrics.length > 0) {
+        lines.push('## Primary Metrics')
+        primaryMetrics.forEach((metric, index) => {
+            lines.push(`### Metric ${index + 1}`)
+            lines.push('```json')
+            lines.push(JSON.stringify(metric, null, 2))
+            lines.push('```')
+            lines.push('')
+        })
+    }
+
+    // Format secondary metrics
+    if (secondaryMetrics.length > 0) {
+        lines.push('## Secondary Metrics')
+        secondaryMetrics.forEach((metric, index) => {
+            lines.push(`### Metric ${index + 1}`)
+            lines.push('```json')
+            lines.push(JSON.stringify(metric, null, 2))
+            lines.push('```')
+            lines.push('')
+        })
+    }
+
+    return lines.join('\n')
+}
 
 export interface ExperimentSummaryLogicProps {
     experimentId: ExperimentIdType
@@ -15,7 +49,13 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
     connect((props: ExperimentSummaryLogicProps) => ({
         values: [
             experimentLogic(props),
-            ['experiment', 'primaryMetricsResultsLoading', 'secondaryMetricsResultsLoading'],
+            [
+                'experiment',
+                'primaryMetricsResultsLoading',
+                'secondaryMetricsResultsLoading',
+                'primaryMetricsResults',
+                'secondaryMetricsResults',
+            ],
         ],
     })),
 
@@ -70,11 +110,18 @@ export const experimentSummaryLogic = kea<experimentSummaryLogicType>([
                 return
             }
 
+            // Get the formatted experiment results data
+            const resultsData = formatExperimentResultsForAI(
+                values.primaryMetricsResults,
+                values.secondaryMetricsResults
+            )
+
             try {
                 await api.stream(`/api/environments/@current/max_tools/experiment_results_summary/`, {
                     method: 'POST',
                     data: {
                         experiment_id: props.experimentId.toString(),
+                        results_data: resultsData,
                     },
                     onMessage: (event) => {
                         try {
