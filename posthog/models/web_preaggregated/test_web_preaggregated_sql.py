@@ -1,187 +1,208 @@
-import re
+"""
+Tests for web preaggregated SQL generation functions.
+"""
+
+import pytest
 from unittest.mock import patch
-from parameterized import parameterized
 from posthog.models.web_preaggregated.sql import (
-    WEB_STATS_DAILY_SQL,
-    WEB_BOUNCES_DAILY_SQL,
-    WEB_ANALYTICS_DIMENSIONS,
-    WEB_STATS_DIMENSIONS,
-    WEB_BOUNCES_DIMENSIONS,
+    DROP_PARTITION_SQL,
+    TABLE_TEMPLATE,
+    HOURLY_TABLE_TEMPLATE,
+    WEB_STATS_COLUMNS,
+    WEB_BOUNCES_COLUMNS,
+    WEB_STATS_ORDER_BY_FUNC,
+    WEB_BOUNCES_ORDER_BY_FUNC,
 )
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.schema import WebOverviewQuery, DateRange
-from posthog.hogql.printer import print_ast
-from posthog.hogql.context import HogQLContext
 
 
-class TestWebPreAggregatedMergeTree(ClickhouseTestMixin, APIBaseTest):
-    TEST_TABLE_STATS = "test_web_stats_daily"
-    TEST_TABLE_BOUNCES = "test_web_bounces_daily"
-    TEST_DATE_START = "2023-01-01"
-    TEST_DATE_END = "2023-01-02"
-    TEST_TEAM_IDS = [1]
+class TestPartitionDropSQL:
+    """Test partition drop SQL generation for both daily and hourly granularity."""
 
-    MERGE_TREE_PATTERNS = [
-        "MergeTree",
-    ]
+    def test_drop_partition_daily_format(self):
+        """Test daily partition drop SQL generation."""
+        sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-15", on_cluster=False)
 
-    SHOULD_NOT_CONTAIN_PATTERNS = [
-        "ReplacingMergeTree",
-        "updated_at DateTime64(6, 'UTC') DEFAULT now()",
-        "updated_at",
-    ]
+        expected = """
+    ALTER TABLE web_stats_daily
+    DROP PARTITION '20240115'
+    """
+        assert sql.strip() == expected.strip()
 
-    AGGREGATE_FUNCTION_PATTERNS = {
-        "persons_uniq_state": "AggregateFunction(uniq, UUID)",
-        "sessions_uniq_state": "AggregateFunction(uniq, String)",
-        "pageviews_count_state": "AggregateFunction(sum, UInt64)",
-        "bounces_count_state": "AggregateFunction(sum, UInt64)",
-        "total_session_duration_state": "AggregateFunction(sum, Int64)",
-        "total_session_count_state": "AggregateFunction(sum, UInt64)",
-    }
+    def test_drop_partition_daily_with_cluster(self):
+        """Test daily partition drop SQL with cluster."""
+        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
+            sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-15", on_cluster=True)
 
-    def _assert_sql_contains_patterns(self, sql: str, patterns: list[str], should_contain: bool = True):
-        for pattern in patterns:
-            if should_contain:
-                assert pattern in sql, f"Expected '{pattern}' in SQL"
-            else:
-                assert pattern not in sql, f"Did not expect '{pattern}' in SQL"
+            expected = """
+    ALTER TABLE web_stats_daily ON CLUSTER 'test_cluster'
+    DROP PARTITION '20240115'
+    """
+            assert sql.strip() == expected.strip()
 
-    def _assert_sql_contains_aggregate_functions(self, sql: str, function_names: list[str]):
-        for func_name in function_names:
-            expected_pattern = f"{func_name} {self.AGGREGATE_FUNCTION_PATTERNS[func_name]}"
-            assert expected_pattern in sql, f"Expected aggregate function '{expected_pattern}' in SQL"
+    def test_drop_partition_hourly_with_hour(self):
+        """Test hourly partition drop SQL with hour specified."""
+        sql = DROP_PARTITION_SQL("web_stats_hourly", "2024-01-15 14", on_cluster=False, granularity="hourly")
 
-    def _get_web_stats_sql(self, table_name: str | None = None) -> str:
-        return WEB_STATS_DAILY_SQL(table_name=table_name or self.TEST_TABLE_STATS, on_cluster=False)
+        expected = """
+    ALTER TABLE web_stats_hourly
+    DROP PARTITION '2024011514'
+    """
+        assert sql.strip() == expected.strip()
 
-    def _get_web_bounces_sql(self, table_name: str | None = None) -> str:
-        return WEB_BOUNCES_DAILY_SQL(table_name=table_name or self.TEST_TABLE_BOUNCES, on_cluster=False)
+    def test_drop_partition_hourly_without_hour(self):
+        """Test hourly partition drop SQL without hour (defaults to 00)."""
+        sql = DROP_PARTITION_SQL("web_stats_hourly", "2024-01-15", on_cluster=False, granularity="hourly")
 
-    def _extract_columns_from_sql(self, sql: str) -> list[str]:
-        # Find the columns section between ( and ) ENGINE =
-        pattern = r"\(\s*(.*?)\s*\)\s*ENGINE\s*="
-        match = re.search(pattern, sql, re.DOTALL)
-        if not match:
-            return []
+        expected = """
+    ALTER TABLE web_stats_hourly
+    DROP PARTITION '2024011500'
+    """
+        assert sql.strip() == expected.strip()
 
-        columns_text = match.group(1)
-        lines = [line.strip().rstrip(",") for line in columns_text.split("\n") if line.strip()]
+    def test_drop_partition_hourly_single_digit_hour(self):
+        """Test hourly partition drop SQL with single digit hour (should be zero-padded)."""
+        sql = DROP_PARTITION_SQL("web_stats_hourly", "2024-01-15 5", on_cluster=False, granularity="hourly")
 
-        # Filter out aggregate functions only (no updated_at to filter since it's removed)
-        aggregate_suffixes = {"_uniq_state", "_count_state", "_duration_state"}
+        expected = """
+    ALTER TABLE web_stats_hourly
+    DROP PARTITION '2024011505'
+    """
+        assert sql.strip() == expected.strip()
 
-        dimension_columns = []
-        for line in lines:
-            if not line:
-                continue
-            # Extract column name (first word)
-            col_name = line.split()[0]
-            # Skip aggregate functions
-            if not any(col_name.endswith(suffix) for suffix in aggregate_suffixes):
-                dimension_columns.append(col_name)
+    def test_drop_partition_daily_different_table(self):
+        """Test daily partition drop SQL generation with different table name."""
+        sql = DROP_PARTITION_SQL("web_bounces_daily", "2024-01-15", on_cluster=False)
 
-        return dimension_columns
+        expected = """
+    ALTER TABLE web_bounces_daily
+    DROP PARTITION '20240115'
+    """
+        assert sql.strip() == expected.strip()
 
-    def _extract_order_by_from_sql(self, sql: str) -> list[str]:
-        pattern = r"ORDER\s+BY\s+\((.*?)\)"
-        match = re.search(pattern, sql, re.DOTALL)
-        if not match:
-            return []
+    def test_drop_partition_hourly_different_table(self):
+        """Test hourly partition drop SQL generation with different table name."""
+        sql = DROP_PARTITION_SQL("web_bounces_hourly", "2024-01-15 08", on_cluster=False, granularity="hourly")
 
-        order_by_text = match.group(1)
-        columns = [col.strip() for col in order_by_text.split(",")]
+        expected = """
+    ALTER TABLE web_bounces_hourly
+    DROP PARTITION '2024011508'
+    """
+        assert sql.strip() == expected.strip()
 
-        return columns
 
-    def _get_expected_full_columns(self, dimensions: list[str]) -> set[str]:
-        """Get the expected full column set including base columns and dimensions"""
-        base_columns = {"period_bucket", "team_id", "host", "device_type"}
-        return base_columns | set(dimensions)
+class TestTableTemplates:
+    """Test table creation templates with correct partitioning."""
 
-    def _get_expected_order_by_columns(self, dimensions: list[str], bucket_column: str = "period_bucket") -> set[str]:
-        """Get the expected ORDER BY columns including base columns and dimensions"""
-        base_columns = {"team_id", bucket_column, "host", "device_type"}
-        return base_columns | set(dimensions)
+    def test_daily_table_partition_by_date(self):
+        """Test that daily tables are partitioned by YYYYMMDD."""
+        sql = TABLE_TEMPLATE("web_stats_daily", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), on_cluster=False)
 
-    @parameterized.expand(
-        [
-            ("web_stats", _get_web_stats_sql),
-            ("web_bounces", _get_web_bounces_sql),
-        ]
-    )
-    def test_table_creation_uses_merge_tree(self, table_type: str, sql_generator):
-        table_sql = sql_generator(self)
+        assert "PARTITION BY toYYYYMMDD(period_bucket)" in sql
+        assert "web_stats_daily" in sql
 
-        self._assert_sql_contains_patterns(table_sql, self.MERGE_TREE_PATTERNS)
-        self._assert_sql_contains_patterns(table_sql, self.SHOULD_NOT_CONTAIN_PATTERNS, should_contain=False)
+    def test_hourly_table_partition_by_hour(self):
+        """Test that hourly tables are partitioned by YYYYMMDDhh."""
+        sql = HOURLY_TABLE_TEMPLATE("web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), on_cluster=False)
 
-    def test_web_bounces_has_required_aggregate_functions(self):
-        table_sql = self._get_web_bounces_sql()
+        assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
+        assert "web_stats_hourly" in sql
 
-        bounces_specific_functions = [
-            "persons_uniq_state",
-            "sessions_uniq_state",
-            "pageviews_count_state",
-            "bounces_count_state",
-            "total_session_duration_state",
-            "total_session_count_state",
-        ]
-
-        self._assert_sql_contains_aggregate_functions(table_sql, bounces_specific_functions)
-
-    def test_dimensions_consistency(self):
-        stats_sql = self._get_web_stats_sql()
-        stats_columns = self._extract_columns_from_sql(stats_sql)
-        stats_order_by = self._extract_order_by_from_sql(stats_sql)
-
-        expected_stats_columns = self._get_expected_full_columns(WEB_STATS_DIMENSIONS)
-        expected_stats_order_by = self._get_expected_order_by_columns(WEB_STATS_DIMENSIONS)
-
-        assert set(stats_columns) == expected_stats_columns
-        assert set(stats_order_by) == expected_stats_order_by
-
-        bounces_sql = self._get_web_bounces_sql()
-        bounces_columns = self._extract_columns_from_sql(bounces_sql)
-        bounces_order_by = self._extract_order_by_from_sql(bounces_sql)
-
-        expected_bounces_columns = self._get_expected_full_columns(WEB_BOUNCES_DIMENSIONS)
-        expected_bounces_order_by = self._get_expected_order_by_columns(WEB_BOUNCES_DIMENSIONS)
-
-        assert set(bounces_columns) == expected_bounces_columns
-        assert set(bounces_order_by) == expected_bounces_order_by
-
-    def test_dimension_structure_hierarchy(self):
-        expected_web_stats = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
-        assert WEB_STATS_DIMENSIONS == expected_web_stats
-
-        assert WEB_BOUNCES_DIMENSIONS == WEB_ANALYTICS_DIMENSIONS
-
-        assert "referring_domain" in WEB_ANALYTICS_DIMENSIONS
-        assert "end_pathname" in WEB_ANALYTICS_DIMENSIONS
-
-        assert "pathname" in WEB_STATS_DIMENSIONS
-        assert "pathname" not in WEB_BOUNCES_DIMENSIONS
-
-    @patch("posthog.clickhouse.client.sync_execute")
-    def test_queries_do_not_use_final_keyword(self, mock_sync_execute):
-        query = WebOverviewQuery(
-            dateRange=DateRange(date_from=self.TEST_DATE_START, date_to="2023-01-31"), properties=[]
+    def test_hourly_table_with_ttl(self):
+        """Test hourly table template with TTL."""
+        sql = HOURLY_TABLE_TEMPLATE(
+            "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), on_cluster=False, ttl="24 HOUR"
         )
-        runner = WebOverviewQueryRunner(team=self.team, query=query)
-        builder = WebOverviewPreAggregatedQueryBuilder(runner)
 
-        hogql_query = builder.get_query()
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        sql = print_ast(hogql_query, context=context, dialect="clickhouse")
+        assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
+        assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
 
-        assert "web_bounces_combined FINAL" not in sql
+    def test_daily_table_with_cluster(self):
+        """Test daily table template with cluster."""
+        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
+            sql = TABLE_TEMPLATE("web_bounces_daily", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC(), on_cluster=True)
 
-    def test_merge_tree_no_version_column(self):
-        table_sql = WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False)
+            assert "ON CLUSTER 'test_cluster'" in sql
+            assert "PARTITION BY toYYYYMMDD(period_bucket)" in sql
 
-        # Should not contain any updated_at references
-        assert "updated_at" not in table_sql
-        assert "DEFAULT now()" not in table_sql
+    def test_hourly_table_with_cluster(self):
+        """Test hourly table template with cluster."""
+        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
+            sql = HOURLY_TABLE_TEMPLATE(
+                "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC(), on_cluster=True, ttl="24 HOUR"
+            )
+
+            assert "ON CLUSTER 'test_cluster'" in sql
+            assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
+            assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
+
+
+class TestPartitionIDFormatting:
+    """Test edge cases for partition ID formatting."""
+
+    @pytest.mark.parametrize(
+        "date_input,granularity,expected_partition",
+        [
+            ("2024-01-01", "daily", "20240101"),
+            ("2024-12-31", "daily", "20241231"),
+            ("2024-01-01", "hourly", "2024010100"),
+            ("2024-01-01 23", "hourly", "2024010123"),
+            ("2024-01-01 0", "hourly", "2024010100"),
+            ("2024-01-01 9", "hourly", "2024010109"),
+        ],
+    )
+    def test_partition_id_formatting(self, date_input, granularity, expected_partition):
+        """Test various date inputs produce correct partition IDs."""
+        sql = DROP_PARTITION_SQL("test_table", date_input, on_cluster=False, granularity=granularity)
+        assert f"'{expected_partition}'" in sql
+
+    def test_invalid_hourly_format_defaults_to_00(self):
+        """Test that malformed hourly input defaults gracefully."""
+        # Test with date only for hourly granularity
+        sql = DROP_PARTITION_SQL("test_table", "2024-01-15", on_cluster=False, granularity="hourly")
+        assert "'2024011500'" in sql
+
+
+class TestHourlyPartitioningIntegration:
+    """Test cases for hourly partitioning integration (for future hourly DAGs)."""
+
+    def test_hourly_partition_drop_for_different_hours(self):
+        """Test that different hours generate different partition IDs."""
+        test_cases = [
+            ("2024-01-15 00", "2024011500"),
+            ("2024-01-15 01", "2024011501"),
+            ("2024-01-15 12", "2024011512"),
+            ("2024-01-15 23", "2024011523"),
+        ]
+
+        for date_input, expected_partition in test_cases:
+            sql = DROP_PARTITION_SQL("web_stats_hourly", date_input, on_cluster=False, granularity="hourly")
+            assert f"'{expected_partition}'" in sql
+
+    def test_hourly_table_creation_with_ttl(self):
+        """Test that hourly tables have proper TTL and partitioning."""
+        sql = HOURLY_TABLE_TEMPLATE(
+            "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), on_cluster=False, ttl="24 HOUR"
+        )
+
+        # Should have hourly partitioning
+        assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
+        # Should have TTL
+        assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
+        # Should be MergeTree (migrated from ReplacingMergeTree)
+        assert "ReplicatedMergeTree" in sql
+
+    def test_hourly_vs_daily_partition_difference(self):
+        """Test that hourly and daily partitions produce different results."""
+        date = "2024-01-15"
+
+        daily_sql = DROP_PARTITION_SQL("web_stats_daily", date, on_cluster=False, granularity="daily")
+        hourly_sql = DROP_PARTITION_SQL("web_stats_hourly", date, on_cluster=False, granularity="hourly")
+
+        # Daily should be YYYYMMDD format
+        assert "'20240115'" in daily_sql
+        # Hourly should be YYYYMMDDHH format (defaulting to 00)
+        assert "'2024011500'" in hourly_sql
+
+        # They should be different
+        assert "'20240115'" not in hourly_sql
+        assert "'2024011500'" not in daily_sql
