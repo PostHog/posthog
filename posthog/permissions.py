@@ -471,7 +471,7 @@ class APIScopePermission(ScopeBasePermission):
         org = get_organization_from_view(view)
 
         try:
-            membership = OrganizationMembership.objects.get(cast(User, request.user), organization=org)
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
             if membership.level >= OrganizationMembership.Level.ADMIN:
                 return True
         except OrganizationMembership.DoesNotExist:
