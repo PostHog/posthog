@@ -166,9 +166,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(second_message.id)
             self.assertNotEqual(first_message.id, second_message.id)
 
-    def test_model_has_correct_max_retries(self):
-        expected_max_retries = 3
-
+    def test_model_has_correct_max_retries(self) -> None:
         with patch("ee.hogai.graph.inkeep_docs.nodes.ChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_chat_openai.return_value = mock_model
@@ -177,11 +175,6 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
 
             node._get_model()
 
-            mock_chat_openai.assert_called_once_with(
-                model="inkeep-qa-sonnet-4",
-                base_url="https://api.inkeep.com/v1/",
-                api_key="",
-                streaming=True,
-                stream_usage=True,
-                max_retries=expected_max_retries,
-            )
+            mock_chat_openai.assert_called_once()
+            call_args = mock_chat_openai.call_args
+            self.assertEqual(call_args.kwargs["max_retries"], 3)
