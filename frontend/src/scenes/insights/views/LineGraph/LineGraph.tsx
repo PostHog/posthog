@@ -325,7 +325,9 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query, insightData } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
@@ -742,7 +744,7 @@ export function LineGraph_({
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
-                                    interval={insightData?.resolved_date_range?.interval}
+                                    interval={interval}
                                     dateRange={insightData?.resolved_date_range}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
