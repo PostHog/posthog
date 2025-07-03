@@ -297,7 +297,7 @@ class RootNode(RootNodeUIContextMixin):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{_get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{_get_contextual_tool_class(tool_name)(user=self._user, team=self._team).format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -315,13 +315,8 @@ class RootNode(RootNodeUIContextMixin):
         message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
                 "ui_context": ui_context,
+                **self.project_org_user_variables,
             },
             config,
         )
@@ -367,7 +362,7 @@ class RootNode(RootNodeUIContextMixin):
             ToolClass = _get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
-            available_tools.append(ToolClass())  # type: ignore
+            available_tools.append(ToolClass(user=self._user, team=self._team))  # type: ignore
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -511,7 +506,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := _get_contextual_tool_class(tool_call.name):
-            tool_class = ToolClass(state)
+            tool_class = ToolClass(state=state, user=self._user, team=self._team)
             result = tool_class.invoke(tool_call.model_dump(), config)
             assert isinstance(result, LangchainToolMessage)
 

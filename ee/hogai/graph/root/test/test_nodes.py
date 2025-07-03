@@ -537,7 +537,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 content for role, content in mock_chat_prompt_template.call_args[0][0] if role == "system"
             )
             self.assertIn("You are currently in project ", system_content)
-            self.assertIn("The user's name appears to be ", system_content)
+            self.assertIn("The name of the user you're currently serving appears to be", system_content)
 
 
 class TestRootNodeTools(BaseTest):

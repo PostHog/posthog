@@ -9,6 +9,7 @@ from .prompts import (
 )
 from posthog.schema import MaxRecordingUniversalFilters
 from ee.hogai.tool import MaxTool
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -34,6 +35,7 @@ class SearchSessionRecordingsTool(MaxTool):
         prompt = ChatPromptTemplate(
             [
                 ("system", AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT),
+                ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                 ("human", AI_FILTER_REQUEST_PROMPT),
             ],
             template_format="mustache",
