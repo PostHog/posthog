@@ -2731,7 +2731,6 @@ export interface ResolvedDateRangeResponse {
     date_from?: string
     /**  @format date-time */
     date_to?: string
-    interval?: IntervalType
 }
 
 export type MultipleBreakdownType = Extract<

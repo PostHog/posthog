@@ -490,7 +490,6 @@ class TrendsQueryRunner(QueryRunner):
             resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
-                interval=self.query_date_range.interval_type,
             ),
         )
 
