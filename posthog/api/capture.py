@@ -1022,6 +1022,7 @@ def capture_internal(
     event_uuid=None,
     token=None,
     historical=False,
+    *args,  # ensure we clearly delimit positional from keyword args
     extra_headers: list[tuple[str, str]] | None = None,
     to_capture_rs: bool = False,
 ):
