@@ -36,12 +36,10 @@ class MessageSerializer(serializers.Serializer):
     )
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
-    trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
+    trace_id = serializers.UUIDField(required=True)
 
     def validate(self, data):
-        # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
-        # Because we intentionally don't add a HumanMessage, we currently can't recognize ui_context having changed
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
@@ -51,6 +49,8 @@ class MessageSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
         else:
+            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+            # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
             data["message"] = None
         return data
 

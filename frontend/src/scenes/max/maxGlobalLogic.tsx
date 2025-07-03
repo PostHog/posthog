@@ -9,12 +9,20 @@ import { router } from 'kea-router'
 import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
+import { IconCompass } from '@posthog/icons'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
     name: AssistantContextualTool
     /** A user-friendly display name for the tool */
     displayName: string
+    /** A user-friendly description for the tool */
+    description: `Max can ${string}`
+    /**
+     * Optional specific @posthog/icons icon
+     * @default <IconWrench />
+     */
+    icon?: React.ReactNode
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
     /**
@@ -56,6 +64,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 navigate: {
                     name: 'navigate' as const,
                     displayName: 'Navigate',
+                    description: 'Max can navigate to other places in PostHog',
+                    icon: <IconCompass />,
                     context: { current_page: location.pathname },
                     callback: async (toolOutput) => {
                         const { page_key: pageKey } = toolOutput
