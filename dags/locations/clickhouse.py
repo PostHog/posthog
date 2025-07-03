@@ -1,9 +1,7 @@
 import dagster
 
-from django.conf import settings
 from . import resources
 
-from dags.common import job_status_metrics_sensors
 from dags import (
     backups,
     ch_examples,
@@ -13,7 +11,6 @@ from dags import (
     orm_examples,
     person_overrides,
     property_definitions,
-    slack_alerts,
 )
 
 defs = dagster.Definitions(
@@ -44,13 +41,6 @@ defs = dagster.Definitions(
     ],
     sensors=[
         deletes.run_deletes_after_squash,
-        slack_alerts.notify_slack_on_failure,
-        *job_status_metrics_sensors,
     ],
     resources=resources,
 )
-
-if settings.DEBUG:
-    from dags import testing
-
-    defs.jobs.append(testing.error)
