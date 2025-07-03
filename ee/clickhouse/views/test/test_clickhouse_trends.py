@@ -122,7 +122,7 @@ def test_includes_only_intervals_within_range(client: Client):
                     "label": "test cohort",
                     "count": 3.0,
                     "data": [1.0, 1.0, 1.0],
-                    "labels": ["5-Sep – 11-Sep", "12-Sep – 18-Sep", "19-Sep – 25-Sep"],
+                    "labels": ["6–11 Sep", "12–18 Sep", "19–21 Sep"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
                     "filter": ANY,
                     "order": 0,
