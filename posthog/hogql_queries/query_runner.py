@@ -1085,13 +1085,16 @@ class QueryRunnerWithHogQLContext(QueryRunner):
     database: Database
     hogql_context: HogQLContext
 
+    # Can be overridden by subclasses to skip data warehouse tables for performance
+    skip_data_warehouse_tables: bool = False
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # We create a new context here because we need to access the database
         # below in the to_query method and creating a database is pretty heavy
         # so we'll reuse this database for the query once it eventually runs
-        self.database = create_hogql_database(team=self.team)
+        self.database = create_hogql_database(team=self.team, skip_dw_tables=self.skip_data_warehouse_tables)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 

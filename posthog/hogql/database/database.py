@@ -380,6 +380,7 @@ def create_hogql_database(
     team: Optional["Team"] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
+    skip_dw_tables: bool = False,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
@@ -490,6 +491,13 @@ def create_hogql_database(
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
     self_managed_warehouse_tables: TableStore = {}
     views: TableStore = {}
+
+    if skip_dw_tables:
+        # Skip data warehouse table loading and proceed directly to adding empty tables
+        database.add_warehouse_tables(**warehouse_tables)
+        database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
+        database.add_views(**views)
+        return database
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):

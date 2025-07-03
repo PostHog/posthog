@@ -3,7 +3,7 @@ from typing import Union
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count, WebAnalyticsQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import (
     DateRange,
@@ -113,3 +113,24 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(SamplingRate(numerator=1, denominator=100), _sample_rate_from_count(9_999_999))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
+
+    def test_web_analytics_query_runner_skips_data_warehouse_tables(self):
+        """Test that WebAnalyticsQueryRunner has skip_data_warehouse_tables=True for performance."""
+        # Test that the base WebAnalyticsQueryRunner class has the flag set to True
+        self.assertTrue(WebAnalyticsQueryRunner.skip_data_warehouse_tables,
+                       "WebAnalyticsQueryRunner should skip data warehouse tables for performance")
+
+        # Test that specific query runners inherit this behavior
+        stats_runner = WebStatsTableQueryRunner(query=WebStatsTableQuery(), team=self.team)
+        self.assertTrue(stats_runner.skip_data_warehouse_tables,
+                       "WebStatsTableQueryRunner should inherit skip_data_warehouse_tables=True")
+
+        overview_runner = WebOverviewQueryRunner(query=WebOverviewQuery(), team=self.team)
+        self.assertTrue(overview_runner.skip_data_warehouse_tables,
+                       "WebOverviewQueryRunner should inherit skip_data_warehouse_tables=True")
+
+        # Verify that the database creation uses this flag
+        # The database should have no warehouse tables when the flag is True
+        warehouse_tables = stats_runner.database.get_warehouse_tables()
+        self.assertEqual(len(warehouse_tables), 0,
+                        "WebAnalyticsQueryRunner database should have no warehouse tables when skip_data_warehouse_tables=True")

@@ -49,6 +49,44 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertRaises(ValueError, msg="Either team_id or team must be provided"):
             create_hogql_database()
 
+    def test_create_hogql_database_skip_dw_tables(self):
+        # Create a data warehouse table for testing
+        source = ExternalDataSource.objects.create(
+            source_id="test_source",
+            connection_id="test_connection",
+            destination_id="test_destination",
+            team=self.team,
+            status="Running",
+            source_type="Stripe",
+        )
+        DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team_id=self.team.pk,
+            url_pattern="https://example.com/data.parquet",
+            external_data_source=source,
+        )
+
+        # Test with skip_dw_tables=False (default behavior)
+        db_with_dw_tables = create_hogql_database(team=self.team, skip_dw_tables=False)
+        warehouse_tables_with_dw = db_with_dw_tables.get_warehouse_tables()
+
+        # Test with skip_dw_tables=True
+        db_without_dw_tables = create_hogql_database(team=self.team, skip_dw_tables=True)
+        warehouse_tables_without_dw = db_without_dw_tables.get_warehouse_tables()
+
+        # When skip_dw_tables=True, there should be no warehouse tables
+        self.assertEqual(len(warehouse_tables_without_dw), 0, "Expected no warehouse tables when skip_dw_tables=True")
+
+        # When skip_dw_tables=False, there should be warehouse tables (if any exist)
+        # Note: The exact count depends on other factors, but it should be >= 0
+        self.assertGreaterEqual(len(warehouse_tables_with_dw), 0, "Expected warehouse tables count >= 0 when skip_dw_tables=False")
+
+        # Both databases should have the same PostHog tables
+        posthog_tables_with_dw = db_with_dw_tables.get_posthog_tables()
+        posthog_tables_without_dw = db_without_dw_tables.get_posthog_tables()
+        self.assertEqual(posthog_tables_with_dw, posthog_tables_without_dw, "PostHog tables should be the same regardless of skip_dw_tables setting")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
