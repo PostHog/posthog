@@ -3411,6 +3411,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "anyOf": [
                         {
@@ -3939,6 +3943,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "items": {
                         "type": "object"
@@ -4376,6 +4384,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timezone": {
                     "type": "string"
@@ -4438,6 +4450,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -4513,6 +4529,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResult"
                 },
@@ -4583,6 +4603,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {},
                 "timezone": {
@@ -5226,6 +5250,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -7450,6 +7478,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {},
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
@@ -7480,6 +7512,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {
                                     "items": {
@@ -7523,6 +7559,10 @@
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
                                 "results": {
                                     "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResult"
                                 },
@@ -7561,6 +7601,10 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
                                 },
                                 "results": {},
                                 "timings": {
@@ -11655,6 +11699,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "anyOf": [
                         {
@@ -13642,6 +13690,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -16298,6 +16350,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -16328,6 +16384,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -16371,6 +16431,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResult"
                         },
@@ -16409,6 +16473,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -17054,6 +17122,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -17084,6 +17156,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -17127,6 +17203,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResult"
                         },
@@ -17165,6 +17245,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {},
                         "timings": {
@@ -17587,6 +17671,10 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
                         "results": {
                             "items": {
                                 "type": "object"
@@ -17662,6 +17750,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "anyOf": [
@@ -17816,6 +17908,10 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
                         },
                         "results": {
                             "items": {
@@ -18658,6 +18754,20 @@
             ],
             "type": "string"
         },
+        "ResolvedDateRangeResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "date_to": {
+                    "format": "date-time",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "ResultCustomization": {
             "anyOf": [
                 {
@@ -19234,6 +19344,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -19312,6 +19426,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
@@ -19424,6 +19542,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
                 "results": {
                     "$ref": "#/definitions/RevenueAnalyticsRevenueQueryResult"
                 },
@@ -19515,6 +19637,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {},
                 "timings": {
@@ -21272,6 +21398,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {

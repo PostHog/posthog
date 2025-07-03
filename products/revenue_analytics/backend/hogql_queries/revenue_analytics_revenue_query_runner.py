@@ -10,6 +10,7 @@ from posthog.schema import (
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsGroupBy,
     RevenueAnalyticsRevenueQueryResult,
+    ResolvedDateRangeResponse,
 )
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
@@ -311,4 +312,8 @@ class RevenueAnalyticsRevenueQueryRunner(RevenueAnalyticsQueryRunner):
             results=results,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )

@@ -6,6 +6,7 @@ from posthog.schema import (
     CachedRevenueAnalyticsTopCustomersQueryResponse,
     RevenueAnalyticsTopCustomersQueryResponse,
     RevenueAnalyticsTopCustomersQuery,
+    ResolvedDateRangeResponse,
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
@@ -138,4 +139,8 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             results=response.results,
             columns=["name", "customer_id", "amount", "month"],
             modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
         )
