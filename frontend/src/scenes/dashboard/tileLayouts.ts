@@ -28,22 +28,19 @@ export const calculateLayouts = (
 ): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
-    let referenceOrder: number[] | undefined = undefined
+    const tilesOrderedByDesktopLayout = sortTilesByLayout(tiles, 'sm')
+    const tileIdToOrderIndex = new Map(tilesOrderedByDesktopLayout.map((tile, index) => [tile.id, index]))
 
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
         const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
 
-        let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
-        if (referenceOrder === undefined) {
-            sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
-        } else {
-            sortedDashboardTiles = tiles.sort((a, b) => {
-                return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
-            })
-        }
+        const sortedDashboardTiles = [...tiles].sort((a, b) => {
+            const aIndex = tileIdToOrderIndex.get(a.id) ?? Infinity
+            const bIndex = tileIdToOrderIndex.get(b.id) ?? Infinity
+            return aIndex - bIndex
+        })
 
-        const layouts = (sortedDashboardTiles || []).map((tile) => {
+        const layouts = sortedDashboardTiles.map((tile) => {
             const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
             // Base constraints
             let defaultW = 6
