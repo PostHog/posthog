@@ -163,7 +163,7 @@ class Assistant:
 
         async for event_type, message in self.astream(stream_messages=False):
             if event_type == AssistantEventType.MESSAGE and message.type != AssistantMessageType.AI_REASONING:
-                messages.append((event_type, message))
+                messages.append((event_type, cast(AssistantMessageUnion, message)))
 
         return messages
 
