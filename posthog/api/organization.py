@@ -287,8 +287,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Add capture event for 2FA enforcement change
             posthoganalytics.capture(
-                str(user.distinct_id),
                 "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
                 properties={
                     "enabled": enforce_2fa_value,
                     "organization_id": str(organization.id),
@@ -378,8 +378,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         add_organization_to_rollback_list(organization.id)
 
         posthoganalytics.capture(
-            str(user.distinct_id),
             "organization environments rollback started",
+            distinct_id=str(user.distinct_id),
             properties={
                 "environment_mappings": json.dumps(environment_mappings),
                 "organization_id": str(organization.id),

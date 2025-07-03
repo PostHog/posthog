@@ -430,9 +430,9 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             for user in schema.team.all_users_with_access():
                 if user.distinct_id is not None:
                     posthoganalytics.capture(
-                        user.distinct_id,
-                        "revenue_analytics_ready",
-                        {"source_type": schema.source.source_type},
+                        distinct_id=user.distinct_id,
+                        event="revenue_analytics_ready",
+                        properties={"source_type": schema.source.source_type},
                     )
 
             # Mark the team as notified, avoiding spamming emails

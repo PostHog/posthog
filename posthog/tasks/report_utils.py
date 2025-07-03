@@ -68,17 +68,17 @@ def capture_event(
 
     if is_cloud():
         pha_client.capture(
-            distinct_id,
-            name,
-            {**properties, "scope": "user"},
+            distinct_id=distinct_id,
+            event=name,
+            properties={**properties, "scope": "user"},
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
     else:
         pha_client.capture(
-            get_machine_id(),
-            name,
-            {**properties, "scope": "machine"},
+            distinct_id=get_machine_id(),
+            event=name,
+            properties={**properties, "scope": "machine"},
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
         )

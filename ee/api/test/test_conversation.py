@@ -107,6 +107,21 @@ class TestConversation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.json())
 
+    def test_none_content_in_post_request(self):
+        """Test that when content is None in a POST request, the API handles it correctly and Assistant gets new_message=None."""
+        with patch("ee.api.conversation.Assistant._stream", return_value=["test response"]):
+            with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {"content": None, "trace_id": str(uuid.uuid4())},
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(self._get_streaming_content(response), b"test response")
+                mock_init.assert_called_once()
+                # Check that new_message=None was passed
+                self.assertIn("new_message", mock_init.call_args.kwargs)
+                self.assertIsNone(mock_init.call_args.kwargs["new_message"])
+
     def test_invalid_conversation_id(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",

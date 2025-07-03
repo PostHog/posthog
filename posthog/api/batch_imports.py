@@ -361,8 +361,8 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         posthoganalytics.capture(
-            distinct_id,
             "batch import created",
+            distinct_id=distinct_id,
             properties={
                 "batch_import_id": migration.id,
                 "source_type": source_type,

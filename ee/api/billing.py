@@ -147,8 +147,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(
-                        distinct_id,
                         "billing limits updated",
+                        distinct_id=distinct_id,
                         properties={**custom_limits_usd},
                         groups=(
                             groups(org, self.request.user.team) if hasattr(self.request.user, "team") else groups(org)
@@ -162,8 +162,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 if reset_limit_next_period and distinct_id:
                     posthoganalytics.capture(
-                        distinct_id,
                         "billing limits reset",
+                        distinct_id=distinct_id,
                         properties={"reset_limit_next_period": reset_limit_next_period},
                     )
                     posthoganalytics.group_identify(

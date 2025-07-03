@@ -119,8 +119,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "organization domain created",
+            event="organization domain created",
+            distinct_id=self.user.distinct_id,
             properties={
                 "domain": "the.posthog.com",
                 "jit_provisioning_enabled": False,
@@ -465,8 +465,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain deletion capture event was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "organization domain deleted",
+            event="organization domain deleted",
+            distinct_id=self.user.distinct_id,
             properties={
                 "domain": "myposthog.com",
                 "is_verified": False,

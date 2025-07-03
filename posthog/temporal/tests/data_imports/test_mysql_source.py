@@ -23,6 +23,7 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
 """
 
 import datetime as dt
+import math
 import operator
 import os
 import random
@@ -30,11 +31,21 @@ import uuid
 
 import pymysql
 import pytest
+import structlog
+from asgiref.sync import sync_to_async
 
-from posthog.temporal.data_imports.pipelines.mysql.mysql import MySQLSourceConfig, _get_partition_settings
+from posthog.temporal.data_imports.pipelines.mysql.mysql import (
+    MySQLSourceConfig,
+    _get_partition_settings,
+    _get_table_chunk_size,
+    _get_table_average_row_size,
+    _get_rows_to_sync,
+    _build_query,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -455,3 +466,308 @@ def test_mysql_source_config_loads_with_nested_dict_disabled_tunnel():
     assert config.ssh_tunnel.auth.passphrase is None
     assert config.ssh_tunnel.auth.username is None
     assert config.ssh_tunnel.auth.password is None
+
+
+@pytest.fixture
+def mysql_narrow_table(mysql_connection):
+    """Create a MySQL table with very small rows (~50 bytes/row)."""
+    conn = mysql_connection
+    with conn.cursor() as cursor:
+        table_name = "test_narrow_chunking"
+        # Create test table with small rows
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INT,
+                name VARCHAR(10),
+                flag BOOLEAN
+            )
+        """)
+
+        # Insert minimal test data
+        cursor.executemany(
+            f"INSERT INTO {table_name} (id, name, flag) VALUES (%s, %s, %s)",
+            [(i, f"u{i}", i % 2 == 0) for i in range(5)],
+        )
+        conn.commit()
+
+        yield cursor, table_name
+
+        # Cleanup
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.commit()
+
+
+@pytest.fixture
+def mysql_wide_table(mysql_connection):
+    """Create a MySQL table with very large rows (~25KB/row)."""
+    conn = mysql_connection
+    with conn.cursor() as cursor:
+        table_name = "test_wide_chunking"
+        # Create test table with large rows
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INT,
+                large_text1 TEXT,
+                large_text2 TEXT,
+                large_text3 TEXT,
+                metadata JSON
+            )
+        """)
+
+        # Generate large text data (~25KB per row)
+        large_text = "A" * 8000  # ~8KB per text field
+        metadata = "{" + ", ".join([f'"key{i}": "value{i}"' for i in range(100)]) + "}"  # ~1KB JSON
+
+        cursor.executemany(
+            f"INSERT INTO {table_name} (id, large_text1, large_text2, large_text3, metadata) VALUES (%s, %s, %s, %s, %s)",
+            [(i, large_text, large_text, large_text, metadata) for i in range(3)],
+        )
+        conn.commit()
+
+        yield cursor, table_name
+
+        # Cleanup
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.commit()
+
+
+@pytest.fixture
+def mysql_medium_table(mysql_connection):
+    """Create a MySQL table with medium-sized rows (~15KB/row)."""
+    conn = mysql_connection
+    with conn.cursor() as cursor:
+        table_name = "test_medium_chunking"
+        # Create test table with medium rows
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INT,
+                data1 TEXT,
+                data2 TEXT,
+                description VARCHAR(5000)
+            )
+        """)
+
+        # Generate medium text data (~15KB per row)
+        data1 = "B" * 5000  # ~5KB
+        data2 = "C" * 5000  # ~5KB
+        description = "D" * 4500  # ~4.5KB
+
+        cursor.executemany(
+            f"INSERT INTO {table_name} (id, data1, data2, description) VALUES (%s, %s, %s, %s)",
+            [(i, data1, data2, description) for i in range(4)],
+        )
+        conn.commit()
+
+        yield cursor, table_name
+
+        # Cleanup
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.commit()
+
+
+@pytest.fixture
+def mysql_very_big_table(mysql_connection):
+    """Create a MySQL table with large rows AND many rows for multi-chunk testing."""
+    conn = mysql_connection
+    with conn.cursor() as cursor:
+        table_name = "test_very_big_chunking"
+        # Create test table with large rows
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INT,
+                huge_data TEXT,
+                more_data TEXT
+            )
+        """)
+
+        # Generate huge text data (~30KB per row)
+        huge_data = "X" * 15000  # ~15KB
+        more_data = "Y" * 15000  # ~15KB
+
+        # Insert many rows to force multiple chunks
+        # With ~30KB/row, chunk size should be ~5000 rows (150MB/30KB)
+        # So we'll insert 12000 rows to get ~2.4 chunks
+        rows_to_insert = []
+        for i in range(12000):
+            rows_to_insert.append((i, huge_data, more_data))
+
+            # Insert in batches to avoid memory issues
+            if len(rows_to_insert) >= 1000:
+                cursor.executemany(
+                    f"INSERT INTO {table_name} (id, huge_data, more_data) VALUES (%s, %s, %s)", rows_to_insert
+                )
+                conn.commit()
+                rows_to_insert = []
+
+        # Insert remaining rows
+        if rows_to_insert:
+            cursor.executemany(
+                f"INSERT INTO {table_name} (id, huge_data, more_data) VALUES (%s, %s, %s)", rows_to_insert
+            )
+            conn.commit()
+
+        yield cursor, table_name
+
+        # Cleanup
+        cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.commit()
+
+
+@SKIP_IF_MISSING_MYSQL_CREDENTIALS
+def test_mysql_narrow_table_chunking(mysql_narrow_table, mysql_config):
+    """Test that narrow tables use the full chunk size (20,000 rows)."""
+
+    cursor, table_name = mysql_narrow_table
+    logger = structlog.get_logger()
+
+    # Test average row size calculation
+    avg_row_size = _get_table_average_row_size(
+        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    )
+
+    assert avg_row_size is not None
+    assert avg_row_size < 200
+
+    # Test chunk size calculation
+    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+
+    # For narrow tables, should use full DEFAULT_CHUNK_SIZE
+    assert chunk_size == DEFAULT_CHUNK_SIZE
+
+
+@SKIP_IF_MISSING_MYSQL_CREDENTIALS
+def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
+    """Test that wide tables use reduced chunk size via dynamic chunking."""
+
+    cursor, table_name = mysql_wide_table
+    logger = structlog.get_logger()
+
+    # Test average row size calculation
+    avg_row_size = _get_table_average_row_size(
+        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    )
+
+    assert avg_row_size is not None
+    assert avg_row_size > 20000
+
+    # Test chunk size calculation
+    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+
+    # For wide tables, should use reduced chunk size, which is less than DEFAULT_CHUNK_SIZE
+    expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
+    assert chunk_size == expected_chunk_size  # make sure the chunk size is the same as the expected chunk size
+    assert chunk_size < DEFAULT_CHUNK_SIZE
+
+
+@SKIP_IF_MISSING_MYSQL_CREDENTIALS
+def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
+    """Test that medium tables use moderately reduced chunk size."""
+
+    cursor, table_name = mysql_medium_table
+    logger = structlog.get_logger()
+
+    # Test average row size calculation
+    avg_row_size = _get_table_average_row_size(
+        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    )
+
+    assert avg_row_size is not None
+    assert (
+        10000 < avg_row_size < 20000
+    )  # little bit more complicated here, but make sure the avg row size is between 10000 and 20000 because the data is generated randomly
+
+    # Test chunk size calculation
+    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+
+    # For medium tables, should use moderately reduced chunk size
+    expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
+    assert chunk_size == expected_chunk_size
+    assert chunk_size < DEFAULT_CHUNK_SIZE
+    assert chunk_size > 5000  # make sure its not _too_ small
+
+
+@SKIP_IF_MISSING_MYSQL_CREDENTIALS
+def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
+    """Test that very big tables with many rows use dynamic chunking and process multiple chunks."""
+
+    cursor, table_name = mysql_very_big_table
+    logger = structlog.get_logger()
+
+    # Test average row size calculation
+    avg_row_size = _get_table_average_row_size(
+        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    )
+
+    assert avg_row_size is not None
+    assert avg_row_size > 25000  # want them big
+
+    # Test chunk size calculation
+    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+
+    # Should use significantly reduced chunk size, which is less than DEFAULT_CHUNK_SIZE
+    expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
+    assert chunk_size == expected_chunk_size  # make sure the chunk size is the same as the expected chunk size
+    assert chunk_size < 6000  # make sure its smaller
+
+    # Test that we'd process multiple chunks
+    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
+    rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+
+    assert rows_to_sync == 12000  # make sure we inserted 12,000 rows
+    expected_chunks = math.ceil(rows_to_sync / chunk_size)
+    assert expected_chunks >= 2  # make sure we require multiple chunks
+
+    # Verify memory usage would be reasonable
+    memory_per_chunk = chunk_size * avg_row_size
+    assert (
+        memory_per_chunk <= DEFAULT_TABLE_SIZE_BYTES * 1.1
+    )  # make sure the memory per chunk is less than 10% of the table size
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@SKIP_IF_MISSING_MYSQL_CREDENTIALS
+async def test_mysql_chunking_end_to_end_wide_table(team, mysql_wide_table, mysql_config):
+    """End-to-end test that wide tables are processed with correct chunking."""
+    cursor, table_name = mysql_wide_table
+
+    # Create external data source and schema
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="MySQL",
+        job_inputs=mysql_config,
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=table_name,
+        team_id=team.pk,
+        source_id=source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
+
+    # Run the workflow
+    table_name_postgres = f"mysql_{table_name}"
+    expected_num_rows = 3  # We inserted 3 rows
+
+    res = await run_external_data_job_workflow(
+        team=team,
+        external_data_source=source,
+        external_data_schema=schema,
+        table_name=table_name_postgres,
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+        expected_columns=["id", "large_text1", "large_text2", "large_text3", "metadata"],
+    )
+
+    # Verify data was processed correctly despite chunking
+    assert len(res.results) == expected_num_rows
+    # Verify large data was preserved
+    for row in res.results:
+        assert len(row[1]) == 8000  # large_text1
+        assert len(row[2]) == 8000  # large_text2
+        assert len(row[3]) == 8000  # large_text3

@@ -5,6 +5,7 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
@@ -539,6 +540,25 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
 
+    def test_model_has_correct_max_retries(self):
+        expected_max_retries = 3
+
+        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="test")])
+
+            node._get_model(state, {})
+
+            # Verify ChatOpenAI was called with max_retries=3
+            mock_chat_openai.assert_called_once_with(
+                model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True, max_retries=expected_max_retries
+            )
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -705,6 +725,85 @@ class TestRootNodeTools(BaseTest):
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
         result = node.run(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
+
+    def test_navigate_tool_call_raises_node_interrupt(self):
+        """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="I'll help you navigate to insights",
+                    id="test-id",
+                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the navigate tool
+            mock_navigate_tool = MagicMock()
+            mock_navigate_tool.invoke.return_value = LangchainToolMessage(
+                content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
+            )
+            mock_tools.return_value = lambda _: mock_navigate_tool
+
+            # The navigate tool call should raise NodeInterrupt
+            with self.assertRaises(NodeInterrupt) as cm:
+                node.run(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+
+            # Verify the NodeInterrupt contains the expected message
+            # NodeInterrupt wraps the message in an Interrupt object
+            interrupt_data = cm.exception.args[0]
+            if isinstance(interrupt_data, list):
+                interrupt_data = interrupt_data[0].value
+            self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
+            self.assertEqual(interrupt_data.content, "XXX")
+            self.assertEqual(interrupt_data.tool_call_id, "nav-123")
+            self.assertTrue(interrupt_data.visible)
+            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
+
+    def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
+        """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me search for recordings",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="search-123", name="search_session_recordings", args={"change": "test"})
+                    ],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the search_session_recordings tool
+            mock_search_session_recordings = MagicMock()
+            mock_search_session_recordings.invoke.return_value = LangchainToolMessage(
+                content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
+            )
+            mock_tools.return_value = lambda _: mock_search_session_recordings
+
+            # This should not raise NodeInterrupt
+            result = node.run(
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
+            )
+
+            # Should return a normal result
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertIsNone(result.root_tool_call_id)
+            self.assertEqual(len(result.messages), 1)
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
 
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):

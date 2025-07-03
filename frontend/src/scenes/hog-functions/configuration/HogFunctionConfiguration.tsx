@@ -453,6 +453,7 @@ export function HogFunctionConfiguration({
                                         <MaxTool
                                             name="create_hog_transformation_function"
                                             displayName="Write and tweak Hog code"
+                                            description="Max can write and tweak Hog code for you"
                                             context={{
                                                 current_hog_code: configuration.hog ?? '',
                                             }}

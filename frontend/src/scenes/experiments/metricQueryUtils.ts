@@ -399,7 +399,7 @@ type InsightVizNodeOptions = {
  * this is the format that the Query component expects
  */
 export const getInsight =
-    (options: Partial<InsightVizNodeOptions>) =>
+    (options?: Partial<InsightVizNodeOptions>) =>
     (query: FunnelsQuery | TrendsQuery | undefined): InsightVizNode | undefined => {
         if (!query) {
             return undefined

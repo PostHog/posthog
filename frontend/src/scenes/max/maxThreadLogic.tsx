@@ -37,6 +37,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -109,7 +110,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     actions({
-        askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
+        // null prompt means continuing previous generation
+        askMax: (prompt: string | null, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -199,7 +201,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
-            if (generationAttempt === 0) {
+            if (generationAttempt === 0 && prompt) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: prompt,
@@ -239,7 +241,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const decoder = new TextDecoder()
 
                 const parser = createParser({
-                    onEvent: ({ data, event }) => {
+                    onEvent: async ({ data, event }) => {
                         // A Conversation object is only received when the conversation is new
                         if (event === AssistantEventType.Conversation) {
                             const parsedResponse = parseResponse<Conversation>(data)
@@ -276,7 +278,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                                    values.toolMap[toolName]?.callback(toolResult)
+                                    // Empty message in askMax effectively means "just resume generation with current context"
+                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    // The `navigate` tool is the only one doing client-side formatting currently
+                                    if (toolName === 'navigate') {
+                                        actions.askMax(null) // Continue generation
+                                        parsedResponse.content = parsedResponse.content.replace(
+                                            toolResult.page_key,
+                                            breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
+                                        )
+                                    }
                                 }
                                 actions.addMessage({
                                     ...parsedResponse,

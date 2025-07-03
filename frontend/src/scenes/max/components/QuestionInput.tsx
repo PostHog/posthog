@@ -1,9 +1,8 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
+import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconTools } from 'lib/lemon-ui/icons'
 import { ReactNode } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -53,7 +52,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         <div
             className={clsx(
                 containerClassName,
-                !isSticky && !isFloating ? 'px-3 w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full self-center'
+                !isSticky && !isFloating
+                    ? 'px-3 w-[min(40rem,100%)]'
+                    : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
             )}
             ref={ref}
         >
@@ -72,8 +73,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'border border-[var(--border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary',
-                            isThreadVisible && 'm-1'
+                            isFloating && 'border-primary m-1'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -106,16 +106,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={inputDisabled}
                             minRows={1}
                             maxRows={10}
-                            className={clsx(
-                                '!border-none !bg-transparent min-h-0 py-2.5 pl-2.5',
-                                isFloating ? 'pr-20' : 'pr-12'
-                            )}
+                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
                         />
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isThreadVisible,
-                            'bottom-[7px] right-2': !isThreadVisible,
+                            'bottom-[11px] right-3': isFloating,
+                            'bottom-[7px] right-2': !isFloating,
                         })}
                     >
                         <AIConsentPopoverWrapper
@@ -163,18 +160,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {tools.length > 0 && (
                     <div
                         className={clsx(
-                            'flex gap-1 text-xs font-medium cursor-default px-1.5',
+                            'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                : 'w-full -mb-1 py-0.5'
+                                : `w-full pb-1`
                         )}
                     >
-                        <span>Tools in context:</span>
+                        <span>Tools here:</span>
                         {tools.map((tool) => (
-                            <i key={tool.name} className="flex items-center gap-1">
-                                <IconTools />
-                                {tool.displayName}
-                            </i>
+                            <Tooltip key={tool.name} title={tool.description}>
+                                <i className="flex items-center gap-1 cursor-help">
+                                    {tool.icon || <IconWrench />}
+                                    {tool.displayName}
+                                </i>
+                            </Tooltip>
                         ))}
                     </div>
                 )}

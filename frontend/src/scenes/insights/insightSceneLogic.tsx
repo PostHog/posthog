@@ -32,6 +32,8 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
 import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils'
+import api from 'lib/api'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -91,8 +93,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
-        setOpenedWithQuery: (query: Node | null) => ({ query }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
+        upgradeQuery: (query: Node) => ({ query }),
     }),
     reducers({
         insightId: [
@@ -169,7 +171,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightDataLogicRef: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
-        openedWithQuery: [null as Node | null, { setOpenedWithQuery: (_, { query }) => query }],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors(() => ({
@@ -274,9 +275,31 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners }) => ({
+    listeners(({ sharedListeners, values }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
+        upgradeQuery: async ({ query }) => {
+            let upgradedQuery: Node | null = null
+
+            if (!checkLatestVersionsOnQuery(query)) {
+                const response = await api.schema.queryUpgrade({ query })
+                upgradedQuery = response.query
+            } else {
+                upgradedQuery = query
+            }
+
+            values.insightLogicRef?.logic.actions.setInsight(
+                {
+                    ...createEmptyInsight('new'),
+                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                    query: upgradedQuery,
+                },
+                {
+                    fromPersistentApi: false,
+                    overrideQuery: true,
+                }
+            )
+        },
     })),
     urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
@@ -342,10 +365,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             let queryFromUrl: Node | null = null
+            let validatingQuery = false
             if (q) {
                 const validQuery = parseDraftQueryFromURL(q)
                 if (validQuery) {
-                    queryFromUrl = validQuery
+                    validatingQuery = true
+                    actions.upgradeQuery(validQuery)
                 } else {
                     console.error('Invalid query', q)
                 }
@@ -356,7 +381,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             actions.setFreshQuery(false)
 
             // reset the insight's state if we have to
-            if (initial || queryFromUrl || method === 'PUSH') {
+            if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new') {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
                     values.insightLogicRef?.logic.actions.setInsight(
@@ -374,8 +399,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     if (!queryFromUrl) {
                         actions.setFreshQuery(true)
                     }
-
-                    actions.setOpenedWithQuery(query)
 
                     eventUsageLogic.actions.reportInsightCreated(query)
                 }

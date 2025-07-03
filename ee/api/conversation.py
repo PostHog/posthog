@@ -29,21 +29,29 @@ logger = structlog.get_logger(__name__)
 
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
+    content = serializers.CharField(
+        required=True,
+        allow_null=True,  # Null content means we're continuing previous generation
+        max_length=40000,  # Roughly 10k tokens
+    )
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
-    trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
+    trace_id = serializers.UUIDField(required=True)
 
     def validate(self, data):
-        try:
-            message_data = {"content": data["content"]}
-            if "ui_context" in data:
-                message_data["ui_context"] = data["ui_context"]
-            message = HumanMessage.model_validate(message_data)
+        if data["content"] is not None:
+            try:
+                message = HumanMessage.model_validate(
+                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                )
+            except pydantic.ValidationError:
+                raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
-        except pydantic.ValidationError:
-            raise serializers.ValidationError("Invalid message content.")
+        else:
+            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+            # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
+            data["message"] = None
         return data
 
 

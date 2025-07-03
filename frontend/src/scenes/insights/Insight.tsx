@@ -21,7 +21,7 @@ export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
 
-export function Insight({ insightId }: InsightSceneProps): JSX.Element {
+export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
     // insightSceneLogic
     const { insightMode, insight, filtersOverride, variablesOverride, freshQuery } = useValues(insightSceneLogic)
 
@@ -61,6 +61,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
     const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
+
+    if (!insight?.query) {
+        return null
+    }
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
