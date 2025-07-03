@@ -2,7 +2,6 @@ import datetime
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from asgiref.sync import async_to_sync
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -35,16 +34,11 @@ class TestConversation(APIBaseTest):
             first_name="Other",
         )
 
-    @async_to_sync
-    async def _get_streaming_content(self, response):
-        return b"".join([message async for message in response.streaming_content])
+    def _get_streaming_content(self, response):
+        return b"".join(response.streaming_content)
 
     def test_create_conversation(self):
-        with patch.object(
-            Assistant,
-            "astream",
-            return_value=_async_generator(),
-        ) as stream_mock:
+        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()) as stream_mock:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {"content": "test query", "trace_id": str(uuid.uuid4())},
@@ -127,14 +121,14 @@ class TestConversation(APIBaseTest):
 
     def test_none_content_in_post_request(self):
         """Test that when content is None in a POST request, the API handles it correctly and Assistant gets new_message=None."""
-        with patch("ee.api.conversation.Assistant._stream", return_value=["test response"]):
+        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
             with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {"content": None, "trace_id": str(uuid.uuid4())},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), b"test response")
+                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 mock_init.assert_called_once()
                 # Check that new_message=None was passed
                 self.assertIn("new_message", mock_init.call_args.kwargs)
