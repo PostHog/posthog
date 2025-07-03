@@ -1,5 +1,5 @@
-from collections.abc import Iterator
 from typing import Any
+from collections.abc import AsyncIterator
 
 from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
@@ -59,7 +59,7 @@ class EditCurrentInsightTool(MaxTool):
         state.root_tool_call_id = last_message.tool_calls[0].id
 
         writer = get_stream_writer()
-        generator: Iterator[Any] = graph.astream(
+        generator: AsyncIterator[Any] = graph.astream(
             state, config=self._config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
         )
         async for chunk in generator:
