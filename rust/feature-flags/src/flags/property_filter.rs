@@ -41,10 +41,7 @@ impl PropertyFilter {
     ///
     /// This is true if the filter key is not in the overrides, but only for non cohort and non flag filters
     pub fn requires_db_property(&self, overrides: &HashMap<String, Value>) -> bool {
-        if self.is_cohort() || self.depends_on_feature_flag() {
-            return false;
-        }
-        !overrides.contains_key(&self.key)
+        !self.is_cohort() && !self.depends_on_feature_flag() && !overrides.contains_key(&self.key)
     }
 }
 
