@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
 import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
-import { isAdminOrOwnerInOrganization, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
+import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -222,7 +222,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                                 const org = allOrganizations.find((o) => o.id === orgId)
                                 if (
                                     org &&
-                                    !isAdminOrOwnerInOrganization(org) &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
                                     !organizationAllowsPersonalApiKeysForMembers(org)
                                 ) {
                                     return org
@@ -253,7 +253,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
 
                     // If key has all access, check all user's organizations
                     allOrganizations.forEach((org) => {
-                        if (!isAdminOrOwnerInOrganization(org) && !organizationAllowsPersonalApiKeysForMembers(org)) {
+                        if (
+                            !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                            !organizationAllowsPersonalApiKeysForMembers(org)
+                        ) {
                             restrictedOrgs.push(org)
                         }
                     })
@@ -279,7 +282,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                                 const org = allOrganizations.find((o) => o.id === team.organization)
                                 if (
                                     org &&
-                                    !isAdminOrOwnerInOrganization(org) &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
                                     !organizationAllowsPersonalApiKeysForMembers(org)
                                 ) {
                                     return team

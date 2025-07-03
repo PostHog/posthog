@@ -54,9 +54,9 @@ export function getReasonForAccessLevelChangeProhibition(
     return null
 }
 
-/** Check if a user is an admin or owner in the given organization */
-export function isAdminOrOwnerInOrganization(org: OrganizationBasicType): boolean {
-    return !!(org.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin)
+/** Check if a user has membership level in the given organization gte then the provided */
+export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: OrganizationMembershipLevel): boolean {
+    return !!(org.membership_level && org.membership_level >= role)
 }
 
 /** Check if an organization allows personal API keys */
