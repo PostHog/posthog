@@ -68,6 +68,15 @@ export function VariantRow({
                 </td>
             )}
 
+            {/* Variant column - show only variant key */}
+            <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
+                {testVariantResult ? (
+                    <div className="text-sm font-semibold text-text-primary">{testVariantResult.key}</div>
+                ) : (
+                    <div className="text-xs text-muted">—</div>
+                )}
+            </td>
+
             {/* Baseline column - only render for first row with rowspan */}
             {isFirstRow && (
                 <td
@@ -88,15 +97,6 @@ export function VariantRow({
                     )}
                 </td>
             )}
-
-            {/* Variant column - show only variant key */}
-            <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
-                {testVariantResult ? (
-                    <div className="text-sm font-semibold text-text-primary">{testVariantResult.key}</div>
-                ) : (
-                    <div className="text-xs text-muted">—</div>
-                )}
-            </td>
 
             {/* Value column - show conversion rate and raw counts */}
             <td className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left">
