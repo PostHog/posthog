@@ -2854,6 +2854,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
+            [teamLogic.actionTypes.updateCurrentTeam]: async () => {
+                // Clear unsupported filters when switching to the new query engine
+                // We need to check if preAggregatedEnabled became true and clear unsupported filters
+                if (values.preAggregatedEnabled && values.conversionGoal) {
+                    actions.setConversionGoal(null)
+                }
+            },
         }
     }),
     afterMount(({ actions, values }) => {
