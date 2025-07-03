@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_cohort_id Int64, -- comment 'log_comment[cohort_id]',
     lc_batch_export_id String, -- comment 'log_comment[batch_export_id]'
     lc_experiment_id Int64, -- comment 'log_comment[experiment_id]',
-    lc_experiment_feature_flag_key String, -- comment 'loc_comment[experiment_feature_flag_key]'
+    lc_experiment_feature_flag_key String, -- comment 'log_comment[experiment_feature_flag_key]'
 
     -- for entries with 'query' tag
     lc_query__kind LowCardinality(String), -- comment 'log_comment[query][kind]', if the query has a source, then source kind is used,
