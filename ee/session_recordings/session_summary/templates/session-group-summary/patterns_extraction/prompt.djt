@@ -76,18 +76,18 @@ AGGRESSIVELY consolidate similar patterns.
 
 For each identified pattern, specify:
 
-3.1. Pick a proper name:
+4.1. Pick a proper name:
 - Concise, descriptive title (3-6 words)
 - Should immediately convey the issue type
 - Examples: "Post Creation Friction", "Search Result Confusion", "Checkout Abandonment"
 
-3.2. Write pattern description:
+4.2. Write pattern description:
 - Clear explanation of what the pattern represents
 - Include the user context and impact
 - Mention specific areas/features affected
 - 1-2 sentences, focusing on the problem and its consequences
 
-3.3. Attach generalized indicators relevant to this pattern:
+4.3. Attach generalized indicators relevant to this pattern:
 - List observable behaviors that confirm this pattern
 - Include event types with contextual details, not specific events:
   - Where in the user flow this typically occurs
@@ -100,25 +100,25 @@ For each identified pattern, specify:
 
 Before finalizing patterns, verify:
 
-4.1. Pattern Overlap Check:
+5.1. Pattern Overlap Check:
 - Are patterns distinct enough from each other?
 - Have you aggressively consolidated similar patterns?
 
-4.2. Session Coverage Check:
+5.2. Session Coverage Check:
 - Ensure patterns account for major issues in most sessions
 - If many sessions have issues not captured by patterns, revisit analysis
 
-4.3. Specificity Check:
+5.3. Specificity Check:
 - Is the pattern specific enough to guide improvements?
 - Does it pass "So what?" check?
 - Could a product manager create a specific ticket from this pattern?
 
-4.4. Evidence Check:
+5.4. Evidence Check:
 - Is the pattern supported by multiple sessions?
 - Are the indicators actually present in the data?
 - Have you avoided inferring patterns not supported by evidence?
 
-4.5. Business Impact Check:
+5.5. Business Impact Check:
 - Does this pattern affect important user flows?
 - Is it worth prioritizing for improvement?
 - Does it impact conversions, engagement, or user satisfaction?
