@@ -501,7 +501,7 @@ export function PersonalAPIKeys(): JSX.Element {
                 onClick={() => setEditingKeyId('new')}
                 disabledReason={
                     !canUsePersonalApiKeys
-                        ? 'Your organization does not allow using personal API keys.'
+                        ? 'Your organization does not allow members using personal API keys.'
                         : keys.length >= MAX_API_KEYS_PER_USER
                         ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
                         : false
