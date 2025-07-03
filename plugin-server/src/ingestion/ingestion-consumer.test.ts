@@ -237,83 +237,143 @@ describe('IngestionConsumer', () => {
             })
         })
 
-        it('should not blend person properties from 2 different cookieless users', async () => {
-            const events = [
-                createCookielessEvent({
-                    ip: '1.2.3.4',
-                    properties: {
-                        $set: {
-                            a: 'a',
-                            ab: 'a',
+        describe('cookieless mode', () => {
+            it('should not blend person properties from 2 different cookieless users', async () => {
+                const events = [
+                    createCookielessEvent({
+                        ip: '1.2.3.4',
+                        properties: {
+                            $set: {
+                                a: 'a',
+                                ab: 'a',
+                            },
                         },
-                    },
-                }),
-                createCookielessEvent({
-                    ip: '5.6.7.8', // different IP address means different user
-                    properties: {
-                        $set: {
-                            b: 'b',
-                            ab: 'b',
+                    }),
+                    createCookielessEvent({
+                        ip: '5.6.7.8', // different IP address means different user
+                        properties: {
+                            $set: {
+                                b: 'b',
+                                ab: 'b',
+                            },
                         },
-                    },
-                }),
-            ]
-            const input = createKafkaMessages(events)
-            await ingester.handleKafkaBatch(input)
-            const messages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsA = messages.filter(
-                (m) =>
-                    m.topic === 'clickhouse_events_json_test' &&
-                    m.value.person_properties &&
-                    parseJSON(m.value.person_properties as any)?.a
-            )
-            const eventsB = messages.filter(
-                (m) =>
-                    m.topic === 'clickhouse_events_json_test' &&
-                    m.value.person_properties &&
-                    parseJSON(m.value.person_properties as any)?.b
-            )
-            expect(eventsA[0].value.person_id).not.toEqual(eventsB[0].value.person_id)
-            expect(forSnapshot(eventsA)).toMatchSnapshot()
-            expect(forSnapshot(eventsB)).toMatchSnapshot()
-        })
+                    }),
+                ]
+                const input = createKafkaMessages(events)
+                await ingester.handleKafkaBatch(input)
+                const messages = mockProducerObserver.getProducedKafkaMessages()
+                const eventsA = messages.filter(
+                    (m) =>
+                        m.topic === 'clickhouse_events_json_test' &&
+                        m.value.person_properties &&
+                        parseJSON(m.value.person_properties as any)?.a
+                )
+                const eventsB = messages.filter(
+                    (m) =>
+                        m.topic === 'clickhouse_events_json_test' &&
+                        m.value.person_properties &&
+                        parseJSON(m.value.person_properties as any)?.b
+                )
+                expect(eventsA[0].value.person_id).not.toEqual(eventsB[0].value.person_id)
+                expect(forSnapshot(eventsA)).toMatchSnapshot()
+                expect(forSnapshot(eventsB)).toMatchSnapshot()
+            })
 
-        it('should support alias on cookie consent', async () => {
-            const distinctId = 'cookie-consent-anon-distinct-id'
-            const events1 = [
-                createCookielessEvent(),
-                createCookielessEvent({
-                    event: '$create_alias',
-                    properties: {
-                        alias: distinctId,
-                        distinct_id: COOKIELESS_SENTINEL_VALUE,
-                    },
-                }),
-                createCookielessEvent({
-                    event: '$autocapture',
-                    distinct_id: distinctId,
-                }),
-            ]
-            const input1 = createKafkaMessages(events1)
-            await ingester.handleKafkaBatch(input1)
-            const messages = mockProducerObserver.getProducedKafkaMessages()
-            console.log(messages)
-            const eventsA = messages.filter(
-                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageview'
-            )
-            const eventsB = messages.filter(
-                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$create_alias'
-            )
-            const eventsC = messages.filter(
-                (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$autocapture'
-            )
-            const personId = eventsA[0].value.person_id
-            expect(personId).toBeTruthy()
-            expect(eventsB[0].value.person_id).toEqual(personId)
-            expect(eventsC[0].value.person_id).toEqual(personId)
-            expect(forSnapshot(eventsA)).toMatchSnapshot()
-            expect(forSnapshot(eventsB)).toMatchSnapshot()
-            expect(forSnapshot(eventsC)).toMatchSnapshot()
+            it('should support identifying a cookieless user', async () => {
+                const distinctIdIdentified = 'identified@example.com'
+                const events1 = [
+                    createCookielessEvent(),
+                    createCookielessEvent({
+                        event: '$identify',
+                        distinct_id: distinctIdIdentified,
+                        properties: {
+                            $anon_distinct_id: COOKIELESS_SENTINEL_VALUE,
+                        },
+                    }),
+                    createCookielessEvent({
+                        event: '$pageleave',
+                        distinct_id: distinctIdIdentified,
+                    }),
+                ]
+                const input1 = createKafkaMessages(events1)
+                await ingester.handleKafkaBatch(input1)
+                const messages = mockProducerObserver.getProducedKafkaMessages()
+                console.log(messages)
+                const eventsA = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageview'
+                )
+                const eventsB = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$identify'
+                )
+                const eventsC = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageleave'
+                )
+                const personId = eventsA[0].value.person_id
+                expect(personId).toBeTruthy()
+                expect(eventsB[0].value.person_id).toEqual(personId)
+                expect(eventsC[0].value.person_id).toEqual(personId)
+                expect(forSnapshot(eventsA)).toMatchSnapshot()
+                expect(forSnapshot(eventsB)).toMatchSnapshot()
+                expect(forSnapshot(eventsC)).toMatchSnapshot()
+            })
+
+            it('should support alias then identify on cookie consent', async () => {
+                const distinctIdWithConsent = 'cookie-consent-anon-distinct-id'
+                const distinctIdIdentified = 'identified@example.com'
+                const events1 = [
+                    createCookielessEvent(),
+                    createCookielessEvent({
+                        event: '$create_alias',
+                        properties: {
+                            alias: distinctIdWithConsent,
+                            distinct_id: COOKIELESS_SENTINEL_VALUE,
+                        },
+                    }),
+                    createCookielessEvent({
+                        event: '$autocapture',
+                        distinct_id: distinctIdWithConsent,
+                    }),
+                    createCookielessEvent({
+                        event: '$identify',
+                        distinct_id: distinctIdIdentified,
+                        properties: {
+                            $anon_distinct_id: distinctIdWithConsent,
+                        },
+                    }),
+                    createCookielessEvent({
+                        event: '$pageleave',
+                        distinct_id: distinctIdIdentified,
+                    }),
+                ]
+                const input1 = createKafkaMessages(events1)
+                await ingester.handleKafkaBatch(input1)
+                const messages = mockProducerObserver.getProducedKafkaMessages()
+                console.log(messages)
+                const eventsA = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageview'
+                )
+                const eventsB = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$create_alias'
+                )
+                const eventsC = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$autocapture'
+                )
+                const eventsD = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$identify'
+                )
+                const eventsE = messages.filter(
+                    (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageleave'
+                )
+                const personId = eventsA[0].value.person_id
+                expect(personId).toBeTruthy()
+                expect(eventsB[0].value.person_id).toEqual(personId)
+                expect(eventsC[0].value.person_id).toEqual(personId)
+                expect(eventsD[0].value.person_id).toEqual(personId)
+                expect(eventsE[0].value.person_id).toEqual(personId)
+                expect(forSnapshot(eventsA)).toMatchSnapshot()
+                expect(forSnapshot(eventsB)).toMatchSnapshot()
+                expect(forSnapshot(eventsC)).toMatchSnapshot()
+            })
         })
 
         describe('overflow', () => {
