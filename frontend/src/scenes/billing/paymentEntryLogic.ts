@@ -177,8 +177,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                             })
                         )
                     }
-                } catch {
+                } catch (error) {
                     actions.setStripeError('Failed to complete. Please refresh the page and try again.')
+                    posthog.captureException(new Error('payment entry api error', { cause: error }))
                 } finally {
                     actions.setLoading(false)
                     actions.setClientSecret(null)
