@@ -643,7 +643,7 @@ export function APISnippet({ flagKey, groupType, remoteConfiguration }: FeatureF
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${apiHostOrigin()}/decide?v=3/ \\
+                {`curl ${apiHostOrigin()}/flags/?v=2/ \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",

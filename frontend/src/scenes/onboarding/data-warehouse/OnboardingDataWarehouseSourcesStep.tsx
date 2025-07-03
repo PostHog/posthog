@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { OnboardingStepKey } from '~/types'
 
 export function OnboardingDataWarehouseSourcesStep({
     stepKey = OnboardingStepKey.INSTALL,

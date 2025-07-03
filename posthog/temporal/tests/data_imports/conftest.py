@@ -103,6 +103,8 @@ async def run_external_data_job_workflow(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
+        # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
         mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
@@ -669,6 +671,272 @@ def stripe_subscription():
                         }
                     },
                     "trial_start": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_dispute():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/disputes",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "dp_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "dispute",
+                    "amount": 1000,
+                    "balance_transactions": [],
+                    "charge": "ch_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "evidence": {
+                        "access_activity_log": null,
+                        "billing_address": null,
+                        "cancellation_policy": null,
+                        "cancellation_policy_disclosure": null,
+                        "cancellation_rebuttal": null,
+                        "customer_communication": null,
+                        "customer_email_address": "customer@example.com",
+                        "customer_name": "John Doe",
+                        "customer_purchase_ip": null,
+                        "customer_signature": null,
+                        "duplicate_charge_documentation": null,
+                        "duplicate_charge_explanation": null,
+                        "duplicate_charge_id": null,
+                        "product_description": null,
+                        "receipt": null,
+                        "refund_policy": null,
+                        "refund_policy_disclosure": null,
+                        "refund_refusal_explanation": null,
+                        "service_date": null,
+                        "service_documentation": null,
+                        "shipping_address": null,
+                        "shipping_carrier": null,
+                        "shipping_date": null,
+                        "shipping_documentation": null,
+                        "shipping_tracking_number": null,
+                        "uncategorized_file": null,
+                        "uncategorized_text": null
+                    },
+                    "evidence_details": {
+                        "due_by": 1681249267,
+                        "has_evidence": false,
+                        "past_due": false,
+                        "submission_count": 0
+                    },
+                    "is_charge_refundable": true,
+                    "livemode": false,
+                    "metadata": {},
+                    "network_reason_code": "4855",
+                    "payment_intent": "pi_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "reason": "fraudulent",
+                    "status": "warning_needs_response"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_payout():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/payouts",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "po_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "payout",
+                    "amount": 2000,
+                    "arrival_date": 1680648000,
+                    "automatic": true,
+                    "balance_transaction": "txn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "description": "STRIPE PAYOUT",
+                    "destination": "ba_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "failure_balance_transaction": null,
+                    "failure_code": null,
+                    "failure_message": null,
+                    "livemode": false,
+                    "metadata": {},
+                    "method": "standard",
+                    "original_payout": null,
+                    "reconciliation_status": "completed",
+                    "reversed_by": null,
+                    "source_type": "card",
+                    "statement_descriptor": null,
+                    "status": "paid",
+                    "type": "bank_account"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_refund():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/refunds",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "re_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "refund",
+                    "amount": 500,
+                    "balance_transaction": "txn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "charge": "ch_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "description": null,
+                    "failure_balance_transaction": null,
+                    "failure_reason": null,
+                    "instructions_email": null,
+                    "metadata": {},
+                    "next_action": null,
+                    "payment_intent": "pi_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "reason": "requested_by_customer",
+                    "receipt_number": null,
+                    "source_transfer_reversal": null,
+                    "status": "succeeded",
+                    "transfer_reversal": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_invoiceitem():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/invoiceitems",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "ii_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "invoiceitem",
+                    "amount": 1500,
+                    "currency": "usd",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "date": 1680644467,
+                    "description": "One-time setup fee",
+                    "discountable": true,
+                    "discounts": [],
+                    "invoice": null,
+                    "livemode": false,
+                    "metadata": {},
+                    "period": {
+                        "end": 1680644467,
+                        "start": 1680644467
+                    },
+                    "price": {
+                        "id": "price_1MtHbELkdIwHu7ixl4OzzPMv",
+                        "object": "price",
+                        "active": true,
+                        "billing_scheme": "per_unit",
+                        "created": 1680644467,
+                        "currency": "usd",
+                        "livemode": false,
+                        "lookup_key": null,
+                        "metadata": {},
+                        "nickname": null,
+                        "product": "prod_NffrFeUfNV2Hib",
+                        "recurring": null,
+                        "tax_behavior": "unspecified",
+                        "tiers_mode": null,
+                        "transform_quantity": null,
+                        "type": "one_time",
+                        "unit_amount": 1500,
+                        "unit_amount_decimal": "1500"
+                    },
+                    "proration": false,
+                    "quantity": 1,
+                    "subscription": null,
+                    "tax_rates": [],
+                    "test_clock": null,
+                    "unit_amount": 1500,
+                    "unit_amount_decimal": "1500"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_credit_note():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "cn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "credit_note",
+                    "amount": 1000,
+                    "currency": "usd",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "discount_amount": 0,
+                    "discount_amounts": [],
+                    "invoice": "in_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "lines": {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": "cnli_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "object": "credit_note_line_item",
+                                "amount": 1000,
+                                "description": "Credit for returned item",
+                                "discount_amount": 0,
+                                "discount_amounts": [],
+                                "invoice_line_item": "il_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "livemode": false,
+                                "quantity": 1,
+                                "tax_amounts": [],
+                                "tax_rates": [],
+                                "type": "invoice_line_item",
+                                "unit_amount": 1000,
+                                "unit_amount_decimal": "1000"
+                            }
+                        ],
+                        "has_more": false,
+                        "total_count": 1,
+                        "url": "/v1/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/lines"
+                    },
+                    "livemode": false,
+                    "memo": "Credit for returned item",
+                    "metadata": {},
+                    "number": "ABCD-1234",
+                    "out_of_band_amount": null,
+                    "pdf": "https://pay.stripe.com/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/pdf",
+                    "reason": "duplicate",
+                    "refund": null,
+                    "status": "issued",
+                    "subtotal": 1000,
+                    "tax_amounts": [],
+                    "total": 1000,
+                    "type": "post_payment",
+                    "voided_at": null
                 }
             ]
         }

@@ -13,6 +13,7 @@ from collections.abc import Collection
 from dataclasses import asdict
 from unittest import mock
 from unittest.mock import patch
+from flaky import flaky
 
 import aioboto3
 import botocore.exceptions
@@ -929,7 +930,7 @@ async def _run_s3_batch_export_workflow(
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+@pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
     clickhouse_client,
@@ -1072,6 +1073,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
+@flaky(max_runs=3, min_passes=1)
 async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,

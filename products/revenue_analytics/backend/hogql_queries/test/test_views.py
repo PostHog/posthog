@@ -8,9 +8,12 @@ from products.revenue_analytics.backend.views.revenue_analytics_charge_view impo
     STRIPE_CHARGE_RESOURCE_NAME,
 )
 from products.revenue_analytics.backend.views.currency_helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
-from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
-from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
-from products.revenue_analytics.backend.views.revenue_analytics_product_view import RevenueAnalyticsProductView
+from products.revenue_analytics.backend.views import (
+    RevenueAnalyticsCustomerView,
+    RevenueAnalyticsInvoiceItemView,
+    RevenueAnalyticsProductView,
+    RevenueAnalyticsSubscriptionView,
+)
 
 
 class TestRevenueAnalyticsViews(BaseTest):
@@ -63,6 +66,9 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         customer_views = RevenueAnalyticsCustomerView.for_schema_source(self.source)
         self.assertEqual(len(customer_views), 0)
+
+        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
+        self.assertEqual(len(subscription_views), 0)
 
     def test_revenue_view_non_stripe_source(self):
         """Test that RevenueAnalyticsBaseView returns None for non-Stripe sources"""
@@ -174,14 +180,34 @@ class TestRevenueAnalyticsViews(BaseTest):
             last_synced_at="2024-01-01",
         )
 
+        subscription_table = DataWarehouseTable.objects.create(
+            name="subscription",
+            format="Parquet",
+            team=self.team,
+            external_data_source=self.source,
+            external_data_source_id=self.source.id,
+            credential=self.credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        _subscription_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name="Subscription",
+            source=self.source,
+            table=subscription_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
-        self.assertEqual(len(views), 4)
+        self.assertEqual(len(views), 5)
 
         names = [view.name for view in views]
         self.assertIn("stripe.charge_revenue_view", names)
         self.assertIn("stripe.customer_revenue_view", names)
         self.assertIn("stripe.product_revenue_view", names)
         self.assertIn("stripe.invoice_item_revenue_view", names)
+        self.assertIn("stripe.subscription_revenue_view", names)
 
         # Test individual views
         charge_views = RevenueAnalyticsChargeView.for_schema_source(self.source)
@@ -199,3 +225,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         invoice_item_views = RevenueAnalyticsInvoiceItemView.for_schema_source(self.source)
         self.assertEqual(len(invoice_item_views), 1)
         self.assertEqual(invoice_item_views[0].name, "stripe.invoice_item_revenue_view")
+
+        subscription_views = RevenueAnalyticsSubscriptionView.for_schema_source(self.source)
+        self.assertEqual(len(subscription_views), 1)
+        self.assertEqual(subscription_views[0].name, "stripe.subscription_revenue_view")

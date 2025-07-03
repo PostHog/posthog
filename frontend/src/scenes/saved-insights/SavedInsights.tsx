@@ -276,15 +276,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsInsightsQuery]: {
-        name: 'Revenue Analytics Insights',
-        description: 'View revenue analytics insights.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsOverviewQuery]: {
         name: 'Revenue Analytics Overview',
         description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsRevenueQuery]: {
+        name: 'Revenue Analytics Revenue',
+        description: 'View revenue analytics gross and MRR revenue.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -453,6 +453,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsTableQuery]: {
+        name: 'Marketing Analytics Table',
+        icon: IconHogQL,
         inMenu: false,
     },
 }

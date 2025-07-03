@@ -30,9 +30,7 @@ describe('Invocation utils', () => {
         invocation.queueSource = 'postgres'
 
         it('should clone an invocation', () => {
-            const cloned = cloneInvocation(invocation, {
-                queue: 'hog',
-            })
+            const cloned = cloneInvocation(invocation)
             const { id, state, hogFunction, functionId, ...rest } = cloned
             expect(id).toBe(invocation.id)
             expect(functionId).toBe(invocation.functionId)
@@ -54,15 +52,13 @@ describe('Invocation utils', () => {
 
         it('should allow overriding properties', () => {
             const cloned = cloneInvocation(invocation, {
-                queue: 'hog',
                 queuePriority: 1,
                 queueMetadata: { foo: 'bar' },
                 queueScheduledAt: DateTime.utc(),
                 queueParameters: {
-                    response: {
-                        headers: {},
-                        status: 200,
-                    },
+                    type: 'fetch',
+                    url: 'https://example.com',
+                    method: 'GET',
                 },
             })
 
@@ -79,10 +75,9 @@ describe('Invocation utils', () => {
                     "foo": "bar",
                   },
                   "queueParameters": {
-                    "response": {
-                      "headers": {},
-                      "status": 200,
-                    },
+                    "method": "GET",
+                    "type": "fetch",
+                    "url": "https://example.com",
                   },
                   "queuePriority": 1,
                   "queueScheduledAt": "2025-01-01T00:00:00.000Z",

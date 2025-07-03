@@ -253,10 +253,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 aria-label="Add a new item menu actions"
                             >
                                 <ButtonPrimitive
-                                    size="base"
                                     iconOnly
                                     onClick={toggleSearchBar}
                                     data-attr="tree-navbar-search-button"
+                                    size="sm"
                                     tooltip={
                                         <div className="flex flex-col gap-0.5">
                                             <span>
@@ -268,7 +268,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         </div>
                                     }
                                 >
-                                    <IconSearch className="text-secondary" />
+                                    <IconSearch className="text-secondary size-4" />
                                 </ButtonPrimitive>
                             </div>
                         )}

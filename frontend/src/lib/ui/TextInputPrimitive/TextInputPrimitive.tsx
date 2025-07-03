@@ -6,12 +6,12 @@ const textInputVariants = cva({
     base: 'w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
     variants: {
         variant: {
-            default: 'border-primary bg-surface-primary hover:border-tertiary',
+            default: 'border-primary bg-surface-primary hover:border-secondary',
         },
         size: {
-            default: 'h-[2rem]',
-            sm: 'h-8 px-2',
-            lg: 'h-12 px-4',
+            default: 'h-[30px]',
+            sm: 'h-[28px] px-2',
+            lg: 'h-[40px] px-4',
         },
     },
     defaultVariants: {

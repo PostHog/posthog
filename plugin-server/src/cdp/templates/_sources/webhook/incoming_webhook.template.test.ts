@@ -8,7 +8,8 @@ describe('incoming webhook template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('should invoke the function', async () => {
@@ -134,7 +135,6 @@ describe('incoming webhook template', () => {
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            'Executing function',
             `Incoming request:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])

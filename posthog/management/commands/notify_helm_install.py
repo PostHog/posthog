@@ -26,9 +26,9 @@ class Command(BaseCommand):
             disabled = posthoganalytics.disabled
             posthoganalytics.disabled = False
             posthoganalytics.capture(
-                get_machine_id(),
-                "helm_install",
-                report,
+                distinct_id=get_machine_id(),
+                event="helm_install",
+                properties=report,
                 groups={"instance": settings.SITE_URL},
             )
             posthoganalytics.disabled = disabled

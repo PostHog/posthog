@@ -94,8 +94,8 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
@@ -334,8 +334,8 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
@@ -1195,8 +1195,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
-        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
         self.assertEqual(
             "Engineering",
             mock_capture.call_args[1]["properties"]["role_at_organization"],
@@ -1471,8 +1471,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user joined organization",
+            event="user joined organization",
+            distinct_id=user.distinct_id,
             properties={
                 "organization_id": str(new_org.id),
                 "user_number_of_org_membership": 2,
@@ -1540,8 +1540,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user joined organization",
+            event="user joined organization",
+            distinct_id=user.distinct_id,
             properties={
                 "organization_id": str(new_org.id),
                 "user_number_of_org_membership": 2,

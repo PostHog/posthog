@@ -1,5 +1,6 @@
 use std::{future::ready, sync::Arc};
 
+use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use axum::{
     http::Method,
     routing::{get, post},
@@ -11,7 +12,6 @@ use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
-use limiters::redis::RedisLimiter;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -34,7 +34,8 @@ pub struct State {
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
-    pub billing_limiter: RedisLimiter,
+    pub feature_flags_billing_limiter: FeatureFlagsLimiter,
+    pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub config: Config,
 }
@@ -48,7 +49,8 @@ pub fn router<RR, RW, D>(
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
-    billing_limiter: RedisLimiter,
+    feature_flags_billing_limiter: FeatureFlagsLimiter,
+    session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     config: Config,
 ) -> Router
@@ -65,7 +67,8 @@ where
         cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
-        billing_limiter,
+        feature_flags_billing_limiter,
+        session_replay_billing_limiter,
         cookieless_manager,
         config: config.clone(),
     };

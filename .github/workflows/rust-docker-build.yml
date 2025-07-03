@@ -33,9 +33,6 @@ jobs:
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
-                    - image: cyclotron-fetch
-                      dockerfile: ./rust/Dockerfile
-                      project: r4zm8vtlbw
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
@@ -62,7 +59,6 @@ jobs:
 
         outputs:
             capture_digest: ${{ steps.digest.outputs.capture_digest }}
-            cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
             cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
             property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
             batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
@@ -169,8 +165,6 @@ jobs:
                               sha: '${{ needs.build.outputs.capture_digest }}'
                     - release: cyclotron
                       values:
-                          fetch_image:
-                              sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
                           janitor_image:
                               sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
                     - release: property-defs-rs

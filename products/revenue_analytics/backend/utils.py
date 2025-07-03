@@ -7,18 +7,21 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsCustomerView,
     RevenueAnalyticsInvoiceItemView,
     RevenueAnalyticsProductView,
+    RevenueAnalyticsSubscriptionView,
 )
 
 REVENUE_SELECT_OUTPUT_CUSTOMER_KEY = "customer"
 REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY = "invoice_item"
 REVENUE_SELECT_OUTPUT_PRODUCT_KEY = "product"
 REVENUE_SELECT_OUTPUT_CHARGE_KEY = "charge"
+REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY = "subscription"
 
 MAP_FROM_VIEW_TO_KEY = {
     RevenueAnalyticsChargeView: REVENUE_SELECT_OUTPUT_CHARGE_KEY,
     RevenueAnalyticsCustomerView: REVENUE_SELECT_OUTPUT_CUSTOMER_KEY,
     RevenueAnalyticsInvoiceItemView: REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY,
     RevenueAnalyticsProductView: REVENUE_SELECT_OUTPUT_PRODUCT_KEY,
+    RevenueAnalyticsSubscriptionView: REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY,
 }
 
 RevenueSelectOutputInnerDict = dict[str, ast.SelectQuery | None]
@@ -29,6 +32,7 @@ EMPTY_REVENUE_SELECT_OUTPUT_GENERATOR = lambda: RevenueSelectOutputInnerDict(
         REVENUE_SELECT_OUTPUT_CUSTOMER_KEY: None,
         REVENUE_SELECT_OUTPUT_INVOICE_ITEM_KEY: None,
         REVENUE_SELECT_OUTPUT_PRODUCT_KEY: None,
+        REVENUE_SELECT_OUTPUT_SUBSCRIPTION_KEY: None,
     }
 )
 

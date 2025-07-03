@@ -10,6 +10,8 @@ from ee.session_recordings.session_summary.summarize_session import (
 import structlog
 from ee.session_recordings.session_summary import ExceptionToRetry
 import temporalio
+
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -34,6 +36,7 @@ class SingleSessionSummaryInputs:
 @temporalio.activity.defn
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
     """Fetch data from DB for a single session and store in Redis (to avoid hitting Temporal memory limits), return Redis key"""
+    tag_queries(team_id=inputs.team_id, user_id=inputs.user_id, product=Product.SESSION_SUMMARY)
     summary_data = await prepare_data_for_single_session_summary(
         session_id=inputs.session_id,
         user_id=inputs.user_id,

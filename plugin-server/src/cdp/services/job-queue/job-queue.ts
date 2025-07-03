@@ -80,7 +80,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
-            .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
@@ -139,7 +139,11 @@ export class CyclotronJobQueue {
     }
 
     public async stop() {
-        await Promise.all([this.jobQueuePostgres.stop(), this.jobQueueKafka.stop()])
+        // Important - first shut down the consumers so we aren't processing anything
+        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer()])
+
+        // Only then do we shut down the producers
+        await Promise.all([this.jobQueuePostgres.stopProducer(), this.jobQueueKafka.stopProducer()])
     }
 
     public isHealthy() {

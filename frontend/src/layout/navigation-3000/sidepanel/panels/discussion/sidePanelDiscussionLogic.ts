@@ -40,6 +40,9 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
 
                     return response
                 },
+                incrementCommentCount: () => {
+                    return values.commentCount + 1
+                },
                 resetCommentCount: () => {
                     return 0
                 },

@@ -51,6 +51,7 @@ import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
+import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -766,6 +767,10 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
         return <WebGoalsTile query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
+        return <MarketingAnalyticsTable query={query} insightProps={insightProps} />
     }
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {

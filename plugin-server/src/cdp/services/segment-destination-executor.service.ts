@@ -13,7 +13,7 @@ import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
+import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
@@ -108,9 +108,7 @@ export class SegmentDestinationExecutorService {
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'segment',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -263,12 +261,10 @@ export class SegmentDestinationExecutorService {
                             'warn',
                             `HTTP request failed with status ${fetchResponse?.status} (${
                                 fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''} max retries: ${
-                                this.serverConfig.CDP_FETCH_RETRIES
-                            }`
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
-                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${

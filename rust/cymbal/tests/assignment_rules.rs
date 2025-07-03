@@ -36,7 +36,6 @@ fn get_test_rule() -> AssignmentRule {
         id: Uuid::new_v4(),
         team_id: 1,
         user_id: Some(1), // This rule assigns the issue to user with ID 1
-        user_group_id: None,
         role_id: None,
         order_key: 1,
         bytecode: rule_bytecode(),
@@ -125,14 +124,13 @@ async fn test_assignment_processing(db: PgPool) {
     assert!(res.is_some());
     let res = res.unwrap();
     assert_eq!(res.user_id, existing.user_id);
-    assert_eq!(res.user_group_id, existing.user_group_id);
     assert_eq!(res.role_id, existing.role_id);
 
     // Next, change the issue, and put an assignment on the fingerprint. The returned assignment should be the one from
     // the fingerprint, rather than the rule, because fingerprint assignments take priority over assignment rules
 
     let mut props_with_fingerprint_assignment = test_props.clone();
-    let fingerprint_assignment = NewAssignment::try_new(Some(3), None, None).unwrap();
+    let fingerprint_assignment = NewAssignment::try_new(Some(3), None).unwrap();
     props_with_fingerprint_assignment.fingerprint.assignment = Some(fingerprint_assignment);
 
     let mut new_issue = issue.clone();
@@ -150,6 +148,5 @@ async fn test_assignment_processing(db: PgPool) {
     assert!(res.is_some());
     let res = res.unwrap();
     assert_eq!(res.user_id, Some(3));
-    assert_eq!(res.user_group_id, None);
     assert_eq!(res.role_id, None);
 }

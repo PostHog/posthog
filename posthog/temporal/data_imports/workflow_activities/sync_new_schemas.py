@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.pipelines.google_sheets.source import (
 )
 from posthog.temporal.data_imports.pipelines.mssql import MSSQLSourceConfig, get_schemas as get_mssql_schemas
 from posthog.temporal.data_imports.pipelines.mysql import MySQLSourceConfig, get_schemas as get_mysql_schemas
+from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, get_schemas as get_mongo_schemas
 from posthog.temporal.data_imports.pipelines.postgres import PostgreSQLSourceConfig, get_schemas as get_postgres_schemas
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
@@ -97,6 +98,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
         sheets_schemas = get_google_sheets_schemas(GoogleSheetsServiceAccountSourceConfig.from_dict(source.job_inputs))
         schemas_to_sync = [name for name, _ in sheets_schemas]
+    elif source.source_type == ExternalDataSource.Type.MONGODB:
+        if not source.job_inputs:
+            return
+
+        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
 

@@ -1,7 +1,7 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/hog-watcher.service'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -187,6 +187,68 @@ describe.each([
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
+            it('should log correct metrics', async () => {
+                const { invocations } = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(2)
+                expect(invocations).toMatchObject([
+                    matchInvocation(fnFetchNoFilters, globals),
+                    matchInvocation(fnPrinterPageviewFilters, globals),
+                ])
+
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject(
+                    hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: globals.event.uuid,
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: globals.event.uuid,
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'event_triggered_destination',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[0].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[1].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]
+                )
+            })
+
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
@@ -215,6 +277,37 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
+                    ...(hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: globals.event.uuid,
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: globals.event.uuid,
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'event_triggered_destination',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[0].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]),
                 ])
             })
 
@@ -222,8 +315,8 @@ describe.each([
                 [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
                 [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
             ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
 
                 const { invocations } = await processor.processBatch([globals])
 

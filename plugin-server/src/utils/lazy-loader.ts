@@ -204,7 +204,7 @@ export class LazyLoader<T> {
                     })
                         .then((keys) => {
                             // Pull out the keys to load and clear the buffer
-                            logger.info('[LazyLoader]', this.options.name, 'Loading: ', keys)
+                            logger.debug('[LazyLoader]', this.options.name, 'Loading: ', keys)
                             return this.options.loader(keys)
                         })
                         .then((map) => {

@@ -697,10 +697,15 @@ class CSVBatchExportWriter(BatchExportWriter):
         """
         rows = []
         for record in record_batch.to_pylist():
-            rows.append(
-                {k: str(v).replace("[", "{").replace("]", "}") if isinstance(v, list) else v for k, v in record.items()}
-            )
+            rows.append({k: ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
         self.csv_writer.writerows(rows)
+
+
+def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
+    """Convert list to str and replace ends with curly braces."""
+    # NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
+    str_list = str(v)
+    return f"{{{str_list[1:len(str_list)-1]}}}"
 
 
 class ParquetBatchExportWriter(BatchExportWriter):

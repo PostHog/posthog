@@ -33,11 +33,11 @@ describe('fetch', () => {
             ['@@@', 'Invalid URL'],
             ['posthog.com', 'Invalid URL'],
             ['ftp://posthog.com', 'Scheme must be either HTTP or HTTPS'],
-            ['http://localhost', 'Internal hostname'],
-            ['http://192.168.0.5', 'Internal hostname'],
-            ['http://0.0.0.0', 'Internal hostname'],
-            ['http://10.0.0.24', 'Internal hostname'],
-            ['http://172.20.0.21', 'Internal hostname'],
+            ['http://localhost', 'Hostname is not allowed'],
+            ['http://192.168.0.5', 'Hostname is not allowed'],
+            ['http://0.0.0.0', 'Hostname is not allowed'],
+            ['http://10.0.0.24', 'Hostname is not allowed'],
+            ['http://172.20.0.21', 'Hostname is not allowed'],
             ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new SecureRequestError(error))
@@ -49,7 +49,7 @@ describe('fetch', () => {
 
         it('should raise if the URL is unsafe', async () => {
             await expect(fetch('http://localhost')).rejects.toMatchInlineSnapshot(
-                `[SecureRequestError: Internal hostname]`
+                `[SecureRequestError: Hostname is not allowed]`
             )
         })
 
@@ -86,35 +86,30 @@ describe('fetch', () => {
         ])('should block requests to %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
 
-            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Internal hostname`))
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
     })
 
     describe('parallel requests execution', () => {
         jest.retryTimes(3)
-        it('should execute requests in parallel', async () => {
-            const start = performance.now()
-            const timings: number[] = []
-            const parallelRequests = 100
+        it('should execute requests in parallel - completion time test', async () => {
+            const delayMs = 200
+            const parallelRequests = 20
 
-            const requests = range(parallelRequests).map(() =>
-                fetch('https://example.com').then(() => {
-                    timings.push(performance.now() - start)
-                })
-            )
+            // Measure sequential execution
+            const sequentialStart = performance.now()
+            for (let i = 0; i < parallelRequests; i++) {
+                await fetch(`https://httpbin.org/delay/${delayMs / 1000}`)
+            }
+            const sequentialTime = performance.now() - sequentialStart
 
-            await Promise.all(requests)
+            const parallelStart = performance.now()
+            await Promise.all(range(parallelRequests).map(() => fetch(`https://httpbin.org/delay/${delayMs / 1000}`)))
+            const parallelTime = performance.now() - parallelStart
 
-            expect(timings).toHaveLength(parallelRequests)
-
-            // NOTE: Not the easiest thing to test - what we are testing is that the requests are executed in parallel
-            // so the total time should be close to the time it takes to execute one request.
-            // It's far from perfect but it at the very least caches
-            const totalTime = performance.now() - start
-            const firstTime = timings[0]
-
-            expect(totalTime).toBeGreaterThan(firstTime - 100)
-            expect(totalTime).toBeLessThan(firstTime + 100)
+            // Parallel should be significantly faster than sequential
+            const speedup = sequentialTime / parallelTime
+            expect(speedup).toBeGreaterThan(3)
         })
     })
 })
@@ -172,7 +167,7 @@ describe('legacyFetch', () => {
 
             expect(err.name).toBe('TypeError')
             expect(err.toString()).toContain('fetch failed')
-            expect(err.cause.toString()).toContain('Internal hostname')
+            expect(err.cause.toString()).toContain('Hostname is not allowed')
         })
     })
 

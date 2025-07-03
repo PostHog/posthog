@@ -17,12 +17,14 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
+        from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
             *RevenueAnalyticsChargeView.for_events(team),
             *RevenueAnalyticsCustomerView.for_events(team),
             *RevenueAnalyticsInvoiceItemView.for_events(team),
             *RevenueAnalyticsProductView.for_events(team),
+            *RevenueAnalyticsSubscriptionView.for_events(team),
         ]
 
     @classmethod
@@ -31,12 +33,14 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
         from .revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
         from .revenue_analytics_product_view import RevenueAnalyticsProductView
+        from .revenue_analytics_subscription_view import RevenueAnalyticsSubscriptionView
 
         return [
             *RevenueAnalyticsChargeView.for_schema_source(source),
             *RevenueAnalyticsCustomerView.for_schema_source(source),
             *RevenueAnalyticsInvoiceItemView.for_schema_source(source),
             *RevenueAnalyticsProductView.for_schema_source(source),
+            *RevenueAnalyticsSubscriptionView.for_schema_source(source),
         ]
 
     # Used in child classes to generate view names
@@ -70,14 +74,20 @@ class RevenueAnalyticsBaseView(SavedQuery):
         return cls.get_database_schema_table_kind().value
 
 
-def events_exprs_for_team(team: Team) -> list[ast.Expr]:
+def events_expr_for_team(team: Team) -> ast.Expr:
     from posthog.hogql.property import property_to_expr
 
+    exprs = []
     if (
         team.revenue_analytics_config.filter_test_accounts
         and isinstance(team.test_account_filters, list)
         and len(team.test_account_filters) > 0
     ):
-        return [property_to_expr(filter, team) for filter in team.test_account_filters]
+        exprs = [property_to_expr(filter, team) for filter in team.test_account_filters]
+
+    if len(exprs) == 0:
+        return ast.Constant(value=True)
+    elif len(exprs) == 1:
+        return exprs[0]
     else:
-        return []
+        return ast.And(exprs=exprs)

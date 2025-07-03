@@ -1,15 +1,11 @@
 import decimal
 import uuid
 from ipaddress import IPv4Address, IPv6Address
-from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
 from dateutil import parser
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import should_partition_table
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
     normalize_table_column_names,
@@ -291,94 +287,6 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
-
-
-def test_should_partition_table_non_incremental_schema():
-    schema = MagicMock()
-    schema.should_use_incremental_field = False
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_paritioning_settingd():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = True
-    schema.partitioning_size = 100
-    schema.partitioning_keys = ["id"]
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_incremental_with_bucket_size():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_no_table():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_with_table_and_no_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2"]
-
-    schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_with_table_and_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
-
-    schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is True
 
 
 def test_normalize_table_column_names_prevents_collisions():

@@ -123,8 +123,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert EventDefinition.objects.filter(id=event_definition.id).count() == 0
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "event definition deleted",
+            distinct_id=self.user.distinct_id,
+            event="event definition deleted",
             properties={"name": "test_event"},
             groups={
                 "instance": ANY,

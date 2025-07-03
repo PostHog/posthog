@@ -6,7 +6,13 @@ import { createContext, useContext, useState } from 'react'
 
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import {
+    EXPERIMENT_MAX_PRIMARY_METRICS,
+    EXPERIMENT_MAX_SECONDARY_METRICS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
+} from '../../constants'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -26,7 +32,6 @@ import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
 import { generateViolinPath } from './violinUtils'
-import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 // Chart configuration types
 type ChartDimensions = {
@@ -513,6 +518,7 @@ export function DeltaChart({
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
+        secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
@@ -550,6 +556,11 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
+            canDuplicateMetric={
+                isSecondary
+                    ? secondaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_SECONDARY_METRICS
+                    : primaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_PRIMARY_METRICS
+            }
             onDuplicateMetricClick={() => {
                 duplicateMetric({ metricIndex, isSecondary })
                 updateExperimentMetrics()

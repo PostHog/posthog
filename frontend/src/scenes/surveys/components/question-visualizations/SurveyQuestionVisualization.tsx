@@ -112,7 +112,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
             )
         case SurveyQuestionType.MultipleChoice:
             return (
-                <div className="border rounded py-4 max-h-[600px] overflow-y-scroll">
+                <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
                     <div className="flex flex-col gap-1">
                         {question.choices.map((choice, i) => {
                             // Use decreasing widths to match typical survey result ordering

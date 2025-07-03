@@ -33,7 +33,7 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />

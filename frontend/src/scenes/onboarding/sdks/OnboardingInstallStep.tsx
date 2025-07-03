@@ -10,9 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
+import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab, OnboardingStepKey } from '~/types'
 
-import { OnboardingStepKey } from '../onboardingLogic'
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { useInstallationComplete } from './hooks/useInstallationComplete'

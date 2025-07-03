@@ -21,7 +21,7 @@ pub async fn check_limits(
 ) -> Result<Option<FlagsResponse>, FlagError> {
     let billing_limited = context
         .state
-        .billing_limiter
+        .feature_flags_billing_limiter
         .is_limited(verified_token)
         .await;
 

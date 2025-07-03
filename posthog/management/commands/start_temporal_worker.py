@@ -192,7 +192,6 @@ class Command(BaseCommand):
 
             logger.info("Initiating Temporal worker shutdown")
             shutdown_task = loop.create_task(worker.shutdown())
-            logger.info("Finished Temporal worker shutdown")
 
         with asyncio.Runner() as runner:
             worker = runner.run(
@@ -225,4 +224,6 @@ class Command(BaseCommand):
             runner.run(worker.run())
 
             if shutdown_task:
+                logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
+                logger.info("Finished Temporal worker shutdown")

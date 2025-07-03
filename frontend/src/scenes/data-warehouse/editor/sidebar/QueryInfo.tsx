@@ -410,7 +410,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     </>
                 )}
 
-                {upstream && isLineageDependencyViewEnabled && (
+                {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
                             <h3>Upstream Dependencies</h3>
@@ -485,8 +485,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             604800: '1 week',
                                         }
 
-                                        return `${humanFriendlyDetailedTime(last_run_at)} every ${
+                                        return `${humanFriendlyDetailedTime(last_run_at)} ${
                                             frequencyMap[numericSyncFrequency]
+                                                ? `every ${frequencyMap[numericSyncFrequency]}`
+                                                : ''
                                         }`
                                     },
                                 },

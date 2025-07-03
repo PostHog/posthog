@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
+from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -614,11 +615,9 @@ class ProducerFromInternalS3Stage:
 
             # Read in batches
             try:
-                async for batch in self._stream_record_batches_from_s3(s3_client, keys):
-                    for record_batch_slice in slice_record_batch(
-                        batch, max_record_batch_size_bytes, min_records_per_batch
-                    ):
-                        await queue.put(record_batch_slice)
+                await self._stream_record_batches_from_s3(
+                    s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
+                )
             except Exception as e:
                 await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
@@ -627,11 +626,20 @@ class ProducerFromInternalS3Stage:
         self,
         s3_client: "S3Client",
         keys: list[str],
+        queue: RecordBatchQueue,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
     ):
-        for key in keys:
+        async def stream_from_s3_file(key):
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
             assert "Body" in s3_ob, "Body not found in S3 object"
-            stream = s3_ob["Body"]
-            reader = asyncpa.AsyncRecordBatchReader(stream)
+            stream: StreamingBody = s3_ob["Body"]
+            # read in 128KB chunks of data from S3
+            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
             async for batch in reader:
-                yield batch
+                for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
+                    await queue.put(record_batch_slice)
+
+        async with asyncio.TaskGroup() as tg:
+            for key in keys:
+                tg.create_task(stream_from_s3_file(key))

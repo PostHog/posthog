@@ -140,7 +140,7 @@ impl AppContext {
 
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
-        let redis_client = RedisClient::new(config.redis_url.clone())?;
+        let redis_client = RedisClient::new(config.redis_url.clone()).await?;
         let redis_client = Arc::new(redis_client);
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,

@@ -61,10 +61,10 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        return obj.user_id or obj.user_group_id or obj.role_id
+        return obj.user_id or obj.role_id
 
     def get_type(self, obj):
-        return "user_group" if obj.user_group else "role" if obj.role else "user"
+        return "role" if obj.role else "user"
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
@@ -276,7 +276,6 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
             issue_id=issue.id,
             defaults={
                 "user_id": None if assignee["type"] != "user" else assignee["id"],
-                "user_group_id": None if assignee["type"] != "user_group" else assignee["id"],
                 "role_id": None if assignee["type"] != "role" else assignee["id"],
             },
         )
@@ -574,8 +573,6 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     def get_assignee(self, obj):
         if obj.user_id:
             return {"type": "user", "id": obj.user_id}
-        elif obj.user_group_id:
-            return {"type": "user_group", "id": obj.user_group_id}
         elif obj.role_id:
             return {"type": "role", "id": obj.role_id}
         return None
@@ -601,7 +598,6 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         if assignee:
             assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
-            assignment_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
             assignment_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
 
         assignment_rule.save()
@@ -627,7 +623,6 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
             bytecode=bytecode,
             order_key=0,
             user_id=None if assignee["type"] != "user" else assignee["id"],
-            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
             role_id=None if assignee["type"] != "role" else assignee["id"],
         )
 
@@ -646,8 +641,6 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
     def get_assignee(self, obj):
         if obj.user_id:
             return {"type": "user", "id": obj.user_id}
-        elif obj.user_group_id:
-            return {"type": "user_group", "id": obj.user_group_id}
         elif obj.role_id:
             return {"type": "role", "id": obj.role_id}
         return None
@@ -674,7 +667,6 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
 
         if assignee:
             grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
-            grouping_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
             grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
 
         if description:
@@ -701,7 +693,6 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             bytecode=bytecode,
             order_key=0,
             user_id=None if (not assignee or assignee["type"] != "user") else assignee["id"],
-            user_group_id=None if (not assignee or assignee["type"] != "user_group") else assignee["id"],
             role_id=None if (not assignee or assignee["type"] != "role") else assignee["id"],
             description=description,
         )

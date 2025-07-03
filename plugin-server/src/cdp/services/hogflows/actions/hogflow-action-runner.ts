@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow, HogFunctionFilterGlobals } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal } from '~/cdp/utils'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { logger } from '~/utils/logger'
@@ -42,20 +41,20 @@ export class HogFlowActionRunner {
         return nextAction
     }
 
-    private shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): boolean {
+    private async shouldSkipAction(invocation: CyclotronJobInvocationHogFlow, action: HogFlowAction): Promise<boolean> {
         if (!action.filters) {
             return false
         }
 
         // TODO: Make filterGlobals, person and groups something we load lazily onto the main invocation object to be re-used anywhere
         // this function isn't super cheap to run
-        const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
+        const filterGlobals = convertToHogFunctionFilterGlobal({
             event: invocation.state.event, // TODO: Fix typing
             // TODO: Add person and groups!
             groups: {},
         })
 
-        const filterResults = filterFunctionInstrumented({
+        const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: action.filters,
             filterGlobals,
@@ -103,13 +102,13 @@ export class HogFlowActionRunner {
             }
         }
 
-        if (this.shouldSkipAction(invocation, action)) {
+        if (await this.shouldSkipAction(invocation, action)) {
             // Before we do anything check for filter conditions on the user
-            return Promise.resolve({
+            return {
                 action,
                 exited: false,
                 goToAction: this.findContinueAction(invocation),
-            })
+            }
         }
 
         logger.debug('🦔', `[HogFlowActionRunner] Running action ${action.type}`, {
@@ -121,13 +120,16 @@ export class HogFlowActionRunner {
             let actionResult: HogFlowActionResult
             switch (action.type) {
                 case 'conditional_branch':
-                    actionResult = this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
+                    actionResult = await this.hogFlowActionRunnerConditionalBranch.run(invocation, action)
                     break
                 case 'delay':
                     actionResult = this.hogFlowActionRunnerDelay.run(invocation, action)
                     break
                 case 'wait_until_condition':
-                    actionResult = this.hogFlowActionRunnerConditionalBranch.runWaitUntilCondition(invocation, action)
+                    actionResult = await this.hogFlowActionRunnerConditionalBranch.runWaitUntilCondition(
+                        invocation,
+                        action
+                    )
                     break
                 case 'wait_until_time_window':
                     actionResult = this.hogFlowActionRunnerWaitUntilTimeWindow.run(action)

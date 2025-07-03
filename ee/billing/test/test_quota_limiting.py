@@ -90,7 +90,7 @@ class TestQuotaLimiting(BaseTest):
         assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "ignored",
@@ -141,7 +141,7 @@ class TestQuotaLimiting(BaseTest):
         assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "already limited",
@@ -305,7 +305,9 @@ class TestQuotaLimiting(BaseTest):
             )  # 1 org_quota_limited_until event + 1 organization quota limits changed event
             # Find the org action call
             org_action_call = next(
-                call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"
+                call
+                for call in patch_capture.call_args_list
+                if call.kwargs.get("event") == "organization quota limits changed"
             )
             assert org_action_call.kwargs.get("properties") == {
                 "quota_limited_events": 1612137599,
@@ -1323,7 +1325,7 @@ class TestQuotaLimiting(BaseTest):
             # Find the specific call for org_quota_limited_until with suspension removed
             event = None
             for call in mock_capture.call_args_list:
-                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
                     event = call
                     break
 

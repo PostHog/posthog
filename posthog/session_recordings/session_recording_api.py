@@ -711,9 +711,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "snapshots_api_called_with_personal_api_key",
-                {
+                distinct_id=self._distinct_id_from_request(request),
+                event="snapshots_api_called_with_personal_api_key",
+                properties={
                     "key_label": used_key.label,
                     "key_scopes": used_key.scopes,
                     "key_scoped_teams": used_key.scoped_teams,
@@ -757,6 +757,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 properties={
                     "location": "session_recording_api.snapshots",
                     "session_id": str(recording.session_id) if recording else None,
+                    "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
             return Response(

@@ -17,6 +17,7 @@ import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual, range } from 'lib/utils'
+import { v4 as uuidv4 } from 'uuid'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -48,31 +49,26 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
-}
-
-function generateUUID(): string {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID()
-    }
-    // Fallback to a simple random string
-    return 'xxxx-xxxx-4xxx-yxxx-xxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0
-        const v = c === 'x' ? r : (r & 0x3) | 0x8
-        return v.toString(16)
-    })
+    isSuper?: boolean
 }
 
 function ensureSortKeys(filters: FeatureFlagFilters): FeatureFlagFilters {
     return {
         ...filters,
-        groups: filters.groups.map((group) => ({ ...group, sort_key: group.sort_key ?? generateUUID() })),
+        groups: filters.groups.map((group: FeatureFlagGroupType) => ({
+            ...group,
+            sort_key: group.sort_key ?? uuidv4(),
+        })),
     }
 }
 
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id }) => id ?? 'unknown'),
+    key(({ id, isSuper }) => {
+        const key = `${id ?? 'unknown'}-${isSuper ? 'super' : 'normal'}`
+        return key
+    }),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
@@ -106,13 +102,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: {
             setFilters: (_, { filters }) => {
                 // Only assign sort_keys to groups that don't have one
-                const groupsWithKeys = filters.groups.map((group) => {
+                const groupsWithKeys = filters.groups.map((group: FeatureFlagGroupType) => {
                     if (group.sort_key) {
                         return group
                     }
                     return {
                         ...group,
-                        sort_key: generateUUID(),
+                        sort_key: uuidv4(),
                     }
                 })
 
@@ -134,7 +130,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             properties: [],
                             rollout_percentage: originalRolloutPercentage,
                             variant: null,
-                            sort_key: generateUUID(),
+                            sort_key: uuidv4(),
                         },
                     ],
                 }
@@ -145,7 +141,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
                 const groups = [
                     ...(state?.groups || []),
-                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: generateUUID() },
+                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: uuidv4() },
                 ]
                 return { ...state, groups }
             },
@@ -184,7 +180,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 const groups = state.groups.concat([
                     {
                         ...state.groups[index],
-                        sort_key: generateUUID(),
+                        sort_key: uuidv4(),
                     },
                 ])
                 return { ...state, groups }
@@ -304,6 +300,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
     })),
     selectors({
+        // Get the appropriate groups based on isSuper
+        filterGroups: [
+            (s) => [s.filters, (_, props) => props.isSuper],
+            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups) || [],
+        ],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes): TaxonomicFilterGroupType[] => {

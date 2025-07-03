@@ -1,4 +1,5 @@
 pub mod api;
+pub mod billing_limiters;
 pub mod cohorts;
 pub mod config;
 pub mod db_monitor;

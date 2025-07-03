@@ -31,6 +31,7 @@ pub async fn setup_redis_client(
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         RedisClient::new(config.internal_link_redis_url.clone())
+            .await
             .expect("Failed to create Redis client"),
     )
 }

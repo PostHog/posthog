@@ -293,6 +293,7 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
 INSIGHT_KINDS = {
     "TrendsQuery",
     "FunnelsQuery",
+    "FunnelCorrelationQuery",
     "RetentionQuery",
     "PathsQuery",
     "StickinessQuery",
