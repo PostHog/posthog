@@ -138,7 +138,6 @@ dependencies = [
     "zstd==1.5.5.1",
     "zxcvbn==4.4.28",
     "pyyaml==6.0.1",
-    "tenacity>=8.4.2",
     "chdb>=3.1.2",
     "elevenlabs>=1.58.1",
     "django-oauth-toolkit>=3.0.1",
