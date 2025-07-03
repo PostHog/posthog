@@ -1489,11 +1489,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                const errorMessage = e.data?.message ?? e.message
+                lemonToast.error(errorMessage)
 
-                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
-                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
-                }
+                posthog.capture('warehouse credentials invalid', {
+                    sourceType: values.selectedConnector.name,
+                    errorMessage,
+                })
             }
 
             actions.setIsLoading(false)
