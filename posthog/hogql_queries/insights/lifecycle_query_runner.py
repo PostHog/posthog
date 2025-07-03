@@ -27,6 +27,7 @@ from posthog.schema import (
     IntervalType,
     StatusItem,
     DayItem,
+    ResolvedDateRangeResponse,
 )
 
 
@@ -206,7 +207,16 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return LifecycleQueryResponse(
+            results=res,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     @cached_property
     def query_date_range(self):
