@@ -10,3 +10,6 @@ SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow fo
 # How long to store the DB data in Redis within Temporal session summaries jobs
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # 24 hours to keep alive for retries and long-running workflows
 FAILED_SESSION_SUMMARIES_MIN_RATIO = 0.5  # If more than 50% of session group fail, stop the workflow
+
+# Patterns
+PATTERNS_ASSIGNMENT_CHUNK_SIZE = 10  # How many single-session-summaries to feed at once to assign events to patterns

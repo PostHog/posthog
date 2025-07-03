@@ -3,6 +3,7 @@ from typing import cast
 from redis import Redis
 import structlog
 import temporalio
+from ee.hogai.session_summaries.constants import PATTERNS_ASSIGNMENT_CHUNK_SIZE
 from ee.session_recordings.session_summary.llm.consume import (
     get_llm_session_group_patterns_assignment,
     get_llm_session_group_patterns_extraction,
@@ -211,11 +212,10 @@ async def assign_events_to_patterns_activity(
             load_session_summary_from_string(session_summary_str) for session_summary_str in session_summaries_str
         ]
         # Split sessions summaries into chunks of 10 sessions each
-        # TODO: Define in constants after testing optimal chunk size quality-wise
         # TODO: Run activity for each chunk instead to avoid retrying the whole workflow
         session_summaries_chunks_str = [
-            intermediate_session_summaries_str[i : i + 10]
-            for i in range(0, len(intermediate_session_summaries_str), 10)
+            intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
+            for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
         ]
         # Get extracted patterns from Redis to be able to assign events to them
         patterns_extraction = cast(
