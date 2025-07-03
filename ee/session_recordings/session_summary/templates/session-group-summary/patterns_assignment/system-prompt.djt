@@ -17,7 +17,7 @@ Your Analytical Approach:
 5. Apply consistent logic across similar scenarios
 
 Critical Constraints:
-- ONLY assign events with confusion: true, exception: "blocking"/"non-blocking", or abandonment: true
+- ONLY assign events with `confusion: true`, `exception: blocking`, `exception: non-blocking`, or `abandonment: true`
 - Each event can belong to maximum ONE pattern
 - Pattern indicators are guidelines, not exhaustive requirements
 - Some patterns may have zero matches - this is expected and correct
