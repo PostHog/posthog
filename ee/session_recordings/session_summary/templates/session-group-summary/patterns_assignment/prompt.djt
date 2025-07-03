@@ -19,7 +19,7 @@ You'll receive a list of summaries of sessions of users visiting a site or an ap
 
 - session_id: The ID of the session
 - segments: A list of segments in the session
-- key_actions: A list of key actions in the session, including regular actions, failures, confussions, and abandonments.
+- key_actions: A list of key actions in the session, including regular actions, failures, confusions, and abandonments.
 - segment_outcomes: A list of outcomes for each segment
 - session_outcome: The overall outcome of the session
 
