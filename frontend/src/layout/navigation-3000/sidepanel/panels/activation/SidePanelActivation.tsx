@@ -238,6 +238,21 @@ const ActivationTask = ({
         }
     }
 
+    const handleSkip = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        markTaskAsSkipped(id)
+    }
+
+    const handleGetStarted = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        reportActivationSideBarTaskClicked(id)
+        if (url) {
+            handleUrlOpen(url)
+        } else {
+            runTask(id)
+        }
+    }
+
     return (
         <li
             className={clsx(
@@ -270,10 +285,7 @@ const ActivationTask = ({
                         size="xsmall"
                         type="secondary"
                         className="h-6 font-semibold text-muted-alt activation-task-skip"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            markTaskAsSkipped(id)
-                        }}
+                        onClick={handleSkip}
                     >
                         Skip
                     </LemonButton>
@@ -291,26 +303,15 @@ const ActivationTask = ({
                     <div
                         className="pt-2"
                         ref={(el) => {
+                            // scrollHeight refers to the height of the content,
+                            // including content not visible on the screen due to overflow
                             if (el && expanded && contentHeight !== el.scrollHeight) {
                                 setTaskContentHeight(id, el.scrollHeight)
                             }
                         }}
                     >
                         {ContentComponent && <ContentComponent />}
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            className="mt-2"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                reportActivationSideBarTaskClicked(id)
-                                if (url) {
-                                    handleUrlOpen(url)
-                                } else {
-                                    runTask(id)
-                                }
-                            }}
-                        >
+                        <LemonButton type="primary" size="small" className="mt-2" onClick={handleGetStarted}>
                             Get started
                         </LemonButton>
                     </div>
