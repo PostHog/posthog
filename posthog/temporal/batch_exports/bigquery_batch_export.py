@@ -51,9 +51,10 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import configure_temporal_worker_logger
-
-logger = structlog.get_logger()
+from posthog.temporal.common.logger import (
+    bind_contextvars,
+    get_external_logger,
+)
 
 NON_RETRYABLE_ERROR_TYPES = [
     # Raised on missing permissions.
@@ -71,6 +72,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
 ]
+
+LOGGER = structlog.get_logger()
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -170,6 +173,12 @@ class BigQueryQuotaExceededError(Exception):
 
 
 class BigQueryClient(bigquery.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.logger = LOGGER.bind(project=self.project)
+        self.external_logger = get_external_logger(project_id=self.project)
+
     async def acreate_table(
         self,
         project_id: str,
@@ -243,7 +252,7 @@ class BigQueryClient(bigquery.Client):
                 try:
                     await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
                 except Forbidden:
-                    await logger.awarning(
+                    self.external_logger.warning(
                         "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
                     )
 
@@ -481,11 +490,11 @@ class BigQueryClient(bigquery.Client):
             schema=table_schema,
         )
 
-        await logger.adebug("Creating BigQuery load job for Parquet file '%s'", parquet_file)
+        self.logger.debug("Creating BigQuery load job for Parquet file '%s'", parquet_file)
         load_job = await asyncio.to_thread(
             self.load_table_from_file, parquet_file, table, job_config=job_config, rewind=True
         )
-        await logger.adebug("Waiting for BigQuery load job for Parquet file '%s'", parquet_file)
+        self.logger.debug("Waiting for BigQuery load job for Parquet file '%s'", parquet_file)
 
         try:
             result = await asyncio.to_thread(load_job.result)
@@ -508,11 +517,11 @@ class BigQueryClient(bigquery.Client):
             schema=table_schema,
         )
 
-        await logger.adebug("Creating BigQuery load job for JSONL file '%s'", jsonl_file)
+        self.logger.debug("Creating BigQuery load job for JSONL file '%s'", jsonl_file)
         load_job = await asyncio.to_thread(
             self.load_table_from_file, jsonl_file, table, job_config=job_config, rewind=True
         )
-        await logger.adebug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
+        self.logger.debug("Waiting for BigQuery load job for JSONL file '%s'", jsonl_file)
 
         try:
             result = await asyncio.to_thread(load_job.result)
@@ -615,8 +624,8 @@ class BigQueryConsumer(Consumer):
         error: Exception | None,
     ):
         """Implement flushing by loading batch export files to BigQuery"""
-        await self.logger.adebug(
-            "Loading %s records of size %s bytes to BigQuery table '%s'",
+        self.external_logger.info(
+            "Loading %d records of size %d bytes to BigQuery table '%s'",
             records_since_last_flush,
             bytes_since_last_flush,
             self.bigquery_table,
@@ -627,7 +636,9 @@ class BigQueryConsumer(Consumer):
         else:
             await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
 
-        await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
+        self.external_logger.info(
+            "Loaded %d records to BigQuery table '%s'", records_since_last_flush, self.bigquery_table
+        )
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
@@ -638,10 +649,15 @@ class BigQueryConsumer(Consumer):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = await configure_temporal_worker_logger(
-        logger=structlog.get_logger(), team_id=inputs.team_id, destination="BigQuery"
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="BigQuery",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
     )
-    await logger.ainfo(
+    external_logger = get_external_logger()
+
+    external_logger.info(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -652,7 +668,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
     async with (
         Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        set_status_to_running_task(run_id=inputs.run_id),
     ):
         is_orderless = str(inputs.team_id) in settings.BATCH_EXPORT_ORDERLESS_TEAM_IDS
 
@@ -691,6 +707,12 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
+            external_logger.info(
+                "Batch export finished as there is no data in range %s - %s matching specified filters",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
+            )
+
             return details.records_completed
 
         record_batch_schema = pa.schema(
@@ -767,7 +789,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     if model_name == "persons":
                         raise MissingRequiredPermissionsError()
 
-                    await logger.awarning(
+                    external_logger.warning(
                         "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                     )
 
@@ -829,6 +851,13 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                                 update_key=update_key,
                                 stage_fields_cast_to_json=json_columns,
                             )
+
+        external_logger.info(
+            "Batch export for range %s - %s finished with %d records exported",
+            inputs.data_interval_start or "START",
+            inputs.data_interval_end or "END",
+            details.records_completed,
+        )
 
         return details.records_completed
 
