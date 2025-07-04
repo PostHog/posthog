@@ -2834,4 +2834,110 @@ export type CyclotronJobInputSchemaType = {
     integration_field?: string
     requires_field?: string
     requiredScopes?: string
-}"""
+}
+
+Here are some example input schemas to help you understand the format:
+
+Example 1 - Bot Detection Function:
+[
+    {
+        "key": "userAgent",
+        "type": "string",
+        "label": "User Agent Property",
+        "description": "The property that contains the user agent string (e.g. $raw_user_agent, $useragent)",
+        "default": "$raw_user_agent",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "customBotPatterns",
+        "type": "string",
+        "label": "Custom Bot Patterns",
+        "description": "Additional bot patterns to detect, separated by commas (e.g. mybot,customcrawler)",
+        "default": "",
+        "secret": false,
+        "required": false
+    },
+    {
+        "key": "customIpPrefixes",
+        "type": "string",
+        "label": "Custom IP Prefixes",
+        "description": "Additional IPv4 or IPv6 prefixes in CIDR notation to block, separated by commas (e.g. 198.51.100.14/24,2001:db8::/48)",
+        "default": "",
+        "secret": false,
+        "required": false
+    }
+]
+
+Example 2 - Property Filter Function:
+[
+    {
+        "key": "propertiesToFilter",
+        "type": "string",
+        "label": "Properties to filter",
+        "description": "Comma-separated list of properties to filter (e.g. \"$set.email, $set.name, custom_prop\")",
+        "required": true
+    }
+]
+
+Example 3 - PII Hashing Function:
+[
+    {
+        "key": "salt",
+        "type": "string",
+        "label": "Salt",
+        "description": "A secret salt used for hashing. This should be kept secure and consistent.",
+        "default": "",
+        "secret": true,
+        "required": true
+    },
+    {
+        "key": "privateFields",
+        "type": "string",
+        "label": "Fields to hash",
+        "description": "Comma-separated list of field names to hash. Can include both event properties and top-level event fields like distinct_id.",
+        "default": "distinct_id,name,userid,email",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "includeSetProperties",
+        "type": "boolean",
+        "label": "Also hash $set and $set_once properties",
+        "description": "Whether to also hash $set and $set_once properties that are used to update Person properties.",
+        "default": true,
+        "secret": false,
+        "required": false
+    }
+]
+
+Example 4 - Property Hashing Function:
+[
+    {
+        "key": "propertiesToHash",
+        "type": "string",
+        "label": "Properties to Hash",
+        "description": "Comma-separated list of property paths to hash (e.g. \"$ip,$email,$set.$phone\")",
+        "default": "$ip",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "hashDistinctId",
+        "type": "boolean",
+        "label": "Hash Distinct ID",
+        "description": "Whether to hash the distinct_id field",
+        "default": false,
+        "secret": false,
+        "required": false
+    },
+    {
+        "key": "salt",
+        "type": "string",
+        "label": "Salt",
+        "description": "Optional salt to add to the hashed values for additional security",
+        "default": "",
+        "secret": true,
+        "required": false
+    }
+]"""
