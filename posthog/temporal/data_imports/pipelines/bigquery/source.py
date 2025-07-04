@@ -231,8 +231,6 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
     Otherwise, we will also attempt to look at table constraints to find primary keys.
     """
     existing_fields = {field.name for field in table.schema}
-    if "id" in existing_fields:
-        return ["id"]
 
     query = f"""
     SELECT kcu.column_name
@@ -256,6 +254,8 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
         primary_keys.append(field_name)
 
     if not primary_keys:
+        if "id" in existing_fields:
+            return ["id"]
         return None
     return primary_keys
 
