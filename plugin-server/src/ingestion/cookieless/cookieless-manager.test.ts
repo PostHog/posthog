@@ -343,7 +343,7 @@ describe('CookielessManager', () => {
                     throw new Error('no event or properties')
                 }
                 expect(actual.ip).toBeNull()
-                expect(actual.properties.$raw_user_user).toBeUndefined()
+                expect(actual.properties.$raw_user_agent).toBeUndefined()
                 expect(actual.properties.$ip).toBeUndefined()
                 expect(actual.properties.$cookieless_extra).toBeUndefined()
             })
