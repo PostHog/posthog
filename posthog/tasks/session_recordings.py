@@ -2,7 +2,6 @@ from celery import shared_task
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.schema import RecordingsQuery
 from posthog.event_usage import report_user_action
 import structlog
@@ -17,6 +16,8 @@ def bulk_delete_recordings_task(self, team_id: int, user_id: int, filters: dict,
     Also mark associated playlist items as deleted.
     Processed in batches of 100 recordings to avoid memory issues.
     """
+    from posthog.session_recordings.session_recording_api import list_recordings_from_query
+
     try:
         team = Team.objects.get(id=team_id)
         user = User.objects.get(id=user_id)
