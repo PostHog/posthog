@@ -128,6 +128,7 @@ export class NativeDestinationExecutorService {
                     }
 
                     let headers: Record<string, any> = {
+                        'User-Agent': 'PostHog.com/1.0',
                         ...options.headers
                     }
 
