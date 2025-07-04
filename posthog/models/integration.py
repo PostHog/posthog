@@ -934,9 +934,9 @@ class LinearIntegration:
     def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
         title: str = json.dumps(config.pop("title"))
         description: str = json.dumps(config.pop("description"))
-        team_id = config.pop("team_id")
+        linear_team_id = config.pop("team_id")
 
-        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{team_id}" }}) {{ success issue {{ identifier }} }} }}'
+        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
         body = self.query(issue_create_query)
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 

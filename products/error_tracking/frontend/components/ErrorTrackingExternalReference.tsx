@@ -45,7 +45,7 @@ export const ConnectIssueButton = (): JSX.Element | null => {
     } else if (errorTrackingIntegrations.length == 1) {
         const integration = errorTrackingIntegrations[0]
         return (
-            <LemonButton type="secondary" onClick={() => onClickCreateIssue(integration)}>
+            <LemonButton type="secondary" onClick={() => onClickCreateIssue(integration)} loading={issueLoading}>
                 Create {getIntegrationNameFromKind(integration.kind)} issue
             </LemonButton>
         )
@@ -57,7 +57,9 @@ export const ConnectIssueButton = (): JSX.Element | null => {
 
         return (
             <LemonMenu items={items}>
-                <LemonButton type="secondary">Create external issue</LemonButton>
+                <LemonButton type="secondary" loading={issueLoading}>
+                    Create external issue
+                </LemonButton>
             </LemonMenu>
         )
     }

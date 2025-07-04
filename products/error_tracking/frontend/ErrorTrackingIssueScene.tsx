@@ -61,7 +61,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        {!issueLoading && hasIntegrations ? <ConnectIssueButton /> : null}
+                        {hasIntegrations ? <ConnectIssueButton /> : null}
                         <LemonButton
                             type="secondary"
                             onClick={() => openSidePanel(SidePanelTab.Discussion)}
