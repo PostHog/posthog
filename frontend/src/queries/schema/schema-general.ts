@@ -27,7 +27,6 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
-    IntegrationKind,
     IntegrationType,
     IntervalType,
     LifecycleFilterType,

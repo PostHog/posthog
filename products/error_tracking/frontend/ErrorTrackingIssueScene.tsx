@@ -24,6 +24,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
 import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -49,6 +50,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const tagRenderer = useErrorTagRenderer()
     const { openSidePanel } = useActions(sidePanelLogic)
+    const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
     useEffect(() => {
         loadIssue()
@@ -59,7 +61,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        {issue && <ConnectIssueButton externalReferences={issue.external_issues} />}
+                        {issue && hasIntegrations ? (
+                            <ConnectIssueButton externalReferences={issue.external_issues} />
+                        ) : null}
                         <LemonButton
                             type="secondary"
                             onClick={() => openSidePanel(SidePanelTab.Discussion)}

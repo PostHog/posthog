@@ -5,10 +5,10 @@ import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/
 import { IntegrationType } from '~/types'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconPlus } from '@posthog/icons'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 
 type onSubmitFormType = (
     title: string,
@@ -40,19 +40,7 @@ export const ConnectIssueButton = ({
                 {reference.integration.display_name} issue
             </LemonButton>
         )
-    } else if (errorTrackingIntegrations.length === 1) {
-        const integration = errorTrackingIntegrations[0]
-
-        return (
-            <LemonButton
-                icon={<IconPlus />}
-                type="secondary"
-                onClick={() => createLinearIssueForm(issue, integration, createExternalReference)}
-            >
-                Create {integration.display_name} issue
-            </LemonButton>
-        )
-    } else if (errorTrackingIntegrations.length > 1) {
+    } else if (errorTrackingIntegrations.length >= 1) {
         return (
             <LemonSelect
                 placeholder="Create external issue"
@@ -68,7 +56,7 @@ export const ConnectIssueButton = ({
                     }
                 }}
                 options={errorTrackingIntegrations.map((i) => ({
-                    label: i.display_name,
+                    label: `${i.display_name} (${getIntegrationNameFromKind(i.kind)})`,
                     value: i.id,
                 }))}
             />
@@ -77,7 +65,7 @@ export const ConnectIssueButton = ({
 
     return (
         <LemonButton type="secondary" to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}>
-            Connect issue
+            Setup integrations
         </LemonButton>
     )
 }
