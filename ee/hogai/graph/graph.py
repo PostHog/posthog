@@ -49,7 +49,7 @@ from .trends.nodes import (
     TrendsPlannerToolsNode,
 )
 
-checkpointer = DjangoCheckpointer()
+global_checkpointer = DjangoCheckpointer()
 
 
 class BaseAssistantGraph:
@@ -76,7 +76,7 @@ class BaseAssistantGraph:
     def compile(self, checkpointer: DjangoCheckpointer | None = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer)
+        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
 class InsightsAssistantGraph(BaseAssistantGraph):

@@ -1,9 +1,9 @@
 from itertools import cycle
-from asgiref.sync import async_to_sync
 from typing import Any, Literal, Optional, cast
 from unittest.mock import patch
 from uuid import uuid4
 
+from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
@@ -93,7 +93,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.graph.graph.checkpointer", new=DjangoCheckpointer())
+        self.checkpointer_patch = patch("ee.hogai.graph.graph.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
 
     def tearDown(self):

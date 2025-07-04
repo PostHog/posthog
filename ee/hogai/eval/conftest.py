@@ -29,7 +29,7 @@ if os.environ.get("BRAINTRUST_API_KEY"):
     set_global_handler(handler)
 
 
-def MaxEval(
+async def MaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
@@ -39,7 +39,7 @@ def MaxEval(
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
     project_name = f"max-ai-{experiment_name}"
     init_logger(project_name)
-    result = EvalAsync(
+    result = await EvalAsync(
         project_name,
         data=data,
         task=task,
