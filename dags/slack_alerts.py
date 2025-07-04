@@ -57,11 +57,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
         return
 
     # Construct Dagster URL based on environment
-    dagster_domain = (
-        f"dagster.prod-{settings.CLOUD_DEPLOYMENT.lower()}.posthog.dev"
-        if settings.CLOUD_DEPLOYMENT
-        else "dagster.localhost"
-    )
+    dagster_domain = settings.DAGSTER_DOMAIN if settings.DAGSTER_DOMAIN else "dagster.localhost"
     run_url = f"https://{dagster_domain}/runs/{run_id}"
 
     environment = (
