@@ -1,6 +1,5 @@
 import './Navigation.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
@@ -82,7 +81,7 @@ export function Navigation({
                     <>
                         {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
                         <div
-                            className={clsx(
+                            className={cn(
                                 'Navigation3000__scene',
                                 // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
                                 sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
