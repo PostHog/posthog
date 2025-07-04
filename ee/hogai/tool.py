@@ -38,9 +38,21 @@ class create_and_query_insight(BaseModel):
 
 class search_documentation(BaseModel):
     """
-    Search PostHog documentation to answer questions about features, concepts, and usage.
-    Use this tool when the user asks about how to use PostHog, its features, or needs help understanding concepts.
-    Don't use this tool if the necessary information is already in the conversation.
+    Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
+
+    Use the search tool when the user asks about:
+    - How to use PostHog
+    - How to use PostHog features
+    - How to contact support or other humans
+    - How to report bugs
+    - How to submit feature requests
+    and/or when the user:
+    - Needs help understanding PostHog concepts
+    - Wants to know more about PostHog the company
+    - Has questions about incidents or system status
+    - Has PostHog-related questions that don't match your other specialized tools
+
+    Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
     """
 
 
