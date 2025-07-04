@@ -7,7 +7,5 @@
 .scene-layout__content-panel {
     z-index: var(--z-top-navigation);
     width: var(--scene-layout-panel-width);
-    border-color: var(--border-primary);
-    border-style: solid;
-    border-width: 0 0 0 1px;
+    border-left: 1px solid var(--border-primary);
 }
