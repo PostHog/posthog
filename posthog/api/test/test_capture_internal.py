@@ -54,7 +54,7 @@ class TestCaptureInternal(BaseTest):
         test_event = {
             "event": event_name,
             "distinct_id": distinct_id,
-            "api_token": token,
+            "api_key": token,
             "timestamp": timestamp,
             "properties": {
                 "$current_url": "https://example.com",
@@ -77,7 +77,7 @@ class TestCaptureInternal(BaseTest):
         assert NEW_ANALYTICS_CAPTURE_ENDPOINT in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
-        assert spied_calls[0]["event_payload"]["api_token"] == token
+        assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_event["properties"])
 
@@ -91,7 +91,7 @@ class TestCaptureInternal(BaseTest):
         test_replay_event = {
             "event": event_name,
             "distinct_id": distinct_id,
-            "api_token": token,
+            "api_key": token,
             "timestamp": timestamp,
             "properties": {
                 "$screen_density": 2.75,
@@ -180,7 +180,7 @@ class TestCaptureInternal(BaseTest):
         assert REPLAY_CAPTURE_ENDPOINT in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
-        assert spied_calls[0]["event_payload"]["api_token"] == token
+        assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_replay_event["properties"])
 
@@ -219,7 +219,7 @@ class TestCaptureInternal(BaseTest):
         # no fallback distinct ID provided in event payload (top-level or in properties)
         test_event = {
             "event": event_name,
-            "api_token": token,
+            "api_key": token,
             "timestamp": timestamp,
             "properties": {
                 "$current_url": "https://example.com",
@@ -243,7 +243,7 @@ class TestCaptureInternal(BaseTest):
 
         # no event name supplied in payload
         test_event = {
-            "api_token": token,
+            "api_key": token,
             "timestamp": timestamp,
             "properties": {
                 "$current_url": "https://example.com",

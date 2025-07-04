@@ -1022,13 +1022,20 @@ def prepare_capture_internal_payload(
     properties = raw_event.get("properties", {})
     properties["capture_internal"] = True
 
-    # be specific about this in internal events; person processing is resource intensive at the moment
-    properties["$process_person_profile"] = process_person_profile
+    # for back compat, if the caller specifies TRUE to process_person_profile
+    # we don't change the event contents at all; either the caller set the
+    # event prop to force the issue, or we rely on the caller's default PostHog
+    # person processing settings to decide during ingest processing.
+    # If the caller (or default) set process_person_profile to FALSE, we *do*
+    # force the issue to ensure internal capture events don't engage in expensive
+    # person processing without explicitly opting into it.
+    if not process_person_profile:
+        properties["$process_person_profile"] = process_person_profile
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
     if token is None:
-        token = raw_event.get("api_token", raw_event.get("token", None))
+        token = raw_event.get("api_key", raw_event.get("token", None))
     if token is None:
         raise CaptureInternalError("capture_internal: API token is required")
 
@@ -1048,7 +1055,7 @@ def prepare_capture_internal_payload(
         event_timestamp = datetime.now(UTC).isoformat()
 
     return {
-        "api_token": token,
+        "api_key": token,
         "timestamp": event_timestamp,
         "distinct_id": distinct_id,
         "event": event_name,
