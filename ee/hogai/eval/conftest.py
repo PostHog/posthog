@@ -91,11 +91,20 @@ def call_root_for_insight_generation(demo_org_team_user):
             initial_state,
             {"configurable": {"thread_id": conversation.id}},
         )
+
         final_state = AssistantState.model_validate(final_state_raw)
 
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+            return {
+                "plan": None,
+                "query": None,
+                "query_generation_retry_count": final_state.query_generation_retry_count,
+            }
+        return {
+            "plan": final_state.messages[-1].plan,
+            "query": final_state.messages[-1].answer,
+            "query_generation_retry_count": final_state.query_generation_retry_count,
+        }
 
     return callable
 
@@ -141,7 +150,7 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
 
     Their audience includes professionals and organizations seeking file management and collaboration solutions.
 
-    Hedgebox’s freemium model provides free accounts with limited storage and paid subscription plans for additional features.
+    Hedgebox's freemium model provides free accounts with limited storage and paid subscription plans for additional features.
 
     Core features include file storage, synchronization, sharing, and collaboration tools for seamless file access and sharing.
 
