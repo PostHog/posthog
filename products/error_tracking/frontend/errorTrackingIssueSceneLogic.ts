@@ -114,8 +114,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
             createExternalReference: async ({ integrationId, config }) => {
-                const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
-                return { ...values.issue, external_issues: [response] }
+                if (values.issue) {
+                    const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    // TODO: we only allow one external reference until we redesign the page
+                    return { ...values.issue, external_issues: [response] }
+                }
+                return null
             },
         },
         firstSeenEvent: {
