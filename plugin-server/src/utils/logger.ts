@@ -7,6 +7,7 @@ import { isProdEnv } from './env-utils'
 export class Logger {
     private pino: ReturnType<typeof pino>
     private prefix: string
+    private transport?: ReturnType<typeof pino.transport>
 
     constructor(name: string) {
         this.prefix = `[${name.toUpperCase()}]`
@@ -33,14 +34,14 @@ export class Logger {
             //
             // NOTE: we keep a reference to the transport such that we can call
             // end on it, otherwise Jest will hang on open handles.
-            const transport = pino.transport({
+            this.transport = pino.transport({
                 target: 'pino-pretty',
                 options: {
                     sync: true,
                     level: logLevel,
                 },
             })
-            this.pino = pino({ level: logLevel }, transport)
+            this.pino = pino({ level: logLevel }, this.transport)
         }
     }
 
@@ -78,6 +79,21 @@ export class Logger {
     error(...args: any[]) {
         this._log(LogLevel.Error, ...args)
     }
+
+    async shutdown(): Promise<void> {
+        try {
+            if (this.transport) {
+                await this.transport.end()
+            }
+        } catch (error) {
+            // Ignore errors during shutdown as the transport may already be closed
+            // This prevents Jest from hanging on unhandled errors during teardown
+        }
+    }
 }
 
 export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
+
+export async function shutdownLogger(): Promise<void> {
+    await logger.shutdown()
+}

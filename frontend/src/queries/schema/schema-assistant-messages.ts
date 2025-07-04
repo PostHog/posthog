@@ -1,4 +1,4 @@
-import { MaxContextShape } from 'scenes/max/maxTypes'
+import type { MaxContextShape } from 'scenes/max/maxTypes'
 
 import {
     AssistantFunnelsQuery,
@@ -119,3 +119,51 @@ export type AssistantContextualTool =
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
+    | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
+    | 'navigate'
+
+/** Exact possible `urls` keys for the `navigate` tool. */
+// Extracted using the following Claude Code prompt, then tweaked manually:
+// "
+// List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
+// whose function takes either zero arguments, or only optional arguments. Exclude beta or alpha products.
+// Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
+// Your only output should be a list of those string keys in TypeScript union syntax.
+// Once done, verify whether indeed each item of the output satisfies the criteria.
+// "
+export type AssistantNavigateUrls =
+    | 'createAction'
+    | 'actions'
+    | 'cohorts'
+    | 'projectHomepage'
+    | 'max'
+    | 'settings'
+    | 'eventDefinitions'
+    | 'propertyDefinitions'
+    | 'database'
+    | 'activity'
+    | 'ingestionWarnings'
+    | 'insights'
+    | 'insightNew'
+    | 'savedInsights'
+    | 'webAnalytics'
+    | 'webAnalyticsWebVitals'
+    | 'alerts'
+    | 'dashboards'
+    | 'experiments'
+    | 'featureFlags'
+    | 'surveys'
+    | 'surveyTemplates'
+    | 'replay'
+    | 'replaySettings'
+    | 'pipeline'
+    | 'sqlEditor'
+    | 'annotations'
+    | 'heatmaps'
+    | 'earlyAccessFeatures'
+    | 'errorTracking'
+    | 'game368hedgehogs'
+    | 'notebooks'
+    | 'persons'
+    | 'toolbarLaunch'

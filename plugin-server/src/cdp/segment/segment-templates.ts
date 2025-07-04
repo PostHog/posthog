@@ -402,8 +402,8 @@ const getIconUrl = (id: string, slug: string | undefined) => {
         return '/static/posthog-icon.svg'
     }
 
-    return `/api/environments/@current/hog_functions/icon/?id=${
-        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] : `${slug}.com`
+    return `/static/services/${
+        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] + '.png' : `${slug}.com.png`
     }`
 }
 

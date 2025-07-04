@@ -32,12 +32,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import {
-    fromInternalPerson,
-    mergePersonPropertiesWithChangeset,
-    PersonUpdate,
-    toInternalPerson,
-} from './person-update-batch'
+import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -49,7 +44,7 @@ type MethodName =
     | 'updatePersonNoAssert'
     | 'updatePersonWithTransaction'
     | 'createPerson'
-    | 'updatePersonForUpdate'
+    | 'updatePersonWithPropertiesDiffForUpdate'
     | 'updatePersonForMerge'
     | 'deletePerson'
     | 'addDistinctId'
@@ -57,7 +52,6 @@ type MethodName =
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
-    | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addPersonUpdateToBatch'
 
 type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert' | 'updatePersonWithTransaction'
@@ -103,7 +97,7 @@ export class BatchWritingPersonsStore implements PersonsStore {
  */
 export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, BatchWritingStore {
     private personCheckCache: Map<string, InternalPerson | null>
-    private distinctIdToPersonUuid: Map<string, string>
+    private distinctIdToPersonId: Map<string, string>
     private personUpdateCache: Map<string, PersonUpdate | null>
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
     private fetchPromisesForChecking: Map<string, Promise<InternalPerson | null>>
@@ -115,7 +109,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     constructor(private db: DB, options?: Partial<BatchWritingPersonsStoreOptions>) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
-        this.distinctIdToPersonUuid = new Map()
+        this.distinctIdToPersonId = new Map()
         this.personUpdateCache = new Map()
         this.personCheckCache = new Map()
         this.fetchPromisesForUpdate = new Map()
@@ -158,7 +152,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode.toLowerCase(),
+                                method: this.options.dbWriteMode,
                                 outcome: 'attempt',
                             })
 
@@ -190,7 +184,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
-                                method: this.options.dbWriteMode.toLowerCase(),
+                                method: this.options.dbWriteMode,
                                 outcome: 'success',
                             })
                         } catch (error) {
@@ -201,13 +195,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     update.team_id,
                                     'person_upsert_message_size_too_large',
                                     {
-                                        personUuid: update.uuid,
+                                        personId: update.id,
                                         distinctId: update.distinct_id,
                                     }
                                 )
                                 personWriteMethodAttemptCounter.inc({
                                     db_write_mode: this.options.dbWriteMode,
-                                    method: this.options.dbWriteMode.toLowerCase(),
+                                    method: this.options.dbWriteMode,
                                     outcome: 'error',
                                 })
                                 return
@@ -215,7 +209,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
                             logger.warn('⚠️', 'Falling back to direct update after max retries', {
                                 teamId: update.team_id,
-                                personUuid: update.uuid,
+                                personId: update.id,
                                 distinctId: update.distinct_id,
                             })
 
@@ -224,8 +218,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 fallback_reason: 'max_retries',
                             })
 
-                            // Remove the person from the cache, so we don't try to update it again
-                            this.personUpdateCache.delete(cacheKey)
                             await this.updatePersonNoAssert(update, 'conflictRetry')
 
                             personWriteMethodAttemptCounter.inc({
@@ -239,7 +231,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                             error,
                             cacheKey,
                             teamId: update.team_id,
-                            personUuid: update.uuid,
+                            personId: update.id,
                             distinctId: update.distinct_id,
                             errorMessage: error instanceof Error ? error.message : String(error),
                             errorStack: error instanceof Error ? error.stack : undefined,
@@ -275,14 +267,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
+        return await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForChecking', distinctId)
 
         // First check the main cache
-        const cachedPerson = this.getCachedPersonForUpdate(teamId, distinctId)
+        const cachedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
         if (cachedPerson !== undefined) {
             return cachedPerson === null ? null : toInternalPerson(cachedPerson)
         }
@@ -319,7 +311,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate', distinctId)
 
-        const cachedPerson = this.getCachedPersonForUpdate(teamId, distinctId)
+        const cachedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
         if (cachedPerson !== undefined) {
             return cachedPerson === null ? null : toInternalPerson(cachedPerson)
         }
@@ -353,16 +345,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return fetchPromise
     }
 
-    updatePersonForUpdate(
-        person: InternalPerson,
-        update: Partial<InternalPerson>,
-        distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        this.incrementCount('updatePersonForUpdate', distinctId)
-        return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId))
-    }
-
     updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
@@ -380,23 +362,28 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        return Promise.resolve(
-            this.addPersonPropertiesUpdateToBatch(person, propertiesToSet, propertiesToUnset, otherUpdates, distinctId)
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
+            person,
+            propertiesToSet,
+            propertiesToUnset,
+            otherUpdates,
+            distinctId
         )
+        return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
 
     async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson', distinctId)
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
-        const personToDelete = this.getCachedPersonForUpdateByUuid(person.team_id, person.uuid) || person
+        const personToDelete = this.getCachedPersonForUpdateByPersonId(person.team_id, person.id) || person
 
         const response = await this.db.deletePerson(personToDelete, tx)
         observeLatencyByVersion(person, start, 'deletePerson')
 
-        // Clear ALL caches related to this person UUID
-        this.clearAllCachesForPersonUuid(person.team_id, person.uuid)
+        // Clear ALL caches related to this person id
+        this.clearAllCachesForPersonId(person.team_id, person.id)
 
         return response
     }
@@ -412,7 +399,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
         const response = await this.db.addDistinctId(person, distinctId, version, tx)
         observeLatencyByVersion(person, start, 'addDistinctId')
-        this.setDistinctIdToPersonUuid(person.team_id, distinctId, person.uuid)
+        this.setDistinctIdToPersonId(person.team_id, distinctId, person.id)
         return response
     }
 
@@ -428,11 +415,21 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const response = await this.db.moveDistinctIds(source, target, tx)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
-        // Clear the cache for the source person UUID to ensure deleted person isn't cached
-        this.clearCacheByUuid(source.team_id, source.uuid)
+        // Clear the cache for the source person id to ensure deleted person isn't cached
+        this.clearPersonCacheForPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
-        this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        // Check if we already have cached data for the target person that includes merged properties
+        const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            // We have existing cached data with merged properties - preserve it
+            // Create a new PersonUpdate for this distinctId that preserves the merged data
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate)
+        } else {
+            // No existing cache, create fresh cache from target person
+            this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId))
+        }
 
         return response
     }
@@ -505,43 +502,43 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return `${teamId}:${distinctId}`
     }
 
-    private getPersonUuidCacheKey(teamId: number, personUuid: string): string {
-        return `${teamId}:${personUuid}`
+    private getPersonIdCacheKey(teamId: number, personId: string): string {
+        return `${teamId}:${personId}`
     }
 
-    clearCacheByUuid(teamId: number, personUuid: string): void {
-        this.personUpdateCache.delete(this.getPersonUuidCacheKey(teamId, personUuid))
+    clearPersonCacheForPersonId(teamId: number, personId: string): void {
+        this.personUpdateCache.delete(this.getPersonIdCacheKey(teamId, personId))
     }
 
-    clearAllCachesForPersonUuid(teamId: number, personUuid: string): void {
-        // Clear the person UUID cache
-        this.clearCacheByUuid(teamId, personUuid)
+    clearAllCachesForPersonId(teamId: number, personId: string): void {
+        // Clear the person id cache
+        this.clearPersonCacheForPersonId(teamId, personId)
 
-        // Find and clear all distinct ID mappings that point to this person UUID
+        // Find and clear all distinct ID mappings that point to this person id
         const distinctIdsToRemove: string[] = []
-        for (const [distinctCacheKey, mappedPersonUuid] of this.distinctIdToPersonUuid.entries()) {
-            if (mappedPersonUuid === personUuid && distinctCacheKey.startsWith(`${teamId}:`)) {
+        for (const [distinctCacheKey, mappedPersonId] of this.distinctIdToPersonId.entries()) {
+            if (mappedPersonId === personId && distinctCacheKey.startsWith(`${teamId}:`)) {
                 distinctIdsToRemove.push(distinctCacheKey)
             }
         }
 
         // Remove all distinct ID mappings and their check cache entries
         for (const distinctCacheKey of distinctIdsToRemove) {
-            this.distinctIdToPersonUuid.delete(distinctCacheKey)
+            this.distinctIdToPersonId.delete(distinctCacheKey)
             this.personCheckCache.delete(distinctCacheKey)
         }
     }
 
-    clearCache(teamId: number, distinctId: string): void {
+    clearAllCachesForDistinctId(teamId: number, distinctId: string): void {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
-        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
+        const personId = this.distinctIdToPersonId.get(cacheKey)
 
         // Clear the distinct ID mapping
-        this.distinctIdToPersonUuid.delete(cacheKey)
+        this.distinctIdToPersonId.delete(cacheKey)
 
-        // Clear the person data if we have the UUID
-        if (personUuid) {
-            this.clearCacheByUuid(teamId, personUuid)
+        // Clear the person data if we have the id
+        if (personId) {
+            this.clearPersonCacheForPersonId(teamId, personId)
         }
 
         // Clear the check cache
@@ -571,13 +568,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return result
     }
 
-    getCachedPersonForUpdateByUuid(teamId: number, personUuid: string | undefined): PersonUpdate | null | undefined {
-        if (personUuid === undefined) {
+    getCachedPersonForUpdateByPersonId(teamId: number, personId: string | undefined): PersonUpdate | null | undefined {
+        if (personId === undefined) {
             this.cacheMetrics.updateCacheMisses++
             return undefined
         }
 
-        const result = this.personUpdateCache.get(this.getPersonUuidCacheKey(teamId, personUuid))
+        const result = this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, personId))
         if (result !== undefined) {
             this.cacheMetrics.updateCacheHits++
             // Return a deep copy to prevent modifications from affecting the cached object
@@ -590,7 +587,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                       properties_last_operation: result.properties_last_operation
                           ? { ...result.properties_last_operation }
                           : {},
-                      property_changeset: { ...result.property_changeset },
+                      properties_to_set: { ...result.properties_to_set },
+                      properties_to_unset: [...result.properties_to_unset],
                   }
         } else {
             this.cacheMetrics.updateCacheMisses++
@@ -598,11 +596,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    getCachedPersonForUpdate(teamId: number, distinctId: string): PersonUpdate | null | undefined {
+    getCachedPersonForUpdateByDistinctId(teamId: number, distinctId: string): PersonUpdate | null | undefined {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
-        const personUuid = this.distinctIdToPersonUuid.get(cacheKey)
+        const personId = this.distinctIdToPersonId.get(cacheKey)
 
-        return this.getCachedPersonForUpdateByUuid(teamId, personUuid)
+        return this.getCachedPersonForUpdateByPersonId(teamId, personId)
     }
 
     setCachedPersonForUpdate(teamId: number, distinctId: string, person: PersonUpdate | null): void {
@@ -610,19 +608,19 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         if (person === null) {
             // Remove mappings when person is null
-            const existingPersonUuid = this.distinctIdToPersonUuid.get(cacheKey)
-            this.distinctIdToPersonUuid.delete(cacheKey)
-            if (existingPersonUuid) {
-                this.personUpdateCache.set(this.getPersonUuidCacheKey(teamId, existingPersonUuid), null)
+            const existingPersonId = this.distinctIdToPersonId.get(cacheKey)
+            this.distinctIdToPersonId.delete(cacheKey)
+            if (existingPersonId) {
+                this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, existingPersonId), null)
             }
             return
         }
 
-        // Set the distinct ID -> person UUID mapping
-        this.distinctIdToPersonUuid.set(cacheKey, person.uuid)
+        // Set the distinct ID -> person id mapping
+        this.distinctIdToPersonId.set(cacheKey, person.id)
 
-        // Check if we already have cached data for this person UUID
-        const existingPersonUpdate = this.personUpdateCache.get(this.getPersonUuidCacheKey(teamId, person.uuid))
+        // Check if we already have cached data for this person id
+        const existingPersonUpdate = this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, person.id))
 
         if (existingPersonUpdate) {
             // Merge the properties and changesets from both updates
@@ -631,16 +629,19 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 is_identified: person.is_identified,
             } as Partial<InternalPerson>)
 
-            // Handle fields that are specific to PersonUpdate
-            mergedPersonUpdate.property_changeset = {
-                ...existingPersonUpdate.property_changeset,
-                ...person.property_changeset,
+            // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
+            mergedPersonUpdate.properties_to_set = {
+                ...existingPersonUpdate.properties_to_set,
+                ...person.properties_to_set,
             }
+            mergedPersonUpdate.properties_to_unset = [
+                ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
+            ]
 
-            this.personUpdateCache.set(this.getPersonUuidCacheKey(teamId, person.uuid), mergedPersonUpdate)
+            this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
-            // First time we're caching this person UUID
-            this.personUpdateCache.set(this.getPersonUuidCacheKey(teamId, person.uuid), person)
+            // First time we're caching this person id
+            this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), person)
         }
     }
 
@@ -649,9 +650,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.personCheckCache.set(cacheKey, person)
     }
 
-    setDistinctIdToPersonUuid(teamId: number, distinctId: string, personUuid: string): void {
+    setDistinctIdToPersonId(teamId: number, distinctId: string, personId: string): void {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
-        this.distinctIdToPersonUuid.set(cacheKey, personUuid)
+        this.distinctIdToPersonId.set(cacheKey, personId)
     }
 
     async createPerson(
@@ -700,7 +701,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         update: Partial<InternalPerson>,
         distinctId: string
     ): [InternalPerson, TopicMessage[], boolean] {
-        const existingUpdate = this.getCachedPersonForUpdate(person.team_id, distinctId)
+        const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
         let personUpdate: PersonUpdate
         if (!existingUpdate) {
@@ -719,13 +720,20 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     /**
      * Helper method to merge an update into a PersonUpdate
-     * Handles properties, changeset, and is_identified merging with proper logic
+     * Handles properties and is_identified merging with proper logic
      */
     private mergeUpdateIntoPersonUpdate(personUpdate: PersonUpdate, update: Partial<InternalPerson>): PersonUpdate {
-        // Track property changes in changeset and merge into full properties
+        // For properties, we track them in the fine-grained properties_to_set/unset
         if (update.properties) {
-            personUpdate.property_changeset = { ...personUpdate.property_changeset, ...update.properties }
-            personUpdate.properties = { ...personUpdate.properties, ...update.properties }
+            // Add all properties from the update to properties_to_set
+            Object.entries(update.properties).forEach(([key, value]) => {
+                personUpdate.properties_to_set[key] = value
+                // Remove from unset list if it was there
+                const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
+                if (unsetIndex !== -1) {
+                    personUpdate.properties_to_unset.splice(unsetIndex, 1)
+                }
+            })
         }
 
         // Apply other updates (excluding properties which we handled above)
@@ -743,13 +751,54 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     }
 
     private addPersonPropertiesUpdateToBatch(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string
     ): [InternalPerson, TopicMessage[]] {
-        throw new Error('Not implemented')
+        const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
+
+        let personUpdate: PersonUpdate
+        if (!existingUpdate) {
+            // Create new PersonUpdate from the person
+            personUpdate = fromInternalPerson(person, distinctId)
+        } else {
+            // Use existing cached PersonUpdate
+            personUpdate = { ...existingUpdate }
+        }
+
+        // Add properties to set (merge with existing properties_to_set)
+        Object.entries(propertiesToSet).forEach(([key, value]) => {
+            personUpdate.properties_to_set[key] = value
+            // Remove from unset list if it was there
+            const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
+            if (unsetIndex !== -1) {
+                personUpdate.properties_to_unset.splice(unsetIndex, 1)
+            }
+        })
+
+        // Add properties to unset (merge with existing properties_to_unset)
+        propertiesToUnset.forEach((key) => {
+            if (!personUpdate.properties_to_unset.includes(key)) {
+                personUpdate.properties_to_unset.push(key)
+            }
+            // Remove from set list if it was there
+            delete personUpdate.properties_to_set[key]
+        })
+
+        // Apply other updates
+        Object.assign(personUpdate, otherUpdates)
+
+        // Handle is_identified specially with || operator
+        if (otherUpdates.is_identified !== undefined) {
+            personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
+        }
+
+        personUpdate.needs_write = true
+
+        this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
+        return [toInternalPerson(personUpdate), []]
     }
 
     private async updatePersonNoAssert(
@@ -805,8 +854,18 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (latestPerson) {
-            // Use changeset-based merge: start with latest properties from DB and apply only our changes
-            const mergedProperties = mergePersonPropertiesWithChangeset(latestPerson.properties, personUpdate)
+            // Use fine-grained merge: start with latest properties from DB and apply our specific changes
+            const mergedProperties = { ...latestPerson.properties }
+
+            // Apply our properties_to_set
+            Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
+                mergedProperties[key] = value
+            })
+
+            // Apply our properties_to_unset
+            personUpdate.properties_to_unset.forEach((key) => {
+                delete mergedProperties[key]
+            })
 
             // Update the PersonUpdate with latest data and merged properties
             personUpdate.properties = mergedProperties
@@ -827,7 +886,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
 
         // Use a transaction to ensure we get the latest version with FOR UPDATE
-        await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, operation, async (tx) => {
+        await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
             // First fetch the person with FOR UPDATE to lock the row
             const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
                 forUpdate: true,

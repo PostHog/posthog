@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { SelectedFolder } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -18,7 +17,7 @@ export interface FolderSelectProps {
     /** The folder to select */
     value?: string
     /** Callback when a folder is selected */
-    onChange?: (selectedFolder: SelectedFolder) => void
+    onChange?: (selectedFolder: string) => void
     /** Class name for the component */
     className?: string
     /** Root for folder */

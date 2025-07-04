@@ -1038,6 +1038,49 @@ wheels = [
 ]
 
 [[package]]
+name = "dagster-cloud"
+version = "1.10.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "dagster-cloud-cli" },
+    { name = "dagster-shared" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+    { name = "pex" },
+    { name = "questionary" },
+    { name = "requests" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/1d/8a29e5f66c7416b69b6da8937b8a51dbf8dec1412c558b67a7c68d417d99/dagster_cloud-1.10.18.tar.gz", hash = "sha256:9799885e68730622fb0c56dd46f13e367c0369fb0657e16e44e528f7648ba7d9", size = 167589, upload-time = "2025-05-29T21:53:33.158Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/3d/6efd4a8b3d2f1d6d1206e73b0ad0aba0dfa389948684a4bb923d47c37d27/dagster_cloud-1.10.18-py3-none-any.whl", hash = "sha256:545f54fb7efa55f674ab5f18ae23ff71fb7c24c2df79a34863218e535fc2f7c9", size = 205668, upload-time = "2025-05-29T21:53:31.486Z" },
+]
+
+[[package]]
+name = "dagster-cloud-cli"
+version = "1.10.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "dagster-shared" },
+    { name = "github3-py" },
+    { name = "jinja2" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "questionary" },
+    { name = "requests" },
+    { name = "setuptools" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/a9/70679262067c4f064220f9aafbbb9d8dd86856cc1cdec1d8bfb2c5cdf5b5/dagster_cloud_cli-1.10.18.tar.gz", hash = "sha256:9bb02cd89a7979b52624e0c6f616ca2dc1f5f5dd1476ad4d0a0e45e33a7ce420", size = 87498, upload-time = "2025-05-29T21:36:23.075Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/14/d8e23457fbabd97c5e71852864a423cdef983781daba360e70631987a917/dagster_cloud_cli-1.10.18-py3-none-any.whl", hash = "sha256:ad513f6ca11b7c79703b2eaa4989f90395db0d0a439679cccebd794a336f6199", size = 107883, upload-time = "2025-05-29T21:36:21.843Z" },
+]
+
+[[package]]
 name = "dagster-graphql"
 version = "1.10.18"
 source = { registry = "https://pypi.org/simple" }
@@ -1840,6 +1883,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/72/94/63b0fc47eb32792c7ba1fe1b694daec9a63620db1e313033d18140c2320a/gitdb-4.0.12.tar.gz", hash = "sha256:5ef71f855d191a3326fcfbc0d5da835f26b13fbcba60c32c21091c349ffdb571", size = 394684, upload-time = "2025-01-02T07:20:46.413Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/61/5c78b91c3143ed5c14207f463aecfc8f9dbb5092fb2869baf37c273b2705/gitdb-4.0.12-py3-none-any.whl", hash = "sha256:67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf", size = 62794, upload-time = "2025-01-02T07:20:43.624Z" },
+]
+
+[[package]]
+name = "github3-py"
+version = "4.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dateutil" },
+    { name = "requests" },
+    { name = "uritemplate" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/89/91/603bcaf8cd1b3927de64bf56c3a8915f6653ea7281919140c5bcff2bfe7b/github3.py-4.0.1.tar.gz", hash = "sha256:30d571076753efc389edc7f9aaef338a4fcb24b54d8968d5f39b1342f45ddd36", size = 36214038, upload-time = "2023-04-26T17:56:37.677Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/ad/2394d4fb542574678b0ba342daf734d4d811768da3c2ee0c84d509dcb26c/github3.py-4.0.1-py3-none-any.whl", hash = "sha256:a89af7de25650612d1da2f0609622bcdeb07ee8a45a1c06b2d16a05e4234e753", size = 151800, upload-time = "2023-04-26T17:56:25.015Z" },
 ]
 
 [[package]]
@@ -3260,6 +3318,24 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-exporter-otlp-proto-http"
+version = "1.33.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "deprecated" },
+    { name = "googleapis-common-protos" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-common" },
+    { name = "opentelemetry-proto" },
+    { name = "opentelemetry-sdk" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/48/e4314ac0ed2ad043c07693d08c9c4bf5633857f5b72f2fefc64fd2b114f6/opentelemetry_exporter_otlp_proto_http-1.33.1.tar.gz", hash = "sha256:46622d964a441acb46f463ebdc26929d9dec9efb2e54ef06acdc7305e8593c38", size = 15353, upload-time = "2025-05-16T18:52:45.522Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/ba/5a4ad007588016fe37f8d36bf08f325fe684494cc1e88ca8fa064a4c8f57/opentelemetry_exporter_otlp_proto_http-1.33.1-py3-none-any.whl", hash = "sha256:ebd6c523b89a2ecba0549adb92537cc2bf647b4ee61afbbd5a4c6535aa3da7cf", size = 17733, upload-time = "2025-05-16T18:52:25.137Z" },
+]
+
+[[package]]
 name = "opentelemetry-instrumentation"
 version = "0.54b1"
 source = { registry = "https://pypi.org/simple" }
@@ -3613,6 +3689,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pex"
+version = "2.42.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/f1/53ab7460a495123404fb874d3de49491ed49ada6a2d39050fd99ad95ec12/pex-2.42.2.tar.gz", hash = "sha256:21cc00ac6f6cf908d9952c0a452cb8b66ce98b623967dc6c8d80b7e6681e292c", size = 4923597, upload-time = "2025-07-01T18:56:01.645Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/ae/679bf3b53690e172c401e619edc161f8086926434447cf89599710210149/pex-2.42.2-py2.py3-none-any.whl", hash = "sha256:bba4946c1256152abe3a16603e2c1696954ee73cd3fee04f8ae2d3b2dd9a4872", size = 3834651, upload-time = "2025-07-01T18:55:59.548Z" },
+]
+
+[[package]]
 name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3721,6 +3806,7 @@ dependencies = [
     { name = "dagster" },
     { name = "dagster-aws" },
     { name = "dagster-celery" },
+    { name = "dagster-cloud" },
     { name = "dagster-postgres" },
     { name = "dagster-slack" },
     { name = "dagster-webserver" },
@@ -3935,6 +4021,7 @@ requires-dist = [
     { name = "dagster", specifier = "==1.10.18" },
     { name = "dagster-aws", specifier = "==0.26.18" },
     { name = "dagster-celery", specifier = "==0.26.18" },
+    { name = "dagster-cloud", specifier = "==1.10.18" },
     { name = "dagster-postgres", specifier = "==0.26.18" },
     { name = "dagster-slack", specifier = "==0.26.18" },
     { name = "dagster-webserver", specifier = "==1.10.18" },
@@ -4005,7 +4092,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=5.1.0" },
+    { name = "posthoganalytics", specifier = ">=6.0.2" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4043,7 +4130,7 @@ requires-dist = [
     { name = "stripe", specifier = "==12.2.0" },
     { name = "structlog", specifier = "==23.2.0" },
     { name = "temporalio", specifier = "==1.8.0" },
-    { name = "tenacity", specifier = ">=8.4.2" },
+    { name = "tenacity", specifier = "==9.1.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
     { name = "toronado", specifier = "==0.1.0" },
@@ -4127,7 +4214,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "5.1.0"
+version = "6.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4135,10 +4222,11 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "requests" },
     { name = "six" },
+    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/53/2b/88f865bbb1671fac1f101a823002b75dca35913b8525950d8f896915ba50/posthoganalytics-5.1.0.tar.gz", hash = "sha256:071a082d2e8b5df91764d7a7ed0f3e678a61e49195b311a5fab0ec40e5b4f6f1", size = 86318, upload-time = "2025-06-18T16:28:00.678Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/c7/95775c4287829c7825f650340b6b3934e797bce012bf93dcdda5fdbcccdf/posthoganalytics-6.0.2.tar.gz", hash = "sha256:c531f32e9bce45fd16f74562f35847cd9973a6cb0fc58f3d6fa54fc8c56fd3af", size = 88538, upload-time = "2025-07-02T19:21:53.974Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/04/657214a32547cb04bd614d2fc000e04eb6f7042420bac36987c499718d13/posthoganalytics-5.1.0-py3-none-any.whl", hash = "sha256:37ae772b13914410dd82760322de6aa11a3bbd194cf1b4a41e0cc0e299f2dfbd", size = 104611, upload-time = "2025-06-18T16:27:59.515Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/9b/aad4dab7addb34c57c0f19b566d70086c86da27d02ab1f740e4edc8e3c8c/posthoganalytics-6.0.2-py3-none-any.whl", hash = "sha256:7d847dfd6077ef88a97caad27023c7c94e442b8ba0e0cc590db7953b2c6f82e9", size = 106106, upload-time = "2025-07-02T19:21:52.409Z" },
 ]
 
 [[package]]
@@ -4880,6 +4968,18 @@ wheels = [
 ]
 
 [[package]]
+name = "questionary"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "prompt-toolkit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a8/b8/d16eb579277f3de9e56e5ad25280fab52fc5774117fb70362e8c2e016559/questionary-2.1.0.tar.gz", hash = "sha256:6302cdd645b19667d8f6e6634774e9538bfcd1aad9be287e743d96cacaf95587", size = 26775, upload-time = "2024-12-29T11:49:17.802Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/3f/11dd4cd4f39e05128bfd20138faea57bec56f9ffba6185d276e3107ba5b2/questionary-2.1.0-py3-none-any.whl", hash = "sha256:44174d237b68bc828e4878c763a9ad6790ee61990e0ae72927694ead57bab8ec", size = 36747, upload-time = "2024-12-29T11:49:16.734Z" },
+]
+
+[[package]]
 name = "redis"
 version = "4.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -5263,6 +5363,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/18/5d/3bf57dcd21979b887f014ea83c24ae194cfcd12b9e0fda66b957c69d1fca/setuptools-80.9.0.tar.gz", hash = "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c", size = 1319958, upload-time = "2025-05-27T00:56:51.443Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl", hash = "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922", size = 1201486, upload-time = "2025-05-27T00:56:49.664Z" },
+]
+
+[[package]]
+name = "shellingham"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
 ]
 
 [[package]]
@@ -5912,6 +6021,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d1/3c/8b4358e81f2f2cfe71b66a267f023a91db20a817b9425dd964873796980a/trio_websocket-0.12.2.tar.gz", hash = "sha256:22c72c436f3d1e264d0910a3951934798dcc5b00ae56fc4ee079d46c7cf20fae", size = 33549, upload-time = "2025-02-25T05:16:58.947Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/19/eb640a397bba49ba49ef9dbe2e7e5c04202ba045b6ce2ec36e9cadc51e04/trio_websocket-0.12.2-py3-none-any.whl", hash = "sha256:df605665f1db533f4a386c94525870851096a223adcb97f72a07e8b4beba45b6", size = 21221, upload-time = "2025-02-25T05:16:57.545Z" },
+]
+
+[[package]]
+name = "typer"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "rich" },
+    { name = "shellingham" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/8c/7d682431efca5fd290017663ea4588bf6f2c6aad085c7f108c5dbc316e70/typer-0.16.0.tar.gz", hash = "sha256:af377ffaee1dbe37ae9440cb4e8f11686ea5ce4e9bae01b84ae7c63b87f1dd3b", size = 102625, upload-time = "2025-05-26T14:30:31.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/42/3efaf858001d2c2913de7f354563e3a3a2f0decae3efe98427125a8f441e/typer-0.16.0-py3-none-any.whl", hash = "sha256:1f79bed11d4d02d4310e3c1b7ba594183bcedb0ac73b27a9e5f28f6fb5b98855", size = 46317, upload-time = "2025-05-26T14:30:30.523Z" },
 ]
 
 [[package]]
