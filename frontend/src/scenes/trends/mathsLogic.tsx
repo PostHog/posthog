@@ -489,6 +489,22 @@ export const mathsLogic = kea<mathsLogicType>([
                 ) as Partial<Record<MathType, MathDefinition>>
             },
         ],
+        uniqueGroupsMathDefinitions: [
+            (s) => [s.groupTypes, s.aggregationLabel],
+            (groupTypes, aggregationLabel): Partial<Record<MathType, MathDefinition>> =>
+                Object.fromEntries(
+                    Array.from(groupTypes.values())
+                        .map((groupType) => [
+                            apiValueToMathType('unique_group', groupType.group_type_index),
+                            {
+                                name: `${aggregationLabel(groupType.group_type_index).plural}`,
+                                shortName: `${aggregationLabel(groupType.group_type_index).plural}`,
+                                category: MathCategory.ActorCount,
+                            } as MathDefinition,
+                        ])
+                        .filter(Boolean)
+                ),
+        ],
         // Definitions based on group types present in the project
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
