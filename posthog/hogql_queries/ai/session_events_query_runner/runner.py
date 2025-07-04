@@ -53,8 +53,8 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
                 total_sessions=None,
             )
         
-        # Group results by session
-        session_events_data = self._group_events_by_session(
+        # Group results by session and get filtered columns
+        session_events_data, filtered_columns = self._group_events_by_session(
             results=base_response.results,
             columns=base_response.columns or []
         )
@@ -80,7 +80,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
         return SessionBatchEventsQueryResponse(
             # Base EventsQueryResponse fields
             results=base_response.results,
-            columns=base_response.columns,
+            columns=filtered_columns,  # Use filtered columns without session_id
             types=base_response.types,
             hogql=base_response.hogql,
             timings=base_response.timings,
@@ -101,7 +101,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
         self, 
         results: List[List[Any]], 
         columns: List[str]
-    ) -> SessionEventsResults:
+    ) -> tuple[SessionEventsResults, List[str]]:
         """
         Group query results by session_id.
         
@@ -110,10 +110,10 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
             columns: Column names for the query results
             
         Returns:
-            Dictionary mapping session_id to list of events for that session
+            Tuple of (dictionary mapping session_id to list of events, filtered column names without session_id)
         """
         if not results or not columns:
-            return {}
+            return {}, columns
         
         # Find the index of the $session_id column
         session_id_index = None
@@ -126,6 +126,9 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
             # If no session_id column found, we can't group by session
             # This shouldn't happen if the query was constructed properly
             raise ValueError("No session_id column found in query results. Ensure 'properties.$session_id' is included in the select clause.")
+        
+        # Create filtered columns list without the session_id column
+        filtered_columns = columns[:session_id_index] + columns[session_id_index + 1:]
         
         # Group events by session_id
         events_by_session: SessionEventsResults = {}
@@ -149,7 +152,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
             event_row = list(row[:session_id_index]) + list(row[session_id_index + 1:])
             events_by_session[session_id].append(event_row)
         
-        return events_by_session
+        return events_by_session, filtered_columns
 
 
 # Convenience functions for common use cases
