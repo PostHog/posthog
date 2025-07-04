@@ -1029,7 +1029,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.updatePersonForMerge(targetPerson, mergeUpdate, 'target-distinct')
 
             // Verify the merge worked - check the final computed result
-            const cacheAfterMerge = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            const cacheAfterMerge = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMerge?.properties).toEqual({
                 target_prop: 'target_value',
                 existing_target_prop: 'existing_target_value',
@@ -1048,7 +1048,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Step 4: Verify that cached merged properties are preserved
-            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
                 target_prop: 'target_value',
                 existing_target_prop: 'existing_target_value',
@@ -1097,7 +1097,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Should create fresh cache from target person
-            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
                 target_prop: 'target_value',
             })
@@ -1201,7 +1201,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
             // Step 4: Verify all merged properties are preserved
-            const finalCache = personStoreForBatch.getCachedPersonForUpdate(teamId, 'target-distinct')
+            const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(finalCache?.properties).toEqual({
                 target_prop: 'target_value',
                 shared_prop: 'original_value',

@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconCheck, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -31,7 +31,7 @@ import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMap
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import MaxTool from 'scenes/max/MaxTool'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -87,6 +87,8 @@ export function HogFunctionConfiguration({
         mightDropEvents,
         oldHogCode,
         newHogCode,
+        oldInputs,
+        newInputs,
         featureFlags,
     } = useValues(logic)
 
@@ -106,6 +108,13 @@ export function HogFunctionConfiguration({
         reportAIHogFunctionAccepted,
         reportAIHogFunctionRejected,
         reportAIHogFunctionPromptOpen,
+        setOldInputs,
+        setNewInputs,
+        clearInputsDiff,
+        reportAIHogFunctionInputsPrompted,
+        reportAIHogFunctionInputsAccepted,
+        reportAIHogFunctionInputsRejected,
+        reportAIHogFunctionInputsPromptOpen,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const aiHogFunctionCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
@@ -387,63 +396,195 @@ export function HogFunctionConfiguration({
                                     </LemonBanner>
                                 </div>
                             )}
-                            <div
-                                className={clsx(
-                                    'p-3 deprecated-space-y-2 bg-surface-primary',
-                                    !embedded && 'border rounded'
-                                )}
-                            >
-                                <div className="deprecated-space-y-2">
-                                    {usesGroups && !hasGroupsAddon ? (
-                                        <LemonBanner type="warning">
-                                            <span className="flex gap-2 items-center">
-                                                This function appears to use Groups but you do not have the Groups
-                                                Analytics addon. Without it, you may see empty values where you use
-                                                templates like {'"{groups.kind.properties}"'}
-                                                <PayGateButton
-                                                    feature={AvailableFeature.GROUP_ANALYTICS}
-                                                    type="secondary"
-                                                />
-                                            </span>
-                                        </LemonBanner>
-                                    ) : null}
+                            {aiHogFunctionCreation ? (
+                                <MaxTool
+                                    name="create_hog_function_inputs"
+                                    displayName="Generate and manage input variables"
+                                    description="Max can generate and manage input variables for your function"
+                                    context={{
+                                        current_inputs_schema: configuration.inputs_schema ?? [],
+                                        hog_code: configuration.hog ?? '',
+                                    }}
+                                    callback={(toolOutput: CyclotronJobInputSchemaType[]) => {
+                                        // Store the old inputs before changing
+                                        setOldInputs(configuration.inputs_schema ?? [])
+                                        // Store the new inputs from Max Tool
+                                        setNewInputs(toolOutput)
+                                        // Report that AI was prompted
+                                        reportAIHogFunctionInputsPrompted()
+                                        // Don't immediately update the form - let user accept/reject
+                                    }}
+                                    onMaxOpen={() => {
+                                        reportAIHogFunctionInputsPromptOpen()
+                                    }}
+                                    suggestions={[]}
+                                    introOverride={{
+                                        headline: 'What input variables do you need?',
+                                        description:
+                                            'Let me help you generate the input variables for your function based on your code and requirements.',
+                                    }}
+                                >
+                                    <div
+                                        className={clsx(
+                                            'p-3 deprecated-space-y-2 bg-surface-primary',
+                                            !embedded && 'border rounded'
+                                        )}
+                                    >
+                                        <div className="deprecated-space-y-2">
+                                            {usesGroups && !hasGroupsAddon ? (
+                                                <LemonBanner type="warning">
+                                                    <span className="flex gap-2 items-center">
+                                                        This function appears to use Groups but you do not have the
+                                                        Groups Analytics addon. Without it, you may see empty values
+                                                        where you use templates like {'"{groups.kind.properties}"'}
+                                                        <PayGateButton
+                                                            feature={AvailableFeature.GROUP_ANALYTICS}
+                                                            type="secondary"
+                                                        />
+                                                    </span>
+                                                </LemonBanner>
+                                            ) : null}
 
-                                    <CyclotronJobInputs
-                                        configuration={{
-                                            inputs_schema: configuration.inputs_schema ?? [],
-                                            inputs: configuration.inputs ?? {},
-                                        }}
-                                        onInputSchemaChange={(schema) => {
-                                            setConfigurationValue('inputs_schema', schema)
-                                        }}
-                                        onInputChange={(key, input) => {
-                                            setConfigurationValue(`inputs.${key}`, input)
-                                        }}
-                                        showSource={showSource}
-                                    />
-                                    {showSource && canEditSource ? (
-                                        <LemonButton
-                                            icon={<IconPlus />}
-                                            size="small"
-                                            type="secondary"
-                                            className="my-4"
-                                            onClick={() => {
-                                                setConfigurationValue('inputs_schema', [
-                                                    ...(configuration.inputs_schema ?? []),
-                                                    {
-                                                        type: 'string',
-                                                        key: `input_${(configuration.inputs_schema?.length ?? 0) + 1}`,
-                                                        label: '',
-                                                        required: false,
-                                                    },
-                                                ])
+                                            <CyclotronJobInputs
+                                                configuration={{
+                                                    inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
+                                                    inputs: configuration.inputs ?? {},
+                                                }}
+                                                onInputSchemaChange={(schema) => {
+                                                    // If user manually edits while diff is showing, clear the diff
+                                                    if (oldInputs && newInputs) {
+                                                        clearInputsDiff()
+                                                    }
+                                                    setConfigurationValue('inputs_schema', schema)
+                                                }}
+                                                onInputChange={(key, input) => {
+                                                    setConfigurationValue(`inputs.${key}`, input)
+                                                }}
+                                                showSource={showSource}
+                                            />
+                                            {oldInputs && newInputs && (
+                                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                                    <div className="flex-1 text-center">
+                                                        <span className="text-sm font-medium">Suggested by Max</span>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <LemonButton
+                                                            status="danger"
+                                                            icon={<IconX />}
+                                                            onClick={() => {
+                                                                reportAIHogFunctionInputsRejected()
+                                                                clearInputsDiff()
+                                                            }}
+                                                            tooltipPlacement="top"
+                                                            size="small"
+                                                        >
+                                                            Reject
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            icon={<IconCheck color="var(--success)" />}
+                                                            onClick={() => {
+                                                                if (newInputs) {
+                                                                    setConfigurationValue('inputs_schema', newInputs)
+                                                                }
+                                                                reportAIHogFunctionInputsAccepted()
+                                                                clearInputsDiff()
+                                                            }}
+                                                            tooltipPlacement="top"
+                                                            size="small"
+                                                        >
+                                                            Accept
+                                                        </LemonButton>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {showSource && canEditSource ? (
+                                                <LemonButton
+                                                    icon={<IconPlus />}
+                                                    size="small"
+                                                    type="secondary"
+                                                    className="my-4"
+                                                    onClick={() => {
+                                                        setConfigurationValue('inputs_schema', [
+                                                            ...(configuration.inputs_schema ?? []),
+                                                            {
+                                                                type: 'string',
+                                                                key: `input_${
+                                                                    (configuration.inputs_schema?.length ?? 0) + 1
+                                                                }`,
+                                                                label: '',
+                                                                required: false,
+                                                            },
+                                                        ])
+                                                    }}
+                                                >
+                                                    Add input variable
+                                                </LemonButton>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                </MaxTool>
+                            ) : (
+                                <div
+                                    className={clsx(
+                                        'p-3 deprecated-space-y-2 bg-surface-primary',
+                                        !embedded && 'border rounded'
+                                    )}
+                                >
+                                    <div className="deprecated-space-y-2">
+                                        {usesGroups && !hasGroupsAddon ? (
+                                            <LemonBanner type="warning">
+                                                <span className="flex gap-2 items-center">
+                                                    This function appears to use Groups but you do not have the Groups
+                                                    Analytics addon. Without it, you may see empty values where you use
+                                                    templates like {'"{groups.kind.properties}"'}
+                                                    <PayGateButton
+                                                        feature={AvailableFeature.GROUP_ANALYTICS}
+                                                        type="secondary"
+                                                    />
+                                                </span>
+                                            </LemonBanner>
+                                        ) : null}
+
+                                        <CyclotronJobInputs
+                                            configuration={{
+                                                inputs_schema: configuration.inputs_schema ?? [],
+                                                inputs: configuration.inputs ?? {},
                                             }}
-                                        >
-                                            Add input variable
-                                        </LemonButton>
-                                    ) : null}
+                                            onInputSchemaChange={(schema) => {
+                                                setConfigurationValue('inputs_schema', schema)
+                                            }}
+                                            onInputChange={(key, input) => {
+                                                setConfigurationValue(`inputs.${key}`, input)
+                                            }}
+                                            showSource={showSource}
+                                        />
+                                        {showSource && canEditSource ? (
+                                            <LemonButton
+                                                icon={<IconPlus />}
+                                                size="small"
+                                                type="secondary"
+                                                className="my-4"
+                                                onClick={() => {
+                                                    setConfigurationValue('inputs_schema', [
+                                                        ...(configuration.inputs_schema ?? []),
+                                                        {
+                                                            type: 'string',
+                                                            key: `input_${
+                                                                (configuration.inputs_schema?.length ?? 0) + 1
+                                                            }`,
+                                                            label: '',
+                                                            required: false,
+                                                        },
+                                                    ])
+                                                }}
+                                            >
+                                                Add input variable
+                                            </LemonButton>
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             <HogFunctionMappings />
 
