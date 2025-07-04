@@ -4,9 +4,8 @@ import random
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
-from asgiref.sync import sync_to_async
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -19,9 +18,10 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import ChannelProtocol
+from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+from posthog.warehouse.util import database_sync_to_async
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -82,7 +82,18 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if before is not None:
             query &= Q(id__lt=get_checkpoint_id(before))
 
-        return ConversationCheckpoint.objects.filter(query).order_by("-id").select_related("parent_checkpoint")
+        return (
+            ConversationCheckpoint.objects.filter(query)
+            .order_by("-id")
+            .select_related("parent_checkpoint")
+            .prefetch_related(
+                Prefetch("writes", queryset=ConversationCheckpointWrite.objects.order_by("idx", "task_id")),
+                Prefetch(
+                    "parent_checkpoint__writes",
+                    queryset=ConversationCheckpointWrite.objects.filter(channel=TASKS).order_by("task_id", "idx"),
+                ),
+            )
+        )
 
     def _get_checkpoint_channel_values(self, checkpoint: ConversationCheckpoint):
         if not checkpoint.checkpoint:
@@ -127,13 +138,18 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             channel_values = self._get_checkpoint_channel_values(checkpoint)
             loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
 
-            checkpoint_dict: Checkpoint = {
-                **loaded_checkpoint,
-                "pending_sends": [
+            pending_sends = (
+                [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
-                    for checkpoint_write in await checkpoint.get_pending_sends()
-                ],
-                "channel_values": {
+                    # Prefetched in `_get_checkpoint_qs`
+                    async for checkpoint_write in checkpoint.parent_checkpoint.writes.all()
+                ]
+                if checkpoint.parent_checkpoint
+                else []
+            )
+
+            channel_values = (
+                {
                     checkpoint_blob.channel: self.serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
                     async for checkpoint_blob in channel_values
                     if checkpoint_blob.type is not None
@@ -141,7 +157,13 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     and checkpoint_blob.blob is not None
                 }
                 if channel_values is not None
-                else {},
+                else {}
+            )
+
+            checkpoint_dict: Checkpoint = {
+                **loaded_checkpoint,
+                "pending_sends": pending_sends,
+                "channel_values": channel_values,
             }
 
             yield CheckpointTuple(
@@ -165,7 +187,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     if checkpoint.parent_checkpoint
                     else None
                 ),
-                self._load_writes(await checkpoint.get_pending_writes()),
+                # Prefetched in `_get_checkpoint_qs`
+                self._load_writes([write async for write in checkpoint.writes.all()]),
             )
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
@@ -194,7 +217,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         async with self._lock:
             return await self._put(config, checkpoint, metadata, new_versions)
 
-    @sync_to_async
+    @database_sync_to_async
     def _put(
         self,
         config: RunnableConfig,
@@ -273,7 +296,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         async with self._lock:
             return await self._put_writes(config, writes, task_id, task_path)
 
-    @sync_to_async
+    @database_sync_to_async
     def _put_writes(
         self,
         config: RunnableConfig,

@@ -50,7 +50,7 @@ from ee.hogai.utils.types import (
     PartialAssistantState,
 )
 from ee.models import Conversation
-from posthog.event_usage import areport_user_action
+from posthog.event_usage import report_user_action
 from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
@@ -63,6 +63,7 @@ from posthog.schema import (
     ReasoningMessage,
     VisualizationMessage,
 )
+from posthog.warehouse.util import database_sync_to_async
 
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -474,7 +475,7 @@ class Assistant:
 
         if self._mode == AssistantMode.ASSISTANT:
             if self._latest_message:
-                await areport_user_action(
+                await database_sync_to_async(report_user_action)(
                     self._user,
                     "chat with ai",
                     {"prompt": self._latest_message.content, "response": response},
@@ -482,7 +483,7 @@ class Assistant:
             return
 
         if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
-            await areport_user_action(
+            await database_sync_to_async(report_user_action)(
                 self._user,
                 "standalone ai tool call",
                 {

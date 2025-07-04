@@ -5,7 +5,6 @@ Module to centralize event reporting on the server-side.
 from typing import Optional
 
 import posthoganalytics
-from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, User
 from posthog.models.team import Team
@@ -266,12 +265,6 @@ def report_user_action(user: User, event: str, properties: Optional[dict] = None
         properties=properties,
         groups=groups(user.current_organization, team or user.current_team),
     )
-
-
-@sync_to_async
-def areport_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
-    # TRICKY: user.current_organization and user.current_team are sync-only properties (ForeignKeys).
-    report_user_action(user, event, properties, team)
 
 
 def report_organization_deleted(user: User, organization: Organization):

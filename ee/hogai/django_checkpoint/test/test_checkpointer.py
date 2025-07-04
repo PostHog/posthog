@@ -2,7 +2,11 @@
 
 import operator
 from typing import Annotated, Any, Optional, TypedDict
+from uuid import uuid4
 
+from asgiref.sync import async_to_sync
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     Checkpoint,
@@ -429,3 +433,57 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(blobs[5].channel, "branch:to:node1")
         self.assertEqual(blobs[5].type, "empty")
         self.assertIsNone(blobs[5].blob)
+
+    def test_alist_query_efficiency(self):
+        """Test that alist doesn't cause N+1 queries when fetching pending writes."""
+        thread = Conversation.objects.create(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        checkpoints = []
+        configs = []
+
+        for i in range(5):
+            config: RunnableConfig = {
+                "configurable": {
+                    "thread_id": str(thread.id),
+                    "checkpoint_ns": "",
+                }
+            }
+
+            if i == 0:
+                checkpoint = empty_checkpoint()
+            else:
+                # Create checkpoints that have parent relationships
+                parent_checkpoint = checkpoints[i - 1]
+                checkpoint = create_checkpoint(parent_checkpoint, {}, i)
+
+            metadata: CheckpointMetadata = {
+                "source": "test",
+                "step": i,
+                "writes": {"test": f"value_{i}"},
+            }
+
+            # Save the checkpoint
+            saved_config = async_to_sync(saver.aput)(config, checkpoint, metadata, {})
+            configs.append(saved_config)
+            checkpoints.append(checkpoint)
+
+            # Add some writes to the checkpoint
+            writes = [
+                (f"channel_{i}_1", f"value_{i}_1"),
+                (f"channel_{i}_2", f"value_{i}_2"),
+            ]
+            async_to_sync(saver.aput_writes)(saved_config, writes, str(uuid4()))
+
+        # Count queries while listing checkpoints
+        config = {"configurable": {"thread_id": str(thread.id)}}
+
+        with CaptureQueriesContext(connection) as context:
+
+            @async_to_sync
+            async def call_list():
+                [result async for result in saver.alist(config)]
+
+            call_list()
+
+            self.assertEqual(len(context.captured_queries), 7)

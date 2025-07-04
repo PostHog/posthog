@@ -2,7 +2,6 @@ from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
-from langgraph.checkpoint.serde.types import TASKS
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -56,14 +55,6 @@ class ConversationCheckpoint(UUIDModel):
                 name="unique_checkpoint",
             )
         ]
-
-    async def get_pending_sends(self) -> list["ConversationCheckpointWrite"]:
-        if self.parent_checkpoint is None:
-            return []
-        return [write async for write in self.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")]
-
-    async def get_pending_writes(self) -> list["ConversationCheckpointWrite"]:
-        return [write async for write in self.writes.order_by("idx", "task_id")]
 
 
 class ConversationCheckpointBlob(UUIDModel):
