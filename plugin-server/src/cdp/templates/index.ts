@@ -50,7 +50,20 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
 
 export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [
     nativeWebhook
-].map(plugin => ({ ...plugin, hog: 'return event;' }))
+].map(plugin => ({
+    ...plugin,
+    hog: 'return event;',
+    inputs_schema: [
+        ...plugin.inputs_schema,
+        {
+            key: 'debug_mode',
+            label: 'Debug Mode',
+            type: 'boolean',
+            description: 'Will log configuration and request details',
+            default: false,
+        },
+    ]
+}))
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 

@@ -30,7 +30,7 @@ export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
         body?: string | URLSearchParams
         throwHttpErrors?: boolean
         searchParams?: Record<string, any>
-    }) => Response, 
+    }) => Promise<Response>, 
     inputs: Record<string, any>) => Response
 }
 
@@ -119,6 +119,7 @@ export class NativeDestinationExecutorService {
 
             await nativeDestination.perform(
                 async (endpoint, options) => {
+
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -126,7 +127,9 @@ export class NativeDestinationExecutorService {
                         addLog('debug', 'options', options)
                     }
 
-                    let headers: Record<string, any> = {}
+                    let headers: Record<string, any> = {
+                        ...options.headers
+                    }
 
                     let body: string | undefined = undefined
                     if (options?.json) {
@@ -245,8 +248,7 @@ export class NativeDestinationExecutorService {
                     return convertedResponse
                 },
                 {
-                    payload: config,
-                    settings: config,
+                    payload: invocation.state.globals.inputs
                 }
             )
 

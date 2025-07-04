@@ -13,8 +13,8 @@ export const template: NativeTemplate = {
         try {
           return request(payload.url, {
             method: payload.method,
-            headers: payload.headers as Record<string, string>,
-            json: payload.data
+            headers: payload.headers,
+            json: payload.body
           })
         } catch (error) {
           if (error instanceof TypeError) throw new Error(error.message)
