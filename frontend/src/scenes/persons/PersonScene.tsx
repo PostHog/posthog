@@ -115,6 +115,7 @@ export function PersonScene(): JSX.Element | null {
         urlId,
         distinctId,
         primaryDistinctId,
+        eventsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -214,22 +215,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        where: ["notEquals(event, '$exception')"],
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
