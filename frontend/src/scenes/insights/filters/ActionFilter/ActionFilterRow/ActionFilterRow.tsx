@@ -206,27 +206,33 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
+
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
-        const mathProperties = selectedMath
-            ? {
-                  ...mathTypeToApiValues(selectedMath),
-                  math_property:
-                      mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                          ? mathProperty ?? '$time'
-                          : undefined,
-                  math_hogql:
-                      mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                          ? mathHogQL ?? 'count()'
-                          : undefined,
-                  mathPropertyType,
-              }
-            : {
-                  math_property: undefined,
-                  mathPropertyType: undefined,
-                  math_hogql: undefined,
-                  math_group_type_index: undefined,
-                  math: undefined,
-              }
+        let mathProperties
+        if (selectedMath) {
+            const math_property =
+                mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                    ? mathProperty ?? '$time'
+                    : undefined
+            const math_hogql =
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? mathHogQL ?? 'count()'
+                    : undefined
+            mathProperties = {
+                ...mathTypeToApiValues(selectedMath),
+                math_property,
+                math_hogql,
+                mathPropertyType,
+            }
+        } else {
+            mathProperties = {
+                math_property: undefined,
+                mathPropertyType: undefined,
+                math_hogql: undefined,
+                math_group_type_index: undefined,
+                math: undefined,
+            }
+        }
 
         updateFilterMath({
             index,
@@ -234,6 +240,7 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
+
     const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
