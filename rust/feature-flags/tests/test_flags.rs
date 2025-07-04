@@ -4811,7 +4811,10 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             .await;
         assert_eq!(StatusCode::OK, res.status());
         let json_data = res.json::<Value>().await?;
-        println!("Test 1 - Actual response: {}", serde_json::to_string_pretty(&json_data).unwrap());
+        println!(
+            "Test 1 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
         assert_json_include!(
             actual: json_data,
             expected: json!({
@@ -4846,7 +4849,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         );
     }
 
-    // Test 1: Request only parent_flag with flag_keys where the whole chain evaluates to false because the leaf_flag is false
+    // Test 2: Request only parent_flag with flag_keys where the whole chain evaluates to false because the leaf_flag is false
     {
         let payload = json!({
             "token": token,
@@ -4861,7 +4864,10 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             .await;
         assert_eq!(StatusCode::OK, res.status());
         let json_data = res.json::<Value>().await?;
-        println!("Test 1 - Actual response: {}", serde_json::to_string_pretty(&json_data).unwrap());
+        println!(
+            "Test 2 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
         assert_json_include!(
             actual: json_data,
             expected: json!({
@@ -4871,7 +4877,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                         "key": "parent_flag",
                         "enabled": false,
                         "reason": {
-                            "code": "condition_match",
+                            "code": "no_condition_match",
                             "condition_index": 0
                         }
                     },
@@ -4879,7 +4885,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                         "key": "intermediate_flag",
                         "enabled": false,
                         "reason": {
-                            "code": "condition_match",
+                            "code": "no_condition_match",
                             "condition_index": 0
                         }
                     },
@@ -4887,7 +4893,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                         "key": "leaf_flag",
                         "enabled": false,
                         "reason": {
-                            "code": "condition_match",
+                            "code": "no_condition_match",
                             "condition_index": 0
                         }
                     }

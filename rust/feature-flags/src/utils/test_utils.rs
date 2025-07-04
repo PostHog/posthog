@@ -580,3 +580,66 @@ pub async fn update_team_autocapture_exceptions(
         .await?;
     Ok(())
 }
+
+/// Create a test flag with multiple property filters
+pub fn create_test_flag_with_properties(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filters: Vec<crate::properties::property_models::PropertyFilter>,
+) -> FeatureFlag {
+    create_test_flag(
+        Some(id),
+        Some(team_id),
+        None,
+        Some(key.to_string()),
+        Some(FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(filters),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+        }),
+        None,
+        None,
+        None,
+    )
+}
+
+/// Create a test flag with a single property filter
+pub fn create_test_flag_with_property(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filter: crate::properties::property_models::PropertyFilter,
+) -> FeatureFlag {
+    create_test_flag_with_properties(id, team_id, key, vec![filter])
+}
+
+/// Create a test flag that depends on another flag
+pub fn create_test_flag_that_depends_on_flag(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    depends_on_flag_id: i32,
+    depends_on_flag_value: crate::api::types::FlagValue,
+) -> FeatureFlag {
+    create_test_flag_with_property(
+        id,
+        team_id,
+        key,
+        crate::properties::property_models::PropertyFilter {
+            key: depends_on_flag_id.to_string(),
+            value: Some(serde_json::json!(depends_on_flag_value)),
+            operator: Some(crate::properties::property_models::OperatorType::Exact),
+            prop_type: crate::properties::property_models::PropertyType::Flag,
+            group_type_index: None,
+            negation: None,
+        },
+    )
+}
