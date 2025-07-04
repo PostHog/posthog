@@ -493,14 +493,7 @@ def create_hogql_database(
     views: TableStore = {}
 
     if skip_dw_tables:
-        if skip_dw_tables:
-        # Skip data warehouse table loading and proceed directly to returning database
-        return database
-
-    warehouse_tables: TableStore = {}
-    warehouse_tables_dot_notation_mapping: dict[str, str] = {}
-    self_managed_warehouse_tables: TableStore = {}
-    views: TableStore = {}
+        # Skip data warehouse table loading and proceed directly to adding empty tables
         # This is used internally for QueryRunners that know ahead of time that they will not be using the data warehouse tables
         database.add_warehouse_tables(**warehouse_tables)
         database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
