@@ -417,7 +417,7 @@ class Team(UUIDClassicModel):
         null=True,
         blank=True,
         validators=[MinValueValidator(timedelta(hours=1))],  # For safety minimum 1h
-        help_text="Duration. Events older than this threshold will be dropped.",
+        help_text="Events older than this threshold will be dropped in ingestion. Empty means no timestamp restrictions.",
     )
 
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
