@@ -77,6 +77,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
+    NAVIGATE = "navigate"
 
 
 class AssistantDateRange(BaseModel):
@@ -159,7 +160,7 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilter2(BaseModel):
+class AssistantGenericPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -177,7 +178,7 @@ class AssistantGenericPropertyFilter2(BaseModel):
     )
 
 
-class AssistantGenericPropertyFilter3(BaseModel):
+class AssistantGenericPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -207,6 +208,49 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
+class AssistantNavigateUrls(StrEnum):
+    CREATE_ACTION = "createAction"
+    ACTIONS = "actions"
+    COHORTS = "cohorts"
+    PROJECT_HOMEPAGE = "projectHomepage"
+    MAX = "max"
+    SETTINGS = "settings"
+    EVENT_DEFINITIONS = "eventDefinitions"
+    PROPERTY_DEFINITIONS = "propertyDefinitions"
+    DATABASE = "database"
+    ACTIVITY = "activity"
+    INGESTION_WARNINGS = "ingestionWarnings"
+    INSIGHTS = "insights"
+    INSIGHT_NEW = "insightNew"
+    SAVED_INSIGHTS = "savedInsights"
+    WEB_ANALYTICS = "webAnalytics"
+    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    ALERTS = "alerts"
+    DASHBOARDS = "dashboards"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "featureFlags"
+    SURVEYS = "surveys"
+    SURVEY_TEMPLATES = "surveyTemplates"
+    REPLAY = "replay"
+    REPLAY_SETTINGS = "replaySettings"
+    PIPELINE = "pipeline"
+    SQL_EDITOR = "sqlEditor"
+    ANNOTATIONS = "annotations"
+    HEATMAPS = "heatmaps"
+    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
+    ERROR_TRACKING = "errorTracking"
+    GAME368HEDGEHOGS = "game368hedgehogs"
+    NOTEBOOKS = "notebooks"
+    PERSONS = "persons"
+    TOOLBAR_LAUNCH = "toolbarLaunch"
+
+
+class AssistantNumericValuePropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    LT = "lt"
+
+
 class MeanRetentionCalculation(StrEnum):
     SIMPLE = "simple"
     WEIGHTED = "weighted"
@@ -223,7 +267,7 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
-class AssistantSingleValuePropertyFilterOperator(StrEnum):
+class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
@@ -1494,6 +1538,46 @@ class OrderBy1(StrEnum):
     EARLIEST = "earliest"
 
 
+class MarketingAnalyticsBaseColumns(StrEnum):
+    CAMPAIGN = "Campaign"
+    SOURCE = "Source"
+    TOTAL_COST = "Total Cost"
+    TOTAL_CLICKS = "Total Clicks"
+    TOTAL_IMPRESSIONS = "Total Impressions"
+    COST_PER_CLICK = "Cost per Click"
+    CTR = "CTR"
+
+
+class MarketingAnalyticsColumnsSchemaNames(StrEnum):
+    CAMPAIGN = "campaign"
+    CLICKS = "clicks"
+    COST = "cost"
+    CURRENCY = "currency"
+    DATE = "date"
+    IMPRESSIONS = "impressions"
+    SOURCE = "source"
+
+
+class MarketingAnalyticsHelperForColumnNames(StrEnum):
+    GOAL = "Goal"
+    COST_PER = "Cost per"
+
+
+class MarketingAnalyticsOrderByEnum(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class MarketingAnalyticsSchemaFieldTypes(StrEnum):
+    STRING = "string"
+    INTEGER = "integer"
+    NUMBER = "number"
+    FLOAT = "float"
+    DATETIME = "datetime"
+    DATE = "date"
+    BOOLEAN = "boolean"
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2034,6 +2118,19 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
+class SourceMap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaign: Optional[str] = None
+    clicks: Optional[str] = None
+    cost: Optional[str] = None
+    currency: Optional[str] = None
+    date: Optional[str] = None
+    impressions: Optional[str] = None
+    source: Optional[str] = None
+
+
 class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
@@ -2496,7 +2593,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
         extra="forbid",
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2509,12 +2606,22 @@ class AssistantGenericPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
 
-class AssistantGenericPropertyFilter4(BaseModel):
+class AssistantGenericPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: str
+    value: float
+
+
+class AssistantGenericPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2544,7 +2651,7 @@ class AssistantGroupPropertyFilter1(BaseModel):
     )
     group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2557,12 +2664,23 @@ class AssistantGroupPropertyFilter1(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
 
 class AssistantGroupPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: int = Field(..., description="Index of the group type from the group mapping.")
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["group"] = "group"
+    value: float
+
+
+class AssistantGroupPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2581,7 +2699,7 @@ class AssistantGroupPropertyFilter2(BaseModel):
     )
 
 
-class AssistantGroupPropertyFilter3(BaseModel):
+class AssistantGroupPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2592,7 +2710,7 @@ class AssistantGroupPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AssistantGroupPropertyFilter4(BaseModel):
+class AssistantGroupPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2615,6 +2733,14 @@ class AssistantMessageMetadata(BaseModel):
     form: Optional[AssistantForm] = None
 
 
+class AssistantNumericValuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    value: float
+
+
 class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2629,12 +2755,14 @@ class AssistantRetentionActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2658,12 +2786,14 @@ class AssistantRetentionEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -2684,11 +2814,11 @@ class AssistantSetPropertyFilter(BaseModel):
     )
 
 
-class AssistantSingleValuePropertyFilter(BaseModel):
+class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    operator: AssistantSingleValuePropertyFilterOperator = Field(
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
         ...,
         description=(
             "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` -"
@@ -2700,7 +2830,7 @@ class AssistantSingleValuePropertyFilter(BaseModel):
         description=(
             "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a"
             " valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be"
-            " matched against the property value."
+            " matched against the property value. Use the string values `true` or `false` for boolean properties."
         ),
     )
 
@@ -3345,6 +3475,14 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["log"] = "log"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class MarketingAnalyticsSchemaField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    required: bool
+    type: list[MarketingAnalyticsSchemaFieldTypes]
 
 
 class MatchedRecording(BaseModel):
@@ -4282,22 +4420,6 @@ class AnyResponseType1(BaseModel):
     user_access_level: Optional[AccessControlLevel] = None
 
 
-class AssistantBasePropertyFilter(
-    RootModel[
-        Union[
-            AssistantDateTimePropertyFilter,
-            AssistantSetPropertyFilter,
-            Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-        ]
-    ]
-):
-    root: Union[
-        AssistantDateTimePropertyFilter,
-        AssistantSetPropertyFilter,
-        Union[AssistantSingleValuePropertyFilter, AssistantArrayPropertyFilter],
-    ]
-
-
 class AssistantFunnelNodeShared(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4319,12 +4441,14 @@ class AssistantFunnelNodeShared(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4355,12 +4479,14 @@ class AssistantFunnelsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4394,12 +4520,14 @@ class AssistantFunnelsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4442,12 +4570,14 @@ class AssistantFunnelsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4478,12 +4608,14 @@ class AssistantInsightsQueryBase(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4571,12 +4703,14 @@ class AssistantRetentionQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4620,12 +4754,14 @@ class AssistantTrendsActionsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4666,12 +4802,14 @@ class AssistantTrendsEventsNode(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -4706,12 +4844,14 @@ class AssistantTrendsQuery(BaseModel):
                     AssistantGenericPropertyFilter2,
                     AssistantGenericPropertyFilter3,
                     AssistantGenericPropertyFilter4,
+                    AssistantGenericPropertyFilter5,
                 ],
                 Union[
                     AssistantGroupPropertyFilter1,
                     AssistantGroupPropertyFilter2,
                     AssistantGroupPropertyFilter3,
                     AssistantGroupPropertyFilter4,
+                    AssistantGroupPropertyFilter5,
                 ],
             ]
         ]
@@ -7400,7 +7540,7 @@ class MarketingAnalyticsConfig(BaseModel):
         extra="forbid",
     )
     conversion_goals: Optional[list[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]]] = None
-    sources_map: Optional[dict[str, dict[str, Union[str, Any]]]] = None
+    sources_map: Optional[dict[str, SourceMap]] = None
 
 
 class MarketingAnalyticsTableQueryResponse(BaseModel):
@@ -8737,6 +8877,7 @@ class RetentionFilter(BaseModel):
     dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
     meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
+    minimumOccurrences: Optional[int] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -9385,6 +9526,30 @@ class AnyResponseType(
     ]
 
 
+class AssistantBasePropertyFilter(
+    RootModel[
+        Union[
+            AssistantDateTimePropertyFilter,
+            AssistantSetPropertyFilter,
+            Union[
+                AssistantStringOrBooleanValuePropertyFilter,
+                AssistantNumericValuePropertyFilter,
+                AssistantArrayPropertyFilter,
+            ],
+        ]
+    ]
+):
+    root: Union[
+        AssistantDateTimePropertyFilter,
+        AssistantSetPropertyFilter,
+        Union[
+            AssistantStringOrBooleanValuePropertyFilter,
+            AssistantNumericValuePropertyFilter,
+            AssistantArrayPropertyFilter,
+        ],
+    ]
+
+
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9772,7 +9937,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[list[str]] = Field(
+    orderBy: Optional[list[list[Union[float, MarketingAnalyticsOrderByEnum]]]] = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -12180,6 +12345,134 @@ class QuerySchemaRoot(
     ]
 ):
     root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class QueryUpgradeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        DataWarehouseNode,
+        EventsQuery,
+        ActorsQuery,
+        GroupsQuery,
+        InsightActorsQuery,
+        InsightActorsQueryOptions,
+        SessionsTimelineQuery,
+        HogQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        HogQLAutocomplete,
+        HogQLASTQuery,
+        SessionAttributionExplorerQuery,
+        RevenueExampleEventsQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        ErrorTrackingQuery,
+        ExperimentFunnelsQuery,
+        ExperimentTrendsQuery,
+        ExperimentQuery,
+        ExperimentExposureQuery,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebExternalClicksTableQuery,
+        WebGoalsQuery,
+        WebVitalsQuery,
+        WebVitalsPathBreakdownQuery,
+        WebPageURLSearchQuery,
+        WebAnalyticsExternalSummaryQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueAnalyticsRevenueQuery,
+        RevenueAnalyticsTopCustomersQuery,
+        MarketingAnalyticsTableQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        CalendarHeatmapQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        FunnelCorrelationQuery,
+        DatabaseSchemaQuery,
+        LogsQuery,
+        SuggestedQuestionsQuery,
+        TeamTaxonomyQuery,
+        EventTaxonomyQuery,
+        ActorsPropertyTaxonomyQuery,
+        TracesQuery,
+        VectorSearchQuery,
+    ] = Field(..., discriminator="kind")
+
+
+class QueryUpgradeResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Union[
         EventsNode,
         ActionsNode,
         PersonsNode,

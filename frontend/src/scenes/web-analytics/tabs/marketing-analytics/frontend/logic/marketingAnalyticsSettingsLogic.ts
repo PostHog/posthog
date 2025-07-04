@@ -1,9 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
-import { MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 
 import { ConversionGoalFilter, MarketingAnalyticsConfig, SourceMap } from '~/queries/schema/schema-general'
+
+import { generateUniqueName } from './utils'
 
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 
@@ -19,7 +21,11 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         actions: [teamLogic, ['updateCurrentTeam']],
     })),
     actions({
-        updateSourceMapping: (tableId: string, fieldName: MarketingAnalyticsSchema, columnName: string | null) => ({
+        updateSourceMapping: (
+            tableId: string,
+            fieldName: MarketingAnalyticsColumnsSchemaNames,
+            columnName: string | null
+        ) => ({
             tableId,
             fieldName,
             columnName,
@@ -54,14 +60,25 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         (goal) => goal.conversion_goal_id === conversionGoal.conversion_goal_id
                     )
 
+                    let updatedConversionGoal = { ...conversionGoal }
+
+                    // Check for name conflicts with other goals (excluding the current goal if updating)
+                    const otherGoals =
+                        existingIndex >= 0 ? existingGoals.filter((_, index) => index !== existingIndex) : existingGoals
+
+                    const existingNames = otherGoals.map((goal) => goal.conversion_goal_name)
+                    const uniqueName = generateUniqueName(conversionGoal.conversion_goal_name, existingNames)
+
+                    updatedConversionGoal.conversion_goal_name = uniqueName
+
                     let updatedGoals: ConversionGoalFilter[]
                     if (existingIndex >= 0) {
                         // Update existing goal
                         updatedGoals = [...existingGoals]
-                        updatedGoals[existingIndex] = conversionGoal
+                        updatedGoals[existingIndex] = updatedConversionGoal
                     } else {
                         // Add new goal
-                        updatedGoals = [...existingGoals, conversionGoal]
+                        updatedGoals = [...existingGoals, updatedConversionGoal]
                     }
 
                     return { ...state, conversion_goals: updatedGoals }
