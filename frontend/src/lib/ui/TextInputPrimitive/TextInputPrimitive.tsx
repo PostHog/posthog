@@ -22,6 +22,7 @@ export const textInputVariants = cva({
     defaultVariants: {
         variant: 'default',
         size: 'default',
+        error: false,
     },
 })
 
