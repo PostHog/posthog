@@ -120,6 +120,7 @@ export type AssistantContextualTool =
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
+    | 'create_hog_function_inputs'
     | 'navigate'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -166,4 +167,3 @@ export type AssistantNavigateUrls =
     | 'notebooks'
     | 'persons'
     | 'toolbarLaunch'
-    | 'create_hog_function_inputs'

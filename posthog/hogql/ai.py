@@ -2777,3 +2777,61 @@ Common operators:
 - "gt", "lt", "gte", "lte" for numeric comparisons
 
 Return ONLY the JSON object inside <filters> tags. Do not add any other text or explanation."""
+
+HOG_FUNCTION_INPUTS_SYSTEM_PROMPT = """You are an expert at creating input variable schemas for PostHog hog functions.
+
+Your task is to analyze the hog code and create appropriate input variable schemas based on the instructions.
+CRITICAL: You must extract the EXACT variable names used in the hog code. Look for patterns like:
+- inputs.variableName
+- inputs['variableName']
+- inputs["variableName"]
+The "key" field in the schema MUST match exactly what is used in the hog code after "inputs.". For example:
+- If code uses inputs.propertiesToRedact, the key must be "propertiesToRedact" (NOT "properties_to_redact")
+- If code uses inputs.webhookUrl, the key must be "webhookUrl" (NOT "webhook_url")
+- If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
+
+Return ONLY a valid JSON array of input schema objects inside <inputs_schema> tags."""
+
+INPUT_SCHEMA_TYPES_MESSAGE = """Input schema format should be a list of objects with these fields:
+- key: string (EXACT variable name as used in hog code, preserve camelCase/snake_case)
+- type: string (one of: string, number, boolean, dictionary, choice, json, integration, integration_field, email)
+- label: string (human readable label)
+- description: string (description of what this input is for)
+- required: boolean (whether this input is required)
+- default: any (default value, optional)
+- choices: list (for choice type, list of {label, value} objects)
+- templating: boolean (whether templating is enabled, defaults to true)
+- secret: boolean (whether this is a secret value, defaults to false)
+- hidden: boolean (whether this input is hidden from users, defaults to false)
+- integration: string (for integration type, the integration name)
+- integration_key: string (for integration_field type, the integration key)
+- integration_field: string (for integration_field type, the field name)
+- requires_field: string (for conditional fields)
+- requiredScopes: string (for integrations, required OAuth scopes)
+
+export type CyclotronJobInputSchemaType = {
+    type:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
+    key: string
+    label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    default?: any
+    secret?: boolean
+    hidden?: boolean
+    templating?: boolean
+    description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: string
+    requires_field?: string
+    requiredScopes?: string
+}"""

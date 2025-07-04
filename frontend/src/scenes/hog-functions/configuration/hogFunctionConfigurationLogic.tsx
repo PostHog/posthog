@@ -317,8 +317,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersAccepted: true,
         reportAIFiltersRejected: true,
         reportAIFiltersPromptOpen: true,
-        setOldInputs: (oldInputs: any) => ({ oldInputs }),
-        setNewInputs: (newInputs: any) => ({ newInputs }),
+        setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
+        setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -398,14 +398,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         oldInputs: [
-            null as any,
+            null as CyclotronJobInputSchemaType[] | null,
             {
                 setOldInputs: (_, { oldInputs }) => oldInputs,
                 clearInputsDiff: () => null,
             },
         ],
         newInputs: [
-            null as any,
+            null as CyclotronJobInputSchemaType[] | null,
             {
                 setNewInputs: (_, { newInputs }) => newInputs,
                 clearInputsDiff: () => null,
@@ -1164,14 +1164,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         currentInputs: [
             (s) => [s.newInputs, s.configuration],
-            (newInputs: any, configuration: HogFunctionConfigurationType) => {
+            (newInputs: CyclotronJobInputSchemaType[] | null, configuration: HogFunctionConfigurationType) => {
                 return newInputs ?? configuration.inputs_schema ?? []
             },
         ],
 
         inputsDiff: [
             (s) => [s.oldInputs, s.newInputs],
-            (oldInputs: any, newInputs: any) => {
+            (oldInputs: CyclotronJobInputSchemaType[] | null, newInputs: CyclotronJobInputSchemaType[] | null) => {
                 if (!oldInputs || !newInputs) {
                     return null
                 }

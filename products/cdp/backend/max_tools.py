@@ -3,13 +3,13 @@ import re
 import json
 from ee.hogai.tool import MaxTool
 from posthog.cdp.validation import compile_hog
-from posthog.hogql.ai import HOG_EXAMPLE_MESSAGE, HOG_GRAMMAR_MESSAGE, IDENTITY_MESSAGE_HOG
-from products.cdp.backend.prompts import HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT, HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 from posthog.hogql.ai import (
     HOG_EXAMPLE_MESSAGE,
     HOG_GRAMMAR_MESSAGE,
     IDENTITY_MESSAGE_HOG,
     HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
+    HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
+    INPUT_SCHEMA_TYPES_MESSAGE,
     EVENT_TAXONOMY_MESSAGE,
     EVENT_PROPERTY_TAXONOMY_MESSAGE,
     PERSON_TAXONOMY_MESSAGE,
@@ -18,6 +18,7 @@ from posthog.hogql.ai import (
 from products.cdp.backend.prompts import (
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
 )
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
@@ -212,37 +213,17 @@ class CreateHogFunctionInputsTool(MaxTool):
     def _run_impl(self, instructions: str) -> tuple[str, list]:
         current_inputs_schema = self.context.get("current_inputs_schema", [])
         hog_code = self.context.get("hog_code", "")
-        function_type = self.context.get("function_type", "destination")
 
-        system_content = f"""You are an expert at creating input variable schemas for PostHog hog functions.
+        system_content = (
+            HOG_FUNCTION_INPUTS_SYSTEM_PROMPT
+            + f"\n\nCurrent hog code:\n{hog_code}"
+            + f"\nCurrent inputs schema:\n{current_inputs_schema}"
+            + "\n\n<input_schema_types>\n"
+            + INPUT_SCHEMA_TYPES_MESSAGE
+            + "\n</input_schema_types>"
+        )
 
-Current hog code:
-{hog_code}
-Current inputs schema:
-{current_inputs_schema}
-Function type: {function_type}
-Your task is to analyze the hog code and create appropriate input variable schemas based on the instructions. 
-CRITICAL: You must extract the EXACT variable names used in the hog code. Look for patterns like:
-- inputs.variableName
-- inputs['variableName'] 
-- inputs["variableName"]
-The "key" field in the schema MUST match exactly what is used in the hog code after "inputs.". For example:
-- If code uses inputs.propertiesToRedact, the key must be "propertiesToRedact" (NOT "properties_to_redact")
-- If code uses inputs.webhookUrl, the key must be "webhookUrl" (NOT "webhook_url")
-- If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
-Input schema format should be a list of objects with these fields:
-- key: string (EXACT variable name as used in hog code, preserve camelCase/snake_case)
-- type: string (one of: string, number, boolean, dictionary, choice, json, integration, email)
-- label: string (human readable label)
-- description: string (description of what this input is for)
-- required: boolean (whether this input is required)
-- default: any (default value, optional)
-- choices: list (for choice type, list of {{label, value}} objects)
-- templating: boolean (whether templating is enabled, defaults to true)
-- secret: boolean (whether this is a secret value, defaults to false)
-Return ONLY a valid JSON array of input schema objects inside <inputs_schema> tags."""
-
-        user_content = f"Create or modify the input variables for this hog function: {instructions}"
+        user_content = f"Create or modify the input variables for this function: {instructions}"
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
@@ -261,6 +242,7 @@ Return ONLY a valid JSON array of input schema objects inside <inputs_schema> ta
 
         # Format the output for display
         import json
+
         formatted_json = json.dumps(parsed_result.inputs_schema, indent=2)
         return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
 
@@ -274,7 +256,7 @@ Return ONLY a valid JSON array of input schema objects inside <inputs_schema> ta
         match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output, re.DOTALL)
         if not match:
             # Try to find JSON array in the output
-            json_match = re.search(r'\[[\s\S]*\]', output)
+            json_match = re.search(r"\[[\s\S]*\]", output)
             if json_match:
                 json_str = json_match.group(0)
             else:
