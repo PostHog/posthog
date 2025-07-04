@@ -2,6 +2,7 @@ import Redis from 'ioredis'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
+import { recordDeduplicationOperation } from './metrics'
 import deduplicationScript from './scripts/deduplication.lua'
 import deduplicationIdsScript from './scripts/deduplication-ids.lua'
 
@@ -158,6 +159,7 @@ export class DeduplicationRedis {
 
     async deduplicate(options: DeduplicationOptions): Promise<DeduplicationCountResult> {
         const { keys, ttl = this.defaultTtl } = options
+        const startTime = Date.now()
 
         if (keys.length === 0) {
             return { duplicates: 0, processed: 0 }
@@ -165,16 +167,20 @@ export class DeduplicationRedis {
 
         if (this.isDisabled) {
             logger.debug('Redis deduplication is disabled, returning safe defaults')
-            return { duplicates: 0, processed: keys.length }
+            const result = { duplicates: 0, processed: keys.length }
+            recordDeduplicationOperation('deduplicate', startTime, result.processed, result.duplicates, 'disabled')
+            return result
         }
 
         try {
             await this.ensureInitialized()
             const duplicates = await this.executeDeduplicationScript(keys, ttl)
-            return {
+            const result = {
                 duplicates,
                 processed: keys.length,
             }
+            recordDeduplicationOperation('deduplicate', startTime, result.processed, result.duplicates, 'success')
+            return result
         } catch (error) {
             // If destroyed, throw the error instead of returning safe defaults
             if (this.isDestroyed) {
@@ -187,12 +193,15 @@ export class DeduplicationRedis {
                 scriptSha: this.scripts.deduplication.sha,
             })
             // Return safe defaults instead of throwing
-            return { duplicates: 0, processed: keys.length }
+            const result = { duplicates: 0, processed: keys.length }
+            recordDeduplicationOperation('deduplicate', startTime, result.processed, result.duplicates, 'error')
+            return result
         }
     }
 
     async deduplicateIds(options: DeduplicationOptions): Promise<DeduplicationIdsResult> {
         const { keys, ttl = this.defaultTtl } = options
+        const startTime = Date.now()
 
         if (keys.length === 0) {
             return { duplicates: [], processed: 0 }
@@ -200,16 +209,20 @@ export class DeduplicationRedis {
 
         if (this.isDisabled) {
             logger.debug('Redis deduplication is disabled, returning safe defaults')
-            return { duplicates: [], processed: keys.length }
+            const result = { duplicates: [], processed: keys.length }
+            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'disabled')
+            return result
         }
 
         try {
             await this.ensureInitialized()
             const duplicates = await this.executeDeduplicationIdsScript(keys, ttl)
-            return {
+            const result = {
                 duplicates,
                 processed: keys.length,
             }
+            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'success')
+            return result
         } catch (error) {
             // If destroyed, throw the error instead of returning safe defaults
             if (this.isDestroyed) {
@@ -222,7 +235,9 @@ export class DeduplicationRedis {
                 scriptSha: this.scripts.deduplicationIds.sha,
             })
             // Return safe defaults instead of throwing
-            return { duplicates: [], processed: keys.length }
+            const result = { duplicates: [], processed: keys.length }
+            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'error')
+            return result
         }
     }
 
