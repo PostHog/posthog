@@ -711,6 +711,7 @@ function useMathSelectorOptions({
     trendsDisplayCategory,
     allowedMathTypes,
     query,
+    mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
 
@@ -721,6 +722,8 @@ function useMathSelectorOptions({
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
+        aggregationLabel,
+        uniqueGroupsMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -731,6 +734,15 @@ function useMathSelectorOptions({
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
+    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(() => {
+        if (math === 'unique_group' && mathGroupTypeIndex !== undefined) {
+            const groupKey = `unique_group::${mathGroupTypeIndex}`
+            const groupDef = uniqueGroupsMathDefinitions[groupKey]
+            return groupDef ? groupKey : 'users'
+        }
+        return 'users'
+    })
+
     let definitions = staticMathDefinitions
     if (mathAvailability === MathAvailability.FunnelsOnly) {
         definitions = funnelMathDefinitions
@@ -739,6 +751,7 @@ function useMathSelectorOptions({
     } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
         definitions = calendarHeatmapMathDefinitions
     }
+    const isGroupsEnabled = !needsUpgradeForGroups || !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
@@ -746,6 +759,11 @@ function useMathSelectorOptions({
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(mathTypeKey)
+            }
+
+            if (key.startsWith('unique_group::')) {
+                // Remove unique group options, as they're being grouped with DAU
+                return false
             }
 
             if (allowedMathTypes) {
@@ -874,6 +892,54 @@ function useMathSelectorOptions({
         }
     }
 
+    if (isGroupsEnabled) {
+        const uniqueActorsOptions = [
+            {
+                value: 'users',
+                label: 'users',
+                'data-attr': `math-users-${index}`,
+            },
+            ...Object.entries(uniqueGroupsMathDefinitions).map(([key, definition]) => ({
+                value: key,
+                label: definition.shortName,
+                'data-attr': `math-${key}-${index}`,
+            })),
+        ]
+
+        const uniqueUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.UniqueUsers
+        )
+        if (uniqueUsersIndex !== -1) {
+            const value = uniqueActorsShown === 'users' ? BaseMathType.UniqueUsers : uniqueActorsShown
+            const label =
+                uniqueActorsShown === 'users' ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
+            options[uniqueUsersIndex] = {
+                value,
+                label,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Unique</span>
+                        <LemonSelect
+                            value={uniqueActorsShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setUniqueActorsShown(value as string)
+                                const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
+                                onMathSelect(index, mathType)
+                            }}
+                            options={uniqueActorsOptions}
+                        />
+                    </div>
+                ),
+                tooltip: `Unique ${uniqueActorsShown}`,
+                'data-attr': `math-node-unique-actors-${index}`,
+            }
+        }
+    }
+
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
@@ -890,10 +956,7 @@ function useMathSelectorOptions({
     return [
         {
             options,
-            footer:
-                needsUpgradeForGroups || canStartUsingGroups ? (
-                    <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-                ) : undefined,
+            footer: !isGroupsEnabled ? <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} /> : undefined,
         },
     ]
 }
