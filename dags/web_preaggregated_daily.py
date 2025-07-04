@@ -70,7 +70,7 @@ def pre_aggregate_web_analytics_data(
     date_end = end_datetime.strftime("%Y-%m-%d")
 
     try:
-        # Drop the partition first for idempotency - ensures clean state before insertion
+        # Drop the partition first, ensuring a clean state before insertion
         drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=not DEBUG)
         context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
 
@@ -78,7 +78,7 @@ def pre_aggregate_web_analytics_data(
             sync_execute(drop_partition_query)
             context.log.info(f"Successfully dropped partition for {date_start}")
         except Exception as drop_error:
-            # Partition might not exist, which is fine for idempotency
+            # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
             context.log.info(f"Partition for {date_start} doesn't exist or couldn't be dropped: {drop_error}")
 
         insert_query = sql_generator(
@@ -89,8 +89,8 @@ def pre_aggregate_web_analytics_data(
             table_name=table_name,
         )
 
-        # Intentionally logging query details for debugging the job
-        context.log.info(f"Inserting data: {insert_query}")
+        # Intentionally log query details for debugging
+        context.log.info(insert_query)
 
         sync_execute(insert_query)
 
