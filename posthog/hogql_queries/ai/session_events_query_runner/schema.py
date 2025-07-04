@@ -23,7 +23,6 @@ class SessionBatchEventsQuery(EventsQuery):
     
     This extends the standard EventsQuery with session-specific capabilities:
     - Batch querying multiple sessions in a single request
-    - Per-session result limiting
     - Session-grouped result organization
     
     Inherits all EventsQuery functionality:
@@ -50,11 +49,6 @@ class SessionBatchEventsQuery(EventsQuery):
         description="Whether to group results by session_id in the response"
     )
     
-    limit_per_session: Optional[int] = Field(
-        default=None,
-        description="Maximum number of events to return per session (applied after global ordering)"
-    )
-    
     # Override response type to use our extended response
     response: Optional[SessionBatchEventsQueryResponse] = None
 
@@ -78,11 +72,6 @@ class SessionEventsItem(BaseModel):
     event_count: int = Field(
         ...,
         description="Number of events returned for this session"
-    )
-    
-    truncated: bool = Field(
-        default=False,
-        description="Whether the event list was truncated due to limit_per_session"
     )
 
 
@@ -111,11 +100,6 @@ class SessionBatchEventsQueryResponse(EventsQueryResponse):
         default_factory=list,
         description="List of session IDs that had no matching events"
     )
-    
-    truncated_sessions: list[str] = Field(
-        default_factory=list,
-        description="List of session IDs that were truncated due to limit_per_session"
-    )
 
 
 # Type aliases for convenience
@@ -128,7 +112,6 @@ def create_session_batch_query(
     events_to_ignore: Optional[list[str]] = None,
     after: Optional[str] = None,
     before: Optional[str] = None,
-    limit_per_session: Optional[int] = None,
     max_total_events: Optional[int] = None,
     include_session_id: bool = True,
     **kwargs: Any,
@@ -142,7 +125,6 @@ def create_session_batch_query(
         events_to_ignore: List of event names to exclude from results
         after: Start time for event filtering
         before: End time for event filtering  
-        limit_per_session: Maximum number of events per session
         max_total_events: Maximum total events across all sessions
         include_session_id: Whether to include $session_id in select fields
         **kwargs: Additional EventsQuery parameters
@@ -202,7 +184,6 @@ def create_session_batch_query(
         "where": where_clauses,
         "orderBy": ["properties.$session_id", "timestamp ASC"],  # Group by session, then chronological
         "limit": max_total_events,
-        "limit_per_session": limit_per_session,
         "group_by_session": True,
         "after": after,
         "before": before,
@@ -218,12 +199,11 @@ def create_session_batch_query(
 query = create_session_batch_query(
     session_ids=["session1", "session2", "session3"],
     after="-7d", 
-    limit_per_session=1000,
     max_total_events=5000
 )
 
-# Execute with existing EventsQueryRunner infrastructure
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+# Execute with the SessionBatchEventsQueryRunner
+from .runner import SessionBatchEventsQueryRunner
 
 runner = SessionBatchEventsQueryRunner(team=team, query=query)
 response = runner.calculate()

@@ -2,7 +2,7 @@
 SessionBatchEventsQueryRunner extending EventsQueryRunner for multi-session event queries.
 
 This runner leverages PostHog's existing EventsQueryRunner infrastructure while adding
-session-specific capabilities like result grouping and per-session limiting.
+session-specific capabilities like result grouping.
 """
 
 from typing import Any, List
@@ -25,9 +25,8 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
     
     Key additions:
     1. Session-grouped result organization  
-    2. Per-session event limiting
-    3. Session-specific metadata tracking
-    4. Optimized query construction for multi-session scenarios
+    2. Session-specific metadata tracking
+    3. Optimized query construction for multi-session scenarios
     """
     
     query: SessionBatchEventsQuery
@@ -38,7 +37,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
         Execute the session batch query and organize results by session.
         
         This method leverages the parent EventsQueryRunner.calculate() for query execution,
-        then post-processes the results to group by session and apply session-specific limits.
+        then post-processes the results to group by session.
         
         Returns:
             SessionBatchEventsQueryResponse with session-grouped results and metadata
@@ -54,7 +53,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
                 total_sessions=None,
             )
         
-        # Group results by session and apply per-session limits
+        # Group results by session
         session_events_data = self._group_events_by_session(
             results=base_response.results,
             columns=base_response.columns or []
@@ -63,32 +62,19 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
         # Create SessionEventsItem list
         session_events: List[SessionEventsItem] = []
         sessions_with_no_events: List[str] = []
-        truncated_sessions: List[str] = []
         
         for session_id in self.query.session_ids:
             if session_id in session_events_data:
                 events = session_events_data[session_id]
-                
-                # Apply per-session limit if specified
-                truncated = False
-                if self.query.limit_per_session and len(events) > self.query.limit_per_session:
-                    events = events[:self.query.limit_per_session]
-                    truncated = True
-                    truncated_sessions.append(session_id)
-                
                 session_events.append(
                     SessionEventsItem(
                         session_id=session_id,
                         events=events,
                         event_count=len(events),
-                        truncated=truncated,
                     )
                 )
             else:
                 sessions_with_no_events.append(session_id)
-        
-        # Calculate total events across all sessions (for potential future use)
-        # total_events = sum(item.event_count for item in session_events)
         
         # Create the extended response
         return SessionBatchEventsQueryResponse(
@@ -109,7 +95,6 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
             session_events=session_events,
             total_sessions=len(session_events),
             sessions_with_no_events=sessions_with_no_events,
-            truncated_sessions=truncated_sessions,
         )
 
     def _group_events_by_session(
@@ -166,32 +151,6 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
         
         return events_by_session
 
-    def _get_session_id_column_index(self, columns: List[str]) -> int:
-        """
-        Find the index of the session_id column in the results.
-        
-        Args:
-            columns: List of column names from the query
-            
-        Returns:
-            Index of the session_id column
-            
-        Raises:
-            ValueError: If session_id column is not found
-        """
-        session_id_columns = ["properties.$session_id", "$session_id"]
-        
-        for session_col in session_id_columns:
-            try:
-                return columns.index(session_col)
-            except ValueError:
-                continue
-        
-        raise ValueError(
-            f"Session ID column not found in query results. "
-            f"Expected one of {session_id_columns}, got columns: {columns}"
-        )
-
 
 # Convenience functions for common use cases
 
@@ -199,7 +158,6 @@ def query_session_events_batch(
     team,
     session_ids: List[str],
     after: str = "-7d",
-    limit_per_session: int = 1000,
     max_total_events: int = 10000,
     events_to_ignore: List[str] = None,
     **kwargs
@@ -211,7 +169,6 @@ def query_session_events_batch(
         team: PostHog team instance
         session_ids: List of session IDs to query
         after: Time range start (e.g., "-7d", "2023-01-01")
-        limit_per_session: Maximum events per session
         max_total_events: Maximum total events across all sessions
         events_to_ignore: Events to exclude from results
         **kwargs: Additional query parameters
@@ -224,7 +181,6 @@ def query_session_events_batch(
     query = create_session_batch_query(
         session_ids=session_ids,
         after=after,
-        limit_per_session=limit_per_session,
         max_total_events=max_total_events,
         events_to_ignore=events_to_ignore,
         **kwargs
@@ -241,7 +197,6 @@ response = query_session_events_batch(
     team=team,
     session_ids=["session1", "session2", "session3"],
     after="-24h",
-    limit_per_session=2000,
     max_total_events=8000
 )
 
@@ -263,8 +218,7 @@ query = create_session_batch_query(
     session_ids=session_ids,
     select=["event", "timestamp", "properties.custom_field"],
     where=["properties.important = true"],
-    after="-30d",
-    limit_per_session=5000
+    after="-30d"
 )
 
 runner = SessionBatchEventsQueryRunner(team=team, query=query)
