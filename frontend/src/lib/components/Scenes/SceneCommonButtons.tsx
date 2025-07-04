@@ -11,18 +11,18 @@ type SceneCommonButtonsButtonProps = {
 }
 
 type SceneCommonButtonsProps = {
-    shortId?: string
-    favorite?: SceneCommonButtonsButtonProps
     dashboard?: SceneCommonButtonsButtonProps
-    notebook?: SceneCommonButtonsButtonProps
     duplicate?: SceneCommonButtonsButtonProps
+    favorite?: SceneCommonButtonsButtonProps
+    notebook?: SceneCommonButtonsButtonProps
+    shortId?: string
 }
 
 export function SceneCommonButtons({
-    favorite,
     dashboard,
-    notebook,
     duplicate,
+    favorite,
+    notebook,
     shortId,
 }: SceneCommonButtonsProps): JSX.Element {
     return (
