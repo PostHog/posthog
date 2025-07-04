@@ -548,7 +548,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$set",
                 "properties": {
-                    "$process_person_profile": True,
                     "$set": {"foo": "bar", "bar": "baz"},
                 },
                 "distinct_id": "some_distinct_id",
@@ -593,7 +592,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$set",
                 "properties": {
-                    "$process_person_profile": True,
                     "$set": {"foo": "bar"},
                 },
                 "distinct_id": "some_distinct_id",
@@ -623,7 +621,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 "event": "$delete_person_property",
                 "distinct_id": "some_distinct_id",
                 "properties": {
-                    "$process_person_profile": True,
                     "$unset": ["foo"],
                 },
                 "timestamp": mock.ANY,
