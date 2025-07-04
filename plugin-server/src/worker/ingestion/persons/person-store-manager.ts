@@ -5,7 +5,6 @@ import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
-import { cloneObject } from '../../../utils/utils'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { MeasuringPersonsStore, MeasuringPersonsStoreForBatch } from './measuring-person-store'
 import { personShadowModeComparisonCounter, personShadowModeReturnIntermediateOutcomeCounter } from './metrics'
@@ -273,10 +272,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         // We must make a clone of person since applyEventPropertyUpdates will mutate it
-        const personClone = cloneObject(person)
         const [mainPersonResult, mainKafkaMessages, mainVersionDisparity] =
             await this.mainStore.updatePersonWithPropertiesDiffForUpdate(
-                personClone,
+                person,
                 propertiesToSet,
                 propertiesToUnset,
                 otherUpdates,

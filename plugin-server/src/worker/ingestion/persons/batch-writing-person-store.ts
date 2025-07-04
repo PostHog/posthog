@@ -789,9 +789,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             delete personUpdate.properties_to_set[key]
         })
 
-        // Apply other updates
-        Object.assign(personUpdate, otherUpdates)
-
         // Handle is_identified specially with || operator
         if (otherUpdates.is_identified !== undefined) {
             personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
