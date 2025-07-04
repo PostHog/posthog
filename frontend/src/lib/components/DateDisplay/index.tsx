@@ -3,12 +3,16 @@ import './DateDisplay.scss'
 import { dayjs } from 'lib/dayjs'
 
 import { IntervalType } from '~/types'
+import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { getWeekBoundaries } from 'lib/utils/dateTimeUtils'
 
 interface DateDisplayProps {
     date: string
     secondaryDate?: string
     interval: IntervalType
     hideWeekRange?: boolean
+    resolvedDateRange?: ResolvedDateRangeResponse
+    weekStartDay?: number
 }
 
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
@@ -39,8 +43,31 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
 /* Returns a single line standardized component to display the date depending on context.
     For example, a single date in a graph will be shown as: `Th` Apr 22.
 */
-export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: DateDisplayProps): JSX.Element {
-    const parsedDate = dayjs.utc(date)
+export function DateDisplay({
+    date,
+    secondaryDate,
+    interval,
+    hideWeekRange,
+    resolvedDateRange,
+    weekStartDay,
+}: DateDisplayProps): JSX.Element {
+    let parsedDate = dayjs.utc(date)
+    let weekEnd = null
+
+    if (interval === 'week' && resolvedDateRange?.date_from && resolvedDateRange?.date_to) {
+        const dateFrom = dayjs.utc(resolvedDateRange?.date_from)
+        const dateTo = dayjs.utc(resolvedDateRange?.date_to)
+        let boundaryDateRange = null
+        if (dateFrom && dateTo && dateFrom.isValid() && dateTo.isValid()) {
+            boundaryDateRange = {
+                dateFrom,
+                dateTo,
+            }
+        }
+        const weekBoundaries = getWeekBoundaries(parsedDate, boundaryDateRange, weekStartDay || 0)
+        parsedDate = weekBoundaries.weekStart
+        weekEnd = weekBoundaries.weekEnd
+    }
 
     return (
         <>
@@ -54,12 +81,12 @@ export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: Da
                     </span>
                 )}
             </span>
-            {interval === 'week' && !hideWeekRange && (
+            {interval === 'week' && !hideWeekRange && weekEnd && (
                 <>
                     {/* TODO: @EDsCODE will help validate; this should probably come from the backend  */}
                     {/* A week ends on the 7th day of the week, so we add 6 days to the start date to get the end date */}
                     {' – '}
-                    <DateDisplay interval="day" date={parsedDate.add(6, 'day').toJSON()} />
+                    <DateDisplay interval="day" date={weekEnd.toJSON()} />
                 </>
             )}
         </>
