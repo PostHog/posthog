@@ -616,7 +616,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         try:
             for symbol_set_id, content_hash in content_hashes.items():
                 symbol_set = ErrorTrackingSymbolSet.objects.get(id=symbol_set_id, team=self.team)
-                s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
+                s3_upload = None
+                if symbol_set.storage_ptr:
+                    s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
 
                 if s3_upload:
                     content_length = s3_upload.get("ContentLength")
@@ -641,9 +643,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
                 try:
-                    symbol_set = ErrorTrackingSymbolSet.objects.all().filter(id=id, team=self.team).first()
-                    if symbol_set:
-                        symbol_set.delete()
+                    symbol_set = ErrorTrackingSymbolSet.objects.all().filter(id=id, team=self.team).get()
+                    symbol_set.delete()
                 except Exception:
                     pass
 
