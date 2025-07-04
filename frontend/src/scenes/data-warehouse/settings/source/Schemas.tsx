@@ -332,7 +332,14 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 return null
                             }
                             const tagContent = (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>
+                                    {schema.status}
+                                    {schema.latest_error && schema.status === 'Failed' && (
+                                        <span className="ml-0.5 inline-flex items-center justify-center w-3 h-3 bg-danger/90 text-white rounded-full text-[10px] font-medium tracking-tight shadow-md backdrop-blur-sm border border-danger/20">
+                                            ?
+                                        </span>
+                                    )}
+                                </LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>

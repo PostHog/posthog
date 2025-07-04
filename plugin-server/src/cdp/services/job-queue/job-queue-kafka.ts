@@ -52,8 +52,12 @@ export class CyclotronJobQueueKafka {
         })
     }
 
-    public async stop() {
-        await Promise.all([this.kafkaConsumer?.disconnect(), this.kafkaProducer?.disconnect()])
+    public async stopConsumer() {
+        await this.kafkaConsumer?.disconnect()
+    }
+
+    public async stopProducer() {
+        await this.kafkaProducer?.disconnect()
     }
 
     public isHealthy() {
@@ -108,10 +112,6 @@ export class CyclotronJobQueueKafka {
         const invocations = invocationResults.reduce((acc, res) => {
             if (res.finished) {
                 return acc
-            }
-
-            if (res.invocation.queue === 'fetch' && !res.invocation.queueParameters) {
-                throw new Error('Fetch job has no queue parameters')
             }
 
             return [...acc, res.invocation]

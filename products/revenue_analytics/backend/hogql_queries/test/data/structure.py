@@ -129,3 +129,15 @@ STRIPE_PRODUCT_COLUMNS = {
     "description": "String",
     "default_price_id": "String",
 }
+
+STRIPE_SUBSCRIPTION_COLUMNS = {
+    "id": "String",
+    "customer": "String",
+    "plan": "String",
+    "created": "DateTime",
+    "ended_at": "DateTime",
+    "current_period_start": "DateTime",
+    "current_period_end": "DateTime",
+    "status": "String",
+    "metadata": "String",
+}

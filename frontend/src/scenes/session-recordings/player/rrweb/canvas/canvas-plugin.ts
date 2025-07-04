@@ -215,7 +215,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
                 const el = containers.get(id) || document.createElement('img')
-                ;(node as HTMLCanvasElement).appendChild(el)
+                const parent = node.parentNode as Node
+                parent?.replaceChild?.(el, node as Node)
                 containers.set(id, el)
             }
         },
