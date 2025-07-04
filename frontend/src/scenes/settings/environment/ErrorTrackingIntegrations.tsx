@@ -4,43 +4,26 @@ import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
-import { IntegrationType } from '~/types'
-
-type Integration = {
-    name: 'Linear' | 'GitHub'
-    kind: 'linear' | 'github'
-    integrations: IntegrationType[]
-}
+import { IntegrationKind } from '~/types'
 
 export function ErrorTrackingIntegrations(): JSX.Element {
-    const { linearIntegrations, githubIntegrations } = useValues(integrationsLogic)
-
-    const integrations: Integration[] = [
-        {
-            name: 'GitHub',
-            kind: 'github',
-            integrations: githubIntegrations,
-        },
-        {
-            name: 'Linear',
-            kind: 'linear',
-            integrations: linearIntegrations,
-        },
-    ]
-
     return (
         <div className="flex flex-col gap-y-6">
-            {integrations.map((integration) => (
-                <Integration integration={integration} />
-            ))}
+            <Integration kind="github" />
+            <Integration kind="linear" />
         </div>
     )
 }
 
-const Integration = ({ integration: { name, kind, integrations } }: { integration: Integration }): JSX.Element => {
+const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+
+    const name = getIntegrationNameFromKind(kind)
+    const integrations = getIntegrationsByKind([kind])
 
     const onDeleteClick = (id: number): void => {
         LemonDialog.open({

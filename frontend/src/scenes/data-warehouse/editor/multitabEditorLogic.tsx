@@ -890,7 +890,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
-                content: ({ isLoading }) =>
+                content: (isLoading) =>
                     isLoading ? (
                         <div className="h-[37px] flex items-center">
                             <ViewEmptyState />

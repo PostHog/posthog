@@ -2019,10 +2019,12 @@ export interface ErrorTrackingIssueAggregations {
     volumeRange: number[]
 }
 
+export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
+
 export interface ErrorTrackingExternalReference {
     id: string
     external_url: string
-    integration: Pick<IntegrationType, 'display_name' | 'id' | 'kind'>
+    integration: ErrorTrackingExternalReferenceIntegration
 }
 
 export interface ErrorTrackingRelationalIssue {

@@ -4,7 +4,7 @@ import hmac
 import time
 import jwt
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
@@ -13,6 +13,7 @@ from prometheus_client import Counter
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -940,7 +941,7 @@ class LinearIntegration:
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
         attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
-        link_attachment_query = f'mutation AttachmentLinkURL {{ attachmentLinkURL(url: "{attachment_url}", issueId: "{linear_issue_id}", title: "PostHog issue") {{ success }} }}'
+        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
         self.query(link_attachment_query)
 
         return linear_issue_id
@@ -1053,5 +1054,5 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
-    def create_issue(self, title, description, config):
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
         pass

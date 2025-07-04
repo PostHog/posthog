@@ -2572,14 +2572,12 @@ const api = {
 
         async createExternalReference(
             issueId: string,
-            title: string,
-            description: string,
             integrationId: number,
             config: Record<string, string>
         ): Promise<ErrorTrackingExternalReference> {
             return await new ApiRequest()
                 .errorTrackingExternalReference()
-                .create({ data: { integration: integrationId, issue: issueId, title, description, config } })
+                .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
     },
 

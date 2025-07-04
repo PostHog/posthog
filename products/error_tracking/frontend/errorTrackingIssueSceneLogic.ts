@@ -63,14 +63,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
-        createExternalReference: (
-            title: string,
-            description: string,
-            integrationId: IntegrationType['id'],
-            config: Record<string, string>
-        ) => ({
-            title,
-            description,
+        createExternalReference: (integrationId: IntegrationType['id'], config: Record<string, string>) => ({
             integrationId,
             config,
         }),
@@ -126,16 +119,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
-            createExternalReference: async ({ title, description, integrationId, config }) => {
-                const response = await api.errorTracking.createExternalReference(
-                    props.id,
-                    title,
-                    description,
-                    integrationId,
-                    config
-                )
-                const externalReferences = values.issue?.external_issues ?? []
-                return { ...values.issue, external_issues: [...externalReferences, response] }
+            createExternalReference: async ({ integrationId, config }) => {
+                const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                return { ...values.issue, external_issues: [response] }
             },
         },
         firstSeenEvent: {

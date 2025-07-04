@@ -13,9 +13,7 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
-        content?:
-            | (({ isLoading, values }: { isLoading: boolean; values: Record<string, any> }) => ReactNode)
-            | ReactNode
+        content?: ((isLoading: boolean) => ReactNode) | ReactNode
     }
 
 export type LemonDialogProps = Pick<
@@ -156,7 +154,7 @@ export const LemonFormDialog = ({
     }
 
     // Resolve content, supporting both function and static content
-    const resolvedContent = typeof content === 'function' ? content({ isLoading, values: form }) : content
+    const resolvedContent = typeof content === 'function' ? content(isLoading) : content
 
     useEffect(() => {
         setFormValues(initialValues)

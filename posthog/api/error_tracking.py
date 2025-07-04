@@ -55,7 +55,6 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Integration
         fields = ["id", "kind", "display_name"]
@@ -63,15 +62,16 @@ class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSeria
 
 
 class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
-    title = serializers.CharField(write_only=True)
-    description = serializers.CharField(write_only=True)
     config = serializers.JSONField(write_only=True)
-    integration = ErrorTrackingExternalReferenceIntegrationSerializer()
+    integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration"
+    )
     external_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingExternalReference
-        fields = ["id", "integration", "config", "issue", "external_url"]
+        fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
         read_only_fields = ["external_url"]
 
     def get_external_url(self, reference: ErrorTrackingExternalReference):
@@ -102,7 +102,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         config: dict[str, Any] = validated_data.pop("config")
 
         if integration.kind == "github":
-            external_id = GitHubIntegration(integration).create_issue(config)
+            external_id = GitHubIntegration(integration).create_issue(team.pk, issue.id, config)
         elif integration.kind == "linear":
             external_id = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
         else:
