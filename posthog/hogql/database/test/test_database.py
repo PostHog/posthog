@@ -55,7 +55,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             connection_id="test_connection",
             destination_id="test_destination",
             team=self.team,
-            status="Running",
+            status=ExternalDataSource.Status.RUNNING,
             source_type="Stripe",
         )
         DataWarehouseTable.objects.create(
