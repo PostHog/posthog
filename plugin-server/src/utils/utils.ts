@@ -341,7 +341,6 @@ export function castTimestampToClickhouseFormat(
         logger.error('🔴', 'Timestamp is missing toUTC method', {
             timestamp,
             type: typeof timestamp,
-            toUTC: timestamp.toUTC.toString(),
         })
     }
     timestamp = timestamp.toUTC()
