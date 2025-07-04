@@ -40,6 +40,21 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
+function createInitialEventsPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            where: ["notEquals(event, '$exception')"],
+            after: '-24h',
+        },
+    }
+}
+
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
@@ -112,19 +127,10 @@ export const personsLogic = kea<personsLogicType>([
                     const person = response.results[0]
                     if (person) {
                         actions.reportPersonDetailViewed(person)
-                        const eventsQuery: DataTableNode = {
-                            kind: NodeKind.DataTableNode,
-                            full: true,
-                            hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                personId: person.id,
-                                where: ["notEquals(event, '$exception')"],
-                                after: '-24h',
-                            },
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
                         }
-                        actions.setEventsQuery(eventsQuery)
                     }
 
                     return person
@@ -146,19 +152,10 @@ export const personsLogic = kea<personsLogicType>([
                             created_at: row[4],
                         }
                         actions.reportPersonDetailViewed(person)
-                        const eventsQuery: DataTableNode = {
-                            kind: NodeKind.DataTableNode,
-                            full: true,
-                            hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                personId: person.id,
-                                where: ["notEquals(event, '$exception')"],
-                                after: '-24h',
-                            },
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
                         }
-                        actions.setEventsQuery(eventsQuery)
                         return person
                     }
                     return null
