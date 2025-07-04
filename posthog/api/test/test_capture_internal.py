@@ -208,7 +208,7 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e) == "API token is required"
+        assert str(e.exception) == "capture_internal: API token is required"
 
     def test_new_capture_internal_invalid_distinct_id(self):
         token = "abc123"
@@ -234,7 +234,7 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e) == "distinct ID is required"
+        assert str(e.exception) == "capture_internal: distinct ID is required"
 
     def test_new_capture_internal_invalid_event_name(self):
         token = "abc123"
@@ -258,4 +258,4 @@ class TestCaptureInternal(BaseTest):
 
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
-            assert str(e) == "event name is required"
+        assert str(e.exception) == "capture_internal: event name is required"
