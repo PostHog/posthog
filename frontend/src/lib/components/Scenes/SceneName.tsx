@@ -26,7 +26,6 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
         onSave(localValue)
         setHasChanged(false)
         setLocalIsEditing(false)
-        setLocalValue(localValue)
     }
 
     useEffect(() => {
