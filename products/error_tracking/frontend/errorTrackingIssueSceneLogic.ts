@@ -21,7 +21,6 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -39,12 +38,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         const filtersLogic = errorFiltersLogic()
         const issueActions = issueActionsLogic()
         return {
-            values: [
-                filtersLogic,
-                ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
-                integrationsLogic,
-                ['integrations'],
-            ],
+            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
             actions: [
                 filtersLogic,
                 ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
