@@ -37,6 +37,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'thirdId',
@@ -53,6 +54,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'fourthId',
@@ -69,6 +71,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
         ]
 

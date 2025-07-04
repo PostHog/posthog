@@ -182,16 +182,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        linearIntegrations: [
+        getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.filter((x) => x.kind == 'linear') || []
-            },
-        ],
-        githubIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind == 'github') || []
+                return (kinds: IntegrationKind[]) => integrations?.filter((i) => kinds.includes(i.kind)) || []
             },
         ],
 

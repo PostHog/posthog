@@ -630,6 +630,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/external_references",
+    error_tracking.ErrorTrackingExternalReferenceViewSet,
+    "project_error_tracking_external_references",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",

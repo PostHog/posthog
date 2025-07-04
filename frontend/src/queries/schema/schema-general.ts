@@ -27,6 +27,7 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
+    IntegrationType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
@@ -2036,6 +2037,14 @@ export interface ErrorTrackingIssueAggregations {
     volumeRange: number[]
 }
 
+export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
+
+export interface ErrorTrackingExternalReference {
+    id: string
+    external_url: string
+    integration: ErrorTrackingExternalReferenceIntegration
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2044,6 +2053,7 @@ export interface ErrorTrackingRelationalIssue {
     status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
+    external_issues: ErrorTrackingExternalReference[]
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {

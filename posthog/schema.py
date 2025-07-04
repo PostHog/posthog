@@ -1490,6 +1490,21 @@ class InsightsThresholdBounds(BaseModel):
     upper: Optional[float] = None
 
 
+class IntegrationKind(StrEnum):
+    SLACK = "slack"
+    SALESFORCE = "salesforce"
+    HUBSPOT = "hubspot"
+    GOOGLE_PUBSUB = "google-pubsub"
+    GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+    GOOGLE_ADS = "google-ads"
+    LINKEDIN_ADS = "linkedin-ads"
+    SNAPCHAT = "snapchat"
+    INTERCOM = "intercom"
+    EMAIL = "email"
+    LINEAR = "linear"
+    GITHUB = "github"
+
+
 class IntervalType(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -3066,6 +3081,24 @@ class ElementPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
 
 
+class Integration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
+
+
+class ErrorTrackingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: Integration
+
+
 class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3091,6 +3124,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
+    external_issues: list[ErrorTrackingExternalReference]
     first_seen: datetime
     id: str
     name: Optional[str] = None
@@ -6886,6 +6920,7 @@ class ErrorTrackingIssue(BaseModel):
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
+    external_issues: list[ErrorTrackingExternalReference]
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
