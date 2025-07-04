@@ -409,6 +409,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueAnalyticsCustomerCountQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
+            RevenueAnalyticsCustomerCountQueryRunner,
+        )
+
+        return RevenueAnalyticsCustomerCountQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "RevenueAnalyticsGrowthRateQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
             RevenueAnalyticsGrowthRateQueryRunner,
@@ -655,6 +668,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
 

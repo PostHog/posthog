@@ -4,7 +4,7 @@ jest.mock('~/utils/posthog', () => {
     }
 })
 
-import { Hub } from '../../../types'
+import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { delay } from '../../../utils/utils'
 import { createExampleInvocation } from '../../_tests/fixtures'
@@ -302,6 +302,21 @@ describe('HogWatcher', () => {
     })
 
     describe('forceStateChange', () => {
+        beforeEach(() => {
+            hub.teamManager.getTeam = jest.fn().mockResolvedValue({
+                id: 2,
+                project_id: 1 as ProjectId,
+                uuid: 'test-uuid',
+                organization_id: 'organization-id',
+                name: 'testTeam',
+                anonymize_ips: false,
+                api_token: 'token',
+                slack_incoming_webhook: '',
+                session_recording_opt_in: false,
+                ingested_event: true,
+            } as Team)
+        })
+
         const hogFunction = createResult({ id: 'id1' }).invocation.hogFunction
         it('should force healthy', async () => {
             await watcher.forceStateChange(hogFunction, HogWatcherState.healthy)
@@ -318,7 +333,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.healthy,
+                state: HogWatcherState[HogWatcherState.healthy],
             })
         })
         it('should force degraded', async () => {
@@ -336,7 +351,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.degraded,
+                state: HogWatcherState[HogWatcherState.degraded],
             })
         })
         it('should force disabledForPeriod', async () => {
@@ -357,7 +372,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.disabledForPeriod,
+                state: HogWatcherState[HogWatcherState.disabledForPeriod],
             })
         })
         it('should force disabledIndefinitely', async () => {
@@ -378,7 +393,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.disabledIndefinitely,
+                state: HogWatcherState[HogWatcherState.disabledIndefinitely],
             })
         })
     })
