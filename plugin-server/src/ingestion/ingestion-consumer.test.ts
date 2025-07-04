@@ -298,7 +298,6 @@ describe('IngestionConsumer', () => {
                 const input1 = createKafkaMessages(events1)
                 await ingester.handleKafkaBatch(input1)
                 const messages = mockProducerObserver.getProducedKafkaMessages()
-                console.log(messages)
                 const eventsA = messages.filter(
                     (m) => m.topic === 'clickhouse_events_json_test' && m.value?.event === '$pageview'
                 )
