@@ -25,7 +25,7 @@ def migrate_playlist_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0784_fix_null_event_triggers"),
+        ("posthog", "0785_team_drop_events_older_than_seconds"),
     ]
 
     operations = [
