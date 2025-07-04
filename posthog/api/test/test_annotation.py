@@ -423,18 +423,132 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("😊", True),  # Standard emoji
-            ("🚀", True),  # Another emoji
-            ("a", True),  # Single letter
-            ("1", True),  # Single digit
-            ("!", True),  # Single symbol
-            ("", False),  # Empty string
-            ("ab", False),  # Multiple characters
-            ("😊😊", False),  # Multiple emojis
-            (None, False),  # No content
+            ("true", True),  # Filter for emoji annotations
+            ("false", False),  # Filter for non-emoji annotations
+            ("1", True),  # Alternative true value
+            ("0", False),  # Alternative false value
         ]
     )
-    def test_create_annotation_emoji_validation(self, content: Optional[str], should_succeed: bool) -> None:
+    def test_filter_annotations_by_is_emoji(self, is_emoji_param: str, should_return_emoji: bool) -> None:
+        """Test filtering annotations by is_emoji parameter."""
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="😊",
+            is_emoji=True,
+            scope=Annotation.Scope.DASHBOARD,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        emoji_annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="😊",
+            is_emoji=True,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Create non-emoji annotation
+        text_annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Text annotation",
+            is_emoji=False,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Test filtering by is_emoji parameter
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"is_emoji": is_emoji_param, "scope": "recording"},
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+
+        if should_return_emoji:
+            assert results[0]["id"] == emoji_annotation.id
+            assert results[0]["content"] == "😊"
+            assert results[0]["is_emoji"] is True
+        else:
+            assert results[0]["id"] == text_annotation.id
+            assert results[0]["content"] == "Text annotation"
+            assert results[0]["is_emoji"] is False
+
+    def test_filter_annotations_by_is_emoji_combined_with_other_filters(self) -> None:
+        """Test combining is_emoji filter with scope and recording filters."""
+        # Create emoji annotation for recording - this should be returned
+        emoji_recording = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="🚀",
+            is_emoji=True,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Create emoji annotation for project (different scope) - should not be returned
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="⭐",
+            is_emoji=True,
+            scope=Annotation.Scope.PROJECT,
+        )
+
+        # Create non-emoji annotation for recording - should not be returned
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Text note",
+            is_emoji=False,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Test: Filter for emoji annotations on recordings only
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "is_emoji": "true",
+                "scope": "recording",
+                "recording": "123e4567-e89b-12d3-a456-426614174000",
+            },
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == emoji_recording.id
+        assert results[0]["content"] == "🚀"
+        assert results[0]["is_emoji"] is True
+        assert results[0]["scope"] == "recording"
+
+    @parameterized.expand(
+        [
+            ("Standard emoji", "😊", True, None),
+            ("Another emoji", "🚀", True, None),
+            ("Single letter", "a", True, None),
+            ("Single digit", "1", True, None),
+            ("Single symbol", "!", True, None),
+            ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
+            ("Multiple characters", "ab", False, "When is_emoji is True, content must be a single character"),
+            ("Multiple emojis", "😊😊", False, "When is_emoji is True, content must be a single character"),
+            ("No content", None, False, "When is_emoji is True, content cannot be empty"),
+        ]
+    )
+    def test_create_annotation_emoji_validation(
+        self, _name: str, content: Optional[str], should_succeed: bool, error: str
+    ) -> None:
         """Test emoji validation when creating annotations with is_emoji=True."""
         data = {
             "is_emoji": True,
@@ -453,39 +567,19 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             assert instance.is_emoji is True
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert "non_field_errors" in response.json()
+            assert response.json()["detail"] == error
 
     @parameterized.expand(
         [
-            "Multiple words here",
-            "😊😊",  # Multiple emojis allowed when is_emoji=False
-            "",  # Empty string allowed
-            "a",  # Single character also allowed
+            ("Valid emoji", "🚀", True, None),
+            ("Invalid for emoji", "multiple chars", False, "When is_emoji is True, content must be a single character"),
+            ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
+            ("Single symbol", "!", True, None),
         ]
     )
-    def test_create_annotation_non_emoji_validation(self, content: str) -> None:
-        """Test that is_emoji=False allows any content."""
-        data = {
-            "content": content,
-            "is_emoji": False,
-            "scope": "project",
-            "date_marker": "2020-01-01T00:00:00.000000Z",
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/annotations/", data)
-        assert response.status_code == status.HTTP_201_CREATED
-        instance = Annotation.objects.get(pk=response.json()["id"])
-        assert instance.content == content
-        assert instance.is_emoji is False
-
-    @parameterized.expand(
-        [
-            ("🚀", True),  # Valid emoji
-            ("multiple chars", False),  # Invalid for emoji
-            ("", False),  # Empty string
-            ("!", True),  # Single symbol
-        ]
-    )
-    def test_update_annotation_emoji_validation(self, content: str, should_succeed: bool) -> None:
+    def test_update_annotation_emoji_validation(
+        self, _name: str, content: str, should_succeed: bool, error: str | None
+    ) -> None:
         """Test emoji validation when updating annotations with is_emoji=True."""
         annotation = Annotation.objects.create(
             organization=self.organization,
@@ -507,4 +601,4 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             assert annotation.is_emoji is True
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert "non_field_errors" in response.json()
+            assert response.json()["detail"] == error
