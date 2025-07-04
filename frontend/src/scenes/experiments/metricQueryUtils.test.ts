@@ -343,7 +343,7 @@ describe('Data Warehouse Support', () => {
             })
         })
 
-        it('returns the correct filter for a funnel metric with mixed steps including data warehouse', () => {
+        it('handles funnel metrics with mixed steps (events and actions only)', () => {
             const metric: ExperimentMetric = {
                 kind: NodeKind.ExperimentMetric,
                 metric_type: ExperimentMetricType.FUNNEL,
@@ -353,14 +353,6 @@ describe('Data Warehouse Support', () => {
                         event: '$pageview',
                         name: '$pageview',
                     } as EventsNode,
-                    {
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                        table_name: 'purchases',
-                        timestamp_field: 'purchase_date',
-                        events_join_key: 'user_id',
-                        data_warehouse_join_key: 'customer_id',
-                        name: 'purchases',
-                    } as ExperimentDataWarehouseNode,
                     {
                         kind: NodeKind.ActionsNode,
                         id: 42,
@@ -385,23 +377,11 @@ describe('Data Warehouse Support', () => {
                         id: 42,
                         name: 'subscription_action',
                         type: 'actions',
-                        order: 2,
+                        order: 1,
                         kind: NodeKind.ActionsNode,
                     },
                 ],
-                data_warehouse: [
-                    {
-                        id: 'purchases',
-                        name: 'purchases',
-                        type: 'data_warehouse',
-                        table_name: 'purchases',
-                        timestamp_field: 'purchase_date',
-                        events_join_key: 'user_id',
-                        data_warehouse_join_key: 'customer_id',
-                        order: 1,
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                    },
-                ],
+                data_warehouse: [], // Data warehouse nodes are not supported in funnel metrics
             })
         })
     })
@@ -456,7 +436,7 @@ describe('Data Warehouse Support', () => {
             )
         })
 
-        it('properly converts ExperimentDataWarehouseNode to DataWarehouseNode in funnel queries', () => {
+        it('returns the correct query for funnel metrics with events and actions', () => {
             const metric: ExperimentMetric = {
                 kind: NodeKind.ExperimentMetric,
                 metric_type: ExperimentMetricType.FUNNEL,
@@ -467,13 +447,10 @@ describe('Data Warehouse Support', () => {
                         name: 'landing_page_view',
                     } as EventsNode,
                     {
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                        table_name: 'crm_leads',
-                        timestamp_field: 'lead_created_at',
-                        events_join_key: 'user_id',
-                        data_warehouse_join_key: 'contact_id',
-                        name: 'crm_leads',
-                    } as ExperimentDataWarehouseNode,
+                        kind: NodeKind.ActionsNode,
+                        id: 123,
+                        name: 'signup_action',
+                    } as ActionsNode,
                 ],
             }
 
@@ -489,15 +466,9 @@ describe('Data Warehouse Support', () => {
                     name: 'landing_page_view',
                 },
                 {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: 'crm_leads',
-                    id_field: 'contact_id',
-                    distinct_id_field: 'user_id',
-                    table_name: 'crm_leads',
-                    timestamp_field: 'lead_created_at',
-                    name: 'crm_leads',
-                    data_warehouse_join_key: 'contact_id',
-                    events_join_key: 'user_id',
+                    kind: NodeKind.ActionsNode,
+                    id: 123,
+                    name: 'signup_action',
                 },
             ])
         })
@@ -545,28 +516,26 @@ describe('Data Warehouse Support', () => {
             expect(filter.data_warehouse?.[0]?.table_name).toBe('')
         })
 
-        it('preserves custom names and properties for data warehouse nodes', () => {
+        it('preserves custom names and properties for data warehouse nodes in mean metrics', () => {
             const metric: ExperimentMetric = {
                 kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.FUNNEL,
-                series: [
-                    {
-                        kind: NodeKind.ExperimentDataWarehouseNode,
-                        table_name: 'analytics_events',
-                        timestamp_field: 'event_time',
-                        events_join_key: 'user_uuid',
-                        data_warehouse_join_key: 'user_external_id',
-                        name: 'analytics_events',
-                        custom_name: 'Custom Analytics Event',
-                        properties: [
-                            { key: 'category', value: ['conversion'], operator: 'exact', type: 'event' },
-                            { key: 'value', value: [100], operator: 'gte', type: 'event' },
-                        ],
-                        math: 'total',
-                        math_property: 'conversion_value',
-                        math_hogql: 'sum(conversion_value)',
-                    } as ExperimentDataWarehouseNode,
-                ],
+                metric_type: ExperimentMetricType.MEAN,
+                source: {
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    table_name: 'analytics_events',
+                    timestamp_field: 'event_time',
+                    events_join_key: 'user_uuid',
+                    data_warehouse_join_key: 'user_external_id',
+                    name: 'analytics_events',
+                    custom_name: 'Custom Analytics Event',
+                    properties: [
+                        { key: 'category', value: ['conversion'], operator: 'exact', type: 'event' },
+                        { key: 'value', value: [100], operator: 'gte', type: 'event' },
+                    ],
+                    math: 'total',
+                    math_property: 'conversion_value',
+                    math_hogql: 'sum(conversion_value)',
+                } as ExperimentDataWarehouseNode,
             }
             const filter = getFilter(metric)
             expect(filter.data_warehouse?.[0]).toEqual({
@@ -585,7 +554,6 @@ describe('Data Warehouse Support', () => {
                 math: 'total',
                 math_property: 'conversion_value',
                 math_hogql: 'sum(conversion_value)',
-                order: 0,
                 kind: NodeKind.ExperimentDataWarehouseNode,
             })
         })

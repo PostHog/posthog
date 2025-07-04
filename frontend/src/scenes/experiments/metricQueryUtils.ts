@@ -5,13 +5,11 @@ import { match } from 'ts-pattern'
 import type {
     ActionsNode,
     BreakdownFilter,
-    DataWarehouseNode,
     DateRange,
     EntityNode,
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
-    ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentMetric,
     FunnelsFilter,
@@ -182,33 +180,11 @@ export const getQuery =
                     dateRange,
                     funnelsFilter,
                     interval: funnelsInterval,
-                    series: getFunnelSeries(funnelMetric),
+                    series: funnelMetric.series,
                 }) as FunnelsQuery
             })
             .otherwise(() => undefined)
     }
-
-/**
- * takes an experiment funnel metric and returns a series that can be used in a funnel query.
- * Note: ExperimentDataWarehouseNode needs to be converted to DataWarehouseNode for the query.
- */
-const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    return funnelMetric.series.map((step) => {
-        if (step.kind === NodeKind.ExperimentDataWarehouseNode) {
-            // Convert ExperimentDataWarehouseNode to DataWarehouseNode
-            // Map the different field names between experiment and regular data warehouse nodes
-            return {
-                ...step,
-                kind: NodeKind.DataWarehouseNode,
-                id: step.table_name,
-                id_field: step.data_warehouse_join_key,
-                distinct_id_field: step.events_join_key,
-                // table_name and timestamp_field are the same
-            } as DataWarehouseNode
-        }
-        return step as EventsNode | ActionsNode
-    })
-}
 
 /**
  * Enhanced version of ExperimentMetricSource with legacy filter properties
@@ -222,9 +198,9 @@ type ExperimentMetricSourceWithType =
 
 /**
  * this is a type adapter between metrics and filters.
- * takes an experiment funnel step and returns a source node that can be used in a filter
+ * takes an experiment mean metric source or funnel metric step and returns a source node that can be used in a filter
  */
-const createSourceNode = (step: ExperimentFunnelMetricStep): ExperimentMetricSourceWithType =>
+const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSource): ExperimentMetricSourceWithType =>
     match(step)
         .with({ kind: NodeKind.EventsNode }, (eventStep) => ({
             ...eventStep,
@@ -288,19 +264,14 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
                 return {
                     ...createSourceNode(step),
                     order: index,
-                    type:
-                        step.kind === NodeKind.EventsNode
-                            ? 'events'
-                            : step.kind === NodeKind.ActionsNode
-                            ? 'actions'
-                            : 'data_warehouse',
+                    type: step.kind === NodeKind.EventsNode ? 'events' : 'actions',
                 }
             })
 
             return {
                 events: funnelSteps.filter((step) => step.type === 'events'),
                 actions: funnelSteps.filter((step) => step.type === 'actions'),
-                data_warehouse: funnelSteps.filter((step) => step.type === 'data_warehouse'),
+                data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
             }
         })
         .otherwise(() => ({
