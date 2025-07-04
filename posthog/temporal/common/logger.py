@@ -43,7 +43,7 @@ def bind_contextvars(**kwargs):
 
 def get_external_logger(**kwargs) -> FilteringBoundLogger:
     """Return a bound logger to log user-facing logs."""
-    return EXTERNAL_LOGGER.bind(**kwargs)
+    return EXTERNAL_LOGGER.bind(**kwargs, logger=EXTERNAL_LOGGER_NAME)
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -120,7 +120,6 @@ def configure_logger_sync(
 
     base_processors: list[structlog.types.Processor] = [
         structlog.processors.add_log_level,
-        structlog.stdlib.add_logger_name,
         structlog.processors.format_exc_info,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
         structlog.stdlib.PositionalArgumentsFormatter(),
