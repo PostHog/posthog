@@ -42,7 +42,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 )
 from posthog.temporal.batch_exports.pre_export_stage import (
     BatchExportInsertIntoS3StageInputs,
-    insert_into_s3_stage_activity,
+    insert_into_stage_activity,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
@@ -451,7 +451,7 @@ class TestInsertIntoS3Activity:
             if use_internal_s3_stage:
                 assert insert_inputs.batch_export_id is not None
                 records_exported = await activity_environment.run(
-                    insert_into_s3_stage_activity,
+                    insert_into_stage_activity,
                     BatchExportInsertIntoS3StageInputs(
                         team_id=insert_inputs.team_id,
                         batch_export_id=insert_inputs.batch_export_id,
@@ -878,7 +878,7 @@ async def _run_s3_batch_export_workflow(
                 start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
-                insert_into_s3_stage_activity,
+                insert_into_stage_activity,
                 insert_into_s3_activity_from_stage,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -1484,7 +1484,7 @@ async def test_s3_export_workflow_handles_insert_activity_errors(
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
-                insert_into_s3_stage_activity,
+                insert_into_stage_activity,
                 insert_into_s3_activity_from_stage_mocked,
                 finish_batch_export_run,
             ],
@@ -1549,7 +1549,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
             activities=[
                 mocked_start_batch_export_run,
                 insert_into_s3_activity_mocked,
-                insert_into_s3_stage_activity,
+                insert_into_stage_activity,
                 insert_into_s3_activity_from_stage_mocked,
                 finish_batch_export_run,
             ],
@@ -2201,7 +2201,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 start_batch_export_run,
                 insert_into_s3_activity,
                 finish_batch_export_run,
-                insert_into_s3_stage_activity,
+                insert_into_stage_activity,
                 insert_into_s3_activity_from_stage,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
