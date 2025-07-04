@@ -35,6 +35,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "deleted",
             "scope",
             "recording_id",
+            "is_emoji",
         ]
         read_only_fields = [
             "id",
@@ -50,6 +51,19 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        is_emoji = attrs.get("is_emoji", False)
+        content = attrs.get("content", "")
+
+        if is_emoji and content:
+            # Check if content is a single character
+            if len(content) != 1:
+                raise serializers.ValidationError("When is_emoji is True, content must be a single character")
+        elif is_emoji and not content:
+            raise serializers.ValidationError("When is_emoji is True, content cannot be empty")
+
+        return attrs
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
