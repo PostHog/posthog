@@ -285,12 +285,10 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "type":
-                if request_value in [
-                    SessionRecordingPlaylist.PlaylistType.FILTERS,
-                    SessionRecordingPlaylist.PlaylistType.COLLECTION,
-                ]:
-                    queryset = queryset.filter(type=request_value)
-                # If type param is something else, ignore it for now
+                if request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.COLLECTION)
+                else:
+                    queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":
