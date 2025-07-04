@@ -74,7 +74,7 @@ class ConversionGoalProcessor:
         math_type = self.goal.math
         # Handle different math types
         if math_type in [BaseMathType.DAU, "dau"]:
-            if self.goal.kind == "EventsNode":
+            if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
                 # uniq(events.distinct_id)
                 return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
             elif self.goal.kind == "DataWarehouseNode":
@@ -87,13 +87,10 @@ class ConversionGoalProcessor:
             if not math_property:
                 return ast.Constant(value=0)
             else:
-                if self.goal.kind == "EventsNode":
-                    # round(sum(toFloat(JSONExtractRaw(events.properties, 'math_property'))), DECIMAL_PRECISION)
-                    json_extract = ast.Call(
-                        name="JSONExtractRaw",
-                        args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=math_property)],
-                    )
-                    to_float = ast.Call(name="toFloat", args=[json_extract])
+                if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
+                    # round(sum(toFloat(properties.math_property)), DECIMAL_PRECISION)
+                    property_field = ast.Field(chain=["events", "properties", math_property])
+                    to_float = ast.Call(name="toFloat", args=[property_field])
                     sum_expr = ast.Call(name="sum", args=[to_float])
                     return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
                 elif self.goal.kind == "DataWarehouseNode":
@@ -103,11 +100,8 @@ class ConversionGoalProcessor:
                     return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
                 else:
                     # Same as events node
-                    json_extract = ast.Call(
-                        name="JSONExtractRaw",
-                        args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=math_property)],
-                    )
-                    to_float = ast.Call(name="toFloat", args=[json_extract])
+                    property_field = ast.Field(chain=["events", "properties", math_property])
+                    to_float = ast.Call(name="toFloat", args=[property_field])
                     sum_expr = ast.Call(name="sum", args=[to_float])
                     return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
         else:
@@ -120,32 +114,14 @@ class ConversionGoalProcessor:
 
         # Add event filter for EventsNode
         if self.goal.kind == "EventsNode":
-            # events.team_id = {self.team.pk}
-            team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["events", "team_id"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.team.pk),
-            )
-            conditions.append(team_condition)
-
             event_name = self.goal.event
             if event_name:
                 # events.event = 'event_name'
                 event_condition = ast.CompareOperation(
-                    left=ast.Field(chain=["events", "event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=event_name),
+                    left=ast.Field(chain=["events", "event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=event_name)
                 )
                 conditions.append(event_condition)
         elif self.goal.kind == "ActionsNode":
-            # events.team_id = {self.team.pk}
-            team_condition = ast.CompareOperation(
-                left=ast.Field(chain=["events", "team_id"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.team.pk),
-            )
-            conditions.append(team_condition)
-
             # Handle ActionsNode by converting action to HogQL expression
             action_id = self.goal.id
             if action_id:
