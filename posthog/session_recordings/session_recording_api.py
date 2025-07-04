@@ -66,7 +66,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
-from tenacity import retry, wait_random_exponential, retry_if_exception_type
+from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -807,8 +807,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
         # if retrying doesn't work, raise the actual error, not a retry error
         reraise=True,
-        # try again after 0.2 seconds and then exponential waits up to 4 seconds
-        wait=wait_random_exponential(multiplier=0.2, max=4),
+        # try again after 0.2 seconds
+        # and then exponentially waits up to a max of 3 seconds between requests
+        wait=wait_random_exponential(multiplier=0.2, max=3),
+        # make a maximum of 6 attempts before stopping
+        stop=stop_after_attempt(6),
     )
     def _gather_session_recording_sources(
         self,
