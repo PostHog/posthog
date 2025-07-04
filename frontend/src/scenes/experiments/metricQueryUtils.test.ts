@@ -262,6 +262,49 @@ describe('getQuery', () => {
         expect(query).toBeUndefined()
     })
 
+    it('returns the correct query for a mean metric with properties', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: ExperimentMetricMathType.TotalCount,
+                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+            },
+        }
+
+        const query = getQuery({
+            filterTestAccounts: false,
+        })(metric)
+
+        expect(query).toEqual(
+            setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                dateRange: {
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    explicitDate: true,
+                },
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsLineGraph,
+                },
+                filterTestAccounts: false,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: ExperimentMetricMathType.TotalCount,
+                        properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+                    },
+                ],
+            })
+        )
+    })
+
     it('returns the correct query for a mean metric with an action source', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
@@ -422,11 +465,12 @@ describe('Data Warehouse Support', () => {
                     filterTestAccounts: true,
                     series: [
                         {
-                            kind: NodeKind.ExperimentDataWarehouseNode,
+                            kind: NodeKind.DataWarehouseNode,
                             table_name: 'revenue_table',
                             timestamp_field: 'transaction_date',
-                            events_join_key: 'user_id',
-                            data_warehouse_join_key: 'customer_id',
+                            distinct_id_field: 'user_id',
+                            id_field: 'customer_id',
+                            id: 'revenue_table',
                             name: 'revenue_table',
                             math: PropertyMathType.Sum,
                             math_property: 'revenue_amount',
