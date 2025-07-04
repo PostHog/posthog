@@ -32,7 +32,7 @@ def _otel_django_response_hook(span, request, response):
         span.set_attribute("http.status_code", response.status_code)
 
 
-def initialize_otel():
+def initialize_otel(sample_rate_override=None):
     # --- BEGIN FORCED OTEL DEBUG LOGGING ---
     otel_python_log_level_env = os.environ.get("OTEL_PYTHON_LOG_LEVEL", "info").lower()
     effective_log_level = logging.DEBUG if otel_python_log_level_env == "debug" else logging.INFO
@@ -65,7 +65,7 @@ def initialize_otel():
         # Let OpenTelemetry SDK handle sampling configuration via OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG
         # This allows parentbased_traceidratio and other standard sampler types
         sampler_type = os.environ.get("OTEL_TRACES_SAMPLER", "parentbased_traceidratio")  # Respect parent decisions
-        sampler_arg = os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0")
+        sampler_arg = sample_rate_override or os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0")
 
         logger.info(
             "otel_sampler_configured",
