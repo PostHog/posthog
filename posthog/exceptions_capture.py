@@ -12,16 +12,10 @@ def capture_exception(error=None, additional_properties=None):
         properties.update(additional_properties)
 
     if api_key:
-        result = posthog_capture_exception(error, properties=properties)
+        uuid = posthog_capture_exception(error, properties=properties)
 
         # Only log if captured
-        if result is not None:
-            _, msg = result
-
-            log_kwargs = {}
-            if isinstance(msg, dict):
-                log_kwargs["event_id"] = msg.get("uuid")
-
-            logger.exception(error, **log_kwargs)
+        if uuid is not None:
+            logger.exception(error, event_id=uuid)
     else:
         logger.exception(error)

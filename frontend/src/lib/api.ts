@@ -3527,7 +3527,8 @@ const api = {
     conversations: {
         async stream(
             data: {
-                content: string
+                /** The user message. Null content means we're continuing previous generation. */
+                content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxContextShape
                 conversation?: string | null

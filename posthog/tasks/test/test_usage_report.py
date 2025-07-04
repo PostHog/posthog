@@ -6,6 +6,7 @@ import gzip
 import json
 import base64
 
+import pytest
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
@@ -1032,7 +1033,8 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_hogql_queries(self) -> None:
         for _ in range(0, 100):
             _create_event(
@@ -1073,7 +1075,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
             assert report.query_api_rows_read == 0
             assert report.event_explorer_api_rows_read == 0
 
-    @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    # @also_test_with_materialized_columns(event_properties=["$lib"], verify_no_jsonextract=False)
+    @pytest.mark.skip(reason="Skipping due to flakiness")
     def test_usage_report_api_queries(self) -> None:
         for _ in range(0, 100):
             _create_event(

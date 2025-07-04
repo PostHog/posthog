@@ -13,7 +13,7 @@ export interface PathCleanFiltersProps {
     setFilters: (filters: PathCleaningFilter[]) => void
 }
 
-const keyFromFilter = (filter: PathCleaningFilter): string => {
+export const keyFromFilter = (filter: PathCleaningFilter): string => {
     return `${filter.alias}-${filter.regex}`
 }
 

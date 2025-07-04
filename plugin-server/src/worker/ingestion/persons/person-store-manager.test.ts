@@ -283,7 +283,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         it('should overwrite existing cache in batch store, but keep changeset', async () => {
             // Pre-populate batch store cache
             const existingUpdate = fromInternalPerson(person, 'test-distinct')
-            existingUpdate.property_changeset = { pre_existing: 'value' }
+            existingUpdate.properties_to_set = { pre_existing: 'value' }
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'test-distinct', existingUpdate)
 
             const result = await shadowManager.fetchForUpdate(teamId, 'test-distinct')
@@ -296,7 +296,7 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             const updateCache = batchStoreForBatch.getUpdateCache()
             const cachedUpdate = updateCache.get(`${teamId}:${person.id}`)
             expect(cachedUpdate!.properties).toEqual(person.properties)
-            expect(cachedUpdate!.property_changeset).toEqual(existingUpdate.property_changeset)
+            expect(cachedUpdate!.properties_to_set).toEqual(existingUpdate.properties_to_set)
         })
     })
 
@@ -326,11 +326,15 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
     })
 
-    describe('updatePersonForUpdate', () => {
+    describe('updatePersonWithPropertiesDiffForUpdate', () => {
         it('should call both stores and track final state', async () => {
-            const update = { properties: { new_prop: 'new_value' } }
-
-            const result = await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            const result = await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'new_value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             expect(result).toBeDefined()
             expect(result[0].properties).toEqual({ test: 'test', new_prop: 'new_value' })
@@ -405,9 +409,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should do same outcome by default', async () => {
-            const update = { properties: { new_prop: 'value' } }
-
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             await shadowManager.flush()
 
@@ -431,9 +439,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
         it('should detect same outcome same batch (ideal case)', async () => {
             // Set up scenario where both stores produce identical results
-            const update = { properties: { new_prop: 'value' } }
-
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Manually set batch cache to match measuring result
             const expectedPerson = { ...person, properties: { test: 'test', new_prop: 'value' }, version: 2 }
@@ -454,9 +466,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should detect logic errors (different outcome same batch)', async () => {
-            const update = { properties: { new_prop: 'value' } }
-
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Manually set batch cache to have different result (simulating logic error)
             const differentPerson = {
@@ -499,9 +515,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 return Promise.resolve([personCopy, [], true]) // version disparity = true
             })
 
-            const update = { properties: { new_prop: 'value' } }
-
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Set batch cache to have different result (simulating concurrent modification)
             const concurrentPerson = {
@@ -539,12 +559,16 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should handle missing persons in batch cache', async () => {
-            const update = { properties: { new_prop: 'value' } }
-
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Set batch cache to null (simulating missing person)
-            batchStoreForBatch.clearCache(teamId, 'test-distinct')
+            batchStoreForBatch.clearAllCachesForDistinctId(teamId, 'test-distinct')
 
             await shadowManager.flush()
 
@@ -560,11 +584,20 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should handle multiple updates for same person', async () => {
-            const update1 = { properties: { new_prop: 'value1' } }
-            const update2 = { properties: { new_prop: 'value2' } }
-
-            await shadowManager.updatePersonForUpdate(person, update1, 'test-distinct')
-            await shadowManager.updatePersonForUpdate(person, update2, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value1' },
+                [],
+                {},
+                'test-distinct'
+            )
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { new_prop: 'value2' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             await shadowManager.flush()
 
@@ -587,9 +620,6 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should handle updates after create person', async () => {
-            const update1 = { properties: { new_prop1: 'value1' } }
-            const update2 = { properties: { new_prop2: 'value2' } }
-
             const [personResult] = await shadowManager.createPerson(
                 person.created_at,
                 person.properties,
@@ -601,12 +631,20 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 person.id,
                 [{ distinctId: 'test-distinct', version: 0 }]
             )
-            const [personUpdateResult] = await shadowManager.updatePersonForUpdate(
+            const [personUpdateResult] = await shadowManager.updatePersonWithPropertiesDiffForUpdate(
                 personResult,
-                update1,
+                { new_prop1: 'value1' },
+                [],
+                {},
                 'test-distinct'
             )
-            await shadowManager.updatePersonForUpdate(personUpdateResult, update2, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                personUpdateResult,
+                { new_prop2: 'value2' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             await shadowManager.flush()
 
@@ -623,44 +661,61 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
         it('should report comprehensive batch metrics and logging', async () => {
             // Set up a complex scenario with multiple types of outcomes
-            const update1 = { properties: { prop1: 'value1' } }
-            const update2 = { properties: { prop2: 'value2' } }
-            const update3 = { properties: { prop3: 'value3' } }
-
             // Person 1: Same outcome, same batch (ideal case)
             const person1 = { ...person, id: 'person1-id' }
-            await shadowManager.updatePersonForUpdate(person1, update1, 'person1-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person1,
+                { prop1: 'value1' },
+                [],
+                {},
+                'person1-distinct'
+            )
             const expectedPerson1 = { ...person1, properties: { test: 'test', prop1: 'value1' }, version: 2 }
             const personUpdate1 = fromInternalPerson(expectedPerson1, 'person1-distinct')
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'person1-distinct', personUpdate1)
 
             // Person 2: Different outcome, same batch (logic error)
             const person2 = { ...person, id: 'person2-id' }
-            await shadowManager.updatePersonForUpdate(person2, update2, 'person2-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person2,
+                { prop2: 'value2' },
+                [],
+                {},
+                'person2-distinct'
+            )
             const differentPerson2 = { ...person2, properties: { test: 'test', wrong_prop: 'wrong_value' }, version: 3 }
             const personUpdate2 = fromInternalPerson(differentPerson2, 'person2-distinct')
             batchStoreForBatch.setCachedPersonForUpdate(teamId, 'person2-distinct', personUpdate2)
 
             // Person 3: Concurrent modification (version disparity)
             // Mock version disparity for person3 only
-            const originalUpdatePerson = db.updatePerson
             db.updatePerson = jest.fn().mockImplementation((personInput, update) => {
-                const isPersonThree = JSON.stringify(update).includes('prop3')
-                if (isPersonThree) {
+                if (personInput.id === 'person3-id') {
                     const personCopy = {
                         ...personInput,
-                        ...update,
+                        properties: { ...personInput.properties, ...(update.properties || {}) },
                         version: personInput.version + 1,
                         id: 'person3-id',
                     }
                     return Promise.resolve([personCopy, [], true]) // version disparity = true
                 } else {
-                    return originalUpdatePerson(personInput, update)
+                    const updatedPerson = {
+                        ...personInput,
+                        properties: { ...personInput.properties, ...(update.properties || {}) },
+                        version: personInput.version + 1,
+                    }
+                    return Promise.resolve([updatedPerson, [], false])
                 }
             })
 
             const person3 = { ...person, id: 'person3-id' }
-            await shadowManager.updatePersonForUpdate(person3, update3, 'person3-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person3,
+                { prop3: 'value3' },
+                [],
+                {},
+                'person3-distinct'
+            )
             const concurrentPerson3 = {
                 ...person3,
                 properties: { test: 'test', concurrent_prop: 'concurrent_value' },
@@ -1098,24 +1153,26 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should track consistent results and log debug message', async () => {
-            const update = { properties: { test_prop: 'test_value' } }
-
             // Mock both stores to return the same result
             const expectedPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
             db.updatePerson = jest.fn().mockResolvedValue([expectedPerson, [], false])
 
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { test_prop: 'test_value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Verify metric was incremented for consistent outcome
             expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
-                'updatePersonForUpdate',
+                'updatePersonWithPropertiesDiffForUpdate',
                 'consistent'
             )
         })
 
-        it('should track inconsistent results and log error message for updatePersonForUpdate', async () => {
-            const update = { properties: { test_prop: 'test_value' } }
-
+        it('should track inconsistent results and log error message for updatePersonWithPropertiesDiffForUpdate', async () => {
             // Mock main store to return one result
             const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
             db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
@@ -1128,28 +1185,37 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             }
 
             // We'll need to manually set up the secondary store to return different data
-            // Since the secondary store doesn't actually call the DB, we need to mock its updatePersonForUpdate method
-            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
-            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+            // Since the secondary store doesn't actually call the DB, we need to mock its updatePersonWithPropertiesDiffForUpdate method
+            const originalUpdatePersonWithPropertiesDiffForUpdate =
+                batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = jest
+                .fn()
+                .mockResolvedValue([secondaryPerson, [], false])
 
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { test_prop: 'test_value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Restore original method
-            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = originalUpdatePersonWithPropertiesDiffForUpdate
 
             // Verify metric was incremented for inconsistent outcome
             expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
-                'updatePersonForUpdate',
+                'updatePersonWithPropertiesDiffForUpdate',
                 'inconsistent'
             )
 
             // Verify error log was called with detailed information
             expect(logger.info).toHaveBeenCalledWith(
-                'updatePersonForUpdate returned inconsistent results between stores',
+                'updatePersonWithPropertiesDiffForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     key: `${teamId}:${person.id}`,
                     teamId: 1,
-                    methodName: 'updatePersonForUpdate',
+                    methodName: 'updatePersonWithPropertiesDiffForUpdate',
                     samePersonResult: false,
                     differences: expect.arrayContaining([expect.stringContaining('person.properties')]),
                     mainPersonId: mainPerson.id,
@@ -1198,30 +1264,35 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
         })
 
         it('should handle null vs non-null person comparison', async () => {
-            const update = { properties: { test_prop: 'test_value' } }
-
             // Mock main store to return a person
             const mainPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 2 }
             db.updatePerson = jest.fn().mockResolvedValue([mainPerson, [], false])
 
             // Mock secondary store to return null (no person found)
-            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
-            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([null, [], false])
+            const originalUpdatePersonWithPropertiesDiffForUpdate =
+                batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = jest.fn().mockResolvedValue([null, [], false])
 
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { test_prop: 'test_value' },
+                [],
+                {},
+                'test-distinct'
+            )
 
             // Restore original method
-            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = originalUpdatePersonWithPropertiesDiffForUpdate
 
             // Verify metric was incremented for inconsistent outcome
             expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
-                'updatePersonForUpdate',
+                'updatePersonWithPropertiesDiffForUpdate',
                 'inconsistent'
             )
 
             // Verify error log includes null comparison
             expect(logger.info).toHaveBeenCalledWith(
-                'updatePersonForUpdate returned inconsistent results between stores',
+                'updatePersonWithPropertiesDiffForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     samePersonResult: false,
                     mainPersonId: mainPerson.id,
@@ -1269,17 +1340,20 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
                 },
                 version: 2,
             }
-            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
-            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+            const originalUpdatePersonWithPropertiesDiffForUpdate =
+                batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = jest
+                .fn()
+                .mockResolvedValue([secondaryPerson, [], false])
 
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(person, update, [], {}, 'test-distinct')
 
             // Restore original method
-            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = originalUpdatePersonWithPropertiesDiffForUpdate
 
             // Verify specific nested property difference is captured
             expect(logger.info).toHaveBeenCalledWith(
-                'updatePersonForUpdate returned inconsistent results between stores',
+                'updatePersonWithPropertiesDiffForUpdate returned inconsistent results between stores',
                 expect.objectContaining({
                     differences: expect.arrayContaining([
                         expect.stringContaining('person.properties.nested.deep.prop'),
@@ -1297,17 +1371,20 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Mock secondary store to return same person but with version 3 (should be ignored)
             const secondaryPerson = { ...person, properties: { test: 'test', test_prop: 'test_value' }, version: 3 }
-            const originalUpdatePersonForUpdate = batchStoreForBatch.updatePersonForUpdate
-            batchStoreForBatch.updatePersonForUpdate = jest.fn().mockResolvedValue([secondaryPerson, [], false])
+            const originalUpdatePersonWithPropertiesDiffForUpdate =
+                batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = jest
+                .fn()
+                .mockResolvedValue([secondaryPerson, [], false])
 
-            await shadowManager.updatePersonForUpdate(person, update, 'test-distinct')
+            await shadowManager.updatePersonWithPropertiesDiffForUpdate(person, update, [], {}, 'test-distinct')
 
             // Restore original method
-            batchStoreForBatch.updatePersonForUpdate = originalUpdatePersonForUpdate
+            batchStoreForBatch.updatePersonWithPropertiesDiffForUpdate = originalUpdatePersonWithPropertiesDiffForUpdate
 
             // Verify result is considered consistent despite version difference
             expect(personShadowModeReturnIntermediateOutcomeCounter.labels).toHaveBeenCalledWith(
-                'updatePersonForUpdate',
+                'updatePersonWithPropertiesDiffForUpdate',
                 'consistent'
             )
         })

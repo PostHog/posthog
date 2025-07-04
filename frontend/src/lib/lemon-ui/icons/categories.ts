@@ -32,6 +32,8 @@ export const OBJECTS = {
         'IconCrown',
         'IconBolt',
         'IconBook',
+        'IconBookmark',
+        'IconBookmarkSolid',
         'IconConfetti',
         'IconPresent',
         'IconMagicWand',
@@ -109,6 +111,7 @@ export const TECHNOLOGY = {
         'IconChatHelp',
     ],
     Hardware: [
+        'IconCompass',
         'IconBatteryCharge',
         'IconButton',
         'IconCamera',

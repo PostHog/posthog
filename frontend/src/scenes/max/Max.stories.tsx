@@ -609,6 +609,7 @@ export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
         registerTool({
             name: 'create_insight' as AssistantContextualTool,
             displayName: 'Create insight',
+            description: 'Max can create a new insight',
             context: {
                 dashboard_id: 'test-dashboard',
                 available_events: ['$pageview', '$identify', 'button_clicked'],
@@ -622,6 +623,7 @@ export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
         registerTool({
             name: 'analyze_funnel' as AssistantContextualTool,
             displayName: 'Analyze funnel',
+            description: 'Max can analyze a funnel',
             context: {
                 existing_funnels: ['signup_funnel', 'checkout_funnel'],
                 conversion_metrics: { signup_rate: 0.15, checkout_rate: 0.08 },
@@ -634,6 +636,7 @@ export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
         registerTool({
             name: 'export_data' as AssistantContextualTool,
             displayName: 'Export data',
+            description: 'Max can export data in various formats',
             context: {
                 available_formats: ['csv', 'json', 'parquet'],
                 current_query: { event: '$pageview', breakdown: 'browser' },
@@ -717,7 +720,8 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         // Register various contextual tools for MaxInstance
         registerTool({
             name: 'query_insights' as AssistantContextualTool,
-            displayName: 'Query Insights',
+            displayName: 'Query insights',
+            description: 'Max can query insights and their properties',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
                 active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
@@ -730,7 +734,8 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
 
         registerTool({
             name: 'manage_cohorts' as AssistantContextualTool,
-            displayName: 'Manage Cohorts',
+            displayName: 'Manage cohorts',
+            description: 'Max can manage cohorts and their properties',
             context: {
                 existing_cohorts: [
                     { id: 1, name: 'Power Users', size: 1250 },
@@ -745,7 +750,8 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
 
         registerTool({
             name: 'feature_flags' as AssistantContextualTool,
-            displayName: 'Feature Flags',
+            displayName: 'Feature flags',
+            description: 'Max can manage feature flags and their properties',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
                 flag_stats: { total: 15, active: 8, inactive: 7 },

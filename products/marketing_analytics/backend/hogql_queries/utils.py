@@ -5,34 +5,7 @@ import structlog
 from posthog.schema import NodeKind
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3
 
-from .constants import DEFAULT_MARKETING_ANALYTICS_COLUMNS
-
 logger = structlog.get_logger(__name__)
-
-
-def get_marketing_analytics_columns_with_conversion_goals(
-    conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3],
-) -> list[str]:
-    """Get column names including conversion goals"""
-
-    columns = DEFAULT_MARKETING_ANALYTICS_COLUMNS.copy()
-
-    for conversion_goal in conversion_goals:
-        goal_name = conversion_goal.conversion_goal_name
-        columns.append(goal_name)
-        columns.append(f"Cost per {goal_name}")
-
-    return columns
-
-
-def get_source_map_field(source_map, field_name, fallback=None) -> str | None:
-    """Helper to safely get field from source_map regardless of type"""
-    if hasattr(source_map, field_name):
-        return getattr(source_map, field_name, fallback)
-    elif hasattr(source_map, "get"):
-        return source_map.get(field_name, fallback)
-    else:
-        return fallback
 
 
 def convert_team_conversion_goals_to_objects(
@@ -117,8 +90,3 @@ def map_url_to_provider(url_pattern: str) -> str:
         return "cloudflare-r2"
 
     return "BlushingHog"
-
-
-def sanitize_conversion_goal_name(name: str) -> str:
-    """Sanitize conversion goal name to be a valid SQL identifier"""
-    return "".join(c if c.isalnum() else "_" for c in name)

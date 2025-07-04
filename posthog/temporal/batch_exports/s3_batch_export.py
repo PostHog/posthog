@@ -103,8 +103,13 @@ COMPRESSION_EXTENSIONS = {
     "gzip": "gz",
     "snappy": "sz",
     "brotli": "br",
-    "ztsd": "zst",
+    "zstd": "zst",
     "lz4": "lz4",
+}
+
+SUPPORTED_COMPRESSIONS = {
+    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
+    "JSONLines": ["gzip", "brotli"],
 }
 
 

@@ -59,6 +59,7 @@ class ToolRelevance(ScorerWithPartial):
 class PlanAndQueryOutput(TypedDict):
     plan: str | None
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query_generation_retry_count: int | None
 
 
 def serialize_output(output: PlanAndQueryOutput | dict | None) -> PlanAndQueryOutput | None:

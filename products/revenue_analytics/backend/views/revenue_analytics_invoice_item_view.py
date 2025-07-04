@@ -32,7 +32,7 @@ from posthog.hogql.database.schema.exchange_rate import (
 )
 
 SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
-EVENTS_VIEW_SUFFIX = "invoice_item_revenue_view_events"
+EVENTS_VIEW_SUFFIX = "invoice_item_events_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -199,7 +199,9 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                     ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                    ast.Alias(
+                        alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])
+                    ),
                     ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
                     ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
                     ast.Alias(

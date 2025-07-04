@@ -3,7 +3,6 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -370,10 +369,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (featureFlag.id) {
                     actions.saveFeatureFlag(featureFlag)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Feature Flags',
-                        callback: (folder) => actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
-                    })
+                    actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
                 }
             },
         },

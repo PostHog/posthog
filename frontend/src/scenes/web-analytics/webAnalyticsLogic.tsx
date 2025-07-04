@@ -1267,7 +1267,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 colSpanClassName: 'md:col-span-2',
                                 orderWhenLargeClassName: 'xxl:order-1',
                             },
-                            title: 'Marketing Costs',
+                            title: 'Marketing costs',
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 embedded: true,
@@ -1300,7 +1300,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             canOpenInsight: true,
                             canOpenModal: false,
                             docs: {
-                                title: 'Marketing Costs',
+                                title: 'Marketing costs',
                                 description:
                                     createMarketingDataWarehouseNodes.length > 0
                                         ? 'Track costs from your configured marketing data sources.'
@@ -1315,13 +1315,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       colSpanClassName: 'md:col-span-2',
                                       orderWhenLargeClassName: 'xxl:order-2',
                                   },
-                                  title: 'Campaign Costs Breakdown',
+                                  title: 'Campaign costs breakdown',
                                   query: campaignCostsBreakdown,
                                   insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                                   canOpenModal: true,
                                   canOpenInsight: false,
                                   docs: {
-                                      title: 'Campaign Costs Breakdown',
+                                      title: 'Campaign costs breakdown',
                                       description:
                                           'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                                   },

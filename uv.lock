@@ -4130,7 +4130,7 @@ requires-dist = [
     { name = "stripe", specifier = "==12.2.0" },
     { name = "structlog", specifier = "==23.2.0" },
     { name = "temporalio", specifier = "==1.8.0" },
-    { name = "tenacity", specifier = ">=8.4.2" },
+    { name = "tenacity", specifier = "==9.1.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
     { name = "toronado", specifier = "==0.1.0" },

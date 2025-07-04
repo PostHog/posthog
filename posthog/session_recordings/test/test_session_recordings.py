@@ -39,7 +39,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 from clickhouse_driver.errors import ServerException
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -1616,3 +1616,25 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
+
+    def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
+        """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
+        call_count = 0
+
+        def mock_list_blocks(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439)
+
+        # Patch list_blocks where it's imported and used in session_recording_v2_service
+        with patch("posthog.session_recordings.session_recording_api.list_blocks", side_effect=mock_list_blocks):
+            session_id = str(uuid.uuid4())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+            # Verify the error was called multiple times and we get 503
+            assert call_count > 2, f"Expected multiple calls, got {call_count}"
+            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

@@ -137,7 +137,7 @@ class BatchImportConfigBuilder:
                     "date_format": "%Y%m%dT%H",
                     # The smallest duration we can request from amplitude is 1 hour at a time
                     "interval_duration": 3600,
-                    "timeout_seconds": 60,
+                    "timeout_seconds": 180,
                 }
             case DateRangeExportSource.MIXPANEL:
                 base_url = "https://data.mixpanel.com/api/2.0/export"

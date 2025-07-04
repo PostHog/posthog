@@ -21,6 +21,7 @@ import {
     pipelineStepDLQCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
+    pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
@@ -317,6 +318,10 @@ export class EventPipelineRunner {
         }
     }
 
+    private reportStalled(stepName: string) {
+        pipelineStepStalledCounter.labels(stepName).inc()
+    }
+
     protected async runStep<Step extends (...args: any[]) => any>(
         step: Step,
         args: Parameters<Step>,
@@ -329,12 +334,13 @@ export class EventPipelineRunner {
             `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
-                event: JSON.stringify(this.originalEvent),
                 teamId: teamId,
+                event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
             this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException
+            sendException,
+            this.reportStalled.bind(this, step.name)
         )
         try {
             const result = await step(...args)

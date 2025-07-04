@@ -42,7 +42,7 @@ from posthog.warehouse.data_load.source_templates import (
     create_warehouse_templates_for_source,
 )
 from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import update_should_sync
 from posthog.temporal.common.client import sync_connect
 
@@ -170,7 +170,6 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
         if has_non_retryable_error:
-            logger.info("Schema has a non-retryable error - turning off syncing")
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
                 event="schema non-retryable error",
@@ -185,10 +184,30 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             )
             update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
+    # Clean up permission errors for all source types (runs regardless of internal_error)
+    enhanced_latest_error = inputs.latest_error
+    try:
+        schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
+
+        # Debug logging
+        logger.info(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
+        logger.info(f"Raw error: {inputs.latest_error or inputs.internal_error}")
+
+        enhanced_latest_error = enhance_source_error(
+            source_type=source.source_type,
+            schema_name=schema.name,
+            raw_error=inputs.latest_error or inputs.internal_error,
+        )
+
+        logger.info(f"Enhanced error: {enhanced_latest_error}")
+
+    except Exception:
+        enhanced_latest_error = inputs.latest_error
+
     job = update_external_job_status(
         job_id=job_id,
-        status=inputs.status,
-        latest_error=inputs.latest_error,
+        status=ExternalDataJob.Status(inputs.status),
+        latest_error=enhanced_latest_error,
         team_id=inputs.team_id,
     )
 
@@ -374,3 +393,87 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
                 ),
             )
+
+
+def enhance_source_error(source_type: str, schema_name: str, raw_error: str | None) -> str | None:
+    """
+    Enhance or clarify raw source errors before saving to the job.
+    Returns the enhanced error if applicable, otherwise returns the original.
+    """
+
+    if not raw_error:
+        return raw_error
+
+    error_lower = raw_error.lower()
+
+    # Stripe permission errors for newer tables
+    if source_type == ExternalDataSource.Type.STRIPE:
+        if any(keyword in error_lower for keyword in ["permission", "403", "401", "rak_"]):
+            table_names = {
+                "Dispute": "disputes",
+                "Payout": "payouts",
+                "CreditNote": "credit notes",
+                "Account": "accounts",
+            }
+            display_name = table_names.get(schema_name, schema_name.lower())
+            return f"Your API key does not have permissions to access {display_name}. Please check your API key configuration and permissions in Stripe, then try again."
+
+        if "expired api key" in error_lower:
+            return "Your Stripe API key has expired. Please create a new key and reconnect."
+
+    # Salesforce session errors
+    if source_type == ExternalDataSource.Type.SALESFORCE and "invalid_session_id" in error_lower:
+        return "Your Salesforce session has expired. Please reconnect the source."
+
+    # HubSpot token errors
+    if source_type == ExternalDataSource.Type.HUBSPOT and "missing or invalid refresh token" in error_lower:
+        return "Your HubSpot connection is invalid or expired. Please reconnect it."
+
+    # Database connection errors
+    if source_type in [ExternalDataSource.Type.POSTGRES, ExternalDataSource.Type.MYSQL, ExternalDataSource.Type.MSSQL]:
+        if any(
+            keyword in error_lower
+            for keyword in ["authentication failed", "password authentication failed", "access denied"]
+        ):
+            return "Database authentication failed. Please check your username and password."
+        if any(keyword in error_lower for keyword in ["connection refused", "could not connect", "timeout"]):
+            return "Unable to connect to the database. Please check your connection details and network access."
+        if "does not exist" in error_lower or "database" in error_lower and "not found" in error_lower:
+            return "Database or table not found. Please verify your database name and table names."
+
+    # Snowflake account issues
+    if source_type == ExternalDataSource.Type.SNOWFLAKE:
+        if any(keyword in error_lower for keyword in ["account suspended", "trial ended", "decommission"]):
+            return "Your Snowflake account has been suspended or trial has ended. Please check your account status."
+        if "invalid credentials" in error_lower or "authentication failed" in error_lower:
+            return "Snowflake authentication failed. Please check your username, password, and account details."
+
+    # BigQuery permission errors
+    if source_type == ExternalDataSource.Type.BIGQUERY:
+        if "permission denied" in error_lower or "403" in error_lower:
+            return "BigQuery permission denied. Please check that your service account has the necessary permissions."
+        if "not found" in error_lower:
+            return "BigQuery dataset or table not found. Please verify your project, dataset, and table names."
+
+    # Zendesk API errors
+    if source_type == ExternalDataSource.Type.ZENDESK:
+        if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
+            return "Zendesk authentication failed. Please check your API token and subdomain."
+
+    # Chargebee API errors
+    if source_type == ExternalDataSource.Type.CHARGEBEE:
+        if any(keyword in error_lower for keyword in ["401", "403", "unauthorized", "forbidden"]):
+            return "Chargebee authentication failed. Please check your API key and site name."
+
+    # Cloud storage errors (S3, GCS, R2, Azure)
+    if source_type in ["aws", "google-cloud", "cloudflare-r2", "azure"]:
+        if any(keyword in error_lower for keyword in ["access denied", "forbidden", "403", "unauthorized", "401"]):
+            return "Access denied to cloud storage. Please check your credentials and bucket permissions."
+        if any(keyword in error_lower for keyword in ["bucket not found", "container not found", "no such bucket"]):
+            return "Storage bucket/container not found. Please verify your bucket name and region."
+        if any(keyword in error_lower for keyword in ["invalid credentials", "authentication failed"]):
+            return "Cloud storage authentication failed. Please check your access keys or service account."
+        if any(keyword in error_lower for keyword in ["network error", "connection timeout", "timeout"]):
+            return "Unable to connect to cloud storage. Please check your network connection and region settings."
+
+    return raw_error

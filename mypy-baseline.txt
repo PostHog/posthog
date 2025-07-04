@@ -326,7 +326,6 @@ posthog/tasks/update_survey_iteration.py:0: error: Incompatible types in assignm
 posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "filters"  [union-attr]
 posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "filters"  [union-attr]
 posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "save"  [union-attr]
-posthog/temporal/data_imports/external_data_job.py:0: error: Argument "status" to "update_external_job_status" has incompatible type "str"; expected "Status"  [arg-type]
 posthog/temporal/data_imports/pipelines/pipeline/hogql_schema.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/test/test_pipeline_utils.py:0: error: Argument 1 to "schema" has incompatible type "list[object]"; expected "Iterable[Field[Any]] | Iterable[tuple[str, DataType]] | Mapping[str, DataType]"  [arg-type]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]

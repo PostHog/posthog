@@ -132,7 +132,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             loadPlaylists: async (_, breakpoint) => {
                 // We do not need to call it on the Home tab anymore
                 if (props.tab && props.tab === ReplayTabs.Home) {
-                    return
+                    return { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult
                 }
 
                 if (values.playlists.filters !== null) {

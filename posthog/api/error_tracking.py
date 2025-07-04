@@ -432,7 +432,15 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
     parser_classes = [MultiPartParser, FileUploadParser]
-    scope_object_write_actions = ["start_upload", "finish_upload", "destroy", "update", "create"]
+    scope_object_write_actions = [
+        "bulk_start_upload",
+        "bulk_finish_upload",
+        "start_upload",
+        "finish_upload",
+        "destroy",
+        "update",
+        "create",
+    ]
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id)
@@ -560,6 +568,89 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    def bulk_start_upload(self, request, **kwargs):
+        # Extract a list of chunk IDs from the request json
+        chunk_ids = request.data.get("chunk_ids")
+        # Grab the release ID from the request json
+        release_id = request.data.get("release_id", None)
+        if not chunk_ids:
+            return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        # For each of the chunk IDs, make a new symbol set and presigned URL
+        id_url_map = {}
+        for chunk_id in chunk_ids:
+            file_key = generate_symbol_set_file_key()
+            presigned_url = object_storage.get_presigned_post(
+                file_key=file_key,
+                conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+                expiration=60,
+            )
+            symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
+            id_url_map[chunk_id] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}
+
+        return Response({"id_map": id_url_map}, status=status.HTTP_201_CREATED)
+
+    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    def bulk_finish_upload(self, request, **kwargs):
+        # Get the map of symbol_set_id:content_hashes
+        content_hashes = request.data.get("content_hashes", {})
+        if not content_hashes:
+            return Response(
+                {"detail": "content_hashes query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required",
+                detail="Object storage must be available to allow source map uploads.",
+            )
+
+        try:
+            for symbol_set_id, content_hash in content_hashes.items():
+                symbol_set = ErrorTrackingSymbolSet.objects.get(id=symbol_set_id, team=self.team)
+                s3_upload = None
+                if symbol_set.storage_ptr:
+                    s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
+
+                if s3_upload:
+                    content_length = s3_upload.get("ContentLength")
+
+                    if not content_length or content_length > ONE_HUNDRED_MEGABYTES:
+                        symbol_set.delete()
+
+                        raise ValidationError(
+                            code="file_too_large",
+                            detail="The uploaded symbol set file was too large.",
+                        )
+                else:
+                    raise ValidationError(
+                        code="file_not_found",
+                        detail="No file has been uploaded for the symbol set.",
+                    )
+
+                if not symbol_set.content_hash:
+                    symbol_set.content_hash = content_hash
+                    symbol_set.save()
+        except Exception:
+            for id in content_hashes.keys():
+                # Try to clean up the symbol sets preemptively if the upload fails
+                try:
+                    symbol_set = ErrorTrackingSymbolSet.objects.all().filter(id=id, team=self.team).get()
+                    symbol_set.delete()
+                except Exception:
+                    pass
+
+            raise
+
+        return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):

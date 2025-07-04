@@ -104,6 +104,16 @@ export class EventsProcessor {
                     processPerson,
                     groupStoreForBatch
                 )
+
+                if (typeof result.timestamp !== 'string') {
+                    logger.error('🔴', 'Timestamp is not a string after capture', {
+                        originalTimestamp: timestamp,
+                        resultTimestamp: result.timestamp,
+                        originalType: typeof timestamp,
+                        resultType: typeof result.timestamp,
+                    })
+                }
+
                 processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)

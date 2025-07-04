@@ -35,6 +35,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "email": StringDatabaseField(name="email"),
     "phone": StringDatabaseField(name="phone"),
     "address": StringJSONDatabaseField(name="address"),
+    "metadata": StringJSONDatabaseField(name="metadata"),
     "country": StringDatabaseField(name="country"),
     "cohort": StringDatabaseField(name="cohort"),
     "initial_coupon": StringDatabaseField(name="initial_coupon"),
@@ -74,6 +75,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="email", expr=ast.Field(chain=["properties", "email"])),
                     ast.Alias(alias="phone", expr=ast.Field(chain=["properties", "phone"])),
                     ast.Alias(alias="address", expr=ast.Field(chain=["properties", "address"])),
+                    ast.Alias(alias="metadata", expr=ast.Field(chain=["properties", "metadata"])),
                     ast.Alias(alias="country", expr=ast.Field(chain=["properties", "$geoip_country_name"])),
                     ast.Alias(alias="cohort", expr=get_cohort_expr("created_at")),
                     ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
@@ -81,6 +83,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["persons"]),
+                    alias="persons",
                     next_join=ast.JoinExpr(
                         table=events_query,
                         alias="events",
@@ -88,8 +91,8 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                         constraint=ast.JoinConstraint(
                             constraint_type="ON",
                             expr=ast.CompareOperation(
-                                left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=["events", "person_id"]),
+                                left=ast.Field(chain=["id"]),
+                                right=ast.Field(chain=["person_id"]),
                                 op=ast.CompareOperationOp.Eq,
                             ),
                         ),
@@ -154,6 +157,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
                 ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
                 ast.Alias(alias="address", expr=ast.Field(chain=["address"])),
+                ast.Alias(alias="metadata", expr=ast.Field(chain=["metadata"])),
                 ast.Alias(
                     alias="country",
                     expr=ast.Call(
@@ -164,7 +168,10 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
                 ast.Alias(alias="initial_coupon", expr=ast.Constant(value=None)),
                 ast.Alias(alias="initial_coupon_id", expr=ast.Constant(value=None)),
             ],
-            select_from=ast.JoinExpr(alias="outer", table=ast.Field(chain=[table.name])),
+            select_from=ast.JoinExpr(
+                alias="outer",
+                table=ast.Field(chain=[table.name]),
+            ),
         )
 
         # If there's an invoice table we can generate the cohort entry
