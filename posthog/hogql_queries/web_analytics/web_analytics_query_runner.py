@@ -50,7 +50,7 @@ class WebAnalyticsQueryRunner(QueryRunnerWithHogQLContext, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
 
-    # Skip data warehouse tables for performance in web analytics queries
+    # Skip data warehouse tables for hogql database creation for performance
     skip_data_warehouse_tables: bool = True
 
     @cached_property

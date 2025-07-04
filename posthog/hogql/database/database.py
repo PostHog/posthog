@@ -494,6 +494,7 @@ def create_hogql_database(
 
     if skip_dw_tables:
         # Skip data warehouse table loading and proceed directly to adding empty tables
+        # This is used internally for QueryRunners that know ahead of time that they will not be using the data warehouse tables
         database.add_warehouse_tables(**warehouse_tables)
         database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
         database.add_views(**views)
