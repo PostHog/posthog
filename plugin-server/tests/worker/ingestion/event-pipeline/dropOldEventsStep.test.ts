@@ -60,7 +60,7 @@ describe('dropOldEventsStep()', () => {
     const createTeamWithDropSetting = (dropEventsOlderThan: number | null): Team =>
         ({
             id: teamId,
-            drop_events_older_than: dropEventsOlderThan,
+            drop_events_older_than_seconds: dropEventsOlderThan,
         } as Team)
 
     describe('basic functionality', () => {
