@@ -16,6 +16,7 @@ export const modalInterruptionTrackingLogic = kea<modalInterruptionTrackingLogic
                 values: [globalModalsLogic, ['isCreateOrganizationModalShown', 'isCreateProjectModalShown']],
                 actions: [organizationLogic, ['createOrganization'], projectLogic, ['createProject']],
             }
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (e) {
             // Safe fallback for tests
             return {}
