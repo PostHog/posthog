@@ -9,8 +9,6 @@ import dns.resolver
 import grpc.aio
 import requests
 import temporalio.common
-from asgiref.sync import sync_to_async
-from django.db import connection
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
@@ -22,7 +20,9 @@ from posthog.temporal.proxy_service.common import (
     RecordDeletedException,
     UpdateProxyRecordInputs,
     get_grpc_client,
-    update_proxy_record,
+    activity_update_proxy_record,
+    update_record,
+    record_exists,
 )
 from posthog.temporal.proxy_service.proto import (
     CertificateState_READY,
@@ -94,19 +94,6 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         inputs.target_cname,
     )
 
-    @sync_to_async
-    def record_exists(proxy_record_id) -> bool:
-        connection.connect()
-        pr = ProxyRecord.objects.filter(id=proxy_record_id)
-        return len(pr) > 0
-
-    @sync_to_async
-    def update_record_message(*, proxy_record_id, message):
-        connection.connect()
-        pr = ProxyRecord.objects.get(id=proxy_record_id)
-        pr.message = message
-        pr.save()
-
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
@@ -114,9 +101,15 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         cnames = dns.resolver.query(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
-        if value == inputs.target_cname:
+        if cnames[0].target == dns.name.from_text(inputs.target_cname):
             return
         else:
+            logger.info(
+                "Got wrong DNS record for %s - expecting %s, got %s",
+                inputs.domain,
+                inputs.target_cname,
+                value,
+            )
             raise ApplicationError("target CNAME doesn't match", non_retryable=False)
     except dns.resolver.NoAnswer:
         # NoAnswer is not the same as NXDOMAIN
@@ -133,7 +126,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # the customer has set cloudflare proxying on
-            await update_record_message(
+            await update_record(
                 proxy_record_id=inputs.proxy_record_id,
                 message="The DNS record appears to have Cloudflare proxying enabled - please disable this. For more information see [the docs](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)",
             )
@@ -156,12 +149,6 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
         "Creating managed proxy resources for domain %s",
         inputs.domain,
     )
-
-    @sync_to_async
-    def record_exists(proxy_record_id) -> bool:
-        connection.connect()
-        pr = ProxyRecord.objects.filter(id=proxy_record_id)
-        return len(pr) > 0
 
     if not await record_exists(inputs.proxy_record_id):
         raise RecordDeletedException("proxy record was deleted while waiting for certificate to be provisioned")
@@ -269,7 +256,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
                 # Handle schedule-to-close timeout specifically
                 await temporalio.workflow.execute_activity(
-                    update_proxy_record,
+                    activity_update_proxy_record,
                     UpdateProxyRecordInputs(
                         organization_id=inputs.organization_id,
                         proxy_record_id=inputs.proxy_record_id,
@@ -285,7 +272,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
             # We've found the correct DNS record - update record to the ISSUING state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
@@ -332,7 +319,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
             # Everything's created and ready to go, update to VALID
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
@@ -373,7 +360,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 return
             # Something went wrong - set the record to error state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
