@@ -215,6 +215,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        description="Returns access control settings for a specific resource, including user permissions, available access levels, and the default access level.",
+    )
     @action(methods=["GET"], detail=True, required_scopes=["access_control:read"], url_path="access_controls/get")
     def get_access_controls(self, request: Request, *args, **kwargs):
         return self._get_access_controls(request)
@@ -224,6 +227,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
     def update_access_controls(self, request: Request, *args, **kwargs):
         return self._update_access_controls(request)
 
+    @extend_schema(
+        description="Returns project-wide default access control settings, including role-based permissions and default access levels for all resource types.",
+    )
     @action(
         methods=["GET"], detail=True, required_scopes=["access_control:read"], url_path="global_access_controls/get"
     )
