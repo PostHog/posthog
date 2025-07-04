@@ -19,6 +19,8 @@ from structlog.typing import FilteringBoundLogger
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
+EXTERNAL_LOGGER_NAME = "EXTERNAL"
+EXTERNAL_LOGGER = structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
 
 def get_internal_logger():
@@ -27,25 +29,21 @@ def get_internal_logger():
     We attach the temporal context to the logger for easier debugging (for
     example, we can track things like the workflow id across log entries).
     """
-    if not structlog.is_configured():
-        base_processors: list[structlog.types.Processor] = [
-            structlog.processors.add_log_level,
-            structlog.processors.format_exc_info,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            EventRenamer("msg"),
-            structlog.processors.JSONRenderer(),
-        ]
-        structlog.configure(
-            processors=base_processors,
-            logger_factory=structlog.PrintLoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
 
     return logger.new(**temporal_context)
+
+
+def bind_contextvars(**kwargs):
+    """Bind any variables to the context, including base Temporal variables."""
+    temporal_context = get_temporal_context()
+    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
+
+
+def get_external_logger(**kwargs) -> FilteringBoundLogger:
+    """Return a bound logger to log user-facing logs."""
+    return EXTERNAL_LOGGER.bind(**kwargs)
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -294,6 +292,9 @@ class PutInLogQueueProcessor:
         Always return event_dict so that processors that come later in the chain can do
         their own thing.
         """
+        if logger.name != EXTERNAL_LOGGER_NAME and settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+            return event_dict
+
         try:
             message_dict = {
                 "instance_id": event_dict["workflow_run_id"],
