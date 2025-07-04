@@ -1,323 +1,272 @@
 """
-QueryRunner implementation for fetching session events for multiple sessions in a single query.
-This is designed to optimize session summary generation by reducing the number of database queries
-from N (one per session) to 1 (for all sessions in batch).
+SessionBatchEventsQueryRunner extending EventsQueryRunner for multi-session event queries.
 
-This QueryRunner is specifically designed for session summary use cases and should not replace
-the existing SessionReplayEvents.get_events() method for single session queries.
+This runner leverages PostHog's existing EventsQueryRunner infrastructure while adding
+session-specific capabilities like result grouping and per-session limiting.
 """
 
-# dataclass removed since SessionEventsBatch is now a Pydantic model
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from .schema import (
-    CachedMultiSessionEventsQueryResponse,
-    MultiSessionEventsQuery,
-    MultiSessionEventsQueryResponse,
-    MultiSessionEventsItem,
-    SessionEventsBatch,
+    SessionBatchEventsQuery,
+    SessionBatchEventsQueryResponse,
+    SessionEventsItem,
+    SessionEventsResults,
 )
-from posthog.session_recordings.models.metadata import RecordingMetadata
-
-# Default fields that are always included in session events queries
-DEFAULT_EVENT_FIELDS = [
-    "event",
-    "timestamp",
-    "elements_chain_href",
-    "elements_chain_texts",
-    "elements_chain_elements",
-    "properties.$window_id",
-    "properties.$current_url",
-    "properties.$event_type",
-]
-
-# Additional fields typically needed for session summary analysis
-EXTRA_SUMMARY_EVENT_FIELDS = [
-    "elements_chain_ids",
-    "elements_chain",
-    "properties.$exception_types",
-    "properties.$exception_sources",
-    "properties.$exception_values",
-    "properties.$exception_fingerprint_record",
-    "properties.$exception_functions",
-    "uuid",
-]
 
 
-# SessionEventsBatch is now imported from schema.py
-
-
-class MultiSessionEventsQueryRunner(QueryRunner):
+class SessionBatchEventsQueryRunner(EventsQueryRunner):
     """
-    QueryRunner for fetching events from multiple sessions in a single optimized query.
+    Extended EventsQueryRunner for batch session event queries.
     
-    This runner is specifically designed for session summary workflows where we need
-    to fetch events for multiple sessions efficiently. It constructs a single HogQL query
-    that fetches events for all requested sessions, reducing database round trips.
+    This runner extends the standard EventsQueryRunner to handle multiple sessions
+    efficiently while maintaining compatibility with all existing EventsQuery features.
     
-    Key optimizations:
-    1. Single query for multiple sessions instead of N queries
-    2. Proper time range filtering based on session metadata
-    3. Built-in pagination and limiting per session
-    4. Standardized field selection for session summary use cases
+    Key additions:
+    1. Session-grouped result organization  
+    2. Per-session event limiting
+    3. Session-specific metadata tracking
+    4. Optimized query construction for multi-session scenarios
     """
     
-    query: MultiSessionEventsQuery
-    response: MultiSessionEventsQueryResponse
-    cached_response: CachedMultiSessionEventsQueryResponse
+    query: SessionBatchEventsQuery
+    response: SessionBatchEventsQueryResponse
 
-    def calculate(self) -> MultiSessionEventsQueryResponse:
+    def calculate(self) -> SessionBatchEventsQueryResponse:
         """
-        Main calculation method that executes the multi-session events query.
+        Execute the session batch query and organize results by session.
+        
+        This method leverages the parent EventsQueryRunner.calculate() for query execution,
+        then post-processes the results to group by session and apply session-specific limits.
         
         Returns:
-            MultiSessionEventsQueryResponse containing events grouped by session_id
+            SessionBatchEventsQueryResponse with session-grouped results and metadata
         """
-        # Build the HogQL query for multiple sessions
-        query = self.to_query()
+        # Execute the base query using parent EventsQueryRunner
+        base_response = super().calculate()
         
-        # Convert to printed HogQL for debugging and response metadata
-        hogql = to_printed_hogql(query, self.team)
-        
-        # Execute the query using PostHog's query execution infrastructure
-        response = execute_hogql_query(
-            query_type="MultiSessionEventsQuery",
-            query=query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
-        
-        # Group results by session_id and convert to structured format
-        events_by_session = self._group_events_by_session(response.results)
-        
-        # Convert to typed response items
-        session_events: List[MultiSessionEventsItem] = []
-        for session_id, events in events_by_session.items():
-            session_events.append(
-                MultiSessionEventsItem(
-                    session_id=session_id,
-                    events=events,
-                    event_count=len(events),
-                )
+        # If group_by_session is False, return the base response as-is
+        if not self.query.group_by_session:
+            return SessionBatchEventsQueryResponse(
+                **base_response.model_dump(),
+                session_events=None,
+                total_sessions=None,
             )
         
-        return MultiSessionEventsQueryResponse(
+        # Group results by session and apply per-session limits
+        session_events_data = self._group_events_by_session(
+            results=base_response.results,
+            columns=base_response.columns or []
+        )
+        
+        # Create SessionEventsItem list
+        session_events: List[SessionEventsItem] = []
+        sessions_with_no_events: List[str] = []
+        truncated_sessions: List[str] = []
+        
+        for session_id in self.query.session_ids:
+            if session_id in session_events_data:
+                events = session_events_data[session_id]
+                
+                # Apply per-session limit if specified
+                truncated = False
+                if self.query.limit_per_session and len(events) > self.query.limit_per_session:
+                    events = events[:self.query.limit_per_session]
+                    truncated = True
+                    truncated_sessions.append(session_id)
+                
+                session_events.append(
+                    SessionEventsItem(
+                        session_id=session_id,
+                        events=events,
+                        event_count=len(events),
+                        truncated=truncated,
+                    )
+                )
+            else:
+                sessions_with_no_events.append(session_id)
+        
+        # Calculate total events across all sessions (for potential future use)
+        # total_events = sum(item.event_count for item in session_events)
+        
+        # Create the extended response
+        return SessionBatchEventsQueryResponse(
+            # Base EventsQueryResponse fields
+            results=base_response.results,
+            columns=base_response.columns,
+            types=base_response.types,
+            hogql=base_response.hogql,
+            timings=base_response.timings,
+            error=base_response.error,
+            hasMore=base_response.hasMore,
+            limit=base_response.limit,
+            offset=base_response.offset,
+            modifiers=base_response.modifiers,
+            query_status=base_response.query_status,
+            
+            # Session-specific fields
             session_events=session_events,
-            columns=response.columns or [],
-            types=response.types or [],
             total_sessions=len(session_events),
-            total_events=sum(item.event_count for item in session_events),
-            timings=response.timings,
-            hogql=hogql,
-            modifiers=self.modifiers,
+            sessions_with_no_events=sessions_with_no_events,
+            truncated_sessions=truncated_sessions,
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def _group_events_by_session(
+        self, 
+        results: List[List[Any]], 
+        columns: List[str]
+    ) -> SessionEventsResults:
         """
-        Constructs the HogQL query for fetching events from multiple sessions.
-        
-        This method builds a single query that efficiently fetches events for all
-        requested sessions by:
-        1. Using IN clause for session_ids
-        2. Applying time range filters based on session metadata
-        3. Including proper field selection and ordering
-        4. Applying limits and pagination as needed
-        
-        Returns:
-            ast.SelectQuery: The constructed HogQL query
-        """
-        batch = self.query.session_batch
-        
-        # Build the field list - always include defaults plus any extra fields
-        fields = DEFAULT_EVENT_FIELDS.copy()
-        if batch.extra_fields:
-            fields.extend(batch.extra_fields)
-        
-        # Add session_id to fields so we can group results by session
-        if "$session_id" not in fields:
-            fields.append("$session_id")
-        
-        # Create the base SELECT query
-        query_parts = [
-            f"SELECT {', '.join(fields)}",
-            "FROM events",
-            "WHERE"
-        ]
-        
-        # Build WHERE conditions
-        where_conditions = []
-        
-        # Filter by session IDs
-        where_conditions.append("$session_id IN {session_ids}")
-        
-        # Apply time range filtering based on session metadata
-        # We need to accommodate all sessions, so we use the earliest start time
-        # and latest end time across all sessions (with some buffer)
-        # Note: batch.session_metadata would need to be passed separately or included in the schema
-        # For now, we'll use the date_range if provided
-        if batch.date_range:
-            earliest_start = batch.date_range.date_from
-            latest_end = batch.date_range.date_to or batch.date_range.date_from
-        else:
-            # Fallback - this would need session metadata to be properly implemented
-            from datetime import datetime
-            earliest_start = datetime.now() - timedelta(days=7)
-            latest_end = datetime.now()
-        
-        where_conditions.append("timestamp >= {earliest_start}")
-        where_conditions.append("timestamp <= {latest_end}")
-        
-        # Filter out events we want to ignore (e.g., feature flag calls)
-        if batch.events_to_ignore:
-            where_conditions.append("event NOT IN {events_to_ignore}")
-        
-        # Join WHERE conditions
-        query_parts.append(" AND ".join(where_conditions))
-        
-        # Order by session_id and timestamp for consistent results
-        query_parts.append("ORDER BY $session_id, timestamp ASC")
-        
-        # Apply global limit if specified
-        if batch.max_total_events:
-            query_parts.append(f"LIMIT {batch.max_total_events}")
-        
-        # Build the complete query string
-        query_string = " ".join(query_parts)
-        
-        # Parse the query string into AST with proper placeholders
-        return parse_select(
-            query_string,
-            placeholders={
-                "session_ids": ast.Constant(value=batch.session_ids),
-                "earliest_start": ast.Constant(value=earliest_start),
-                "latest_end": ast.Constant(value=latest_end),
-                "events_to_ignore": ast.Constant(value=batch.events_to_ignore) if batch.events_to_ignore else None,
-            },
-        )
-
-    def _group_events_by_session(self, results: List[List[Any]]) -> Dict[str, List[Tuple[Any, ...]]]:
-        """
-        Groups query results by session_id for easier processing.
+        Group query results by session_id.
         
         Args:
-            results: Raw query results from the database
+            results: Raw query results from EventsQueryRunner
+            columns: Column names for the query results
             
         Returns:
             Dictionary mapping session_id to list of events for that session
         """
-        events_by_session: Dict[str, List[Tuple[Any, ...]]] = {}
+        if not results or not columns:
+            return {}
         
-        # Find the index of the $session_id field in the results
-        # This assumes $session_id is included in the selected fields
-        session_id_index = -1  # Will be set to the actual index
+        # Find the index of the $session_id column
+        session_id_index = None
+        for i, col in enumerate(columns):
+            if col in ["properties.$session_id", "$session_id"]:
+                session_id_index = i
+                break
+        
+        if session_id_index is None:
+            # If no session_id column found, we can't group by session
+            # This shouldn't happen if the query was constructed properly
+            raise ValueError("No session_id column found in query results. Ensure 'properties.$session_id' is included in the select clause.")
+        
+        # Group events by session_id
+        events_by_session: SessionEventsResults = {}
         
         for row in results:
-            if len(row) == 0:
+            if len(row) <= session_id_index:
                 continue
-            
-            # Get session_id from the row (assuming it's the last field we added)
+                
             session_id = row[session_id_index]
+            if session_id is None:
+                continue
+                
+            # Convert to string to ensure consistent typing
+            session_id = str(session_id)
             
             if session_id not in events_by_session:
                 events_by_session[session_id] = []
             
-            # Add the event to the session's event list
-            # Remove the session_id from the row since it's only needed for grouping
-            event_row = tuple(row[:session_id_index] + row[session_id_index + 1:])
+            # Remove the session_id from the row since it's used for grouping
+            # Keep all other fields for the session's events
+            event_row = list(row[:session_id_index]) + list(row[session_id_index + 1:])
             events_by_session[session_id].append(event_row)
-        
-        # Apply per-session limits if specified
-        batch = self.query.session_batch
-        if batch.limit_per_session:
-            for session_id in events_by_session:
-                events_by_session[session_id] = events_by_session[session_id][:batch.limit_per_session]
         
         return events_by_session
 
-    def _validate_session_batch(self, batch: SessionEventsBatch) -> None:
+    def _get_session_id_column_index(self, columns: List[str]) -> int:
         """
-        Validates that the session batch contains all required data.
+        Find the index of the session_id column in the results.
         
         Args:
-            batch: The session batch to validate
+            columns: List of column names from the query
+            
+        Returns:
+            Index of the session_id column
             
         Raises:
-            ValueError: If the batch is invalid
+            ValueError: If session_id column is not found
         """
-        if not batch.session_ids:
-            raise ValueError("Session batch must contain at least one session_id")
+        session_id_columns = ["properties.$session_id", "$session_id"]
         
-        # Note: With the Pydantic model, basic validation is handled automatically
-        # Additional business logic validation can be added here if needed
+        for session_col in session_id_columns:
+            try:
+                return columns.index(session_col)
+            except ValueError:
+                continue
+        
+        raise ValueError(
+            f"Session ID column not found in query results. "
+            f"Expected one of {session_id_columns}, got columns: {columns}"
+        )
 
 
-def create_session_events_batch(
+# Convenience functions for common use cases
+
+def query_session_events_batch(
+    team,
     session_ids: List[str],
-    events_to_ignore: Optional[List[str]] = None,
-    extra_fields: Optional[List[str]] = None,
-    limit_per_session: Optional[int] = None,
-    max_total_events: Optional[int] = None,
-    date_range: Optional[Any] = None,  # DateRange from schema
-) -> SessionEventsBatch:
+    after: str = "-7d",
+    limit_per_session: int = 1000,
+    max_total_events: int = 10000,
+    events_to_ignore: List[str] = None,
+    **kwargs
+) -> SessionBatchEventsQueryResponse:
     """
-    Convenience function to create a SessionEventsBatch with proper validation.
+    Convenience function to query events for multiple sessions with sensible defaults.
     
     Args:
-        session_ids: List of session IDs to fetch events for
-        events_to_ignore: List of event names to exclude from results
-        extra_fields: Additional fields to include beyond the defaults
-        limit_per_session: Maximum number of events per session
+        team: PostHog team instance
+        session_ids: List of session IDs to query
+        after: Time range start (e.g., "-7d", "2023-01-01")
+        limit_per_session: Maximum events per session
         max_total_events: Maximum total events across all sessions
-        date_range: Optional date range for filtering events
+        events_to_ignore: Events to exclude from results
+        **kwargs: Additional query parameters
         
     Returns:
-        SessionEventsBatch: Configured batch ready for querying
+        SessionBatchEventsQueryResponse with grouped session events
     """
-    # Use session summary defaults if not specified
-    if events_to_ignore is None:
-        events_to_ignore = ["$feature_flag_called"]
+    from .schema import create_session_batch_query
     
-    if extra_fields is None:
-        extra_fields = EXTRA_SUMMARY_EVENT_FIELDS
-    
-    return SessionEventsBatch(
+    query = create_session_batch_query(
         session_ids=session_ids,
-        events_to_ignore=events_to_ignore,
-        extra_fields=extra_fields,
+        after=after,
         limit_per_session=limit_per_session,
         max_total_events=max_total_events,
-        date_range=date_range,
+        events_to_ignore=events_to_ignore,
+        **kwargs
     )
+    
+    runner = SessionBatchEventsQueryRunner(team=team, query=query)
+    return runner.calculate()
 
 
 # Example usage for session summary workflows:
 """
-# Instead of making N separate queries:
-for session_id in session_ids:
-    events = get_session_events(session_id, metadata, team_id)
-    
-# Use a single optimized query:
-batch = create_session_events_batch(
-    session_ids=session_ids,
-    limit_per_session=3000,  # Match current pagination limit
-    max_total_events=10000,  # Prevent excessive memory usage
+# Simple batch query for session summaries
+response = query_session_events_batch(
+    team=team,
+    session_ids=["session1", "session2", "session3"],
+    after="-24h",
+    limit_per_session=2000,
+    max_total_events=8000
 )
 
-query = MultiSessionEventsQuery(session_batch=batch)
-runner = MultiSessionEventsQueryRunner(team=team, query=query)
-response = runner.calculate()
-
-# Process results
-for session_events in response.session_events:
-    session_id = session_events.session_id
-    events = session_events.events
+# Process grouped results
+for session_item in response.session_events:
+    session_id = session_item.session_id
+    events = session_item.events
+    print(f"Session {session_id}: {len(events)} events")
+    
     # Process events for this session...
+    for event_row in events:
+        # event_row contains values in the order specified by response.columns
+        pass
+
+# Advanced usage with custom field selection
+from .schema import create_session_batch_query
+
+query = create_session_batch_query(
+    session_ids=session_ids,
+    select=["event", "timestamp", "properties.custom_field"],
+    where=["properties.important = true"],
+    after="-30d",
+    limit_per_session=5000
+)
+
+runner = SessionBatchEventsQueryRunner(team=team, query=query)
+response = runner.calculate()
 """

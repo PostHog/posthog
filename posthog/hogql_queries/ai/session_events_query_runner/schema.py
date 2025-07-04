@@ -1,124 +1,67 @@
 """
-Schema definitions for MultiSessionEventsQuery and related types.
+Schema definitions for SessionBatchEventsQuery extending EventsQuery.
 
-These schemas follow PostHog's standard query/response patterns and integrate
-with the existing query infrastructure for session event fetching.
+This approach leverages PostHog's existing EventsQuery infrastructure while adding
+multi-session capabilities for session summary workflows.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
-    DateRange,
-    HogQLQueryModifiers,
-    PropertyFilter,
-    QueryLogTags,
-    QueryStatus,
-    QueryTiming,
+    EventsQuery,
+    EventsQueryResponse,
 )
 
 
-class SessionEventsBatch(BaseModel):
+class SessionBatchEventsQuery(EventsQuery):
     """
-    Batch configuration for fetching events from multiple sessions.
+    Extended EventsQuery for fetching events from multiple sessions efficiently.
     
-    This model defines the input parameters for multi-session event queries,
-    including session filtering, field selection, and performance limits.
+    This extends the standard EventsQuery with session-specific capabilities:
+    - Batch querying multiple sessions in a single request
+    - Per-session result limiting
+    - Session-grouped result organization
+    
+    Inherits all EventsQuery functionality:
+    - Standard field selection via `select`
+    - Property filtering via `properties` and `fixedProperties`
+    - Time filtering via `after` and `before`
+    - HogQL filtering via `where`
+    - Ordering via `orderBy`
+    - Pagination via `limit` and `offset`
     """
     model_config = ConfigDict(extra="forbid")
     
+    # Override kind to distinguish from base EventsQuery
+    kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
+    
+    # Session-specific fields
     session_ids: list[str] = Field(
-        ..., 
-        description="List of session IDs to fetch events for"
+        ...,
+        description="List of session IDs to fetch events for. Will be translated to $session_id IN filter."
     )
     
-    # Time range filtering (optional, derived from session metadata if not provided)
-    date_range: Optional[DateRange] = Field(
-        default=None,
-        description="Optional date range to filter events. If not provided, will be derived from session metadata."
+    group_by_session: bool = Field(
+        default=True,
+        description="Whether to group results by session_id in the response"
     )
     
-    # Event filtering
-    events_to_ignore: Optional[list[str]] = Field(
-        default=None,
-        description="List of event names to exclude from results (e.g., '$feature_flag_called')"
-    )
-    
-    properties: Optional[list[PropertyFilter]] = Field(
-        default=None,
-        description="Property filters to apply to events"
-    )
-    
-    # Field selection
-    extra_fields: Optional[list[str]] = Field(
-        default=None,
-        description="Additional fields to include beyond the default event fields"
-    )
-    
-    # Performance controls
     limit_per_session: Optional[int] = Field(
         default=None,
-        description="Maximum number of events to return per session"
+        description="Maximum number of events to return per session (applied after global ordering)"
     )
     
-    max_total_events: Optional[int] = Field(
-        default=None,
-        description="Maximum total events across all sessions to prevent memory issues"
-    )
-    
-    # Processing options
-    include_session_metadata: bool = Field(
-        default=True,
-        description="Whether to include session metadata in the response"
-    )
+    # Override response type to use our extended response
+    response: Optional[SessionBatchEventsQueryResponse] = None
 
 
-class MultiSessionEventsQuery(BaseModel):
+class SessionEventsItem(BaseModel):
     """
-    Query definition for fetching events from multiple sessions in a single optimized query.
-    
-    This query type is designed for session summary workflows where events from
-    multiple sessions need to be fetched efficiently.
-    """
-    model_config = ConfigDict(extra="forbid")
-    
-    # Standard query fields following PostHog patterns
-    kind: Literal["MultiSessionEventsQuery"] = "MultiSessionEventsQuery"
-    
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None,
-        description="Modifiers used when performing the query"
-    )
-    
-    response: Optional[MultiSessionEventsQueryResponse] = None
-    
-    tags: Optional[QueryLogTags] = None
-    
-    version: Optional[float] = Field(
-        default=None,
-        description="Version of the query schema, used for migrations"
-    )
-    
-    # Query-specific configuration
-    session_batch: SessionEventsBatch = Field(
-        ...,
-        description="Batch configuration for the multi-session events query"
-    )
-    
-    # Standard filtering options
-    filter_test_accounts: Optional[bool] = Field(
-        default=None,
-        description="Filter test accounts from results"
-    )
-
-
-class MultiSessionEventsItem(BaseModel):
-    """
-    Container for events from a single session within a multi-session query result.
+    Container for events from a single session within a batch query result.
     """
     model_config = ConfigDict(extra="forbid")
     
@@ -129,7 +72,7 @@ class MultiSessionEventsItem(BaseModel):
     
     events: list[list[Any]] = Field(
         ...,
-        description="List of events for this session, each event is a list of field values"
+        description="List of events for this session, each event is a list of field values matching the query columns"
     )
     
     event_count: int = Field(
@@ -137,155 +80,157 @@ class MultiSessionEventsItem(BaseModel):
         description="Number of events returned for this session"
     )
     
-    # Optional metadata
-    session_metadata: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Session metadata if requested in the query"
-    )
-    
     truncated: bool = Field(
         default=False,
-        description="Whether the event list was truncated due to limits"
+        description="Whether the event list was truncated due to limit_per_session"
     )
 
 
-class MultiSessionEventsQueryResponse(BaseModel):
+class SessionBatchEventsQueryResponse(EventsQueryResponse):
     """
-    Response from a MultiSessionEventsQuery containing events grouped by session.
+    Extended EventsQueryResponse for session batch queries.
     
-    Follows PostHog's standard query response pattern with results, metadata,
-    and execution information.
+    Maintains compatibility with standard EventsQueryResponse while adding
+    session-specific result organization and metadata.
     """
     model_config = ConfigDict(extra="forbid")
     
-    # Core results
-    session_events: list[MultiSessionEventsItem] = Field(
-        ...,
-        description="Events grouped by session ID"
-    )
-    
-    columns: list[str] = Field(
-        ...,
-        description="Column names for the event data in consistent order"
-    )
-    
-    types: Optional[list[str]] = Field(
+    # Session-grouped results (when group_by_session=True)
+    session_events: Optional[list[SessionEventsItem]] = Field(
         default=None,
-        description="Data types for each column"
+        description="Events grouped by session ID. Only populated when group_by_session=True."
     )
     
-    # Summary metrics
-    total_sessions: int = Field(
-        ...,
-        description="Total number of sessions with events in the response"
-    )
-    
-    total_events: int = Field(
-        ...,
-        description="Total number of events across all sessions"
-    )
-    
-    # Query execution metadata (standard PostHog fields)
-    hogql: str = Field(
-        ...,
-        description="Generated HogQL query that was executed"
-    )
-    
-    timings: Optional[list[QueryTiming]] = Field(
+    # Summary metrics for batch queries
+    total_sessions: Optional[int] = Field(
         default=None,
-        description="Measured timings for different parts of the query generation process"
+        description="Total number of sessions that had events in the result"
     )
     
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None,
-        description="Modifiers used when performing the query"
-    )
-    
-    # Error handling
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-    )
-    
-    # Pagination and status
-    hasMore: Optional[bool] = Field(
-        default=None,
-        description="Whether there are more results available"
-    )
-    
-    limit: Optional[int] = Field(
-        default=None,
-        description="Limit applied to the query"
-    )
-    
-    offset: Optional[int] = Field(
-        default=None,
-        description="Offset applied to the query"
-    )
-    
-    query_status: Optional[QueryStatus] = Field(
-        default=None,
-        description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    
-    # Performance metrics
     sessions_with_no_events: list[str] = Field(
         default_factory=list,
-        description="List of session IDs that had no events"
+        description="List of session IDs that had no matching events"
     )
     
     truncated_sessions: list[str] = Field(
         default_factory=list,
-        description="List of session IDs that were truncated due to limits"
-    )
-
-
-class CachedMultiSessionEventsQueryResponse(MultiSessionEventsQueryResponse):
-    """
-    Cached version of MultiSessionEventsQueryResponse with cache metadata.
-    
-    Extends the base response with caching information following PostHog's
-    cached response pattern.
-    """
-    model_config = ConfigDict(extra="forbid")
-    
-    # Caching metadata
-    cache_key: str = Field(
-        ...,
-        description="Cache key used for this query result"
-    )
-    
-    cache_target_age: Optional[datetime] = Field(
-        default=None,
-        description="Target age for cache invalidation"
-    )
-    
-    calculation_trigger: Optional[str] = Field(
-        default=None,
-        description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    
-    is_cached: bool = Field(
-        ...,
-        description="Whether this result was served from cache"
-    )
-    
-    last_refresh: datetime = Field(
-        ...,
-        description="When this cache entry was last refreshed"
-    )
-    
-    next_allowed_client_refresh: datetime = Field(
-        ...,
-        description="When the client is next allowed to refresh this query"
-    )
-    
-    timezone: str = Field(
-        ...,
-        description="Timezone used for the query execution"
+        description="List of session IDs that were truncated due to limit_per_session"
     )
 
 
 # Type aliases for convenience
 SessionEventsResults = dict[str, list[list[Any]]]  # session_id -> events mapping
-SessionMetadataDict = dict[str, dict[str, Any]]    # session_id -> metadata mapping
+
+
+def create_session_batch_query(
+    session_ids: list[str],
+    select: Optional[list[str]] = None,
+    events_to_ignore: Optional[list[str]] = None,
+    after: Optional[str] = None,
+    before: Optional[str] = None,
+    limit_per_session: Optional[int] = None,
+    max_total_events: Optional[int] = None,
+    include_session_id: bool = True,
+    **kwargs: Any,
+) -> SessionBatchEventsQuery:
+    """
+    Convenience function to create a SessionBatchEventsQuery with session summary defaults.
+    
+    Args:
+        session_ids: List of session IDs to fetch events for
+        select: Fields to select. Defaults to session summary fields if not provided
+        events_to_ignore: List of event names to exclude from results
+        after: Start time for event filtering
+        before: End time for event filtering  
+        limit_per_session: Maximum number of events per session
+        max_total_events: Maximum total events across all sessions
+        include_session_id: Whether to include $session_id in select fields
+        **kwargs: Additional EventsQuery parameters
+        
+    Returns:
+        SessionBatchEventsQuery: Configured query ready for execution
+    """
+    # Default field selection for session summaries
+    if select is None:
+        select = [
+            "event",
+            "timestamp", 
+            "elements_chain_href",
+            "elements_chain_texts",
+            "elements_chain_elements",
+            "properties.$window_id",
+            "properties.$current_url",
+            "properties.$event_type",
+            # Additional fields typically needed for session summary analysis
+            "elements_chain_ids",
+            "elements_chain",
+            "properties.$exception_types",
+            "properties.$exception_sources", 
+            "properties.$exception_values",
+            "properties.$exception_fingerprint_record",
+            "properties.$exception_functions",
+            "uuid",
+        ]
+    
+    # Ensure $session_id is included for grouping
+    if include_session_id and "properties.$session_id" not in select:
+        select.append("properties.$session_id")
+    
+    # Build WHERE clauses for session filtering and event exclusion
+    where_clauses = []
+    
+    # Filter by session IDs
+    where_clauses.append(f"properties.$session_id IN {session_ids}")
+    
+    # Exclude unwanted events (default to feature flag calls)
+    if events_to_ignore is None:
+        events_to_ignore = ["$feature_flag_called"]
+    
+    if events_to_ignore:
+        event_list = "', '".join(events_to_ignore)
+        where_clauses.append(f"event NOT IN ('{event_list}')")
+    
+    # Combine with any existing where clauses
+    existing_where = kwargs.get("where", [])
+    if isinstance(existing_where, list):
+        where_clauses.extend(existing_where)
+    
+    # Set defaults for session batch queries
+    query_params = {
+        "select": select,
+        "session_ids": session_ids,
+        "where": where_clauses,
+        "orderBy": ["properties.$session_id", "timestamp ASC"],  # Group by session, then chronological
+        "limit": max_total_events,
+        "limit_per_session": limit_per_session,
+        "group_by_session": True,
+        "after": after,
+        "before": before,
+        **kwargs,  # Allow overriding any defaults
+    }
+    
+    return SessionBatchEventsQuery(**query_params)
+
+
+# Example usage:
+"""
+# Create a batch query for multiple sessions
+query = create_session_batch_query(
+    session_ids=["session1", "session2", "session3"],
+    after="-7d", 
+    limit_per_session=1000,
+    max_total_events=5000
+)
+
+# Execute with existing EventsQueryRunner infrastructure
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+
+runner = SessionBatchEventsQueryRunner(team=team, query=query)
+response = runner.calculate()
+
+# Access grouped results
+for session_item in response.session_events:
+    session_id = session_item.session_id
+    events = session_item.events
+    print(f"Session {session_id}: {len(events)} events")
+"""
