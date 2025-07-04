@@ -25,6 +25,11 @@ const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     const name = getIntegrationNameFromKind(kind)
     const integrations = getIntegrationsByKind([kind])
 
+    const authorizationUrl = api.integrations.authorizeUrl({
+        next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
+        kind,
+    })
+
     const onDeleteClick = (id: number): void => {
         LemonDialog.open({
             title: `Do you want to disconnect from ${name}?`,
@@ -61,15 +66,8 @@ const Integration = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
                     />
                 ))}
                 <div className="flex">
-                    <LemonButton
-                        type="secondary"
-                        to={api.integrations.authorizeUrl({
-                            kind,
-                            next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
-                        })}
-                        disableClientSideRouting
-                    >
-                        Connect <>{integrations?.length > 0 ? 'another' : 'a'}</> {name} workspace
+                    <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
+                        Connect workspace
                     </LemonButton>
                 </div>
             </div>

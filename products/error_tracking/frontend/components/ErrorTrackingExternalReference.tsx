@@ -1,8 +1,7 @@
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonMenuItem, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import {
-    ErrorTrackingExternalReference,
     ErrorTrackingExternalReferenceIntegration,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
@@ -13,62 +12,51 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
-import { IconPlus } from '@posthog/icons'
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
-export const ConnectIssueButton = ({
-    externalReferences,
-}: {
-    externalReferences: ErrorTrackingExternalReference[]
-}): JSX.Element | null => {
+export const ConnectIssueButton = (): JSX.Element | null => {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
-
-    const errorTrackingIntegrations = getIntegrationsByKind(['linear', 'github'])
 
     if (!issue || integrationsLoading) {
         return null
     }
 
-    if (externalReferences.length === 1) {
-        const reference = externalReferences[0]
+    const errorTrackingIntegrations = getIntegrationsByKind(['linear', 'github'])
+    const externalReferences = issue.external_issues ?? []
 
+    const onClickCreateIssue = (integration: IntegrationType): void => {
+        if (integration.kind === 'github') {
+            // TODO
+        } else if (integration && integration.kind === 'linear') {
+            createLinearIssueForm(issue, integration, createExternalReference)
+        }
+    }
+
+    if (externalReferences.length > 0) {
+        const reference = externalReferences[0]
         return (
             <LemonButton type="secondary" to={reference.external_url} targetBlank loading={issueLoading}>
                 {integrationLabel(reference.integration)}
             </LemonButton>
         )
+    } else if (errorTrackingIntegrations.length == 1) {
+        const integration = errorTrackingIntegrations[0]
+        return (
+            <LemonButton type="secondary" onClick={() => onClickCreateIssue(integration)}>
+                Create {getIntegrationNameFromKind(integration.kind)} issue
+            </LemonButton>
+        )
     } else if (errorTrackingIntegrations.length >= 1) {
-        const onClick = (integration: IntegrationType): void => {
-            if (integration.kind === 'github') {
-                // TODO
-            } else if (integration && integration.kind === 'linear') {
-                createLinearIssueForm(issue, integration, createExternalReference)
-            }
-        }
+        const items = errorTrackingIntegrations.map((integration) => ({
+            label: integrationLabel(integration),
+            onClick: () => onClickCreateIssue(integration),
+        }))
 
         return (
-            <LemonMenu
-                items={[
-                    {
-                        items: errorTrackingIntegrations.map((i) => ({
-                            label: integrationLabel(i),
-                            onClick: () => onClick(i),
-                        })) as LemonMenuItem[],
-                    },
-                    {
-                        items: [
-                            {
-                                to: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
-                                label: 'Add integration',
-                                sideIcon: <IconPlus />,
-                            },
-                        ],
-                    },
-                ]}
-            >
+            <LemonMenu items={items}>
                 <LemonButton type="secondary">Create external issue</LemonButton>
             </LemonMenu>
         )

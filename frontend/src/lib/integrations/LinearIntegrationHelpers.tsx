@@ -14,22 +14,20 @@ export type LinearTeamPickerProps = {
 }
 
 export function LinearTeamPicker({ onChange, value, integration }: LinearTeamPickerProps): JSX.Element {
-    const { options, loading } = useLinearTeams(integration.id, true)
+    const { options, loading } = useLinearTeams(integration.id)
 
     return (
-        <>
-            <LemonInputSelect
-                onChange={(val) => {
-                    onChange?.(val[0] ?? null)
-                }}
-                value={value ? [value] : []}
-                mode="single"
-                data-attr="select-linear-team"
-                placeholder="Select a team..."
-                options={options}
-                loading={loading}
-            />
-        </>
+        <LemonInputSelect
+            onChange={(val) => {
+                onChange?.(val[0] ?? null)
+            }}
+            value={value ? [value] : []}
+            mode="single"
+            data-attr="select-linear-team"
+            placeholder="Select a team..."
+            options={options}
+            loading={loading}
+        />
     )
 }
 
@@ -49,10 +47,7 @@ export const LinearTeamSelectField = ({ integrationId }: { integrationId: number
     )
 }
 
-export function useLinearTeams(
-    integrationId: number,
-    preload: boolean = false
-): { options: LemonInputSelectOption[]; loading: boolean } {
+export function useLinearTeams(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
     const logic = linearIntegrationLogic({ id: integrationId })
     const { linearTeams, linearTeamsLoading } = useValues(logic)
     const { loadAllLinearTeams } = useActions(logic)
@@ -69,10 +64,8 @@ export function useLinearTeams(
     )
 
     useEffect(() => {
-        if (preload) {
-            loadAllLinearTeams()
-        }
-    }, [loadAllLinearTeams, preload])
+        loadAllLinearTeams()
+    }, [loadAllLinearTeams])
 
     return { options: linearTeamOptions, loading: linearTeamsLoading }
 }
