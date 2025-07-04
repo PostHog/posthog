@@ -13,7 +13,7 @@ export async function dropOldEventsStep(
 ): Promise<PluginEvent | null> {
     // If no drop threshold is set (null) or set to 0, don't drop any events
     // Zero threshold is ignored to protect from misconfiguration bugs
-    if (!team.drop_events_older_than) {
+    if (!team.drop_events_older_than_seconds) {
         return event
     }
 
@@ -22,7 +22,7 @@ export async function dropOldEventsStep(
     const ageInSeconds = now.diff(eventTimestamp, 'seconds').seconds
 
     // If the event is older than the threshold, drop it
-    if (ageInSeconds > team.drop_events_older_than) {
+    if (ageInSeconds > team.drop_events_older_than_seconds) {
         await captureIngestionWarning(
             runner.hub.db.kafkaProducer,
             team.id,
@@ -33,7 +33,7 @@ export async function dropOldEventsStep(
                 distinctId: event.distinct_id,
                 eventTimestamp: eventTimestamp.toISO(),
                 ageInSeconds: Math.floor(ageInSeconds),
-                dropThresholdSeconds: team.drop_events_older_than,
+                dropThresholdSeconds: team.drop_events_older_than_seconds,
             },
             { alwaysSend: false }
         )

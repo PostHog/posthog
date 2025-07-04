@@ -53,7 +53,7 @@ describe('TeamManager()', () => {
                     "data_pipelines",
                   ],
                   "cookieless_server_hash_mode": 2,
-                  "drop_events_older_than": null,
+                  "drop_events_older_than_seconds": null,
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
@@ -152,12 +152,12 @@ describe('TeamManager()', () => {
             // Fetch the new team
             const newTeam = await teamManager.getTeam(newTeamId)
             expect(newTeam).not.toBeNull()
-            expect(newTeam!.drop_events_older_than).toBe(86400)
+            expect(newTeam!.drop_events_older_than_seconds).toBe(86400)
 
             // Verify the setting is also accessible via token
             const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
             expect(newTeamByToken).not.toBeNull()
-            expect(newTeamByToken!.drop_events_older_than).toBe(86400)
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBe(86400)
         })
     })
 
