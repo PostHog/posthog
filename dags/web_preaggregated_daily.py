@@ -90,8 +90,8 @@ def pre_aggregate_web_analytics_data(
             table_name=table_name,
         )
 
-        # Intentionally logging query details for debugging the job
-        context.log.info(f"Inserting data: {insert_query}")
+        # Intentionally log query details for debugging
+        context.log.info(insert_query)
 
         sync_execute(insert_query)
 
