@@ -65,7 +65,7 @@ def bulk_delete_recordings_task(self, team_id: int, user_id: int, filters: dict,
 
             # 3. Update associated playlist items
             playlist_items_updated = SessionRecordingPlaylistItem.objects.filter(
-                playlist__team=team, recording_id__in=session_ids_chunk
+                playlist__team=team, recording__in=session_ids_chunk
             ).update(deleted=True)
 
             deleted_count += len(chunk)

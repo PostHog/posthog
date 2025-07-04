@@ -76,6 +76,7 @@ from ..models.product_intent.product_intent import ProductIntent
 
 from posthog.tasks.session_recordings import bulk_delete_recordings_task
 from celery.result import AsyncResult
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -648,6 +649,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.deleted = True
         recording.save()
 
+        # Also need to remove from playlist items if it's in one
+        SessionRecordingPlaylistItem.objects.filter(playlist__team=self.team, recording=recording).update(deleted=True)
+
         return Response({"success": True}, status=204)
 
     def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -696,7 +700,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="bulk_delete_status/(?P<task_id>[^/.]+)")
+    @action(methods=["GET"], detail=False, url_path="tasks/bulk_delete_status/(?P<task_id>[^/.]+)")
     def bulk_delete_status(self, request: request.Request, task_id: str, *args: Any, **kwargs: Any) -> Response:
         """Check the status of a bulk delete task"""
         try:
@@ -710,7 +714,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "status": result.info.get("status", ""),
                     "current": result.info.get("current", 0),
                     "total": result.info.get("total", 0),
-                    "playlist_items_deleted": result.result.get("playlist_items_deleted", 0),
+                    "playlist_items_deleted": result.info.get("playlist_items_deleted", 0),
                 }
             elif result.state == "SUCCESS":
                 response = {
