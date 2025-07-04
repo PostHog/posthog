@@ -117,7 +117,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(10_000_000))
         self.assertEqual(SamplingRate(numerator=1, denominator=1000), _sample_rate_from_count(99_999_999))
 
-    def test_web_analytics_query_runner_can_skips_data_warehouse_tables(self):
+    def test_web_analytics_query_runner_can_skip_data_warehouse_tables(self):
         stats_runner = WebStatsTableQueryRunner(
             query=WebStatsTableQuery(breakdownBy=WebStatsBreakdown.PAGE, properties=[]), team=self.team
         )
