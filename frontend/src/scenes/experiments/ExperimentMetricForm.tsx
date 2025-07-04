@@ -192,9 +192,7 @@ export function ExperimentMetricForm({
                 </LemonLabel>
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {query && isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                <Query query={query} readOnly />
-            )}
+            {query && isExperimentMeanMetric(metric) && <Query query={query} readOnly />}
             {query && isExperimentFunnelMetric(metric) && <Query query={query} readOnly />}
         </div>
     )
