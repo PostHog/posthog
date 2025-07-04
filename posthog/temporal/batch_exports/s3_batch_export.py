@@ -7,7 +7,6 @@ import io
 import json
 import operator
 import posixpath
-import time
 import typing
 
 import aioboto3
@@ -48,6 +47,7 @@ from posthog.temporal.batch_exports.heartbeat import (
     HeartbeatParseError,
     should_resume_from_activity_heartbeat,
 )
+from posthog.temporal.batch_exports.metrics import ExecutionTimeRecorder
 from posthog.temporal.batch_exports.pre_export_stage import (
     ProducerFromInternalS3Stage,
     execute_batch_export_insert_activity_using_s3_stage,
@@ -103,8 +103,13 @@ COMPRESSION_EXTENSIONS = {
     "gzip": "gz",
     "snappy": "sz",
     "brotli": "br",
-    "ztsd": "zst",
+    "zstd": "zst",
     "lz4": "lz4",
+}
+
+SUPPORTED_COMPRESSIONS = {
+    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
+    "JSONLines": ["gzip", "brotli"],
 }
 
 
@@ -1164,62 +1169,64 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             response: UploadPartOutputTypeDef | None = None
             attempt = 0
 
-            while response is None:
-                upload_start = time.time()
-                try:
-                    response = await client.upload_part(
-                        Bucket=self.s3_inputs.bucket_name,
-                        Key=current_key,
-                        PartNumber=part_number,
-                        UploadId=self.upload_id,
-                        Body=data,
-                    )
+            with ExecutionTimeRecorder(
+                "s3_batch_export_upload_part_duration",
+                description="Total duration of the upload of a part of a multi-part upload",
+                log_message=(
+                    "Finished uploading file number %(file_number)d part %(part_number)d"
+                    " with upload id '%(upload_id)s' with status '%(status)s'."
+                    " File size: %(mb_processed).2f MB, upload time: %(duration_seconds)d"
+                    " seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                log_attributes={
+                    "file_number": self.current_file_index,
+                    "upload_id": self.upload_id,
+                    "part_number": part_number,
+                },
+            ) as recorder:
+                recorder.add_bytes_processed(len(data))
 
-                except botocore.exceptions.ClientError as err:
-                    error_code = err.response.get("Error", {}).get("Code", None)
-                    attempt += 1
-
-                    await self.logger.ainfo(
-                        "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
-                        self.current_file_index,
-                        part_number,
-                        error_code,
-                        attempt,
-                        max_attempts,
-                    )
-
-                    if error_code is not None and error_code == "RequestTimeout":
-                        if attempt >= max_attempts:
-                            raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
-
-                        retry_delay = min(
-                            max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
+                while response is None:
+                    try:
+                        response = await client.upload_part(
+                            Bucket=self.s3_inputs.bucket_name,
+                            Key=current_key,
+                            PartNumber=part_number,
+                            UploadId=self.upload_id,
+                            Body=data,
                         )
-                        await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
-                        await asyncio.sleep(retry_delay)
-                        continue
-                    else:
-                        raise
 
-            upload_time = time.time() - upload_start
+                    except botocore.exceptions.ClientError as err:
+                        error_code = err.response.get("Error", {}).get("Code", None)
+                        attempt += 1
+
+                        await self.logger.ainfo(
+                            "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
+                            self.current_file_index,
+                            part_number,
+                            error_code,
+                            attempt,
+                            max_attempts,
+                        )
+
+                        if error_code is not None and error_code == "RequestTimeout":
+                            if attempt >= max_attempts:
+                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+
+                            retry_delay = min(
+                                max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
+                            )
+                            await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        else:
+                            raise
+
             part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
 
             # Store completed part info
             self.completed_parts[part_number] = part_info
 
-            # Calculate transfer speed
-            part_size_mb = len(data) / (1024 * 1024)
-            upload_speed_mbps = part_size_mb / upload_time if upload_time > 0 else 0
-
-            await self.logger.ainfo(
-                "Finished uploading file number %s part %s with upload id %s. File size: %.2f MB, upload time: %.2fs, speed: %.2f MB/s",
-                self.current_file_index,
-                part_number,
-                self.upload_id,
-                part_size_mb,
-                upload_time,
-                upload_speed_mbps,
-            )
             return part_info
 
         except Exception:

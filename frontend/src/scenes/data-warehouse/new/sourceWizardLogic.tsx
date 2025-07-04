@@ -50,11 +50,11 @@ const StripeCaption = (): JSX.Element => (
             <li>
                 Under the <strong>Core</strong> resource type, select <i>read</i> for{' '}
                 <strong>Balance transaction sources</strong>, <strong>Charges</strong>, <strong>Customer</strong>,{' '}
-                <strong>Product</strong>, and <strong>Credit notes</strong>
+                <strong>Product</strong>, <strong>Disputes</strong>, and <strong>Payouts</strong>
             </li>
             <li>
                 Under the <strong>Billing</strong> resource type, select <i>read</i> for <strong>Invoice</strong>,{' '}
-                <strong>Price</strong>, and <strong>Subscription</strong>
+                <strong>Price</strong>, <strong>Subscription</strong>, and <strong>Credit notes</strong>
             </li>
             <li>
                 Under the <strong>Connected</strong> resource type, select <i>read</i> for the{' '}
@@ -1489,11 +1489,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                const errorMessage = e.data?.message ?? e.message
+                lemonToast.error(errorMessage)
 
-                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
-                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
-                }
+                posthog.capture('warehouse credentials invalid', {
+                    sourceType: values.selectedConnector.name,
+                    errorMessage,
+                })
             }
 
             actions.setIsLoading(false)

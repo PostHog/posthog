@@ -1167,6 +1167,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
+        return 'day'
+    }
+
+    if (
         parsedDateFrom?.unit === 'month' ||
         parsedDateTo?.unit === 'month' ||
         parsedDateFrom?.unit === 'quarter' ||

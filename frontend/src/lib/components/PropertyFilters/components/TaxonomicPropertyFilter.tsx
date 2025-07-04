@@ -36,6 +36,14 @@ import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 let uniqueMemoizedIndex = 0
+export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.Elements,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
 
 export function TaxonomicPropertyFilter({
     pageKey: pageKeyInput,
@@ -63,14 +71,7 @@ export function TaxonomicPropertyFilter({
     editable = true,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
-    const groupTypes = taxonomicGroupTypes || [
-        TaxonomicFilterGroupType.EventProperties,
-        TaxonomicFilterGroupType.PersonProperties,
-        TaxonomicFilterGroupType.EventFeatureFlags,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.HogQLExpression,
-    ]
+    const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const taxonomicOnChange: (
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
