@@ -317,6 +317,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersAccepted: true,
         reportAIFiltersRejected: true,
         reportAIFiltersPromptOpen: true,
+        setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
+        setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        clearInputsDiff: true,
+        reportAIHogFunctionInputsPrompted: true,
+        reportAIHogFunctionInputsAccepted: true,
+        reportAIHogFunctionInputsRejected: true,
+        reportAIHogFunctionInputsPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -388,6 +395,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 setNewFilters: (_, { newFilters }) => newFilters,
                 clearFiltersDiff: () => null,
+            },
+        ],
+        oldInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setOldInputs: (_, { oldInputs }) => oldInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
+        newInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setNewInputs: (_, { newInputs }) => newInputs,
+                clearInputsDiff: () => null,
             },
         ],
     })),
@@ -1141,6 +1162,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        currentInputs: [
+            (s) => [s.newInputs, s.configuration],
+            (newInputs: CyclotronJobInputSchemaType[] | null, configuration: HogFunctionConfigurationType) => {
+                return newInputs ?? configuration.inputs_schema ?? []
+            },
+        ],
+
+        inputsDiff: [
+            (s) => [s.oldInputs, s.newInputs],
+            (oldInputs: CyclotronJobInputSchemaType[] | null, newInputs: CyclotronJobInputSchemaType[] | null) => {
+                if (!oldInputs || !newInputs) {
+                    return null
+                }
+                return { oldInputs, newInputs }
+            },
+        ],
+
         canLoadSampleGlobals: [
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
@@ -1173,6 +1211,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIFiltersPromptOpen: () => {
             posthog.capture('ai_hog_function_filters_prompt_open', { type: values.type })
+        },
+        reportAIHogFunctionInputsPrompted: () => {
+            posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
+        },
+        reportAIHogFunctionInputsAccepted: () => {
+            posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })
+        },
+        reportAIHogFunctionInputsRejected: () => {
+            posthog.capture('ai_hog_function_inputs_rejected', { type: values.type })
+        },
+        reportAIHogFunctionInputsPromptOpen: () => {
+            posthog.capture('ai_hog_function_inputs_prompt_open', { type: values.type })
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
