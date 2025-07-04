@@ -7,7 +7,6 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -633,10 +632,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             : type === 'source_webhook'
                             ? 'Sources'
                             : 'Destinations'
-                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
-                    if (typeof folder === 'string') {
-                        payload._create_in_folder = folder
-                    }
+                    payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
