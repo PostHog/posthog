@@ -178,6 +178,10 @@ def get_query_runner(
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
+    if kind == "InsightVizNode":
+        return get_query_runner(
+            query=query["source"], team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
+        )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
