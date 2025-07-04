@@ -18,9 +18,7 @@ export function LinearTeamPicker({ onChange, value, integration }: LinearTeamPic
 
     return (
         <LemonInputSelect
-            onChange={(val) => {
-                onChange?.(val[0] ?? null)
-            }}
+            onChange={(val) => onChange?.(val[0] ?? null)}
             value={value ? [value] : []}
             mode="single"
             data-attr="select-linear-team"
