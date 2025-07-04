@@ -11,7 +11,7 @@
       events
   
   WHERE
-      and(equals(events.team_id, 420), equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
   
   GROUP BY
       campaign,
@@ -32,7 +32,7 @@
       events
   
   WHERE
-      and(equals(events.team_id, 420), equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
   
   GROUP BY
       campaign,
@@ -47,13 +47,13 @@
   SELECT
       coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
       coalesce(events.properties.utm_source, 'Unknown Source') AS source,
-      round(sum(toFloat(JSONExtractRaw(events.properties, 'revenue'))), 2) AS conversion_0
+      round(sum(toFloat(events.properties.revenue)), 2) AS conversion_0
   
   FROM
       events
   
   WHERE
-      and(equals(events.team_id, 420), equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
   
   GROUP BY
       campaign,
