@@ -306,7 +306,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         syncMoreNoticeDismissed: [
             false,
-            { persist: true },
             {
                 setSyncMoreNoticeDismissed: (_, { dismissed }) => dismissed,
             },
