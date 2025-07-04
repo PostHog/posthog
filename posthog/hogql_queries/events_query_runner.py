@@ -199,7 +199,7 @@ class EventsQueryRunner(QueryRunner):
                                 else:
                                     props.append(f"toString(person.properties.`{key}`)")
                             expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
-                            newCol = re.sub(r"person_display_name", expr, col)
+                            newCol = re.sub(r"person_display_name -- Person ", expr, col)
                             columns.append(newCol)
                         else:
                             columns.append(col)
