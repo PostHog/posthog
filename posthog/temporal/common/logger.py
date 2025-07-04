@@ -3,6 +3,7 @@ import json
 import logging
 import queue as sync_queue
 import ssl
+import sys
 import threading
 import uuid
 from contextvars import copy_context
@@ -201,6 +202,7 @@ def configure_logger_async(
     base_processors: list[structlog.types.Processor] = [
         structlog.processors.add_log_level,
         structlog.processors.format_exc_info,
+        structlog.contextvars.merge_contextvars,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
         structlog.stdlib.PositionalArgumentsFormatter(),
     ]
@@ -219,10 +221,18 @@ def configure_logger_async(
         put_in_queue = PutInLogQueueProcessor(log_queue)
         base_processors.append(put_in_queue)
 
-    base_processors += [
-        EventRenamer("msg"),
-        structlog.processors.JSONRenderer(),
-    ]
+    if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
+        base_processors += [
+            EventRenamer("msg"),
+            structlog.dev.ConsoleRenderer(),
+        ]
+    else:
+        base_processors += [
+            EventRenamer("msg"),
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ]
+
     extra_processors_to_add = extra_processors if extra_processors is not None else []
 
     structlog.configure(
