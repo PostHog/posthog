@@ -215,18 +215,22 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @extend_schema(exclude=True)
-    @action(methods=["GET", "PUT"], detail=True)
-    def access_controls(self, request: Request, *args, **kwargs):
-        if request.method == "PUT":
-            return self._update_access_controls(request)
-
+    @action(methods=["GET"], detail=True, required_scopes=["access_control:read"], url_path="access_controls/get")
+    def get_access_controls(self, request: Request, *args, **kwargs):
         return self._get_access_controls(request)
 
     @extend_schema(exclude=True)
-    @action(methods=["GET", "PUT"], detail=True)
-    def global_access_controls(self, request: Request, *args, **kwargs):
-        if request.method == "PUT":
-            return self._update_access_controls(request, is_global=True)
+    @action(methods=["PUT"], detail=True, url_path="access_controls/update")
+    def update_access_controls(self, request: Request, *args, **kwargs):
+        return self._update_access_controls(request)
 
+    @action(
+        methods=["GET"], detail=True, required_scopes=["access_control:read"], url_path="global_access_controls/get"
+    )
+    def get_global_access_controls(self, request: Request, *args, **kwargs):
         return self._get_access_controls(request, is_global=True)
+
+    @extend_schema(exclude=True)
+    @action(methods=["PUT"], detail=True, url_path="global_access_controls/update")
+    def update_global_access_controls(self, request: Request, *args, **kwargs):
+        return self._update_access_controls(request, is_global=True)
