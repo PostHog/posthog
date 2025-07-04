@@ -6,11 +6,12 @@ from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust import Eval, init_logger
+from braintrust import EvalAsync, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
 
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
@@ -24,10 +25,11 @@ from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
-set_global_handler(handler)
+if os.environ.get("BRAINTRUST_API_KEY"):
+    set_global_handler(handler)
 
 
-def MaxEval(
+async def MaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
@@ -37,7 +39,7 @@ def MaxEval(
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
     project_name = f"max-ai-{experiment_name}"
     init_logger(project_name)
-    result = Eval(
+    result = await EvalAsync(
         project_name,
         data=data,
         task=task,
@@ -76,26 +78,36 @@ def call_root_for_insight_generation(demo_org_team_user):
         )
         .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
         .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
-        .compile()
+        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
+        .compile(checkpointer=DjangoCheckpointer())
     )
 
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
+    async def callable(query: str) -> PlanAndQueryOutput:
+        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
         # Initial state for the graph
         initial_state = AssistantState(
             messages=[HumanMessage(content=f"Answer this question: {query}")],
         )
 
         # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
+        final_state_raw = await graph.ainvoke(
             initial_state,
             {"configurable": {"thread_id": conversation.id}},
         )
+
         final_state = AssistantState.model_validate(final_state_raw)
 
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-        return {"plan": final_state.messages[-1].plan, "query": final_state.messages[-1].answer}
+            return {
+                "plan": None,
+                "query": None,
+                "query_generation_retry_count": final_state.query_generation_retry_count,
+            }
+        return {
+            "plan": final_state.messages[-1].plan,
+            "query": final_state.messages[-1].answer,
+            "query_generation_retry_count": final_state.query_generation_retry_count,
+        }
 
     return callable
 
@@ -141,7 +153,7 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
 
     Their audience includes professionals and organizations seeking file management and collaboration solutions.
 
-    Hedgebox’s freemium model provides free accounts with limited storage and paid subscription plans for additional features.
+    Hedgebox's freemium model provides free accounts with limited storage and paid subscription plans for additional features.
 
     Core features include file storage, synchronization, sharing, and collaboration tools for seamless file access and sharing.
 
