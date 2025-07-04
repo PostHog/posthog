@@ -10571,12 +10571,7 @@ class ExperimentMeanMetric(BaseModel):
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = Field(
-        ...,
-        description=(
-            "TODO: look into unifying these two types or just using typeof ExperimentMeanMetric['source' | 'series']"
-        ),
-    )
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -10587,12 +10582,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = Field(
-        ...,
-        description=(
-            "TODO: look into unifying these two types or just using typeof ExperimentMeanMetric['source' | 'series']"
-        ),
-    )
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
 
 
