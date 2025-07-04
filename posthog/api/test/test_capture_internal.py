@@ -1,6 +1,5 @@
 from typing import Any
 from datetime import datetime, UTC
-from django.test.client import Client
 from unittest.mock import patch, MagicMock
 
 from posthog.api.capture import new_capture_internal, CaptureInternalError
@@ -41,8 +40,7 @@ class TestCaptureInternal(BaseTest):
     """
 
     def setUp(self):
-        super().setUp()  # we will be calling
-        self.client = Client(enforce_csrf_checks=True)
+        super().setUp()
 
     @patch("posthog.api.capture.Session")
     def test_new_capture_internal(self, mock_session_class):
