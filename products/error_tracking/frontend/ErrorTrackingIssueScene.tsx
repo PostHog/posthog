@@ -46,7 +46,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         useValues(errorTrackingIssueSceneLogic)
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
-    const tagRenderer = useErrorTagRenderer()
+
     const { openSidePanel } = useActions(sidePanelLogic)
 
     useEffect(() => {
@@ -101,7 +101,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     issueLoading={issueLoading}
                     event={selectedEvent ?? undefined}
                     eventLoading={firstSeenEventLoading}
-                    label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
                     <ErrorFilters.DateRange />

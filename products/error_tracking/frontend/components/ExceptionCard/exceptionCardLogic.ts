@@ -6,16 +6,30 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     path(() => ['scenes', 'error-tracking', 'exceptionCardLogic']),
 
     actions({
+        setShowJSONProperties: (showJSON: boolean) => ({ showJSON }),
+        setShowAdditionalProperties: (showProperties: boolean) => ({ showProperties }),
         setShowAsText: (showAsText: boolean) => ({ showAsText }),
         setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
         setLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers({
+        showJSONProperties: [
+            false,
+            {
+                setShowJSONProperties: (_, { showJSON }) => showJSON,
+            },
+        ],
+        showAdditionalProperties: [
+            false,
+            {
+                setShowAdditionalProperties: (_, { showProperties }) => showProperties,
+            },
+        ],
         showAsText: [
             false,
             {
-                setShowAsText: (_, { showAsText }: { showAsText: boolean }) => showAsText,
+                setShowAsText: (_, { showAsText }) => showAsText,
             },
         ],
         showAllFrames: [
