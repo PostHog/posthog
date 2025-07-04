@@ -28,7 +28,7 @@ export function SelfManagedExternalDataSourceConfiguration(): JSX.Element {
 
     return (
         <SharedExternalDataSourceConfiguration<ManualLinkSourceType>
-            title="Self-managed Data Warehouse Sources Configuration"
+            title="Self-managed data warehouse sources configuration"
             description="Configure self-managed data warehouse sources to display marketing analytics in PostHog. You'll need to map the required columns for each table to enable the functionality."
             tables={tables}
             loading={loading}
