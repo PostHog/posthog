@@ -74,6 +74,9 @@ from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ..models.product_intent.product_intent import ProductIntent
 
+from posthog.tasks.session_recordings import bulk_delete_recordings_task
+from celery.result import AsyncResult
+
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
@@ -646,6 +649,84 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.save()
 
         return Response({"success": True}, status=204)
+
+    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Bulk soft delete all recordings matching the provided filters.
+        Always run asynchronously via Celery.
+        """
+        user_distinct_id = cast(User, request.user).distinct_id
+
+        try:
+            query = filter_from_params_to_query(request.GET.dict())
+
+            task = bulk_delete_recordings_task.delay(
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                filters=query.model_dump(),
+                user_distinct_id=user_distinct_id,
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "task_id": task.id,
+                    "message": "Bulk delete task started. Check task status for progress.",
+                },
+                status=202,
+            )
+
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
+
+            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=user_distinct_id,
+                properties={
+                    "replay_feature": "bulk_delete_recordings_initiation",
+                    "unfiltered_query": request.GET.dict(),
+                },
+            )
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="bulk_delete_status/(?P<task_id>[^/.]+)")
+    def bulk_delete_status(self, request: request.Request, task_id: str, *args: Any, **kwargs: Any) -> Response:
+        """Check the status of a bulk delete task"""
+        try:
+            result = AsyncResult(task_id)
+
+            if result.state == "PENDING":
+                response = {"state": "PENDING", "status": "Task is waiting to be processed"}
+            elif result.state == "PROGRESS":
+                response = {
+                    "state": "PROGRESS",
+                    "status": result.info.get("status", ""),
+                    "current": result.info.get("current", 0),
+                    "total": result.info.get("total", 0),
+                    "playlist_items_deleted": result.result.get("playlist_items_deleted", 0),
+                }
+            elif result.state == "SUCCESS":
+                response = {
+                    "state": "SUCCESS",
+                    "status": result.result.get("message", ""),
+                    "deleted_count": result.result.get("deleted_count", 0),
+                    "playlist_items_deleted_count": result.result.get("playlist_items_deleted_count", 0),
+                }
+            else:
+                response = {"state": result.state, "error": str(result.info)}
+
+            return Response(response)
+
+        except Exception as e:
+            logger.exception("bulk_delete_status_error", task_id=task_id, team_id=self.team.id, error=str(e))
+            return Response({"error": "Failed to check task status"}, status=500)
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
