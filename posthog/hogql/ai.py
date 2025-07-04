@@ -43,6 +43,8 @@ ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
+
 """
 
 SCHEMA_MESSAGE = """
