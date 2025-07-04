@@ -749,10 +749,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     )
             elif source == "blob_v2":
                 if "blob_key" in validated_data:
+                    blob_key_int = int(validated_data["blob_key"])
                     response = self._stream_blob_v2_to_client(
                         recording,
                         timer,
-                        blob_key=validated_data["blob_key"],
+                        min_blob_key=blob_key_int,
+                        max_blob_key=blob_key_int,
                     )
                 elif "min_blob_key" in validated_data:
                     response = self._stream_blob_v2_to_client(
