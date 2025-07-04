@@ -9873,7 +9873,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     )
     funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
-    series: list[Union[EventsNode, ActionsNode]]
+    series: list[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]]
 
 
 class FunnelsFilter(BaseModel):
@@ -10556,7 +10556,7 @@ class ExperimentFunnelMetric(BaseModel):
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    series: list[Union[EventsNode, ActionsNode]]
+    series: list[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10571,7 +10571,12 @@ class ExperimentMeanMetric(BaseModel):
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = Field(
+        ...,
+        description=(
+            "TODO: look into unifying these two types or just using typeof ExperimentMeanMetric['source' | 'series']"
+        ),
+    )
     upper_bound_percentile: Optional[float] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -10582,7 +10587,12 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode] = Field(
+        ...,
+        description=(
+            "TODO: look into unifying these two types or just using typeof ExperimentMeanMetric['source' | 'series']"
+        ),
+    )
     upper_bound_percentile: Optional[float] = None
 
 

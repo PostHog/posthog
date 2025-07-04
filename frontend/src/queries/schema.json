@@ -10219,6 +10219,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
             ]
         },
@@ -10528,7 +10531,8 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "description": "TODO: look into unifying these two types or just using typeof ExperimentMeanMetric['source' | 'series']"
         },
         "ExperimentMetricType": {
             "enum": ["funnel", "mean"],
