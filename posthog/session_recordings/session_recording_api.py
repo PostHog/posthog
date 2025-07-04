@@ -27,7 +27,7 @@ from openai.types.chat import (
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -42,7 +42,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -66,6 +66,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
+from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -760,10 +761,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            return Response(
-                {"error": "An unexpected error has occurred. Please try again later."},
-                status=500,
+            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+            message = (
+                "ClickHouse over capacity. Please retry"
+                if is_ch_error
+                else "An unexpected error has occurred. Please try again later."
             )
+            response_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+            return Response({"error": message}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -795,6 +803,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
+    @retry(
+        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        # if retrying doesn't work, raise the actual error, not a retry error
+        reraise=True,
+        # try again after 0.2 seconds
+        # and then exponentially waits up to a max of 3 seconds between requests
+        wait=wait_random_exponential(multiplier=0.2, max=3),
+        # make a maximum of 6 attempts before stopping
+        stop=stop_after_attempt(6),
+    )
     def _gather_session_recording_sources(
         self,
         recording: SessionRecording,
