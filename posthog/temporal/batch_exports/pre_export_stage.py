@@ -1,6 +1,5 @@
 import asyncio
 import datetime as dt
-import json
 import typing
 import uuid
 from contextlib import asynccontextmanager
@@ -12,6 +11,7 @@ from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.clickhouse.query_tagging import tag_queries
 import posthog.temporal.common.asyncpa as asyncpa
 
 if typing.TYPE_CHECKING:
@@ -435,12 +435,7 @@ async def _get_query(
 
     parameters["team_id"] = team_id
 
-    query_tags = {
-        "team_id": team_id,
-        "batch_export_id": batch_export_id,
-        "kind": "batch_export",
-    }
-    parameters["log_comment"] = json.dumps(query_tags)
+    tag_queries(team_id=team_id, batch_export_id=batch_export_id, kind="batch_export")
 
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters
