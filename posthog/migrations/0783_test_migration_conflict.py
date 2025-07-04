@@ -5,8 +5,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
+
     dependencies = [
-        ("posthog", "0782_previous_migration"),  # This will create a simulated conflict
+        ('posthog', '0782_previous_migration'),  # This will create a simulated conflict
     ]
 
     operations = [
