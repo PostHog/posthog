@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 
 class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.user = User.objects.create_user(
             email="test@posthog.com",
@@ -20,7 +20,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
             last_name="User",
         )
 
-    def test_bulk_delete_recordings_task_success(self):
+    def test_bulk_delete_recordings_task_success(self) -> None:
         """
         Test successful bulk deletion of recordings and associated playlist items
         """
@@ -89,7 +89,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
         self.assertEqual(result["playlist_items_deleted_count"], 2)
         self.assertIn("Successfully deleted 2 recordings", result["message"])
 
-    def test_bulk_delete_recordings_task_no_recordings_found(self):
+    def test_bulk_delete_recordings_task_no_recordings_found(self) -> None:
         """Test when no recordings match the filters"""
         with patch("posthog.tasks.session_recordings.list_recordings_from_query") as mock_list_recordings:
             mock_list_recordings.return_value = ([], False, "")
@@ -104,7 +104,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
         self.assertEqual(result["deleted_count"], 0)
         self.assertEqual(result["message"], "No recordings found matching the provided filters")
 
-    def test_bulk_delete_recordings_task_clickhouse_only_recordings(self):
+    def test_bulk_delete_recordings_task_clickhouse_only_recordings(self) -> None:
         """Test deletion of recordings that exist only in ClickHouse (not in PostgreSQL)"""
         # Create mock recordings that would come from ClickHouse
         mock_recording = MagicMock()
@@ -131,7 +131,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(result["deleted_count"], 1)
 
-    def test_bulk_delete_recordings_task_chunking(self):
+    def test_bulk_delete_recordings_task_chunking(self) -> None:
         """Test that large datasets are processed in chunks"""
         # Create many mock recordings to test chunking
         mock_recordings = []
@@ -162,7 +162,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
             self.assertEqual(result["deleted_count"], 250)
 
     @patch("posthog.tasks.session_recordings.report_user_action")
-    def test_bulk_delete_recordings_task_user_action_logged(self, mock_report_user_action):
+    def test_bulk_delete_recordings_task_user_action_logged(self, mock_report_user_action: MagicMock) -> None:
         """Test that user action is properly logged"""
         recording = SessionRecording.objects.create(
             team=self.team, session_id="session-1", distinct_id="user-1", deleted=False
@@ -191,7 +191,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
         self.assertEqual(properties["team_id"], self.team.id)
         self.assertEqual(properties["user_id"], self.user.id)
 
-    def test_bulk_delete_recordings_task_invalid_filters(self):
+    def test_bulk_delete_recordings_task_invalid_filters(self) -> None:
         """Test error handling for invalid filters"""
 
         with self.assertRaises(ValidationError):
@@ -203,7 +203,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
             )
 
     @patch("posthog.tasks.session_recordings.logger")
-    def test_bulk_delete_recordings_task_progress_logging(self, mock_logger):
+    def test_bulk_delete_recordings_task_progress_logging(self, mock_logger) -> None:
         """Test that progress is properly logged"""
         recording = SessionRecording.objects.create(
             team=self.team, session_id="session-1", distinct_id="user-1", deleted=False
