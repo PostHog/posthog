@@ -39,7 +39,8 @@ EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 # This is used to replace the breakdown value when there's no breakdown
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
 
-PROPERTY_TO_JOIN_MAP: dict[str, Literal["customers", "invoice_items", "products"]] = {
+AVAILABLE_JOINS = Literal["customers", "invoice_items", "products"]
+PROPERTY_TO_JOIN_MAP: dict[str, AVAILABLE_JOINS] = {
     "source": "customers",
     "amount": "invoice_items",
     "country": "customers",
@@ -76,7 +77,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         return [property_to_expr(property, self.team, scope="revenue_analytics") for property in self.query.properties]
 
     @cached_property
-    def joins_set_for_properties(self) -> set[str]:
+    def joins_set_for_properties(self) -> set[AVAILABLE_JOINS]:
         joins_set = set()
         for property in self.query.properties:
             if property.key in PROPERTY_TO_JOIN_MAP:
@@ -111,19 +112,26 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         base_join = initial_join
 
-        # Collect all existing joins aliases
-        existing_joins_alias = set(base_join.alias)
+        # Collect all existing joins aliases so that we don't add duplicates
+        existing_joins = [base_join]
         while base_join.next_join is not None:
             base_join = base_join.next_join
-            existing_joins_alias.add(base_join.alias)
+            existing_joins.append(base_join)
 
-        # Remove joins whose aliases are already included
-        cleaned_up_joins = [join for join in joins if join.alias is not None and join.alias not in existing_joins_alias]
+        # Turn the existing aliases into a set for easy lookup
+        # NOTE: This is weird syntax, but it's set comprehension, ruff requires us to use it
+        alias_set = {join.alias for join in existing_joins if join.alias is not None}
 
-        # Append the new joins
-        for current_join in cleaned_up_joins:
-            base_join.next_join = current_join
-            base_join = current_join
+        # Add all the joins making sure there aren't duplicates
+        for join in joins:
+            if join.alias is not None:
+                if join.alias in alias_set:
+                    continue
+                alias_set.add(join.alias)
+
+            base_join.next_join = join
+            base_join = join
+
         return initial_join
 
     def _create_subquery_join(
