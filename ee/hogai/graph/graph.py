@@ -461,16 +461,14 @@ class AssistantGraph(BaseAssistantGraph):
 
     def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
-        # path_map = {
-        #     "end": AssistantNodeName.END,
-        #     "root": AssistantNodeName.ROOT,
-        # }
-        # self._has_start_node = True
+        path_map = {
+            "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
+        }
 
         insights_search_node = InsightSearchNode(self._team, self._user)
         builder.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
-        builder.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHTS_SEARCH)
-        builder.add_edge(AssistantNodeName.INSIGHTS_SEARCH, end_node)
+        builder.add_conditional_edges(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node.router, path_map=path_map)
         return self
 
     # TODO: Add here a new step for insight search
