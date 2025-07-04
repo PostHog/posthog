@@ -258,6 +258,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     start_timestamp = serializers.DateTimeField(allow_null=True)
     end_timestamp = serializers.DateTimeField(allow_null=True)
     blob_key = serializers.CharField(allow_null=True)
+    lts = serializers.BooleanField(default=False)
 
 
 class SessionRecordingSourcesSerializer(serializers.Serializer):
@@ -288,6 +289,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
     # v2
     start_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="Start of blob key range")
     end_blob_key = serializers.CharField(required=False, allow_blank=True, help_text="End of blob key range")
+    lts = serializers.BooleanField(required=False, allow_null=True, help_text="Whether to fetch the full recording")
 
     # v1
     if_none_match = serializers.SerializerMethodField()
@@ -300,6 +302,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         blob_key = data.get("blob_key")
         start_blob_key = data.get("start_blob_key")
         end_blob_key = data.get("end_blob_key")
+        lts = data.get("lts")
         is_personal_api_key = self.context.get("is_personal_api_key")
 
         if source not in ["realtime", "blob", "blob_v2", None]:
@@ -315,20 +318,21 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             if end_blob_key and not start_blob_key:
                 raise serializers.ValidationError("Must provide both start_blob_key and end_blob_key")
 
-            if not blob_key and not start_blob_key:
-                raise serializers.ValidationError("Must provide one of blob key or start and end blob keys")
+            if not blob_key and not start_blob_key and not lts:
+                raise serializers.ValidationError("Must provide one of blob key, start and end blob keys or lts")
 
-            try:
-                min_blob_key = int(start_blob_key or blob_key)
-                max_blob_key = int(end_blob_key or blob_key)
-                data["min_blob_key"] = min_blob_key
-                data["max_blob_key"] = max_blob_key
-            except (ValueError, TypeError):
-                raise serializers.ValidationError("Blob key must be an integer")
+            if not lts:
+                try:
+                    min_blob_key = int(start_blob_key or blob_key)
+                    max_blob_key = int(end_blob_key or blob_key)
+                    data["min_blob_key"] = min_blob_key
+                    data["max_blob_key"] = max_blob_key
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError("Blob key must be an integer")
 
-            max_blobs_allowed = 20 if is_personal_api_key else 100
-            if max_blob_key - min_blob_key > max_blobs_allowed:
-                raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
+                max_blobs_allowed = 20 if is_personal_api_key else 100
+                if max_blob_key - min_blob_key > max_blobs_allowed:
+                    raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         # Validate blob parameters (v1)
         elif source == "blob" and blob_key:
@@ -744,12 +748,23 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         recording, validated_data.get("blob_key", ""), validated_data.get("if_none_match")
                     )
             elif source == "blob_v2":
-                if "min_blob_key" in validated_data:
+                if "blob_key" in validated_data:
+                    response = self._stream_blob_v2_to_client(
+                        recording,
+                        timer,
+                        blob_key=validated_data["blob_key"],
+                    )
+                elif "min_blob_key" in validated_data:
                     response = self._stream_blob_v2_to_client(
                         recording,
                         timer,
                         min_blob_key=validated_data["min_blob_key"],
                         max_blob_key=validated_data["max_blob_key"],
+                    )
+                elif "lts" in validated_data:
+                    response = self._stream_full_recording_v2_to_client(
+                        recording,
+                        timer,
                     )
                 else:
                     response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
@@ -835,18 +850,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
             if is_v2_enabled:
-                with timer("list_blocks__gather_session_recording_sources"):
-                    blocks = list_blocks(recording)
-
-                for i, block in enumerate(blocks):
+                if recording.full_recording_v2_path:
                     sources.append(
                         {
                             "source": "blob_v2",
-                            "start_timestamp": block.start_time,
-                            "end_timestamp": block.end_time,
-                            "blob_key": str(i),
+                            "start_timestamp": recording.start_time,
+                            "end_timestamp": recording.end_time,
+                            "lts": True,
                         }
                     )
+                else:
+                    with timer("list_blocks__gather_session_recording_sources"):
+                        blocks = list_blocks(recording)
+
+                    for i, block in enumerate(blocks):
+                        sources.append(
+                            {
+                                "source": "blob_v2",
+                                "start_timestamp": block.start_time,
+                                "end_timestamp": block.end_time,
+                                "blob_key": str(i),
+                            }
+                        )
 
             with timer("list_objects__gather_session_recording_sources"):
                 if recording.object_storage_path:
@@ -1097,6 +1122,44 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         max_blob_key: int,
     ) -> HttpResponse:
         return asyncio.run(self._stream_blob_v2_to_client_async(recording, timer, min_blob_key, max_blob_key))
+
+    async def _stream_full_recording_v2_to_client_async(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+    ) -> HttpResponse:
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+            with timer("fetch_full_recording_v2_to_client"):
+                if not recording.full_recording_v2_path:
+                    raise exceptions.NotFound("Full recording not found")
+
+                try:
+                    content = await asyncio.to_thread(
+                        session_recording_v2_object_storage.client().fetch_block, recording.full_recording_v2_path
+                    )
+                except BlockFetchError:
+                    logger.exception(
+                        "Failed to fetch full recording",
+                        recording_id=recording.session_id,
+                        team_id=self.team.id,
+                        full_recording_path=recording.full_recording_v2_path,
+                    )
+                    raise exceptions.APIException("Failed to load full recording")
+
+            response = HttpResponse(
+                content=content,
+                content_type="application/jsonl",
+            )
+            response["Cache-Control"] = "max-age=3600"
+            response["Content-Disposition"] = "inline"
+            return response
+
+    def _stream_full_recording_v2_to_client(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+    ) -> HttpResponse:
+        return asyncio.run(self._stream_full_recording_v2_to_client_async(recording, timer))
 
     def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():

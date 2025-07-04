@@ -85,7 +85,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadSnapshots: true,
         loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
-        loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
+        loadSnapshotsForSource: (sources: SessionRecordingSnapshotSource[]) => ({
             sources,
         }),
         loadEvents: true,
@@ -231,7 +231,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         } else if (source.source === SnapshotSourceType.realtime) {
                             params = { source: 'realtime' }
                         } else if (source.source === SnapshotSourceType.blob_v2) {
-                            params = { source: 'blob_v2', blob_key: source.blob_key }
+                            if (source.lts) {
+                                params = {
+                                    source: 'blob_v2',
+                                    lts: source.lts,
+                                }
+                            } else {
+                                params = {
+                                    source: 'blob_v2',
+                                    blob_key: source.blob_key,
+                                    start_blob_key: source.start_blob_key,
+                                    end_blob_key: source.end_blob_key,
+                                }
+                            }
                         } else if (source.source === SnapshotSourceType.file) {
                             // no need to load a file source, it is already loaded
                             return { source }
