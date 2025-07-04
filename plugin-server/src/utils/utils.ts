@@ -337,8 +337,12 @@ export function castTimestampToClickhouseFormat(
     timestamp: DateTime,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
 ): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
-    if (!timestamp.toUTC) {
-        logger.error('🔴', 'Timestamp is missing toUTC method', { timestamp, type: typeof timestamp })
+    if (typeof timestamp.toUTC !== 'function') {
+        logger.error('🔴', 'Timestamp is missing toUTC method', {
+            timestamp,
+            type: typeof timestamp,
+            toUTC: timestamp.toUTC.toString(),
+        })
     }
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
