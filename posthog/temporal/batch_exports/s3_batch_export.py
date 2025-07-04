@@ -425,7 +425,7 @@ class S3MultiPartUpload:
     ):
         """Upload a part of this multi-part upload."""
         next_part_number = self.part_number + 1
-        part = {"PartNumber": next_part_number, "ETag": ""}
+        part: dict[str, str | int] = {"PartNumber": next_part_number, "ETag": ""}
         self.pending_parts.append(part)
 
         if rewind is True:
