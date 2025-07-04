@@ -36,7 +36,7 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     return job_owner
 
 
-@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING)
+@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING, monitor_all_code_locations=True)
 def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dagster_slack.SlackResource):
     """Send a notification to Slack when any job fails."""
     # Get the failed run

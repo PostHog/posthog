@@ -403,7 +403,7 @@ const getIconUrl = (id: string, slug: string | undefined) => {
     }
 
     return `/static/services/${
-        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] : `${slug}.com`
+        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] + '.png' : `${slug}.com.png`
     }`
 }
 
