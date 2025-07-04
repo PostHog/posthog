@@ -80,12 +80,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # When skip_dw_tables=False, there should be warehouse tables (if any exist)
         # Note: The exact count depends on other factors, but it should be >= 0
-        self.assertGreaterEqual(len(warehouse_tables_with_dw), 0, "Expected warehouse tables count >= 0 when skip_dw_tables=False")
+        self.assertGreaterEqual(
+            len(warehouse_tables_with_dw), 0, "Expected warehouse tables count >= 0 when skip_dw_tables=False"
+        )
 
         # Both databases should have the same PostHog tables
         posthog_tables_with_dw = db_with_dw_tables.get_posthog_tables()
         posthog_tables_without_dw = db_without_dw_tables.get_posthog_tables()
-        self.assertEqual(posthog_tables_with_dw, posthog_tables_without_dw, "PostHog tables should be the same regardless of skip_dw_tables setting")
+        self.assertEqual(
+            posthog_tables_with_dw,
+            posthog_tables_without_dw,
+            "PostHog tables should be the same regardless of skip_dw_tables setting",
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
