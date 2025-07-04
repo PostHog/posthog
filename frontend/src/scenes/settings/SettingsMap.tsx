@@ -8,6 +8,7 @@ import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
+import { PersonsJoinModeConfiguration } from 'products/revenue_analytics/frontend/settings/PersonsJoinModeConfiguration'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -244,6 +245,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-revenue-analytics',
         title: 'Revenue analytics',
+        flag: 'REVENUE_ANALYTICS',
         settings: [
             {
                 id: 'revenue-base-currency',
@@ -256,10 +258,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
             },
             {
+                id: 'revenue-analytics-persons-join-mode',
+                title: 'Join mode for persons',
+                component: <PersonsJoinModeConfiguration />,
+                flag: 'REVENUE_ANALYTICS_PERSONS_JOIN_MODE',
+            },
+            {
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
             {
                 id: 'revenue-analytics-events',
@@ -270,7 +277,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },

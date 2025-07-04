@@ -124,6 +124,7 @@ export type SettingId =
     | 'revenue-base-currency'
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-analytics-goals'
+    | 'revenue-analytics-persons-join-mode'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
     | 'session-table-version'
