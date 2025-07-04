@@ -81,8 +81,13 @@ export class Logger {
     }
 
     async shutdown(): Promise<void> {
-        if (this.transport) {
-            await this.transport.end()
+        try {
+            if (this.transport) {
+                await this.transport.end()
+            }
+        } catch (error) {
+            // Ignore errors during shutdown as the transport may already be closed
+            // This prevents Jest from hanging on unhandled errors during teardown
         }
     }
 }
