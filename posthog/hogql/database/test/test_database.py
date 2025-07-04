@@ -73,7 +73,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         warehouse_tables_without_dw = db_without_dw_tables.get_warehouse_tables()
 
         assert len(warehouse_tables_without_dw) == 0
-        assert len(warehouse_tables_with_dw) >= 0
+        assert len(warehouse_tables_with_dw) == 1
 
         posthog_tables_with_dw = db_with_dw_tables.get_posthog_tables()
         posthog_tables_without_dw = db_without_dw_tables.get_posthog_tables()
