@@ -2299,14 +2299,9 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-/**
- * TODO: look into unifying these two types
- * or just using typeof ExperimentMeanMetric['source' | 'series']
- */
-// this is for mean metrics
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-// this is for funnel metrics. ExperimentDataWarehouseNode is not supported yet
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {

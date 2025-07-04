@@ -111,7 +111,7 @@ function seriesToFilterLegacy(
     return null
 }
 
-function seriesToFilter(series: AnyEntityNode | ExperimentFunnelMetricStep): UniversalFiltersGroupValue | null {
+function seriesToFilter(series: AnyEntityNode): UniversalFiltersGroupValue | null {
     if (series.kind === NodeKind.EventsNode) {
         return {
             id: series.event ?? null,
@@ -128,16 +128,6 @@ function seriesToFilter(series: AnyEntityNode | ExperimentFunnelMetricStep): Uni
             type: 'actions',
         }
     }
-
-    // Data warehouse nodes are not supported on funnel metrics yet.
-    // if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
-    //     return {
-    //         id: series.table_name,
-    //         name: series.table_name,
-    //         type: 'data_warehouse',
-    //         properties: series.properties ?? [],
-    //     }
-    // }
 
     return null
 }
