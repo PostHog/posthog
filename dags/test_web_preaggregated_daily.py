@@ -42,7 +42,7 @@ class TestPreAggregateWebAnalyticsData:
 
         # First call should be DROP PARTITION
         first_call = mock_sync_execute.call_args_list[0][0][0]
-        assert "DROP PARTITION IF EXISTS" in first_call
+        assert "DROP PARTITION" in first_call
         assert "'20240115'" in first_call  # Partition ID for 2024-01-15
 
         # Second call should be INSERT
@@ -171,7 +171,7 @@ class TestPartitionDropIntegration:
         # Verify partition drop SQL
         drop_sql = mock_sync_execute.call_args_list[0][0][0]
         assert "ALTER TABLE web_stats_daily" in drop_sql
-        assert "DROP PARTITION IF EXISTS '20240115'" in drop_sql
+        assert "DROP PARTITION '20240115'" in drop_sql
 
         # Verify insert SQL structure
         insert_sql = mock_sync_execute.call_args_list[1][0][0]
@@ -195,7 +195,7 @@ class TestPartitionDropIntegration:
         # Verify partition drop SQL
         drop_sql = mock_sync_execute.call_args_list[0][0][0]
         assert "ALTER TABLE web_bounces_daily" in drop_sql
-        assert "DROP PARTITION IF EXISTS '20240115'" in drop_sql
+        assert "DROP PARTITION '20240115'" in drop_sql
 
         # Verify insert SQL structure
         insert_sql = mock_sync_execute.call_args_list[1][0][0]
