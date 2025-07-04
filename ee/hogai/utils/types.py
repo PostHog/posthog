@@ -126,6 +126,10 @@ class _SharedAssistantState(BaseModel):
     """
     The context for taxonomy agent.
     """
+    query_generation_retry_count: int = Field(default=0)
+    """
+    Tracks the number of times the query generation has been retried.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -155,6 +159,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_calls_count=0,
             root_conversation_start_id="",
             rag_context="",
+            query_generation_retry_count=0,
         )
 
 
