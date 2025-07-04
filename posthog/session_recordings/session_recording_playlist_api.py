@@ -280,31 +280,16 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
-        # Pre-calculate Q objects for playlists with items
-        playlist_ids_with_items = SessionRecordingPlaylistItem.objects.filter(
-            playlist__team_id=self.team.id
-        ).values_list("playlist_id", flat=True)
-        has_items = Q(id__in=playlist_ids_with_items)
-        has_no_items = ~has_items
-        has_filters = ~Q(filters={})
-        type_is_null = Q(type__isnull=True)
-
         for key in filters:
             request_value = filters[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "type":
-                if request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
-                    # Explicitly type 'filters' OR (null type AND has filters AND no items)
-                    queryset = queryset.filter(
-                        Q(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
-                        | (type_is_null & has_filters & has_no_items)
-                    )
-                elif request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-                    # Explicitly type 'collection' OR (null type AND has items)
-                    queryset = queryset.filter(
-                        Q(type=SessionRecordingPlaylist.PlaylistType.COLLECTION) | (type_is_null & has_items)
-                    )
+                if request_value in [
+                    SessionRecordingPlaylist.PlaylistType.FILTERS,
+                    SessionRecordingPlaylist.PlaylistType.COLLECTION,
+                ]:
+                    queryset = queryset.filter(type=request_value)
                 # If type param is something else, ignore it for now
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
