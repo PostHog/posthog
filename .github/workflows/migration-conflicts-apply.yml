@@ -1,0 +1,178 @@
+name: Migration Conflicts - Apply Fixes
+
+on:
+    workflow_dispatch:
+        inputs:
+            app_filter:
+                description: 'Specific app to fix (optional, e.g., "posthog", "billing")'
+                required: false
+                type: string
+            confirm:
+                description: 'Type "YES" to confirm you want to apply the fixes'
+                required: true
+                type: string
+    issue_comment:
+        types: [created]
+    repository_dispatch:
+        types: [test-apply]
+
+jobs:
+    apply-migration-fixes:
+        runs-on: ubuntu-latest
+        if: |
+            (github.event_name == 'workflow_dispatch') ||
+            (github.event_name == 'issue_comment' && 
+             github.event.issue.pull_request && 
+             contains(github.event.comment.body, '/fix-migrations')) ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'test-apply')
+
+        steps:
+            - name: Extract app filter from comment
+              if: github.event_name == 'issue_comment'
+              id: extract_params
+              run: |
+                  COMMENT="${{ github.event.comment.body }}"
+                  if echo "$COMMENT" | grep -q '\-\-app'; then
+                    APP_FILTER=$(echo "$COMMENT" | grep -o '\-\-app [^[:space:]]*' | cut -d' ' -f2)
+                    echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
+                  else
+                    echo "app_filter=" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: React to comment
+              if: github.event_name == 'issue_comment'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      await github.rest.reactions.createForIssueComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        comment_id: context.payload.comment.id,
+                        content: 'rocket'
+                      });
+
+            - name: Validate confirmation
+              if: github.event_name == 'workflow_dispatch' && inputs.confirm != 'YES'
+              run: exit 1
+
+            - name: Checkout PR code
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  ref: |
+                      ${{ 
+                        github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || 
+                        github.event_name == 'repository_dispatch' && github.event.client_payload.branch ||
+                        github.ref 
+                      }}
+
+            - name: Set up Python
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              with:
+                  python-version: '3.11'
+
+            - name: Configure git
+              run: |
+                  git config --global user.name "github-actions[bot]"
+                  git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+            - name: Fetch master branch
+              run: git fetch origin master:master
+
+            - name: Apply migration conflict fixes
+              id: apply_fixes
+              run: |
+                  APP_FILTER=""
+                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+                    APP_FILTER="${{ inputs.app_filter }}"
+                  elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+                    APP_FILTER="${{ github.event.client_payload.app_filter }}"
+                  else
+                    APP_FILTER="${{ steps.extract_params.outputs.app_filter }}"
+                  fi
+
+                  OUTPUT=$(echo "y" | python bin/fix-migration-conflicts.py --fix ${APP_FILTER:+--app "$APP_FILTER"} 2>&1)
+                  echo "$OUTPUT" > ../apply_output.txt
+
+                  if git diff --quiet; then
+                    echo "changes_made=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changes_made=true" >> $GITHUB_OUTPUT
+                  fi
+
+                  echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
+
+            - name: Commit and push changes
+              if: steps.apply_fixes.outputs.changes_made == 'true'
+              uses: stefanzweifel/git-auto-commit-action@e348103e9026cc0eee72ae06630dbe30c8bf7a79 # v5
+              with:
+                  commit_message: 'fix: resolve migration conflicts'
+                  commit_user_name: github-actions[bot]
+                  commit_user_email: github-actions[bot]@users.noreply.github.com
+                  commit_author: GitHub Actions <github-actions[bot]@users.noreply.github.com>
+
+            - name: Update PR with success comment
+              if: steps.apply_fixes.outputs.changes_made == 'true'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const applyOutput = fs.readFileSync('../apply_output.txt', 'utf8');
+                      const { execSync } = require('child_process');
+                      const changedFiles = execSync('git diff HEAD~1 --name-only', { encoding: 'utf8' });
+
+                      const appFilter = '${{ steps.apply_fixes.outputs.app_filter }}';
+                      const appText = appFilter ? ` for app "${appFilter}"` : '';
+
+                      let issueNumber;
+                      if (context.eventName === 'repository_dispatch') {
+                        issueNumber = context.payload.client_payload.pr_number || 34406;
+                      } else {
+                        issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      }
+
+                      const comment = `## ✅ Migration conflicts fixed${appText}
+
+                      **Files updated:**
+                      \`\`\`
+                      ${changedFiles.trim()}
+                      \`\`\`
+
+                      <details>
+                      <summary>Details</summary>
+
+                      \`\`\`
+                      ${applyOutput}
+                      \`\`\`
+                      </details>`;
+
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issueNumber,
+                        body: comment
+                      });
+
+            - name: Update PR when no changes needed
+              if: steps.apply_fixes.outputs.changes_made == 'false'
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  script: |
+                      let issueNumber;
+                      if (context.eventName === 'repository_dispatch') {
+                        issueNumber = context.payload.client_payload.pr_number || 34406;
+                      } else {
+                        issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
+                      }
+
+                      const comment = `## ℹ️ No migration conflicts found
+
+                      No conflicts need fixing. Your PR should be ready to merge.`;
+
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issueNumber,
+                        body: comment
+                      });
