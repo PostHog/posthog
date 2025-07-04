@@ -56,7 +56,7 @@ export function countColumn({
     return {
         dataIndex: 'recordings_counts',
         title: 'Count',
-        tooltip: 'Count of recordings in the playlist',
+        tooltip: 'Count of recordings in the collection',
         isHidden: !showCountColumn,
         width: 0,
         render: function Render(recordings_counts) {

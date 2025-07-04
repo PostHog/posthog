@@ -100,6 +100,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             <MaxTool
                 name="search_session_recordings"
                 displayName="Search recordings"
+                description="Max can set up filters for the recordings list"
                 context={{
                     current_filters: filters,
                 }}
@@ -219,7 +220,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
 

@@ -48,15 +48,17 @@ const StripeCaption = (): JSX.Element => (
         Currently, <strong>read permissions are required</strong> for the following resources:
         <ul className="list-disc list-inside">
             <li>
-                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
-                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
+                Under the <strong>Core</strong> resource type, select <i>read</i> for{' '}
+                <strong>Balance transaction sources</strong>, <strong>Charges</strong>, <strong>Customer</strong>,{' '}
+                <strong>Product</strong>, <strong>Disputes</strong>, and <strong>Payouts</strong>
             </li>
             <li>
-                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
-                <b>Subscription</b>
+                Under the <strong>Billing</strong> resource type, select <i>read</i> for <strong>Invoice</strong>,{' '}
+                <strong>Price</strong>, <strong>Subscription</strong>, and <strong>Credit notes</strong>
             </li>
             <li>
-                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
+                Under the <strong>Connected</strong> resource type, select <i>read</i> for the{' '}
+                <strong>entire resource</strong>
             </li>
         </ul>
     </>
@@ -652,6 +654,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 label: 'Salesforce account',
                 type: 'oauth',
                 required: true,
+                kind: 'salesforce',
             },
         ],
         caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
@@ -831,9 +834,9 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         betaSource: true,
         caption: (
             <>
-                Ensure you have granted PostHog access to your Google Ads account as instructed in the
+                Ensure you have granted PostHog access to your Google Ads account, learn how to do this in{' '}
                 <Link to="https://posthog.com/docs/cdp/sources/google-ads" target="_blank">
-                    documentation
+                    the docs
                 </Link>
                 .
             </>
@@ -845,6 +848,13 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 type: 'text',
                 required: true,
                 placeholder: '',
+            },
+            {
+                name: 'google_ads_integration_id',
+                label: 'Google Ads account',
+                type: 'oauth',
+                required: true,
+                kind: 'google-ads',
             },
         ],
     },
@@ -885,16 +895,29 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         ],
         betaSource: true,
     },
+    MongoDB: {
+        name: 'MongoDB',
+        label: 'MongoDB',
+        caption: (
+            <>
+                Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data
+                warehouse.
+            </>
+        ),
+        fields: [
+            {
+                name: 'connection_string',
+                label: 'Connection String',
+                type: 'text',
+                required: true,
+                placeholder: 'mongodb://username:password@host:port/database?authSource=admin',
+            },
+        ],
+        betaSource: true,
+    },
     MetaAds: {
         name: 'MetaAds',
         label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Mongodb: {
-        name: 'Mongodb',
-        label: 'MongoDB',
         caption: '',
         fields: [],
         unreleasedSource: true,
@@ -1466,11 +1489,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                const errorMessage = e.data?.message ?? e.message
+                lemonToast.error(errorMessage)
 
-                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
-                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
-                }
+                posthog.capture('warehouse credentials invalid', {
+                    sourceType: values.selectedConnector.name,
+                    errorMessage,
+                })
             }
 
             actions.setIsLoading(false)

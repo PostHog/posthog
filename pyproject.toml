@@ -20,6 +20,7 @@ dependencies = [
     "conditional-cache==1.2",
     "cryptography==39.0.2",
     "dagster==1.10.18",
+    "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
     "dagster-celery==0.26.18",
     "dagster-postgres==0.26.18",
@@ -81,15 +82,17 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics>=5.1.0",
+    "posthoganalytics>=6.0.2",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
     "pydantic==2.10.3",
     "pyjwt==2.4.0",
+    "pympler==1.1",
     "pymssql==2.3.1",
     "pymysql==1.1.1",
+    "pymongo==4.13.2",
     "pyodbc==5.1.0",
     "python-dateutil>=2.8.2",
     "python-snappy~=0.7.3",
@@ -168,6 +171,7 @@ dev = [
     "flaky==3.7.0",
     "freezegun==1.2.2",
     "inline-snapshot==0.19.*",
+    "ipython>=9.3.0",
     "mypy~=1.11.1",
     "mypy-baseline~=0.7.2",
     "mypy-extensions==1.0.0",
@@ -219,6 +223,7 @@ required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+
 
 [tool.black]
 line-length = 120

@@ -220,6 +220,7 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
 }
@@ -1420,6 +1421,7 @@ export interface CohortCriteriaType {
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
+    sort_key?: string // Client-side only stable id for sorting.
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -4138,6 +4140,7 @@ export type IntegrationKind =
     | 'intercom'
     | 'email'
     | 'linear'
+    | 'github'
 
 export interface IntegrationType {
     id: number
@@ -4568,7 +4571,7 @@ export const externalDataSources = [
     'Mailjet',
     'Redshift',
     'GoogleSheets',
-    'Mongodb',
+    'MongoDB',
     'TemporalIO',
     'DoIt',
 ] as const
@@ -5043,6 +5046,7 @@ export interface SourceFieldOauthConfig {
     name: string
     label: string
     required: boolean
+    kind: string
 }
 
 export interface SourceFieldInputConfig {
@@ -5212,6 +5216,7 @@ export interface CyclotronJobFiltersType {
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
+    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }
@@ -5495,12 +5500,6 @@ export enum UserRole {
     Other = 'other',
 }
 
-export type UserGroup = {
-    id: string
-    name: string
-    members: UserBasicType[]
-}
-
 export interface CoreMemory {
     id: string
     text: string
@@ -5602,4 +5601,20 @@ export interface LineageEdge {
 export interface LineageGraph {
     nodes: LineageNode[]
     edges: LineageEdge[]
+}
+
+export enum OnboardingStepKey {
+    INSTALL = 'install',
+    LINK_DATA = 'link_data',
+    PLANS = 'plans',
+    VERIFY = 'verify',
+    PRODUCT_CONFIGURATION = 'configure',
+    REVERSE_PROXY = 'proxy',
+    INVITE_TEAMMATES = 'invite_teammates',
+    DASHBOARD_TEMPLATE = 'dashboard_template',
+    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
+    SESSION_REPLAY = 'session_replay',
+    AUTHORIZED_DOMAINS = 'authorized_domains',
+    SOURCE_MAPS = 'source_maps',
+    ALERTS = 'alerts',
 }

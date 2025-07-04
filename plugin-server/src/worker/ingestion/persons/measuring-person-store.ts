@@ -14,6 +14,7 @@ import {
     personMethodCallsPerBatchHistogram,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -129,7 +130,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
+        return await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
@@ -246,6 +247,24 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
+    }
+
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
+
+        const update: Partial<InternalPerson> = { ...otherUpdates }
+        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
+            update.properties = person.properties
+        }
+
+        return await this.updatePersonForUpdate(person, update, distinctId, tx)
     }
 
     private async updatePerson(

@@ -66,7 +66,6 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
-import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -408,13 +407,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ExceptionAutocaptureSettings />,
             },
             {
-                id: 'error-tracking-user-groups',
-                title: 'User groups',
-                description: 'Allow collections of users to be assigned to issues',
-                component: <UserGroups />,
-                flag: 'USER_GROUPS_ENABLED',
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 component: <ErrorTrackingAlerting />,
@@ -423,7 +415,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 component: <ErrorTrackingAutoAssignment />,
-                flag: 'ERROR_TRACKING_ALERT_ROUTING',
             },
             {
                 id: 'error-tracking-custom-grouping',

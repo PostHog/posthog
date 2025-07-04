@@ -201,8 +201,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         console_filter = cast(LogEntryPropertyFilter, maybe_the_filter)
         assert console_filter.value == ["warn", "error"]
         assert mock_capture.call_args_list[0] == call(
-            self.user.distinct_id,
-            "recording list filters changed",
+            event="recording list filters changed",
+            distinct_id=self.user.distinct_id,
             properties={
                 "$current_url": ANY,
                 "$session_id": ANY,
@@ -420,7 +420,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["results"][0]["id"] == "test_update_viewed_state"
 
         assert len(mock_capture.call_args_list) == 1
-        assert mock_capture.call_args_list[0][0][1] == "recording viewed"
+        assert mock_capture.call_args_list[0][1]["event"] == "recording viewed"
 
     @patch("posthoganalytics.capture")
     def test_update_session_recording_analyzed(self, mock_capture: MagicMock):
@@ -444,7 +444,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Verify that the appropriate event was reported
         assert len(mock_capture.call_args_list) == 1
-        assert mock_capture.call_args_list[0][0][1] == "recording analyzed"
+        assert mock_capture.call_args_list[0][1]["event"] == "recording analyzed"
 
     def test_update_session_recording_invalid_data(self):
         session_id = "test_update_invalid_data"
@@ -1321,9 +1321,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert mock_capture.call_args_list[0] == call(
-            personal_api_key_object.secure_value,
-            "snapshots_api_called_with_personal_api_key",
-            {
+            event="snapshots_api_called_with_personal_api_key",
+            distinct_id=personal_api_key_object.secure_value,
+            properties={
                 "key_label": "X",
                 "key_scopes": ["session_recording:read"],
                 "key_scoped_teams": [self.team.pk],
