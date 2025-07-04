@@ -77,7 +77,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             {
                 loadAccessControls: async () => {
                     try {
-                        const response = await api.get<AccessControlResponseType>(values.endpoint)
+                        const response = await api.get<AccessControlResponseType>(`${values.endpoint}/get`)
                         return response
                     } catch {
                         // Return empty access controls
@@ -96,7 +96,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 },
 
                 updateAccessControlDefault: async ({ level }) => {
-                    await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
+                    await api.put<AccessControlType, AccessControlUpdateType>(`${values.endpoint}/update`, {
                         access_level: level,
                     })
 
@@ -111,7 +111,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlRoles: async ({ accessControls }) => {
                     for (const { role, level } of accessControls) {
-                        await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
+                        await api.put<AccessControlType, AccessControlUpdateType>(`${values.endpoint}/update`, {
                             role: role,
                             access_level: level,
                         })
@@ -131,7 +131,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlMembers: async ({ accessControls }) => {
                     for (const { member, level } of accessControls) {
-                        await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
+                        await api.put<AccessControlType, AccessControlUpdateType>(`${values.endpoint}/update`, {
                             organization_member: member,
                             access_level: level,
                         })
