@@ -535,14 +535,15 @@ async def _write_batch_export_record_batches_to_s3(
                 raise
 
             query_id = uuid.uuid4()
-            logger.info(f"Executing query with ID = {query_id}")
+            logger.info("Executing pre-export stage query", query_id=str(query_id))
             try:
                 await client.execute_query(
                     query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
                 )
             except ClickHouseClientTimeoutError:
                 logger.warning(
-                    f"Timed-out waiting for insert into S3 with ID: {str(query_id)}. Will attempt to check query status before continuing"
+                    "Timed-out waiting for insert into S3. Will attempt to check query status before continuing",
+                    query_id=str(query_id),
                 )
 
                 status = await client.acheck_query(str(query_id), raise_on_error=True)
