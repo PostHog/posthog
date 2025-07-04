@@ -348,11 +348,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         conditions = base_conditions or []
 
         if include_date_range:
+            # Handle date_field with table prefixes like "events.timestamp"
+            date_field_chain = date_field.split(".")
             if use_date_not_datetime:
                 # For conversion goals that use toDate instead of toDateTime
                 # Build: date_field >= toDate('date_from')
-                # Handle date_field with table prefixes like "events.timestamp"
-                date_field_chain = date_field.split('.')
                 date_field_expr = ast.Field(chain=date_field_chain)
                 from_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
                 to_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
@@ -368,8 +368,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             else:
                 date_cast: ast.Expr
                 # Build for regular datetime conditions
-                # Handle date_field with table prefixes like "events.timestamp"
-                date_field_chain = date_field.split('.')
                 if date_field != "timestamp":
                     date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
                 else:

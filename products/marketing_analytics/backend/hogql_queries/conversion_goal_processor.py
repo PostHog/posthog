@@ -118,7 +118,9 @@ class ConversionGoalProcessor:
             if event_name:
                 # events.event = 'event_name'
                 event_condition = ast.CompareOperation(
-                    left=ast.Field(chain=["events", "event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=event_name)
+                    left=ast.Field(chain=["events", "event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=event_name),
                 )
                 conditions.append(event_condition)
         elif self.goal.kind == "ActionsNode":
