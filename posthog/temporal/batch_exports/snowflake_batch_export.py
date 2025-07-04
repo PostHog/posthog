@@ -786,7 +786,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
     """
     bind_contextvars(
         team_id=inputs.team_id,
-        destination="PostgreSQL",
+        destination="Snowflake",
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
