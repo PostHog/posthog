@@ -41,6 +41,7 @@ from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 from posthog.event_usage import report_user_action
@@ -471,6 +472,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
@@ -509,6 +511,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        tag_queries(product=Product.REPLAY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
@@ -547,6 +550,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        tag_queries(product=Product.REPLAY)
         recording: SessionRecording = self.get_object()
 
         if not request.user.is_anonymous:
@@ -560,6 +564,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
 
         loaded = recording.load_metadata()
@@ -580,6 +585,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
         loaded = recording.load_metadata()
 
@@ -683,6 +689,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
+        tag_queries(product=Product.REPLAY)
         timer = ServerTimingsGathered()
 
         with timer("get_recording"):
@@ -927,6 +934,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
+        tag_queries(product=Product.REPLAY)
 
         user = cast(User, request.user)
 
@@ -1159,6 +1167,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     def similar_recordings(self, request: request.Request, **kwargs) -> Response:
         """Find recordings with similar event sequences to the given recording."""
         timer = ServerTimingsGathered()
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
 
         if recording.deleted:
