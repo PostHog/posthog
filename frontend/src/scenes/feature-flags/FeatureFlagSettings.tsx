@@ -1,9 +1,13 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
     inModal?: boolean
@@ -12,6 +16,7 @@ export type FeatureFlagSettingsProps = {
 export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProps): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { confirmationMessageLoading } = useValues(featureFlagConfirmationSettingsLogic)
 
     return (
         <div className="space-y-8">
@@ -41,6 +46,58 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     </Link>
                     .
                 </p>
+            </div>
+
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="feature-flag-confirmation-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            feature_flag_confirmation_enabled: checked,
+                        })
+                    }}
+                    label="Require confirmation for feature flag changes"
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    checked={!!currentTeam?.feature_flag_confirmation_enabled}
+                />
+
+                <p>
+                    When enabled, editing existing feature flags will show a confirmation modal before saving changes.
+                    This helps prevent accidental changes that could impact your users' experience.
+                </p>
+
+                {currentTeam?.feature_flag_confirmation_enabled && (
+                    <div className="mt-4">
+                        <Form
+                            logic={featureFlagConfirmationSettingsLogic}
+                            formKey="confirmationMessageForm"
+                            enableFormOnSubmit
+                            className="w-full space-y-4"
+                        >
+                            <LemonField
+                                name="message"
+                                label="Custom confirmation message"
+                                help="Optional custom message to show in the confirmation modal. If empty, a default message will be used."
+                            >
+                                <LemonTextArea
+                                    placeholder="Enter a custom message for your team (optional)"
+                                    maxLength={500}
+                                    maxRows={3}
+                                />
+                            </LemonField>
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                disabledReason={!currentTeam ? 'Loading team...' : undefined}
+                                loading={confirmationMessageLoading}
+                            >
+                                Save message
+                            </LemonButton>
+                        </Form>
+                    </div>
+                )}
             </div>
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
@@ -146,7 +203,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         {currentTeam.secret_api_token_backup}
                     </CodeSnippet>
                     <p className="text-xs text-muted mt-1">
-                        This key is still active to support deployments using the previous key. Delete it once you’ve
+                        This key is still active to support deployments using the previous key. Delete it once you've
                         fully migrated.
                     </p>
                 </>

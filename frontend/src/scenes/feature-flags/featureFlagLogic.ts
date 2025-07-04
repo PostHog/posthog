@@ -4,6 +4,8 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import isEqual from 'lodash.isequal'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -271,6 +273,47 @@ function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupTyp
     return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
+// Detect meaningful changes that require confirmation
+function detectFeatureFlagChanges(
+    originalFlag: FeatureFlagType | null,
+    updatedFlag: Partial<FeatureFlagType>
+): string[] {
+    const changes: string[] = []
+
+    // Don't require confirmation for new flags
+    if (!originalFlag || !updatedFlag.id) {
+        return changes
+    }
+
+    // Check for active status changes
+    if (originalFlag.active !== updatedFlag.active) {
+        if (updatedFlag.active) {
+            changes.push('Enable the feature flag')
+        } else {
+            changes.push('Disable the feature flag')
+        }
+    }
+
+    // Check for release condition changes
+    if (!isEqual(originalFlag.filters.groups, updatedFlag.filters?.groups)) {
+        changes.push('Modify release conditions')
+    }
+
+    // Check for multivariate changes
+    const originalVariantCount = originalFlag.filters.multivariate?.variants?.length || 0
+    const updatedVariantCount = updatedFlag.filters?.multivariate?.variants?.length || 0
+
+    if (originalVariantCount !== updatedVariantCount) {
+        if (updatedVariantCount > originalVariantCount) {
+            changes.push(`Add ${updatedVariantCount - originalVariantCount} new variant(s)`)
+        } else {
+            changes.push(`Remove ${originalVariantCount - updatedVariantCount} variant(s)`)
+        }
+    }
+
+    return changes
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -335,6 +378,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
+        showConfirmationModal: (changes: string[], pendingFlag: Partial<FeatureFlagType>) => ({ changes, pendingFlag }),
+        hideConfirmationModal: true,
+        confirmFlagChanges: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -366,6 +412,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
+                // Check team setting for feature flag confirmation
+                const needsConfirmation = !!featureFlag.id && !!values.currentTeam?.feature_flag_confirmation_enabled
+
+                if (needsConfirmation) {
+                    const changes = detectFeatureFlagChanges(values.originalFeatureFlag, featureFlag)
+
+                    if (changes.length > 0) {
+                        // Show confirmation modal using state management
+                        actions.showConfirmationModal(changes, featureFlag)
+                        return // Don't proceed with save
+                    }
+                }
+
+                // Original logic for no confirmation needed
                 if (featureFlag.id) {
                     actions.saveFeatureFlag(featureFlag)
                 } else {
@@ -628,6 +688,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ScheduledChangeOperationType.AddReleaseCondition as ScheduledChangeOperationType,
             {
                 setScheduledChangeOperation: (_, { changeType }) => changeType,
+            },
+        ],
+        confirmationModalVisible: [
+            false,
+            {
+                showConfirmationModal: () => true,
+                hideConfirmationModal: () => false,
+            },
+        ],
+        confirmationModalChanges: [
+            [] as string[],
+            {
+                showConfirmationModal: (_, { changes }) => changes,
+                hideConfirmationModal: () => [],
+            },
+        ],
+        pendingFlagForConfirmation: [
+            null as Partial<FeatureFlagType> | null,
+            {
+                showConfirmationModal: (_, { pendingFlag }) => pendingFlag,
+                hideConfirmationModal: () => null,
             },
         ],
     }),
@@ -1140,6 +1221,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
+            }
+        },
+        confirmFlagChanges: () => {
+            // Proceed with saving the pending flag
+            const pendingFlag = values.pendingFlagForConfirmation
+            if (pendingFlag) {
+                // Clear modal state first
+                actions.hideConfirmationModal()
+
+                // Then proceed with save
+                if (pendingFlag.id) {
+                    actions.saveFeatureFlag(pendingFlag)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Feature Flags',
+                        callback: (folder) => actions.saveFeatureFlag({ ...pendingFlag, _create_in_folder: folder }),
+                    })
+                }
             }
         },
     })),
