@@ -1,3 +1,6 @@
+from typing import cast
+
+from posthog.hogql import ast
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.schema import EventsQuery
 from posthog.test.base import APIBaseTest
@@ -12,7 +15,10 @@ class TestRecentEventsTable(APIBaseTest):
         ast_query = runner.to_query()
 
         # Check that it uses the regular events table
-        table_name = ast_query.select_from.table.chain[0]
+        assert ast_query.select_from is not None
+        assert ast_query.select_from.table is not None
+        field = cast(ast.Field, ast_query.select_from.table)
+        table_name = field.chain[0]
         self.assertEqual(table_name, "events")
 
     def test_events_query_uses_recent_events_table_when_flag_is_true(self):
@@ -23,7 +29,10 @@ class TestRecentEventsTable(APIBaseTest):
         ast_query = runner.to_query()
 
         # Check that it uses the recent_events table
-        table_name = ast_query.select_from.table.chain[0]
+        assert ast_query.select_from is not None
+        assert ast_query.select_from.table is not None
+        field = cast(ast.Field, ast_query.select_from.table)
+        table_name = field.chain[0]
         self.assertEqual(table_name, "recent_events")
 
     def test_events_query_uses_regular_events_table_when_flag_is_false(self):
@@ -34,7 +43,10 @@ class TestRecentEventsTable(APIBaseTest):
         ast_query = runner.to_query()
 
         # Check that it uses the regular events table
-        table_name = ast_query.select_from.table.chain[0]
+        assert ast_query.select_from is not None
+        assert ast_query.select_from.table is not None
+        field = cast(ast.Field, ast_query.select_from.table)
+        table_name = field.chain[0]
         self.assertEqual(table_name, "events")
 
     def test_presorted_table_respects_recent_events_flag(self):
@@ -57,8 +69,15 @@ class TestRecentEventsTable(APIBaseTest):
         ast_recent = runner_recent.to_query()
 
         # Both should use their respective tables
-        regular_table = ast_regular.select_from.table.chain[0]
-        recent_table = ast_recent.select_from.table.chain[0]
+        assert ast_regular.select_from is not None
+        assert ast_regular.select_from.table is not None
+        regular_field = cast(ast.Field, ast_regular.select_from.table)
+        regular_table = regular_field.chain[0]
+
+        assert ast_recent.select_from is not None
+        assert ast_recent.select_from.table is not None
+        recent_field = cast(ast.Field, ast_recent.select_from.table)
+        recent_table = recent_field.chain[0]
 
         self.assertEqual(regular_table, "events")
         self.assertEqual(recent_table, "recent_events")
