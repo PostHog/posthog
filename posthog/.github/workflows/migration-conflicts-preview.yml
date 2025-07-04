@@ -15,7 +15,6 @@ on:
 jobs:
     preview-migration-fixes:
         runs-on: ubuntu-latest
-        # Only run on PR comments with the trigger or via repository_dispatch
         if: |
             (github.event_name == 'workflow_dispatch') ||
             (github.event_name == 'issue_comment' && 
@@ -29,7 +28,6 @@ jobs:
               id: extract_params
               run: |
                   COMMENT="${{ github.event.comment.body }}"
-                  # Extract app filter if provided (e.g., "/preview-migrations --app posthog")
                   if echo "$COMMENT" | grep -q '\-\-app'; then
                     APP_FILTER=$(echo "$COMMENT" | grep -o '\-\-app [^[:space:]]*' | cut -d' ' -f2)
                     echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
@@ -54,7 +52,6 @@ jobs:
               with:
                   fetch-depth: 0
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  # For issue comments, checkout the PR branch; for repository_dispatch, use specified branch
                   ref: |
                       ${{ 
                         github.event_name == 'issue_comment' && format('refs/pull/{0}/head', github.event.issue.number) || 
@@ -68,13 +65,11 @@ jobs:
                   python-version: '3.11'
 
             - name: Fetch master branch
-              run: |
-                  git fetch origin master:master
+              run: git fetch origin master:master
 
             - name: Run migration conflict detection and preview
               id: preview
               run: |
-                  # Determine app filter based on trigger type
                   APP_FILTER=""
                   if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
                     APP_FILTER="${{ inputs.app_filter }}"
@@ -89,18 +84,13 @@ jobs:
 
                   if echo "$OUTPUT" | grep -q "CONFLICT DETECTED"; then
                     echo "conflicts_found=true" >> $GITHUB_OUTPUT
-                    echo "has_changes=true" >> $GITHUB_OUTPUT
-                  elif echo "$OUTPUT" | grep -q "No conflicts to fix"; then
-                    echo "conflicts_found=false" >> $GITHUB_OUTPUT  
-                    echo "has_changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "conflicts_found=false" >> $GITHUB_OUTPUT
-                    echo "has_changes=false" >> $GITHUB_OUTPUT
                   fi
 
                   echo "app_filter=$APP_FILTER" >> $GITHUB_OUTPUT
 
-            - name: Create PR comment with preview and approval buttons
+            - name: Create PR comment with preview
               if: steps.preview.outputs.conflicts_found == 'true'
               uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
               with:
@@ -118,26 +108,19 @@ jobs:
                         issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
                       }
 
-                      const comment = `## 🔧 Migration Conflicts Preview
+                      const comment = `## 🔧 Migration conflicts preview
 
-                      Here's what I would do to fix the migration conflicts:
+                      Preview of fixes for migration conflicts:
 
                       <details>
-                      <summary><strong>📋 Click to see detailed preview</strong></summary>
+                      <summary>Details</summary>
 
                       \`\`\`
                       ${previewOutput}
                       \`\`\`
                       </details>
 
-                      ## ✅ Ready to Apply These Fixes?
-
-                      **One-click fix:** Comment \`/fix-migrations${appText}\` below to automatically apply these changes to your PR.
-
-                      Alternatively, you can run the Apply workflow manually from the [Actions tab](${context.payload.repository.html_url}/actions/workflows/migration-conflicts-apply.yml).
-
-                      ---
-                      <sub>💡 This is a preview. Comment \`/fix-migrations${appText}\` to apply the actual fixes.</sub>`;
+                      **Apply fixes:** Comment \`/fix-migrations${appText}\` to apply these changes.`;
 
                       const comments = await github.rest.issues.listComments({
                         owner: context.repo.owner,
@@ -147,7 +130,7 @@ jobs:
 
                       const botComment = comments.data.find(comment => 
                         comment.user.type === 'Bot' && 
-                        (comment.body.includes('Migration Conflicts Preview') || comment.body.includes('Migration Conflicts Detected'))
+                        (comment.body.includes('Migration conflicts preview') || comment.body.includes('Migration conflicts detected'))
                       );
 
                       if (botComment) {
@@ -181,14 +164,9 @@ jobs:
                         issueNumber = context.payload.issue?.number || context.payload.pull_request?.number;
                       }
 
-                      const comment = `## ✅ No Migration Conflicts Found
+                      const comment = `## ✅ No migration conflicts found
 
-                      Great news! I checked your branch against master and didn't find any migration conflicts${appText}.
-
-                      Your migrations should merge cleanly! 🎉
-
-                      ---
-                      <sub>💡 If you believe this is incorrect, try running \`/preview-migrations${appFilter ? ` --app ${appFilter}` : ''}\` again.</sub>`;
+                      No migration conflicts detected${appText}. Your migrations should merge cleanly.`;
 
                       await github.rest.issues.createComment({
                         owner: context.repo.owner,

@@ -1,33 +1,20 @@
 #!/bin/bash
 
-# Simple wrapper for the migration conflict resolver
-# Usage: ./bin/fix-migrations [preview|fix] [app_name]
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/fix-migration-conflicts.py"
 
-# Default action
 ACTION="preview"
 APP=""
 
-# Parse arguments
 if [[ $# -gt 0 ]]; then
     case "$1" in
         "preview"|"fix")
             ACTION="$1"
             ;;
         *)
-            echo "❌ Invalid action: $1"
             echo "Usage: $0 [preview|fix] [app_name]"
-            echo ""
-            echo "Examples:"
-            echo "  $0                    # Preview all apps"
-            echo "  $0 preview            # Preview all apps"
-            echo "  $0 fix                # Fix all apps"
-            echo "  $0 preview posthog    # Preview posthog app only"
-            echo "  $0 fix billing        # Fix billing app only"
             exit 1
             ;;
     esac
@@ -37,20 +24,9 @@ if [[ $# -gt 1 ]]; then
     APP="$2"
 fi
 
-# Build command
 CMD="python \"$PYTHON_SCRIPT\" --$ACTION"
 if [[ -n "$APP" ]]; then
     CMD="$CMD --app $APP"
 fi
 
-echo "🔧 Migration Conflict Resolver"
-echo "Action: $ACTION"
-if [[ -n "$APP" ]]; then
-    echo "App: $APP"
-else
-    echo "App: all"
-fi
-echo ""
-
-# Run the command
 eval $CMD 
