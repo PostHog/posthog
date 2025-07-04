@@ -8,9 +8,33 @@ import pytest
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from asgiref.sync import sync_to_async
-
 from posthog.schema import AssistantHogQLQuery, NodeKind
 from .scorers import QueryKindSelection, PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
+
+QUERY_GENERATION_MAX_RETRIES = 3
+
+
+class RetryEfficiency(Scorer):
+    """Evaluate the efficiency of SQL query generation based on retry attempts. Higher scores for fewer retries."""
+
+    def _name(self):
+        return "retry_efficiency"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        retry_count = output.get("query_generation_retry_count", 0) if output else 0
+
+        # Score is inversely proportional to retry count
+        score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
+
+        return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        retry_count = output.get("query_generation_retry_count", 0) if output else 0
+
+        # Score is inversely proportional to retry count
+        score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
+
+        return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
 
 
 class SQLSyntaxCorrectness(Scorer):
@@ -102,6 +126,7 @@ Important points:
             ),
             HogQLQuerySyntaxCorrectness(),
             TimeRangeRelevancy(query_kind=NodeKind.HOG_QL_QUERY),
+            RetryEfficiency(),
         ],
         data=[
             EvalCase(
@@ -288,6 +313,28 @@ FROM events
 WHERE event = '$pageview'
 GROUP BY day
 ORDER BY day
+"""
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="Sum up the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+                expected=PlanAndQueryOutput(
+                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
+"""
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="Calculate the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+                expected=PlanAndQueryOutput(
+                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
 """
                     ),
                 ),
