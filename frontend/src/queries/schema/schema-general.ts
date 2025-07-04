@@ -117,6 +117,7 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
+    RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
@@ -160,6 +161,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
@@ -225,6 +227,7 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
+    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
@@ -751,6 +754,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsCustomerCountQuery
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
@@ -782,6 +786,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsCustomerCountQuery
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
@@ -1950,6 +1955,19 @@ export interface RevenueAnalyticsRevenueQueryResponse
     columns?: string[]
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
+
+export interface RevenueAnalyticsCustomerCountQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsCustomerCountQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsCustomerCountQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsCustomerCountQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsCustomerCountQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsCustomerCountQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
