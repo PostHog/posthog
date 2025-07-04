@@ -40,6 +40,7 @@ from posthog.test.base import (
 )
 from clickhouse_driver.errors import ServerException
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from celery.result import AsyncResult
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -1616,3 +1617,178 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
+
+    @patch("posthog.session_recordings.session_recording_api.bulk_delete_recordings_task.delay")
+    def test_bulk_delete_recordings_success(self, mock_task_delay):
+        """Test successful initiation of bulk delete task"""
+        # Setup mock task
+        mock_task = AsyncResult("test-task-id-123")
+        mock_task.id = "test-task-id-123"
+        mock_task_delay.return_value = mock_task
+
+        # Create test recordings
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "user1@example.com"},
+        )
+        self.produce_replay_summary("user1", "session-1", now() - relativedelta(days=1))
+        self.produce_replay_summary("user1", "session-2", now() - relativedelta(days=2))
+
+        # Make the bulk delete request
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings")
+
+        # Verify response
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        response_data = response.json()
+        self.assertTrue(response_data["success"])
+        self.assertEqual(response_data["task_id"], "test-task-id-123")
+        self.assertIn("Bulk delete task started", response_data["message"])
+
+        # Verify task was called with correct parameters
+        mock_task_delay.assert_called_once()
+        call_args = mock_task_delay.call_args[1]
+        self.assertEqual(call_args["team_id"], self.team.id)
+        self.assertEqual(call_args["user_id"], self.user.id)
+        self.assertEqual(call_args["user_distinct_id"], str(self.user.distinct_id))
+        self.assertIn("filters", call_args)
+
+    @patch("posthog.session_recordings.session_recording_api.bulk_delete_recordings_task.delay")
+    def test_bulk_delete_recordings_with_filters(self, mock_task_delay):
+        """Test bulk delete with specific filters"""
+        mock_task = AsyncResult("test-task-id-456")
+        mock_task.id = "test-task-id-456"
+        mock_task_delay.return_value = mock_task
+
+        # Make request with filters
+        filters = {"date_from": "2025-01-01", "date_to": "2025-12-31", "properties": []}
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings", data=filters, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        # Verify filters were passed to task
+        mock_task_delay.assert_called_once()
+        call_args = mock_task_delay.call_args[1]
+        self.assertIn("filters", call_args)
+
+    def test_bulk_delete_recordings_invalid_filters(self):
+        """Test bulk delete with invalid filters"""
+        # Make request with invalid filters that would cause ValidationError
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings?invalid_param=bad_value")
+
+        # Should return 400 for validation error
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.session_recordings.session_recording_api.AsyncResult")
+    def test_bulk_delete_status_pending(self, mock_async_result):
+        """Test checking status of pending bulk delete task"""
+        # Setup mock result
+        mock_result = mock_async_result.return_value
+        mock_result.state = "PENDING"
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/tasks/bulk_delete_status/test-task-id"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["state"], "PENDING")
+        self.assertIn("status", response_data)
+
+    @patch("posthog.session_recordings.session_recording_api.AsyncResult")
+    def test_bulk_delete_status_in_progress(self, mock_async_result):
+        """Test checking status of in-progress bulk delete task"""
+        # Setup mock result
+        mock_result = mock_async_result.return_value
+        mock_result.state = "PROGRESS"
+        mock_result.info = {
+            "status": "Processing chunk 1 of 3",
+            "current": 100,
+            "total": 250,
+            "playlist_items_deleted": 45,
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/tasks/bulk_delete_status/test-task-id"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["state"], "PROGRESS")
+        self.assertEqual(response_data["current"], 100)
+        self.assertEqual(response_data["total"], 250)
+        self.assertEqual(response_data["playlist_items_deleted"], 45)
+
+    @patch("posthog.session_recordings.session_recording_api.AsyncResult")
+    def test_bulk_delete_status_success(self, mock_async_result):
+        """Test checking status of completed bulk delete task"""
+        # Setup mock result
+        mock_result = mock_async_result.return_value
+        mock_result.state = "SUCCESS"
+        mock_result.result = {
+            "message": "Successfully deleted 150 recordings",
+            "deleted_count": 150,
+            "playlist_items_deleted_count": 75,
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/tasks/bulk_delete_status/test-task-id"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["state"], "SUCCESS")
+        self.assertEqual(response_data["deleted_count"], 150)
+        self.assertEqual(response_data["playlist_items_deleted_count"], 75)
+
+    @patch("posthog.session_recordings.session_recording_api.AsyncResult")
+    def test_bulk_delete_status_failed(self, mock_async_result):
+        """Test checking status of failed bulk delete task"""
+        # Setup mock result
+        mock_result = mock_async_result.return_value
+        mock_result.state = "FAILURE"
+        mock_result.info = "Database connection failed"
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/tasks/bulk_delete_status/test-task-id"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["state"], "FAILURE")
+        self.assertIn("error", response_data)
+
+    def test_bulk_delete_status_invalid_task_id(self):
+        """Test checking status with invalid task ID"""
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/tasks/bulk_delete_status/invalid-task-id"
+        )
+
+        # Should still return 200 but with error info
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_bulk_delete_status_wrong_team(self):
+        """Test bulk delete status doesn't allow cross-team access"""
+        other_team = Team.objects.create(organization=self.organization)
+
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/session_recordings/tasks/bulk_delete_status/test-task-id"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.session_recordings.session_recording_api.bulk_delete_recordings_task.delay")
+    def test_bulk_delete_recordings_query_error_handling(self, mock_task_delay):
+        """Test bulk delete handles query errors appropriately"""
+        from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+
+        # Mock the task to raise an exception during query parsing
+        mock_task_delay.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        response_data = response.json()
+        self.assertEqual(response_data["code"], "throttled")
+        self.assertIn("Too many simultaneous queries", response_data["detail"])
