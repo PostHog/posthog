@@ -24,7 +24,8 @@ from posthog.schema import HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
-set_global_handler(handler)
+if os.environ.get("BRAINTRUST_API_KEY"):
+    set_global_handler(handler)
 
 
 def MaxEval(

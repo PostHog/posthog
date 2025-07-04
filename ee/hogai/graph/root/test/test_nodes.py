@@ -725,7 +725,7 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
-    def test_navigate_tool_call_raises_node_interrupt(self):
+    async def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
         node = RootNodeTools(self.team, self.user)
 
@@ -741,15 +741,15 @@ class TestRootNodeTools(BaseTest):
 
         with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
             # Mock the navigate tool
-            mock_navigate_tool = MagicMock()
-            mock_navigate_tool.invoke.return_value = LangchainToolMessage(
+            mock_navigate_tool = AsyncMock()
+            mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
             mock_tools.return_value = lambda _: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
-                node.run(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
             # Verify the NodeInterrupt contains the expected message
             # NodeInterrupt wraps the message in an Interrupt object
