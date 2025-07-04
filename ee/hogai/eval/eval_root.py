@@ -3,6 +3,7 @@ import json
 import pytest
 from braintrust import EvalCase
 
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
@@ -25,15 +26,16 @@ def call_root(demo_org_team_user):
                 "end": AssistantNodeName.END,
             }
         )
-        .compile()
+        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
+        .compile(checkpointer=DjangoCheckpointer())
     )
 
-    def callable(messages: str | list[AssistantMessageUnion]) -> AssistantMessage:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
+    async def callable(messages: str | list[AssistantMessageUnion]) -> AssistantMessage:
+        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
         initial_state = AssistantState(
             messages=[HumanMessage(content=messages)] if isinstance(messages, str) else messages
         )
-        raw_state = graph.invoke(initial_state, {"configurable": {"thread_id": conversation.id}})
+        raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
         state = AssistantState.model_validate(raw_state)
         assert isinstance(state.messages[-1], AssistantMessage)
         return state.messages[-1]
@@ -42,8 +44,8 @@ def call_root(demo_org_team_user):
 
 
 @pytest.mark.django_db
-def eval_root(call_root):
-    MaxEval(
+async def eval_root(call_root):
+    await MaxEval(
         experiment_name="root",
         task=call_root,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],
