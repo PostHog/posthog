@@ -65,6 +65,19 @@ def add_and_merge_messages(
     return merged
 
 
+def merge_retry_counts(left: int, right: int) -> int:
+    """Merges two retry counts by taking the maximum value.
+
+    Args:
+        left: The base retry count
+        right: The new retry count
+
+    Returns:
+        The maximum of the two counts
+    """
+    return max(left, right)
+
+
 class _SharedAssistantState(BaseModel):
     """
     The state of the root node.
@@ -126,7 +139,7 @@ class _SharedAssistantState(BaseModel):
     """
     The context for taxonomy agent.
     """
-    query_generation_retry_count: int = Field(default=0)
+    query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
     """
     Tracks the number of times the query generation has been retried.
     """
