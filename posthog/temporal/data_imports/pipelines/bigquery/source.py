@@ -224,11 +224,8 @@ def get_partition_settings(
 def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
     """Attempt to fetch primary keys for a BigQuery table.
 
-    This function is compatible with SQLAlchemy source:
-    SQLAlchemy does not attempt to query table constraints, so we end up defaulting
-    to "id". We will also default to "id" if the column is present in `table`.
-
-    Otherwise, we will also attempt to look at table constraints to find primary keys.
+    We will also attempt to look at table constraints to find primary keys.
+    Otherwise, try to default to "id".
     """
     existing_fields = {field.name for field in table.schema}
 
