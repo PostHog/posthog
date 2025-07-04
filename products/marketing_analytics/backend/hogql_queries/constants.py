@@ -1,5 +1,8 @@
 # Marketing Analytics Constants and Configuration
 
+from posthog.schema import MarketingAnalyticsBaseColumns, MarketingAnalyticsColumnsSchemaNames
+from posthog.hogql import ast
+
 # Magic values
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
@@ -16,55 +19,109 @@ CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
 CONVERSION_GOAL_PREFIX = "conversion_"
 
-# Fields for the marketing analytics table select
-CAMPAIGN_NAME_FIELD = "campaign_name"
-SOURCE_NAME_FIELD = "source_name"
-IMPRESSIONS_FIELD = "impressions"
-CLICKS_FIELD = "clicks"
-COST_FIELD = "cost"
+# Fields for the marketing analytics table aggregation select
 TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 
 # Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {CAMPAIGN_NAME_FIELD}, 'No Source' as {SOURCE_NAME_FIELD}, 0.0 as impressions, 0.0 as clicks, 0.0 as cost WHERE 1=0"
+FALLBACK_EMPTY_QUERY = f"SELECT 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST} WHERE 1=0"
 
 
 # Final output columns
-DEFAULT_MARKETING_ANALYTICS_COLUMNS = [
-    "Campaign",
-    "Source",
-    "Total Cost",
-    "Total Clicks",
-    "Total Impressions",
-    "Cost per Click",
-    "CTR",
-]
+DEFAULT_MARKETING_ANALYTICS_COLUMNS = list(MarketingAnalyticsBaseColumns)
 
-# This matches the source map schema in the frontend
-SOURCE_MAP_CAMPAIGN_NAME = "campaign_name"
-SOURCE_MAP_CLICKS = "clicks"
-SOURCE_MAP_COST = "cost"
-SOURCE_MAP_DATE = "date"
-SOURCE_MAP_IMPRESSIONS = "impressions"
-SOURCE_MAP_SOURCE_NAME = "source_name"
-SOURCE_MAP_TOTAL_COST = "total_cost"
-SOURCE_MAP_UTM_CAMPAIGN_NAME = "utm_campaign_name"
-SOURCE_MAP_UTM_SOURCE_NAME = "utm_source_name"
-SOURCE_MAP_CURRENCY = "currency"
+# AST Expression mappings for MarketingAnalyticsBaseColumns
+BASE_COLUMN_MAPPING = {
+    MarketingAnalyticsBaseColumns.CAMPAIGN: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CAMPAIGN,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.CAMPAIGN]),
+    ),
+    MarketingAnalyticsBaseColumns.SOURCE: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.SOURCE,
+        expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE]),
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_COST: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_COST,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_CLICKS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_CLICKS,
+        expr=ast.Call(
+            name="round",
+            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.TOTAL_IMPRESSIONS,
+        expr=ast.Call(
+            name="round",
+            args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.COST_PER_CLICK: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_CLICK,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
+                    op=ast.ArithmeticOperationOp.Div,
+                    right=ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.CTR: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.CTR,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.ArithmeticOperation(
+                    left=ast.ArithmeticOperation(
+                        left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(
+                            name="nullif",
+                            args=[
+                                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
+                                ast.Constant(value=0),
+                            ],
+                        ),
+                    ),
+                    op=ast.ArithmeticOperationOp.Mult,
+                    right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
+                ),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+}
+
+BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
 # Marketing Analytics schema definition. This is the schema that is used to validate the source map.
 MARKETING_ANALYTICS_SCHEMA = {
-    SOURCE_MAP_CAMPAIGN_NAME: {"required": True},
-    SOURCE_MAP_CLICKS: {"required": False},
-    SOURCE_MAP_COST: {"required": False},
-    SOURCE_MAP_DATE: {"required": True},
-    SOURCE_MAP_IMPRESSIONS: {"required": False},
-    SOURCE_MAP_SOURCE_NAME: {"required": False},
-    SOURCE_MAP_TOTAL_COST: {"required": True},
-    SOURCE_MAP_UTM_CAMPAIGN_NAME: {"required": False},
-    SOURCE_MAP_UTM_SOURCE_NAME: {"required": False},
-    SOURCE_MAP_CURRENCY: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.CAMPAIGN: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.SOURCE: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.CLICKS: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.COST: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.DATE: {"required": True},
+    MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS: {"required": False},
+    MarketingAnalyticsColumnsSchemaNames.CURRENCY: {"required": False},
 }
 
 # Valid native marketing sources
