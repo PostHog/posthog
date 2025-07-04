@@ -9873,7 +9873,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     )
     funnel_order_type: Optional[StepOrderValue] = None
     metric_type: Literal["funnel"] = "funnel"
-    series: list[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]]
+    series: list[Union[EventsNode, ActionsNode]]
 
 
 class FunnelsFilter(BaseModel):
@@ -10556,7 +10556,7 @@ class ExperimentFunnelMetric(BaseModel):
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    series: list[Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]]
+    series: list[Union[EventsNode, ActionsNode]]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 

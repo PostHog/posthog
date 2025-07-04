@@ -2305,8 +2305,8 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
  */
 // this is for mean metrics
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-// this is for funnel metrics
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+// this is for funnel metrics. ExperimentDataWarehouseNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // | ExperimentDataWarehouseNode
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
