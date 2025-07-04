@@ -203,7 +203,7 @@ class TestSessionRecordingsTasks(ClickhouseTestMixin, BaseTest):
             )
 
     @patch("posthog.tasks.session_recordings.logger")
-    def test_bulk_delete_recordings_task_progress_logging(self, mock_logger) -> None:
+    def test_bulk_delete_recordings_task_progress_logging(self, mock_logger: MagicMock) -> None:
         """Test that progress is properly logged"""
         recording = SessionRecording.objects.create(
             team=self.team, session_id="session-1", distinct_id="user-1", deleted=False

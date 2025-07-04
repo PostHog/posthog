@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task
-def bulk_delete_recordings_task(self, team_id: int, user_id: int, filters: dict, user_distinct_id: str) -> None:
+def bulk_delete_recordings_task(self, team_id: int, user_id: int, filters: dict, user_distinct_id: str):
     """
     Bulk delete recordings matching the provided filters.
     Also mark associated playlist items as deleted.
