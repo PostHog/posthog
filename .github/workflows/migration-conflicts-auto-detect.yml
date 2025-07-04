@@ -16,8 +16,8 @@ jobs:
     auto-detect-migration-conflicts:
         runs-on: ubuntu-latest
         if: |
-            (github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main') ||
-            (github.event_name == 'repository_dispatch' && github.event.action == 'test-auto-detect')
+            (github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' && github.ref == 'refs/heads/yasen/feat/migrations-conflict-resolution-in-ci') ||
+            (github.event_name == 'repository_dispatch' && github.event.action == 'test-auto-detect' && github.event.client_payload.branch == 'yasen/feat/migrations-conflict-resolution-in-ci')
 
         steps:
             - name: Checkout code
