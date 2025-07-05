@@ -9,7 +9,7 @@ use property_defs_rs::{
 
 #[test]
 fn test_cache_insertions() {
-    let cache = Cache::new(10);
+    let cache = Cache::new(10, 10);
 
     let evt_def = Update::Event(EventDefinition {
         name: String::from("foobar"),
@@ -48,7 +48,7 @@ fn test_cache_insertions() {
 
 #[test]
 fn test_cache_removals() {
-    let cache = Cache::new(10);
+    let cache = Cache::new(10, 10);
 
     let evt_def = Update::Event(EventDefinition {
         name: String::from("foobar"),
@@ -88,4 +88,106 @@ fn test_cache_removals() {
     assert!(!cache.contains_key(&evt_def));
     assert!(!cache.contains_key(&evt_prop));
     assert!(!cache.contains_key(&prop_def));
+}
+
+#[test]
+fn test_batch_cache_insertions() {
+    let cache = Cache::new(300, 10);
+
+    let mut evt_defs = vec![];
+    let mut evt_props = vec![];
+    let mut prop_defs = vec![];
+
+    for counter in 1..=100 {
+        evt_defs.push(Update::Event(EventDefinition {
+            name: format!("event def {}", counter),
+            team_id: 1,
+            project_id: 1,
+            last_seen_at: Utc::now(),
+        }));
+
+        evt_props.push(Update::EventProperty(EventProperty {
+            event: format!("event def {}", counter),
+            property: format!("prop def {}", counter),
+            team_id: 1,
+            project_id: 1,
+        }));
+
+        prop_defs.push(Update::Property(PropertyDefinition {
+            team_id: 1,
+            project_id: 1,
+            name: format!("prop def {}", counter),
+            is_numerical: true,
+            property_type: Some(PropertyValueType::Numeric),
+            event_type: PropertyParentType::Event,
+            group_type_index: None,
+            property_type_format: None,
+            query_usage_30_day: None,
+            volume_30_day: None,
+        }));
+    }
+
+    assert!(cache.is_empty());
+    cache.insert_batch(&evt_defs);
+    assert!(!cache.is_empty());
+    assert!(cache.len() == 100);
+
+    cache.insert_batch(&evt_props);
+    assert!(cache.len() == 200);
+
+    cache.insert_batch(&prop_defs);
+    assert!(cache.len() == 300);
+}
+
+#[test]
+fn test_batch_cache_removals() {
+    let cache = Cache::new(300, 10);
+
+    let mut evt_defs = vec![];
+    let mut evt_props = vec![];
+    let mut prop_defs = vec![];
+
+    for counter in 1..=100 {
+        evt_defs.push(Update::Event(EventDefinition {
+            name: format!("event def {}", counter),
+            team_id: 1,
+            project_id: 1,
+            last_seen_at: Utc::now(),
+        }));
+
+        evt_props.push(Update::EventProperty(EventProperty {
+            event: format!("event def {}", counter),
+            property: format!("event prop {}", counter),
+            team_id: 1,
+            project_id: 1,
+        }));
+
+        prop_defs.push(Update::Property(PropertyDefinition {
+            team_id: 1,
+            project_id: 1,
+            name: format!("prop def {}", counter),
+            is_numerical: true,
+            property_type: Some(PropertyValueType::Numeric),
+            event_type: PropertyParentType::Event,
+            group_type_index: None,
+            property_type_format: None,
+            query_usage_30_day: None,
+            volume_30_day: None,
+        }));
+    }
+
+    cache.insert_batch(&evt_defs);
+    cache.insert_batch(&evt_props);
+    cache.insert_batch(&prop_defs);
+
+    assert!(cache.len() == 300);
+
+    cache.remove_batch(&evt_defs);
+    assert!(cache.len() == 200);
+
+    cache.remove_batch(&evt_props);
+    assert!(cache.len() == 100);
+
+    cache.remove_batch(&prop_defs);
+    assert!(cache.is_empty());
 }
