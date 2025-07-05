@@ -1,19 +1,30 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '../../../schema/hogflow'
+import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
+    HogFunctionType,
     LogEntry,
+    LogEntryLevel,
     MinimalAppMetric,
+    MinimalLogEntry,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogFlowActionRunner } from './actions'
+import { buildGlobalsWithInputs, HogExecutorService } from '../hog-executor.service'
+import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { checkConditions } from './actions/conditional_branch'
+import { calculatedScheduledAt } from './actions/delay'
+import { getRandomCohort } from './actions/random_cohort_branch'
+import { getWaitUntilTime } from './actions/wait_until_time_window'
+import { findContinueAction } from './hogflow-utils'
+import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
@@ -26,7 +37,7 @@ export function createHogFlowInvocation(
         state: {
             personId: globals.person?.id ?? '',
             event: globals.event,
-            variables: {},
+            actionStepCount: 0,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -37,11 +48,11 @@ export function createHogFlowInvocation(
 }
 
 export class HogFlowExecutorService {
-    private hogFlowActionRunner: HogFlowActionRunner
-
-    constructor(private hub: Hub) {
-        this.hogFlowActionRunner = new HogFlowActionRunner(this.hub)
-    }
+    constructor(
+        private hub: Hub,
+        private hogFunctionExecutor: HogExecutorService,
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+    ) {}
 
     async buildHogFlowInvocations(
         hogFlows: HogFlow[],
@@ -91,112 +102,33 @@ export class HogFlowExecutorService {
     async execute(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const loggingContext = {
-            invocationId: invocation.id,
-            hogFlowId: invocation.hogFlow.id,
-            hogFlowName: invocation.hogFlow.name,
-        }
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
+        const metrics: MinimalAppMetric[] = []
+        const logs: MinimalLogEntry[] = []
 
-        logger.debug('🦔', `[HogFlowExecutor] Executing hog flow`, loggingContext)
+        while (!result || !result.finished) {
+            const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(
-            invocation,
-            {},
-            {
-                finished: false,
+            // Here we could be continuing the hog function side of things?
+            result = await this.executeCurrentAction(nextInvocation)
+
+            if (result.finished) {
+                this.log(result, 'info', `Workflow completed`)
             }
-        )
 
-        result.invocation.state.actionStepCount = invocation.state.actionStepCount ?? 0
+            logs.push(...result.logs)
+            metrics.push(...result.metrics)
 
-        // TODO: Add early exit for exit conditions being met
-        // Also load the person info for that and cache it on the invocation in a way that won't get serialized
-
-        // NOTE: Todo this right we likely want to enrich the invocation here or earlier with two things:
-        // 1. The person object
-        // 2. the converted filters object as it is likely to be used by many or all runners
-
-        // TODO: Also derive max action step count from the hog flow
-        try {
-            while (!result.finished && result.invocation.state.actionStepCount < MAX_ACTION_STEPS_HARD_LIMIT) {
-                const actionResult = await this.hogFlowActionRunner.runCurrentAction(result.invocation)
-
-                // Track a metric for the outcome of the action result
-                result.metrics.push({
-                    team_id: invocation.hogFlow.team_id,
-                    app_source_id: invocation.hogFlow.id,
-                    instance_id: actionResult.action.id,
-                    metric_kind: 'error' in actionResult ? 'failure' : 'success',
-                    metric_name: 'error' in actionResult ? 'failed' : 'succeeded',
-                    count: 1,
-                })
-
-                if ('error' in actionResult) {
-                    result.logs.push({
-                        level: 'error',
-                        timestamp: DateTime.now(),
-                        message: `Action ${actionResult.action.id} errored: ${String(actionResult.error)}`, // TODO: Is this enough detail?
-                    })
-                }
-
-                if (actionResult.exited) {
-                    result.finished = true
-
-                    result.logs.push({
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Workflow completed`,
-                    })
-                    break
-                }
-
-                if (actionResult.scheduledAt) {
-                    // If the result has scheduled for the future then we return that triggering a push back to the queue
-                    result.invocation.queueScheduledAt = actionResult.scheduledAt
-                    result.finished = false
-                    result.logs.push({
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Workflow will pause until ${actionResult.scheduledAt.toISO()}`,
-                    })
-                }
-
-                if ('goToAction' in actionResult) {
-                    // Increment the action step count
-                    result.invocation.state.actionStepCount = (result.invocation.state.actionStepCount ?? 0) + 1
-                    // Update the state to be going to the next action
-                    result.invocation.state.currentAction = {
-                        id: actionResult.goToAction.id,
-                        startedAtTimestamp: DateTime.now().toMillis(),
-                    }
-                    result.finished = false // Nothing new here but just to be sure
-
-                    result.logs.push({
-                        level: 'info',
-                        timestamp: DateTime.now(),
-                        message: `Workflow moved to action '${actionResult.goToAction.name} (${actionResult.goToAction.id})'`,
-                    })
-                    continue
-                }
-
-                // This indicates that there is nothing more to be done in this execution so we should exit just in case
+            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
+            if (result.finished || result.invocation.queueScheduledAt) {
                 break
             }
-
-            // NOTE: Purposefully wait for the next tick to ensure we don't block up the event loop
-            await new Promise((resolve) => process.nextTick(resolve))
-        } catch (err) {
-            // The final catch - in this case we are always just logging the final outcome
-            result.error = err.message
-            result.finished = true // Explicitly set to true to prevent infinite loops
-            logger.error(
-                '🦔',
-                `[HogFlowExecutor] Error executing hog flow ${invocation.hogFlow.id} - ${invocation.hogFlow.name}. Event: '${invocation.state.event?.url}'`,
-                err
-            )
         }
 
-        return Promise.resolve(result)
+        result.logs = logs
+        result.metrics = metrics
+
+        return result
     }
 
     // Like execute but does the complete flow, logging delays and async function calls rather than performing them
@@ -230,11 +162,7 @@ export class HogFlowExecutorService {
             result = await this.execute(nextInvocation)
 
             if (result?.invocation.queueScheduledAt) {
-                finalResult.logs.push({
-                    level: 'info',
-                    timestamp: DateTime.now(),
-                    message: `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`,
-                })
+                this.log(finalResult, 'info', `Workflow will pause until ${result.invocation.queueScheduledAt.toISO()}`)
             }
 
             result?.logs?.forEach((log) => {
@@ -246,5 +174,289 @@ export class HogFlowExecutorService {
         }
 
         return finalResult
+    }
+
+    private async executeCurrentAction(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        result.finished = false // Typically we are never finished unless we error or exit
+
+        try {
+            const currentAction = ensureCurrentAction(invocation)
+
+            // TODO: Add early condition for continuing a hog function
+            if (await shouldSkipAction(invocation, currentAction)) {
+                this.logAction(result, currentAction, 'info', `Skipped due to filter conditions`)
+                this.goToNextAction(result, currentAction, findContinueAction(invocation), 'filtered')
+
+                return result
+            }
+
+            logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
+                action: currentAction,
+                invocation,
+            })
+
+            try {
+                switch (currentAction.type) {
+                    case 'conditional_branch':
+                    case 'wait_until_condition':
+                        const conditionResult = await checkConditions(
+                            invocation,
+                            currentAction.type === 'conditional_branch'
+                                ? currentAction
+                                : {
+                                      ...currentAction,
+                                      type: 'conditional_branch',
+                                      config: {
+                                          conditions: [currentAction.config.condition],
+                                          delay_duration: currentAction.config.max_wait_duration,
+                                      },
+                                  }
+                        )
+
+                        if (conditionResult.scheduledAt) {
+                            this.scheduleInvocation(result, conditionResult.scheduledAt)
+                            break
+                        } else if (conditionResult.nextAction) {
+                            this.goToNextAction(result, currentAction, conditionResult.nextAction, 'succeeded')
+                            break
+                        }
+
+                        // If we are not delaying or continuing then we go to the next action
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+                        break
+
+                    case 'delay':
+                        const scheduledAt = calculatedScheduledAt(
+                            currentAction.config.delay_duration,
+                            invocation.state.currentAction?.startedAtTimestamp
+                        )
+
+                        // Move to the next action regardless
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+
+                        if (scheduledAt) {
+                            // Schedule it if we have a delay
+                            this.scheduleInvocation(result, scheduledAt)
+                        }
+
+                        break
+
+                    case 'wait_until_time_window':
+                        const nextTime = getWaitUntilTime(currentAction)
+                        if (nextTime) {
+                            this.scheduleInvocation(result, nextTime)
+                        }
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+                        break
+
+                    case 'random_cohort_branch':
+                        const nextActionFromRandomCohort = getRandomCohort(invocation, currentAction)
+                        this.goToNextAction(result, currentAction, nextActionFromRandomCohort, 'succeeded')
+                        break
+
+                    case 'function':
+                        const functionResult = await this.executeHogFunction(invocation, currentAction)
+
+                        // Add all logs
+                        functionResult.logs.forEach((log) => {
+                            result.logs.push({
+                                level: log.level,
+                                timestamp: log.timestamp,
+                                message: `[Action:${currentAction.id}] ${log.message}`,
+                            })
+                        })
+
+                        if (!functionResult.finished) {
+                            // Set the state of the function result on the substate of the flow for the next execution
+                            result.invocation.state.hogFunctionState = functionResult.invocation.state
+                            // Also the queueParameters are required (NOTE: we should really move this to the invocation state)
+                            result.invocation.queueParameters = functionResult.invocation.queueParameters
+                            this.scheduleInvocation(
+                                result,
+                                functionResult.invocation.queueScheduledAt ?? DateTime.now() // If not set then we schedule for now
+                            )
+                            break
+                        }
+
+                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
+
+                        break
+
+                    case 'exit':
+                        // Exit is the simplest case
+                        result.finished = true
+                        // Special case for exit - we just track a success metric
+                        this.trackActionMetric(result, currentAction, 'succeeded')
+                        break
+
+                    default:
+                        throw new Error(`Action type '${currentAction.type}' not supported`)
+                }
+            } catch (err) {
+                // Add logs and metric specifically for this action
+                this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
+                this.trackActionMetric(result, currentAction, 'failed')
+
+                throw err
+            }
+        } catch (err) {
+            // The final catch - in this case we are always just logging the final outcome
+            result.error = err.message
+            result.finished = true // Explicitly set to true to prevent infinite loops
+            logger.error(
+                '🦔',
+                `[HogFlowExecutor] Error executing hog flow ${invocation.hogFlow.id} - ${invocation.hogFlow.name}. Event: '${invocation.state.event?.url}'`,
+                err
+            )
+        }
+
+        return result
+    }
+
+    private goToNextAction(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        currentAction: HogFlowAction,
+        nextAction: HogFlowAction,
+        reason: 'filtered' | 'succeeded'
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
+        result.finished = false
+
+        result.invocation.state.actionStepCount++
+        // Update the state to be going to the next action
+        result.invocation.state.currentAction = {
+            id: nextAction.id,
+            startedAtTimestamp: DateTime.now().toMillis(),
+        }
+
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
+        })
+
+        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+
+        return result
+    }
+
+    /**
+     * Updates the scheduledAt field on the result to indicate that the invocation should be scheduled for the future
+     */
+    private scheduleInvocation(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        scheduledAt: DateTime
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
+        // If the result has scheduled for the future then we return that triggering a push back to the queue
+        result.invocation.queueScheduledAt = scheduledAt
+        result.finished = false
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+        })
+
+        return result
+    }
+
+    private trackActionMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        metricName: 'failed' | 'succeeded' | 'filtered'
+    ): void {
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.hogFlow.id,
+            instance_id: action.id,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
+        })
+    }
+
+    private logAction(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        level: LogEntryLevel,
+        message: string
+    ): void {
+        this.log(result, level, `[Action:${action.id}] ${message}`)
+    }
+
+    private log(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        level: LogEntryLevel,
+        message: string
+    ): void {
+        result.logs.push({
+            level,
+            timestamp: DateTime.now(),
+            message,
+        })
+    }
+
+    private async executeHogFunction(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'function' }>
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        // Executing a hog function involves a few steps
+        // 1. Finding the template to use
+        // 2. Building the globals
+        // 3. Executing the hog function
+        // 4. Returning the result
+
+        // TODO: Get the existing state from the invocation
+
+        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
+
+        if (!template) {
+            throw new Error(`Template '${action.config.template_id}' not found`)
+        }
+
+        const hogFunction: HogFunctionType = {
+            id: invocation.hogFlow.id, // We use the hog function flow ID
+            team_id: invocation.teamId,
+            name: `${invocation.hogFlow.name} - ${template.name}`,
+            enabled: true,
+            type: 'destination',
+            deleted: false,
+            hog: '<<TEMPLATE>>',
+            bytecode: template.bytecode,
+            is_addon_required: false,
+            created_at: '',
+            updated_at: '',
+        }
+
+        const teamId = invocation.hogFlow.team_id
+        const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
+
+        const globals: HogFunctionInvocationGlobals = {
+            source: {
+                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+                url: `${projectUrl}/functions/${hogFunction.id}`,
+            },
+            project: {
+                id: hogFunction.team_id,
+                name: '',
+                url: '',
+            },
+            event: invocation.state.event,
+            // TODO: Add person info
+        }
+
+        const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
+            ...invocation,
+            hogFunction,
+            state: invocation.state.hogFunctionState ?? {
+                globals: await buildGlobalsWithInputs(globals, action.config.inputs),
+                timings: [],
+                attempts: 0,
+            },
+        }
+
+        const result = await this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
+        return result
     }
 }
