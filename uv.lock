@@ -1698,6 +1698,15 @@ wheels = [
 ]
 
 [[package]]
+name = "emoji"
+version = "2.14.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/7d/01cddcbb6f5cc0ba72e00ddf9b1fa206c802d557fd0a20b18e130edf1336/emoji-2.14.1.tar.gz", hash = "sha256:f8c50043d79a2c1410ebfae833ae1868d5941a67a6cd4d18377e2eb0bd79346b", size = 597182, upload-time = "2025-01-16T06:31:24.983Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/db/a0335710caaa6d0aebdaa65ad4df789c15d89b7babd9a30277838a7d9aac/emoji-2.14.1-py3-none-any.whl", hash = "sha256:35a8a486c1460addb1499e3bf7929d3889b2e2841a57401903699fef595e942b", size = 590617, upload-time = "2025-01-16T06:31:23.526Z" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3835,6 +3844,7 @@ dependencies = [
     { name = "drf-extensions" },
     { name = "drf-spectacular" },
     { name = "elevenlabs" },
+    { name = "emoji" },
     { name = "geoip2" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
@@ -4050,6 +4060,7 @@ requires-dist = [
     { name = "drf-extensions", specifier = "==0.7.0" },
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "elevenlabs", specifier = ">=1.58.1" },
+    { name = "emoji", specifier = "==2.14.1" },
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },

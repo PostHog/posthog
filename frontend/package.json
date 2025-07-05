@@ -139,6 +139,7 @@
         "dayjs": "1.11.11",
         "dompurify": "^3.0.6",
         "elkjs": "^0.10.0",
+        "emoji-regex": "^10.4.0",
         "eventsource-parser": "^3.0.0",
         "expr-eval": "^2.0.2",
         "fast-deep-equal": "^3.1.3",

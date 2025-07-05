@@ -49,6 +49,7 @@ dependencies = [
     "drf-exceptions-hog==0.4.0",
     "drf-extensions==0.7.0",
     "drf-spectacular==0.27.2",
+    "emoji==2.14.1",
     "geoip2==4.6.0",
     "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",

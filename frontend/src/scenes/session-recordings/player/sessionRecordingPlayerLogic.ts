@@ -30,7 +30,7 @@ import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ExportedSessionType } from 'scenes/session-recordings/file-playback/types'
-import { playerCommentModel } from 'scenes/session-recordings/player/playerCommentModel'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
@@ -49,8 +49,8 @@ import {
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
-import { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
+import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
+import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'

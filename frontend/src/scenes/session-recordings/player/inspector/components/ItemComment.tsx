@@ -10,8 +10,8 @@ import {
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { playerCommentModel } from 'scenes/session-recordings/player/playerCommentModel'
-import { RecordingAnnotationForm } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogic'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment
@@ -96,7 +96,6 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                             // so this shouldn't swallow the click
                             const annotationEditPayload: RecordingAnnotationForm = {
                                 annotationId: item.data.id,
-                                scope: item.data.scope,
                                 content: item.data.content ?? '',
                                 dateForTimestamp: item.data.date_marker,
                                 recordingId: item.data.recording_id ?? null,
