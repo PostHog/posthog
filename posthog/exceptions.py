@@ -1,5 +1,6 @@
 from typing import Any, Optional, TypedDict
 
+import re
 import structlog
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -61,6 +62,41 @@ class QuerySizeExceeded(APIException):
 
 class ExceptionContext(TypedDict):
     request: HttpRequest
+
+
+class ExperimentError(APIException):
+    """Base class for all experiment-related errors that should be exposed to users"""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "experiment_error"
+
+    def __init__(self, detail=None):
+        # If detail is a JSON string (from experiment validation), clean it up
+        if isinstance(detail, str) and detail.startswith("[ErrorDetail"):
+            # Extract just the JSON part: "[ErrorDetail(string='{...}', code='no-results')]"
+            # is there a better way to do this?
+            json_match = re.search(r"\{[^}]+\}", detail)
+            if json_match:
+                detail = json_match.group(0)
+        super().__init__(detail=detail)
+
+
+class ExperimentValidationError(ExperimentError):
+    """Specific validation errors for experiment configuration and data"""
+
+    default_code = "experiment_validation_error"
+
+
+class ExperimentDataError(ExperimentError):
+    """Errors related to missing or invalid experiment data"""
+
+    default_code = "experiment_data_error"
+
+
+class ExperimentCalculationError(ExperimentError):
+    """Errors during experiment statistics calculations"""
+
+    default_code = "experiment_calculation_error"
 
 
 def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:

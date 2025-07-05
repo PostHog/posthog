@@ -3,10 +3,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
-from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.exceptions import ExperimentCalculationError, ExperimentDataError, ExperimentValidationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -94,9 +94,13 @@ class ExperimentQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
 
         if not self.query.experiment_id:
-            raise ValidationError("experiment_id is required")
+            raise ExperimentValidationError("experiment_id is required")
 
-        self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        try:
+            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
+        except Experiment.DoesNotExist:
+            raise ExperimentDataError(f"Experiment with id {self.query.experiment_id} does not exist")
+
         self.feature_flag = self.experiment.feature_flag
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
@@ -581,14 +585,17 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
-        response = execute_hogql_query(
-            query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=180),
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="ExperimentQuery",
+                query=self._get_experiment_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=create_default_modifiers_for_team(self.team),
+                settings=HogQLGlobalSettings(max_execution_time=180),
+            )
+        except Exception as e:
+            raise ExperimentCalculationError(f"Failed to execute experiment query: {str(e)}") from e
 
         # Remove the $multiple variant only when using exclude handling
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
@@ -612,11 +619,14 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
 
-            return get_bayesian_experiment_result_new_format(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
-            )
+            try:
+                return get_bayesian_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+            except Exception as e:
+                raise ExperimentCalculationError(f"Failed to calculate Bayesian experiment results: {str(e)}") from e
 
         elif self.stats_method == "frequentist":
             frequentist_variants = get_new_variant_results(sorted_results)
@@ -625,11 +635,14 @@ class ExperimentQueryRunner(QueryRunner):
 
             control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
 
-            return get_frequentist_experiment_result_new_format(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
-            )
+            try:
+                return get_frequentist_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+            except Exception as e:
+                raise ExperimentCalculationError(f"Failed to calculate frequentist experiment results: {str(e)}") from e
 
         # Legacy stats methods
         else:
@@ -731,7 +744,7 @@ class ExperimentQueryRunner(QueryRunner):
         }
 
         if not variants:
-            raise ValidationError(code="no-results", detail=json.dumps(errors))
+            raise ExperimentValidationError(detail=json.dumps(errors))
 
         errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
 
@@ -743,7 +756,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         has_errors = any(errors.values())
         if has_errors:
-            raise ValidationError(detail=json.dumps(errors))
+            raise ExperimentValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.metric.kind} to query")
