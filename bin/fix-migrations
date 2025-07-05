@@ -1,0 +1,32 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_SCRIPT="$SCRIPT_DIR/fix-migration-conflicts.py"
+
+ACTION="preview"
+APP=""
+
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        "preview"|"fix")
+            ACTION="$1"
+            ;;
+        *)
+            echo "Usage: $0 [preview|fix] [app_name]"
+            exit 1
+            ;;
+    esac
+fi
+
+if [[ $# -gt 1 ]]; then
+    APP="$2"
+fi
+
+CMD="python \"$PYTHON_SCRIPT\" --$ACTION"
+if [[ -n "$APP" ]]; then
+    CMD="$CMD --app $APP"
+fi
+
+eval $CMD 
