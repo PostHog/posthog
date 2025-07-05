@@ -49,6 +49,36 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertRaises(ValueError, msg="Either team_id or team must be provided"):
             create_hogql_database()
 
+    def test_create_hogql_database_skip_dw_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test_source",
+            connection_id="test_connection",
+            destination_id="test_destination",
+            team=self.team,
+            status=ExternalDataSource.Status.RUNNING,
+            source_type="Stripe",
+        )
+        DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team_id=self.team.pk,
+            url_pattern="https://example.com/data.parquet",
+            external_data_source=source,
+        )
+
+        db_with_dw_tables = create_hogql_database(team=self.team, skip_dw_tables=False)
+        warehouse_tables_with_dw = db_with_dw_tables.get_warehouse_tables()
+
+        db_without_dw_tables = create_hogql_database(team=self.team, skip_dw_tables=True)
+        warehouse_tables_without_dw = db_without_dw_tables.get_warehouse_tables()
+
+        assert len(warehouse_tables_without_dw) == 0
+        assert len(warehouse_tables_with_dw) == 1
+
+        posthog_tables_with_dw = db_with_dw_tables.get_posthog_tables()
+        posthog_tables_without_dw = db_without_dw_tables.get_posthog_tables()
+        assert posthog_tables_with_dw == posthog_tables_without_dw
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
