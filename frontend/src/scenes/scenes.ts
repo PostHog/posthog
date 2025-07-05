@@ -278,6 +278,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
+    [Scene.PublicSurvey]: {
+        allowUnauthenticated: true,
+        layout: 'plain',
+        name: 'Public Survey',
+    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
@@ -643,6 +648,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    '/surveys/public/:id': [Scene.PublicSurvey, 'publicSurvey'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
