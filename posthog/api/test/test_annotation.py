@@ -537,12 +537,12 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         [
             ("Standard emoji", "😊", True, None),
             ("Another emoji", "🚀", True, None),
-            ("Single letter", "a", True, None),
-            ("Single digit", "1", True, None),
-            ("Single symbol", "!", True, None),
+            ("Single letter", "a", False, "When is_emoji is True, content must be a single emoji"),
+            ("Single digit", "1", False, "When is_emoji is True, content must be a single emoji"),
+            ("Single symbol", "!", False, "When is_emoji is True, content must be a single emoji"),
             ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
-            ("Multiple characters", "ab", False, "When is_emoji is True, content must be a single character"),
-            ("Multiple emojis", "😊😊", False, "When is_emoji is True, content must be a single character"),
+            ("Multiple characters", "ab", False, "When is_emoji is True, content must be a single emoji"),
+            ("Multiple emojis", "😊😊", False, "When is_emoji is True, content must be a single emoji"),
             ("No content", None, False, "When is_emoji is True, content cannot be empty"),
         ]
     )
@@ -572,9 +572,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("Valid emoji", "🚀", True, None),
-            ("Invalid for emoji", "multiple chars", False, "When is_emoji is True, content must be a single character"),
+            ("Invalid for emoji", "multiple chars", False, "When is_emoji is True, content must be a single emoji"),
             ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
-            ("Single symbol", "!", True, None),
+            ("Single symbol", "!", False, "When is_emoji is True, content must be a single emoji"),
         ]
     )
     def test_update_annotation_emoji_validation(

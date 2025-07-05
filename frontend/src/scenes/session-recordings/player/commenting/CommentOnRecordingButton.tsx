@@ -20,13 +20,13 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
         <div className="flex flex-row items-center">
             {quickEmojis.map((emoji) => (
                 <LemonButton
+                    key={emoji}
                     onClick={() => {
                         addEmojiComment(emoji)
                         onSelectEmoji?.()
                     }}
                     data-attr="emoji-quick-comment-button"
                 >
-                    {' '}
                     {emoji}
                 </LemonButton>
             ))}

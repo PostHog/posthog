@@ -50,12 +50,12 @@ export const getMaskingConfigFromLevel = (level: SessionRecordingMaskingLevel): 
     return { maskTextSelector: undefined, maskAllInputs: true, blockSelector: undefined }
 }
 
+const regex = emojiRegex()
 export function isSingleEmoji(s: string): boolean {
-    const graphemes = Array.from(new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s))
+    const graphemes = Array.from(new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(s))
     if (graphemes.length !== 1) {
         return false
     }
 
-    const regex = emojiRegex()
     return regex.test(graphemes[0].segment)
 }
