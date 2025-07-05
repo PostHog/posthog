@@ -13,6 +13,7 @@ import IconLinear from 'public/services/linear.png'
 import IconGitHub from 'public/services/github.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
+import IconMetaAds from 'public/services/meta-ads.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -36,6 +37,7 @@ const ICONS: Record<IntegrationKind, any> = {
     email: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
+    'meta-ads': IconMetaAds,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
