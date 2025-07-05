@@ -17,7 +17,7 @@ from posthog.auth import (
 )
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
-from posthog.utils_cors import cors_response
+from posthog.utils_cors import cors_response_allow_all
 
 
 class WebExperimentsAPISerializer(serializers.ModelSerializer):
@@ -209,9 +209,9 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 def web_experiments(request: Request):
     token = get_token(None, request)
     if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
+        return cors_response_allow_all(request, HttpResponse(""))
     if not token:
-        return cors_response(
+        return cors_response_allow_all(
             request,
             generate_exception_response(
                 "experiments",
@@ -225,7 +225,7 @@ def web_experiments(request: Request):
     if request.method == "GET":
         team = Team.objects.get_team_from_cache_or_token(token)
         if team is None:
-            return cors_response(
+            return cors_response_allow_all(
                 request,
                 generate_exception_response(
                     "experiments",
@@ -246,4 +246,4 @@ def web_experiments(request: Request):
             many=True,
         ).data
 
-        return cors_response(request, JsonResponse({"experiments": result}))
+        return cors_response_allow_all(request, JsonResponse({"experiments": result}))
