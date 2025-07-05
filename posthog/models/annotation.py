@@ -32,7 +32,7 @@ class Annotation(models.Model):
     recording_id = models.UUIDField(null=True, blank=True)
 
     # convenience so that we can load just emoji annotations, without checking the content
-    is_emoji = models.BooleanField(default=False)
+    is_emoji = models.BooleanField(default=False, null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
