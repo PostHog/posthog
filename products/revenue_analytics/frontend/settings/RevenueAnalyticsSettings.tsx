@@ -13,6 +13,7 @@ import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
+import { PersonsJoinModeConfiguration } from './PersonsJoinModeConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
@@ -92,6 +93,8 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
             <BaseCurrency />
             <FilterTestAccountsConfiguration />
+            {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] &&
+                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_PERSONS_JOIN_MODE] && <PersonsJoinModeConfiguration />}
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
 

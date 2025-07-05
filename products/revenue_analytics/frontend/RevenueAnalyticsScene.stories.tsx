@@ -26,7 +26,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_PERSONS_JOIN_MODE],
         testOptions: {
             waitForLoadersToDisappear: true,
         },
