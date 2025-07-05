@@ -8,15 +8,36 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { IconComment } from 'lib/lemon-ui/icons'
 
-export function CommentOnRecordingButton(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
+export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
-        isCommenting,
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { addEmojiComment } = useActions(theBuiltOverlayLogic)
+
+    return (
+        <div className="flex flex-row items-center">
+            {quickEmojis.map((emoji) => (
+                <LemonButton
+                    onClick={() => {
+                        addEmojiComment(emoji)
+                        onSelectEmoji?.()
+                    }}
+                    data-attr="emoji-quick-comment-button"
+                >
+                    {' '}
+                    {emoji}
+                </LemonButton>
+            ))}
+        </div>
+    )
+}
+
+export function CommentOnRecordingButton(): JSX.Element {
+    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
+    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+
     return (
         <LemonButton
             size="xsmall"
@@ -38,13 +59,7 @@ export function CommentOnRecordingButton(): JSX.Element {
             sideAction={{
                 dropdown: {
                     placement: 'bottom-end',
-                    overlay: (
-                        <div className="flex flex-row items-center">
-                            {quickEmojis.map((emoji) => (
-                                <LemonButton onClick={() => addEmojiComment(emoji)}> {emoji}</LemonButton>
-                            ))}
-                        </div>
-                    ),
+                    overlay: <EmojiCommentRow />,
                 },
                 'data-attr': 'emoji-comment-dropdown',
             }}

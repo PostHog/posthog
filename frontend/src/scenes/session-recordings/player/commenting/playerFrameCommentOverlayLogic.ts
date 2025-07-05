@@ -24,7 +24,6 @@ export interface RecordingAnnotationForm {
     // the date that the timeInRecording represents
     dateForTimestamp?: Dayjs | null
     content: string
-    scope: AnnotationScope
     recordingId: string | null
     annotationId: AnnotationType['id'] | null
 }
@@ -75,7 +74,6 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     listeners(({ actions, props, values }) => ({
         editAnnotation: ({ annotation }) => {
             actions.setRecordingAnnotationValue('content', annotation.content)
-            actions.setRecordingAnnotationValue('scope', annotation.scope)
             actions.setRecordingAnnotationValue('recordingId', annotation.recordingId)
             actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
@@ -107,20 +105,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 recordingId: null,
                 annotationId: null,
             } as RecordingAnnotationForm,
-            errors: ({ content, scope }) => ({
+            errors: ({ content }) => ({
                 content: !content?.trim()
                     ? 'An annotation must have text content.'
                     : content.length > 400
                     ? 'Must be 400 characters or less'
                     : null,
-                scope: !scope
-                    ? 'Scope is required.'
-                    : [AnnotationScope.Recording, AnnotationScope.Project, AnnotationScope.Organization].includes(scope)
-                    ? null
-                    : 'Invalid scope.',
             }),
             submit: async (data) => {
-                const { annotationId, content, scope, dateForTimestamp } = data
+                const { annotationId, content, dateForTimestamp } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -129,8 +122,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 const apiPayload = {
                     date_marker: dateForTimestamp.toISOString(),
                     content,
-                    scope,
-                    recording_id: scope === AnnotationScope.Recording ? props.recordingId : null,
+                    scope: AnnotationScope.Recording,
+                    recording_id: props.recordingId,
                 }
 
                 if (annotationId) {
