@@ -216,9 +216,12 @@ class EventsQueryRunner(QueryRunner):
                     events_query.order_by = order_by
                     return events_query
 
+                # Choose table based on useRecentEventsTable flag
+                table_name = "recent_events" if self.query.useRecentEventsTable else "events"
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -237,7 +240,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
+                        f"SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM {table_name}"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where

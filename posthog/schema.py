@@ -11947,6 +11947,10 @@ class EventsQuery(BaseModel):
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
     tags: Optional[QueryLogTags] = None
+    useRecentEventsTable: Optional[bool] = Field(
+        default=None,
+        description="Use recent_events table (last 7 days) for better performance when querying recent data",
+    )
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
