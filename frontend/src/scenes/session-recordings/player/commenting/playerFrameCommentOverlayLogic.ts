@@ -9,7 +9,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.

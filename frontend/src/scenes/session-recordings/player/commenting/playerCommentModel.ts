@@ -1,5 +1,5 @@
 import { actions, kea, path } from 'kea'
-import { RecordingAnnotationForm } from 'scenes/session-recordings/player/playerFrameCommentOverlayLogic'
+import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 
 import type { playerCommentModelType } from './playerCommentModelType'
 

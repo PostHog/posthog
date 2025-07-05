@@ -14,6 +14,7 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -83,7 +84,9 @@ function CinemaMode(): JSX.Element {
 
 function CommentOnRecordingButton(): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+    const { isCommenting,sessionPlayerData: { sessionRecordingId },
+        logicProps,  } = useValues(sessionRecordingPlayerLogic)
+const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
 
     return (
         <LemonButton
@@ -103,6 +106,20 @@ function CommentOnRecordingButton(): JSX.Element {
             data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
             active={isCommenting}
             icon={<IconComment className="text-xl" />}
+            sideAction={
+            {
+                dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <div className="flex flex-row items-center">
+                                                    {['💖', '🤔', '🌶️', '👍'].map((emoji) => (<LemonButton
+                                            >    {emoji}</LemonButton>))}
+                                                </div>
+                                            ),
+                                        },
+                                        'data-attr': 'emoji-comment-dropdown',
+            }
+            }
         >
             Comment
         </LemonButton>
