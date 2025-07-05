@@ -19,9 +19,10 @@ from posthog.temporal.batch_exports.http_batch_export import (
 )
 from posthog.temporal.batch_exports.monitoring import (
     BatchExportMonitoringWorkflow,
-    check_for_missing_batch_export_runs,
+    fetch_exported_event_counts,
     get_batch_export,
-    get_event_counts,
+    get_clickhouse_event_counts,
+    reconcile_event_counts,
     update_batch_export_runs,
 )
 from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
@@ -73,9 +74,10 @@ ACTIVITIES = [
     noop_activity,
     update_batch_export_backfill_model_status,
     get_batch_export,
-    get_event_counts,
+    get_clickhouse_event_counts,
     update_batch_export_runs,
-    check_for_missing_batch_export_runs,
+    fetch_exported_event_counts,
+    reconcile_event_counts,
     insert_into_s3_stage_activity,
     insert_into_s3_activity_from_stage,
 ]
