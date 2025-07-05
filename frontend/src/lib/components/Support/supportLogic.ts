@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import api from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -376,6 +377,7 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
+        ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
@@ -698,6 +700,9 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+
+                actions.ensureZendeskOrganization()
+
                 // Only close and reset the form on success
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
@@ -724,6 +729,22 @@ export const supportLogic = kea<supportLogicType>([
             // Only update URL params for non-text fields to prevent focus loss during typing
             if (name !== 'message' && name !== 'name' && name !== 'email') {
                 actions.updateUrlParams()
+            }
+        },
+
+        ensureZendeskOrganization: async () => {
+            try {
+                const currentOrganization = organizationLogic.values.currentOrganization
+                if (!currentOrganization?.id || !currentOrganization?.name) {
+                    return
+                }
+
+                await api.create('/api/support/ensure-zendesk-organization', {
+                    organization_id: currentOrganization.id,
+                    organization_name: currentOrganization.name,
+                })
+            } catch {
+                // Silent failure
             }
         },
     })),
