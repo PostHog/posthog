@@ -13,7 +13,9 @@ use tracing::{debug, error, info};
 use crate::{
     config::KafkaConfig,
     kafka_consumer::Offset,
-    kafka_producer::{send_keyed_iter_to_kafka, KafkaProduceError},
+    kafka_producer::{
+        send_keyed_iter_to_kafka, send_keyed_iter_to_kafka_with_headers, KafkaProduceError,
+    },
 };
 
 // TODO - it's kinda gross to leak the underlying producer context type here, makes for a really gross API. We should
@@ -132,6 +134,26 @@ where
 // TODO - most of these are blocking, and we should wrap them in spawn_blocking and expose
 // a purely async interface
 impl<'a, C: ClientContext> KafkaTransaction<'a, C> {
+    pub async fn send_keyed_iter_to_kafka_with_headers<D>(
+        &self,
+        topic: &str,
+        key_extractor: impl Fn(&D) -> Option<String>,
+        headers: Option<Vec<(String, String)>>,
+        iter: impl IntoIterator<Item = D>,
+    ) -> Vec<Result<(), KafkaProduceError>>
+    where
+        D: Serialize,
+    {
+        send_keyed_iter_to_kafka_with_headers(
+            &self.producer.inner,
+            topic,
+            key_extractor,
+            headers,
+            iter,
+        )
+        .await
+    }
+
     pub async fn send_keyed_iter_to_kafka<D>(
         &self,
         topic: &str,
@@ -194,7 +216,7 @@ fn to_topic_partition_list(offsets: Vec<Offset>) -> Result<TopicPartitionList, K
     let topic_map = topic_map
         .into_iter()
         // Docs say: "The offsets should be the next message your application will consume,
-        // i.e., one greater than the the last processed message’s offset for each partition."
+        // i.e., one greater than the the last processed message's offset for each partition."
         // Link: https://docs.rs/rdkafka/latest/rdkafka/producer/trait.Producer.html#tymethod.send_offsets_to_transaction.
         // Since this is only used for associating offsets with a transaction, we know that each
         // offset should be the next message to be consumed, i.e. the high watermark + 1.
