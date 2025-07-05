@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import {
+    playerCommentOverlayLogic,
+    quickEmojis,
+} from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { IconComment } from 'lib/lemon-ui/icons'
@@ -37,7 +40,7 @@ export function CommentOnRecordingButton(): JSX.Element {
                     placement: 'bottom-end',
                     overlay: (
                         <div className="flex flex-row items-center">
-                            {['💖', '🤔', '🌶️', '👍'].map((emoji) => (
+                            {quickEmojis.map((emoji) => (
                                 <LemonButton onClick={() => addEmojiComment(emoji)}> {emoji}</LemonButton>
                             ))}
                         </div>

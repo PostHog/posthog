@@ -13,6 +13,8 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '.
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
+export const quickEmojis = ['💖', '🤔', '🌶️', '👍']
+
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
     // this is a string because we want to be able to display the time in the recording
