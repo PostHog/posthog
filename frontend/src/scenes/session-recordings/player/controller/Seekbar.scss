@@ -152,6 +152,7 @@
 
         .PlayerSeekbarTick__emoji {
             position: absolute;
+            bottom: 5px;
             width: var(--emoji-width);
             height: 100%;
             margin-left: calc(var(--emoji-width) / 2 * -1);
