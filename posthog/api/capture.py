@@ -5,6 +5,8 @@ from random import random
 
 import structlog
 import time
+from requests import Response, Session
+from requests.adapters import HTTPAdapter, Retry
 from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
@@ -41,6 +43,11 @@ from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.settings.ingestion import (
+    NEW_CAPTURE_RUST_BASE_URL,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
+)
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -62,7 +69,6 @@ LOG_RATE_LIMITER = Limiter(
     capacity=1,
     storage=MemoryStorage(),
 )
-
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -610,23 +616,45 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                 continue
 
             try:
-                futures.append(
-                    capture_internal(
-                        event,
-                        distinct_id,
-                        ip,
-                        site_url,
-                        now,
-                        sent_at,
-                        event_uuid,
-                        token,
-                        historical=historical,
-                    )
+                resp = capture_internal(
+                    event,
+                    distinct_id,
+                    ip,
+                    site_url,
+                    now,
+                    sent_at,
+                    event_uuid,
+                    token,
+                    historical,
                 )
+
+                # if this is a *legacy capture_internal response* then it's a
+                # a Kafka produce future. new_capture_internal sends synchronous
+                # POST requests to capture-rs so we can check it right now
+                if isinstance(resp, Response):
+                    if resp.status_code > 399:
+                        capture_exception(
+                            CaptureInternalError(f"response status: {resp.status_code}"),
+                            {"capture-pathway": "capture-rs", "ph-team-token": token},
+                        )
+                        return cors_response(
+                            request,
+                            generate_exception_response(
+                                "capture",
+                                "Unable to store event",
+                                code="capture_error",
+                                type="capture_error",
+                                status_code=resp.status_code,
+                            ),
+                        )
+                else:
+                    futures.append(resp)
+
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
-                logger.exception("kafka_produce_failure", exc_info=exc)
+                logger.exception("capture_submit_failure", exc_info=exc)
+
                 return cors_response(
                     request,
                     generate_exception_response(
@@ -695,14 +723,36 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                             sent_at,
                             event_uuid,
                             token,
+                            False,  # historical
                         )
-                        capture_kwargs = {
-                            "extra_headers": [
-                                ("lib_version", lib_version),
-                            ],
+
+                        extra_headers: list[tuple[str, str]] = [
+                            ("lib_version", lib_version),
+                        ]
+                        capture_kwargs: dict[str, Any] = {
+                            "extra_headers": extra_headers,
+                            "to_capture_rs": False,
                         }
-                        this_future = capture_internal(*capture_args, **capture_kwargs)
-                        replay_futures.append((this_future, capture_args, capture_kwargs))
+
+                        resp = capture_internal(*capture_args, **capture_kwargs)
+                        if isinstance(resp, Response):
+                            if resp.status_code > 399:
+                                capture_exception(
+                                    CaptureInternalError(f"response status: {resp.status_code}"),
+                                    {"capture-pathway": "capture-replay-rs", "ph-team-token": token},
+                                )
+                                return cors_response(
+                                    request,
+                                    generate_exception_response(
+                                        "capture",
+                                        "Unable to store event",
+                                        code="capture_error",
+                                        type="capture_error",
+                                        status_code=resp.status_code,
+                                    ),
+                                )
+                        else:
+                            replay_futures.append((resp, capture_args, capture_kwargs))
 
                     start_time = time.monotonic()
                     for future, args, kwargs in replay_futures:
@@ -718,7 +768,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                                     warning_future = capture_internal(warning_event, *args[1:], **kwargs)
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
-    except ValueError as e:
+    except (ValueError, CaptureInternalError) as e:
         capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
@@ -921,6 +971,98 @@ def parse_event(event):
     return event
 
 
+class CaptureInternalError(Exception):
+    pass
+
+
+# TODO: replace raw_event input with structured inputs after transition off old capture_internal
+def new_capture_internal(
+    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
+) -> Response:
+    """
+    new_capture_internal submits a single-event capture request payload to
+    PostHog (capture-rs backend) rather than pushing directly to Kafka and
+    bypassing downstream checks
+    """
+    logger.debug(
+        "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
+    )
+
+    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
+    # determine if this is a recordings or events type, route to correct capture endpoint
+    resolved_capture_path = NEW_ANALYTICS_CAPTURE_ENDPOINT
+    if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
+        resolved_capture_path = REPLAY_CAPTURE_ENDPOINT
+
+    with Session() as s:
+        s.mount(
+            NEW_CAPTURE_RUST_BASE_URL,
+            HTTPAdapter(
+                max_retries=Retry(
+                    total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
+                )
+            ),
+        )
+
+        return s.post(
+            f"{NEW_CAPTURE_RUST_BASE_URL}{resolved_capture_path}",
+            json=event_payload,
+            timeout=2,
+        )
+
+
+# prep payload for new_capture_internal to POST to capture-rs
+def prepare_capture_internal_payload(
+    token: Optional[str],
+    distinct_id: Optional[str],
+    raw_event: dict[str, Any],
+    process_person_profile: bool = False,
+) -> dict[str, Any]:
+    # mark event as internal for observability
+    properties = raw_event.get("properties", {})
+    properties["capture_internal"] = True
+
+    # for back compat, if the caller specifies TRUE to process_person_profile
+    # we don't change the event contents at all; either the caller set the
+    # event prop to force the issue, or we rely on the caller's default PostHog
+    # person processing settings to decide during ingest processing.
+    # If the caller (or default) set process_person_profile to FALSE, we *do*
+    # force the issue to ensure internal capture events don't engage in expensive
+    # person processing without explicitly opting into it.
+    if not process_person_profile:
+        properties["$process_person_profile"] = process_person_profile
+
+    # ensure args passed into capture_internal that
+    # override event attributes are well formed
+    if token is None:
+        token = raw_event.get("api_key", raw_event.get("token", None))
+    if token is None:
+        raise CaptureInternalError("capture_internal: API token is required")
+
+    if distinct_id is None:
+        distinct_id = raw_event.get("distinct_id", None)
+    if distinct_id is None:
+        distinct_id = properties.get("distinct_id", None)
+    if distinct_id is None:
+        raise CaptureInternalError("capture_internal: distinct ID is required")
+
+    event_name = raw_event.get("event", None)
+    if event_name is None:
+        raise CaptureInternalError("capture_internal: event name is required")
+
+    event_timestamp = raw_event.get("timestamp", None)
+    if event_timestamp is None:
+        event_timestamp = datetime.now(UTC).isoformat()
+
+    return {
+        "api_key": token,
+        "timestamp": event_timestamp,
+        "distinct_id": distinct_id,
+        "event": event_name,
+        "properties": properties,
+    }
+
+
 def capture_internal(
     event,
     distinct_id,
@@ -931,8 +1073,17 @@ def capture_internal(
     event_uuid=None,
     token=None,
     historical=False,
+    *_args,  # clearly partition positional vs. keyword args for callers
     extra_headers: list[tuple[str, str]] | None = None,
+    to_capture_rs: bool = False,
 ):
+    # respect old capture_internal API/behavior during the transition to
+    # new capture_internal. If applied, default person processing to disabled
+    # unless explicitly enabled (for now, in event props for parity w/old)
+    if to_capture_rs:
+        process_person_profile = bool(event.get("properties", {}).get("$process_person_profile", False))
+        return new_capture_internal(token, distinct_id, event, process_person_profile)
+
     if event_uuid is None:
         event_uuid = UUIDT()
 

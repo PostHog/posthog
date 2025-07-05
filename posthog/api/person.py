@@ -561,7 +561,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sent_at=None,
             event={
                 "event": "$delete_person_property",
-                "properties": {"$unset": [request.data["$unset"]]},
+                "properties": {
+                    "$unset": [request.data["$unset"]],
+                },
                 "distinct_id": person.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },
@@ -664,7 +666,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": properties},
+                "properties": {
+                    "$set": properties,
+                },
                 "distinct_id": instance.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },
