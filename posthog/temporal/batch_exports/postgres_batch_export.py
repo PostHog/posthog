@@ -10,6 +10,7 @@ import typing
 
 import psycopg
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from psycopg import sql
 from temporalio import activity, workflow
@@ -55,7 +56,7 @@ from posthog.temporal.batch_exports.utils import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import bind_contextvars, get_external_logger
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
@@ -68,6 +69,8 @@ UNPAIRED_SURROGATE_PATTERN = re.compile(
 UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
     rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
 )
+
+LOGGER = structlog.get_logger()
 
 
 class PostgreSQLConnectionError(Exception):
@@ -562,10 +565,12 @@ class PostgreSQLConsumer(Consumer):
         is_last: bool,
         error: Exception | None,
     ):
-        await self.logger.adebug(
-            "Copying %s records of size %s bytes",
+        self.external_logger.info(
+            "Copying %d records of size %d bytes to PostgreSQL table '%s.%s'",
             records_since_last_flush,
             bytes_since_last_flush,
+            self.postgresql_table,
+            self.postgresql_table_schema,
         )
 
         await self.postgresql_client.copy_tsv_to_postgres(
@@ -575,7 +580,12 @@ class PostgreSQLConsumer(Consumer):
             self.postgresql_table_fields,
         )
 
-        await self.logger.ainfo("Copied %s to PostgreSQL table '%s'", records_since_last_flush, self.postgresql_table)
+        self.external_logger.info(
+            "Copied %d records to PostgreSQL table '%s.%s'",
+            records_since_last_flush,
+            self.postgresql_table_schema,
+            self.postgresql_table,
+        )
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
@@ -586,8 +596,15 @@ class PostgreSQLConsumer(Consumer):
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Postgres."""
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
-    await logger.ainfo(
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="PostgreSQL",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+    )
+    external_logger = get_external_logger()
+
+    external_logger.info(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -598,7 +615,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
 
     async with (
         Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, PostgreSQLHeartbeatDetails)
         if details is None:
@@ -636,6 +653,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
+            external_logger.info(
+                "Batch export finished as there is no data in range %s - %s matching specified filters",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
+            )
+
             return details.records_completed
 
         record_batch_schema = pa.schema(
@@ -707,7 +730,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
                 table_fields = [field for field in table_fields if field[0] in columns]
             except psycopg.errors.InsufficientPrivilege:
-                await logger.awarning(
+                external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
                     "will assume all columns are present. If this results in an error, please grant SELECT "
                     "permissions on this table or ensure the destination table is using the latest schema "
@@ -771,6 +794,13 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                             merge_key=merge_key,
                             update_key=update_key,
                         )
+
+                external_logger.info(
+                    "Batch export for range %s - %s finished with %d records exported",
+                    inputs.data_interval_start or "START",
+                    inputs.data_interval_end or "END",
+                    details.records_completed,
+                )
 
                 return details.records_completed
 

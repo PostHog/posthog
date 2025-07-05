@@ -14,6 +14,7 @@ import structlog
 import temporalio.activity
 import temporalio.testing
 from django.conf import settings
+from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import (
@@ -142,9 +143,12 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    configure_logger_async(
-        extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
-    )
+    with override_settings(TEST=False, DEBUG=False):
+        # We override settings as otherwise we'll get console logs which
+        # are not JSON
+        configure_logger_async(
+            extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
+        )
 
     yield
 

@@ -11,7 +11,6 @@ from posthog.temporal.batch_exports.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -66,9 +65,7 @@ async def test_batch_export_run_is_set_to_running(ateam, s3_batch_export):
         status=BatchExportRun.Status.STARTING,
     )
 
-    logger = await bind_temporal_worker_logger(team_id=ateam.pk, destination="S3")
-
-    async with set_status_to_running_task(run_id=str(run.id), logger=logger) as task:
+    async with set_status_to_running_task(run_id=str(run.id)) as task:
         assert task is not None
 
         await asyncio.wait([task])

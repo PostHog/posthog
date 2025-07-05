@@ -14,7 +14,7 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
 
 T = typing.TypeVar("T")
-logger = structlog.get_logger()
+LOGGER = structlog.get_logger()
 
 
 def peek_first_and_rewind(
@@ -80,9 +80,7 @@ async def apeek_first_and_rewind(
 
 
 @contextlib.asynccontextmanager
-async def set_status_to_running_task(
-    run_id: str | None, logger
-) -> collections.abc.AsyncGenerator[asyncio.Task | None, None]:
+async def set_status_to_running_task(run_id: str | None) -> collections.abc.AsyncGenerator[asyncio.Task | None, None]:
     """Manage a background task to set a batch export run status to 'RUNNING'.
 
     This is intended to be used within a batch export's 'insert_*' activity. These activities cannot afford
@@ -104,7 +102,7 @@ async def set_status_to_running_task(
 
     def done_callback(task):
         if task.exception() is not None:
-            logger.warn(
+            LOGGER.warning(
                 "Unexpected error trying to set batch export to 'RUNNING' status. Run will continue but displayed status may not be accurate until run finishes",
                 exc_info=task.exception(),
             )
@@ -165,7 +163,7 @@ class JsonScalar(pa.ExtensionScalar):
             try:
                 return orjson.loads(json_bytes)
             except orjson.JSONDecodeError:
-                logger.exception("Failed to decode with orjson: %s", value)
+                LOGGER.exception("Failed to decode with orjson: %s", value)
                 raise
 
         else:
