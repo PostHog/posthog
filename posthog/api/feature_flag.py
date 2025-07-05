@@ -3,6 +3,7 @@ import re
 import time
 import logging
 from typing import Any, Optional, cast
+from posthog.date_util import thirty_days_ago
 from datetime import datetime
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
@@ -714,7 +715,31 @@ class FeatureFlagViewSet(
 
         for key in filters:
             if key == "active":
-                queryset = queryset.filter(active=filters[key] == "true")
+                if filters[key] == "STALE":
+                    # Get flags that are at least 30 days old and active
+                    # This is an approximation - the serializer will compute the exact status
+                    queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        where=[
+                            """
+                            (
+                                (
+                                    filters->'groups'->0->>'rollout_percentage' = '100'
+                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
+                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                )
+                                OR
+                                (
+                                    jsonb_array_length(filters->'multivariate'->'variants') = 1
+                                    AND filters->'multivariate'->'variants'->0->>'rollout_percentage' = '100'
+                                    AND filters->'groups'->0->>'rollout_percentage' = '100'
+                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
+                                )
+                            )
+                            """
+                        ]
+                    )
+                else:
+                    queryset = queryset.filter(active=filters[key] == "true")
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
@@ -787,7 +812,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["true", "false"],
+                enum=["true", "false", "STALE"],
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -820,7 +845,6 @@ class FeatureFlagViewSet(
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
 
-        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         for feature_flag in feature_flags_data:
             if feature_flag.get("has_encrypted_payloads", False):
                 feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
