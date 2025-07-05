@@ -88,8 +88,8 @@ export class PersonPropertyService {
         // Check if we have any changes to make
         const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
         if (!hasChanges) {
-            applyEventPropertyUpdates(propertyUpdates, person.properties)
-            return [person, Promise.resolve()]
+            const [updatedPerson, _] = applyEventPropertyUpdates(propertyUpdates, person)
+            return [updatedPerson, Promise.resolve()]
         }
 
         const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(

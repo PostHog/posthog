@@ -1,5 +1,8 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
+import { cloneObject } from '~/utils/utils'
+
+import { InternalPerson } from '../../../types'
 import { eventToPersonProperties, initialEventToPersonProperties } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { personPropertyKeyUpdateCounter } from './metrics'
@@ -80,37 +83,43 @@ export function computeEventPropertyUpdates(event: PluginEvent, personProperties
 
 /**
  * @param propertyUpdates The computed property updates to apply
- * @param personProperties Properties of the person to be updated, these are updated in place.
- * @returns true if the properties were changed, false if they were not
+ * @param person The person to apply updates to - a new person object is returned with updated properties
+ * @returns [updatedPerson, wasUpdated] - new person object and boolean indicating if changes were made
  */
-export function applyEventPropertyUpdates(propertyUpdates: PropertyUpdates, personProperties: Properties): boolean {
+export function applyEventPropertyUpdates(
+    propertyUpdates: PropertyUpdates,
+    person: InternalPerson
+): [InternalPerson, boolean] {
     let updated = false
     const metricsKeys = new Set<string>()
 
+    // Create a copy of the person with copied properties
+    const updatedPerson = cloneObject(person)
+
     // Apply properties to set
     Object.entries(propertyUpdates.toSet).forEach(([key, value]) => {
-        if (personProperties[key] !== value) {
+        if (updatedPerson.properties[key] !== value) {
             updated = true
         }
         metricsKeys.add(getMetricKey(key))
-        personProperties[key] = value
+        updatedPerson.properties[key] = value
     })
 
     // Apply properties to unset
     propertyUpdates.toUnset.forEach((propertyKey) => {
-        if (propertyKey in personProperties) {
+        if (propertyKey in updatedPerson.properties) {
             if (typeof propertyKey !== 'string') {
                 logger.warn('🔔', 'unset_property_key_not_string', { propertyKey, toUnset: propertyUpdates.toUnset })
                 return
             }
             updated = true
             metricsKeys.add(getMetricKey(propertyKey))
-            delete personProperties[propertyKey]
+            delete updatedPerson.properties[propertyKey]
         }
     })
 
     metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-    return updated
+    return [updatedPerson, updated]
 }
 
 // Minimize useless person updates by not overriding properties if it's not a person event and we added from the event
