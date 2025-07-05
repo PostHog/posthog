@@ -54,6 +54,7 @@ export function processCohort(cohort: CohortType): CohortType {
                         ? {
                               ...group,
                               values: (group.values as AnyCohortCriteriaType[]).map((c) => processCohortCriteria(c)),
+                              sort_key: uuidv4(),
                           }
                         : group
                 ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
