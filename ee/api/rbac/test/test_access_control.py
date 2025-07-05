@@ -29,7 +29,7 @@ class BaseAccessControlTest(APILicensedTest):
             payload.update(data)
 
         return self.client.put(
-            "/api/projects/@current/access_controls",
+            "/api/projects/@current/access_controls/update",
             payload,
         )
 
@@ -39,7 +39,7 @@ class BaseAccessControlTest(APILicensedTest):
             payload.update(data)
 
         return self.client.put(
-            "/api/projects/@current/global_access_controls",
+            "/api/projects/@current/global_access_controls/update",
             payload,
         )
 
@@ -122,7 +122,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         )
 
     def _get_access_controls(self):
-        return self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls")
+        return self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}/access_controls/get")
 
     def _put_access_control(self, data=None, notebook_id=None):
         payload = {
@@ -132,7 +132,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         if data:
             payload.update(data)
         return self.client.put(
-            f"/api/projects/@current/notebooks/{notebook_id or self.notebook.short_id}/access_controls",
+            f"/api/projects/@current/notebooks/{notebook_id or self.notebook.short_id}/access_controls/update",
             payload,
         )
 
@@ -254,7 +254,7 @@ class TestAccessControlPermissions(BaseAccessControlTest):
         if data:
             payload.update(data)
         return self.client.put(
-            f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
+            f"/api/projects/@current/notebooks/{notebook_id}/access_controls/update",
             payload,
         )
 
@@ -470,7 +470,7 @@ class TestAccessControlFiltering(BaseAccessControlTest):
         if data:
             payload.update(data)
         return self.client.put(
-            f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
+            f"/api/projects/@current/notebooks/{notebook_id}/access_controls/update",
             payload,
         )
 
@@ -550,7 +550,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         if data:
             payload.update(data)
         res = self.client.put(
-            f"/api/projects/{team_id}/access_controls",
+            f"/api/projects/{team_id}/access_controls/update",
             payload,
         )
 

@@ -48,14 +48,14 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             {
                 loadResourceAccessControls: async () => {
                     const response = await api.get<AccessControlResponseType>(
-                        'api/projects/@current/global_access_controls'
+                        'api/projects/@current/global_access_controls/get'
                     )
                     return response
                 },
 
                 updateResourceAccessControls: async ({ accessControls }) => {
                     for (const control of accessControls) {
-                        await api.put<AccessControlTypeRole>('api/projects/@current/global_access_controls', {
+                        await api.put<AccessControlTypeRole>('api/projects/@current/global_access_controls/update', {
                             ...control,
                         })
                     }
