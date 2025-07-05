@@ -163,8 +163,11 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
+                        // Data warehouse is not supported for funnel metrics - enforced at schema level
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                            (type) => type !== 'data_warehouse'
+                        )}
+                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 )}
             </div>
@@ -191,11 +194,7 @@ export function ExperimentMetricForm({
                     Preview
                 </LemonLabel>
             </div>
-            {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {query && isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                <Query query={query} readOnly />
-            )}
-            {query && isExperimentFunnelMetric(metric) && <Query query={query} readOnly />}
+            {query && <Query query={query} readOnly />}
         </div>
     )
 }
