@@ -105,4 +105,42 @@ describe('dateFilterLogic', () => {
         })
         expect(onChange).not.toHaveBeenCalled()
     })
+
+    it('shows both relative date_from and absolute date_to when mixed', async () => {
+        props = {
+            key: 'test-mixed',
+            onChange,
+            dateFrom: '-30d',
+            dateTo: '2023-06-16T23:59:59',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const mixedDateLogic = dateFilterLogic(props)
+        mixedDateLogic.mount()
+
+        await expectLogic(mixedDateLogic).toMatchValues({
+            dateFrom: '-30d',
+            dateTo: '2023-06-16T23:59:59',
+            label: 'Last 30 days until June 16, 2023 23:59:59',
+        })
+    })
+
+    it('shows both relative date_from and absolute date_to without time', async () => {
+        props = {
+            key: 'test-mixed-no-time',
+            onChange,
+            dateFrom: '-7d',
+            dateTo: '2023-06-16',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const mixedDateLogic = dateFilterLogic(props)
+        mixedDateLogic.mount()
+
+        await expectLogic(mixedDateLogic).toMatchValues({
+            dateFrom: '-7d',
+            dateTo: '2023-06-16',
+            label: 'Last 7 days until June 16, 2023',
+        })
+    })
 })
