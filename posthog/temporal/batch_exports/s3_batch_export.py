@@ -33,13 +33,19 @@ from posthog.batch_exports.service import (
     S3BatchExportInputs,
 )
 from posthog.temporal.batch_exports.batch_exports import (
+    BatchExportResult,
     FinishBatchExportRunInputs,
     RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    execute_batch_export_insert_activity_using_stage,
     get_data_interval,
     start_batch_export_run,
+)
+from posthog.temporal.batch_exports.consumer import (
+    ConsumerFromStage,
+    run_consumer_from_stage,
 )
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
@@ -48,18 +54,13 @@ from posthog.temporal.batch_exports.heartbeat import (
     should_resume_from_activity_heartbeat,
 )
 from posthog.temporal.batch_exports.metrics import ExecutionTimeRecorder
-from posthog.temporal.batch_exports.pre_export_stage import (
-    ProducerFromInternalS3Stage,
-    execute_batch_export_insert_activity_using_s3_stage,
-)
+from posthog.temporal.batch_exports.pre_export_stage import ProducerFromInternalS3Stage
 from posthog.temporal.batch_exports.spmc import (
     Consumer,
-    ConsumerFromStage,
     Producer,
     RecordBatchQueue,
     resolve_batch_exports_model,
     run_consumer,
-    run_consumer_from_stage,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
@@ -916,12 +917,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         # rolling out pre-export stage to select teams for now
         is_sessions_model = inputs.batch_export_model and inputs.batch_export_model.name == "sessions"
         if not is_sessions_model and str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
-            await execute_batch_export_insert_activity_using_s3_stage(
+            await execute_batch_export_insert_activity_using_stage(
                 insert_into_s3_activity_from_stage,
                 insert_inputs,
                 interval=inputs.interval,
                 non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
-                finish_inputs=finish_inputs,
             )
             return
 
@@ -935,7 +935,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
 
 @activity.defn
-async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsCompleted:
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
     This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
@@ -993,7 +993,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        records_completed = await run_consumer_from_stage(
+        records_completed, bytes_exported = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
@@ -1005,14 +1005,14 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
 
-        return records_completed
+        return BatchExportResult(records_completed=records_completed, bytes_exported=bytes_exported)
 
 
 class ConcurrentS3Consumer(ConsumerFromStage):
     """A consumer that uploads chunks of data to S3 concurrently.
 
-    It uses a memory buffer to store the data and upload it in parts. It uses 2 semaphores to limit the number of
-    concurrent uploads and the memory buffer.
+    It uses a memory buffer to store the data and upload it in parts. It uses a semaphore to limit the number of
+    concurrent uploads.
     """
 
     def __init__(
