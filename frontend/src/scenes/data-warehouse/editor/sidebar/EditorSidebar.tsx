@@ -14,6 +14,7 @@ import { editorSidebarLogic, EditorSidebarTab } from './editorSidebarLogic'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
+import { multitabEditorLogic } from '../multitabEditorLogic'
 
 export const EditorSidebar = ({
     sidebarRef,
@@ -29,6 +30,7 @@ export const EditorSidebar = ({
 
     const { activeTab, variablesForInsight } = useValues(editorSidebarLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
+    const { editingView } = useValues(multitabEditorLogic)
 
     useEffect(() => {
         setSidebarWidth(sidebarWidth)
@@ -49,7 +51,7 @@ export const EditorSidebar = ({
             {
                 key: EditorSidebarTab.QueryVariables,
                 label: (
-                    <Tooltip title="Query variables">
+                    <Tooltip title={editingView ? 'Variables are not allowed in views.' : 'Query variables'}>
                         <div className="flex justify-center px-2 relative">
                             <IconBrackets className="text-xl" />
                             {variablesForInsight.length > 0 && (
@@ -60,6 +62,7 @@ export const EditorSidebar = ({
                         </div>
                     </Tooltip>
                 ),
+                disabled: editingView,
             },
             {
                 key: EditorSidebarTab.QueryInfo,
@@ -72,7 +75,7 @@ export const EditorSidebar = ({
                 ),
             },
         ],
-        [variablesForInsight.length]
+        [variablesForInsight.length, editingView]
     )
 
     // Render the corresponding component based on active tab
@@ -81,7 +84,9 @@ export const EditorSidebar = ({
             case EditorSidebarTab.QueryDatabase:
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
             case EditorSidebarTab.QueryVariables:
-                return (
+                return editingView ? (
+                    <div className="px-4 py-2 text-secondary">Variables are not allowed in views.</div>
+                ) : (
                     <div className="px-4 py-2">
                         <QueryVariables />
                     </div>
@@ -111,7 +116,9 @@ export const EditorSidebar = ({
                     activeKey={activeTab}
                     onChange={(key) => {
                         posthog.capture('sql-editor-side-tab-change', { tab: key, oldTab: activeTab })
-                        setActiveTab(key)
+                        if (!tabs.find((t) => t.key === key && t.disabled)) {
+                            setActiveTab(key)
+                        }
                     }}
                     tabs={tabs}
                     size="small"

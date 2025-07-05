@@ -314,35 +314,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         />
                     </>
                 )}
-                <div>
-                    <h3>Columns</h3>
-                    <p className="text-xs">Columns that are available in the materialized view.</p>
-                </div>
-                <LemonTable
-                    size="small"
-                    columns={[
-                        {
-                            key: 'name',
-                            title: 'Name',
-                            render: (_, column) => column.name,
-                        },
-                        {
-                            key: 'type',
-                            title: 'Type',
-                            render: (_, column) => column.type,
-                        },
-                        {
-                            key: 'schema_valid',
-                            title: 'Schema Valid',
-                            render: (_, column) => (
-                                <LemonTag type={column.schema_valid ? 'success' : 'danger'}>
-                                    {column.schema_valid ? 'Yes' : 'No'}
-                                </LemonTag>
-                            ),
-                        },
-                    ]}
-                    dataSource={savedQuery?.columns || []}
-                />
                 {!isLineageDependencyViewEnabled && (
                     <>
                         <div>
@@ -413,8 +384,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
-                            <h3>Upstream Dependencies</h3>
-                            <p className="text-xs">Tables and views that this query depends on.</p>
+                            <h3>Tables we use</h3>
+                            <p className="text-xs">Tables and views that this query relies on.</p>
                         </div>
                         <LemonTable
                             size="small"
