@@ -186,7 +186,7 @@ where
         config.historical_rerouting_threshold_days,
         config.historical_tokens_keys,
         config.is_mirror_deploy,
-        config.base64_detect_percent,
+        config.verbose_sample_percent,
     );
 
     // run our app with hyper

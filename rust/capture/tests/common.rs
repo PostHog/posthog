@@ -45,7 +45,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     historical_tokens_keys: None,
     is_mirror_deploy: false,
     log_level: Level::INFO,
-    base64_detect_percent: 0.0_f32,
+    verbose_sample_percent: 0.0_f32,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
