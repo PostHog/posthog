@@ -360,6 +360,15 @@ Revise your analysis if any inconsistencies are found.
 
 <output_format>
 Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
 </output_format>
 
 <output_example>

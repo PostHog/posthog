@@ -1,13 +1,14 @@
 from collections.abc import Callable, Generator
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 from ee.session_recordings.session_summary.summarize_session import SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.tests.conftest import *
-from posthog.temporal.ai.session_summary.shared import SingleSessionSummaryInputs
 from unittest.mock import MagicMock
 import pytest
 from typing import Any
 from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
-from posthog.temporal.ai.session_summary.shared import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
 
 @pytest.fixture
@@ -17,15 +18,12 @@ def mock_single_session_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for single-session-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_id: str, redis_input_key: str = "test_input_key", redis_output_key: str = "test_output_key"
-    ) -> SingleSessionSummaryInputs:
+    def _create_inputs(session_id: str, redis_key_base: str = "test_key_base") -> SingleSessionSummaryInputs:
         return SingleSessionSummaryInputs(
             session_id=session_id,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key=redis_input_key,
-            redis_output_key=redis_output_key,
+            redis_key_base=redis_key_base,
         )
 
     return _create_inputs
@@ -67,17 +65,68 @@ def mock_session_group_summary_inputs(
 ) -> Callable:
     """Factory to produce inputs for session-group-summary related workflows/activities"""
 
-    def _create_inputs(
-        session_ids: list[str], redis_input_key_base: str = "test_input_base"
-    ) -> SessionGroupSummaryInputs:
+    def _create_inputs(session_ids: list[str], redis_key_base: str = "test_input_base") -> SessionGroupSummaryInputs:
         return SessionGroupSummaryInputs(
             session_ids=session_ids,
             user_id=mock_user.id,
             team_id=mock_team.id,
-            redis_input_key_base=redis_input_key_base,
+            redis_key_base=redis_key_base,
         )
 
     return _create_inputs
+
+
+@pytest.fixture
+def mock_session_group_summary_of_summaries_inputs(
+    mock_user: MagicMock,
+) -> Callable:
+    """Factory to produce inputs for session-group-summary-of-summaries related activities"""
+
+    def _create_inputs(
+        single_session_summaries_inputs: list[SingleSessionSummaryInputs],
+        redis_key_base: str = "test_input_base",
+    ) -> SessionGroupSummaryOfSummariesInputs:
+        return SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=single_session_summaries_inputs,
+            user_id=mock_user.id,
+            redis_key_base=redis_key_base,
+        )
+
+    return _create_inputs
+
+
+@pytest.fixture
+def mock_patterns_extraction_yaml_response() -> str:
+    """Mock YAML response for pattern extraction"""
+    return """patterns:
+  - pattern_id: 1
+    pattern_name: "Mock Pattern"
+    pattern_description: "A test pattern"
+    severity: "critical"
+    indicators: ["test indicator"]
+  - pattern_id: 2
+    pattern_name: "Another Pattern"
+    pattern_description: "Another test pattern"
+    severity: "high"
+    indicators: ["another indicator"]
+  - pattern_id: 3
+    pattern_name: "One more pattern"
+    pattern_description: "One more pattern test pattern"
+    severity: "medium"
+    indicators: ["one more indicator"]
+"""
+
+
+@pytest.fixture
+def mock_patterns_assignment_yaml_response() -> str:
+    """Mock YAML response for pattern assignment"""
+    # No pattern 3 assignments and it should be ok, as not all patterns are required to have assigned events
+    return """patterns:
+  - pattern_id: 1
+    event_ids: ["abcd1234", "defg4567"]
+  - pattern_id: 2
+    event_ids: ["ghij7890", "mnop3456"]
+"""
 
 
 class RedisTestContext:
