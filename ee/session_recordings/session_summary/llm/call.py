@@ -65,7 +65,7 @@ def _prepare_messages(
         # Force LLM to start with the assistant text
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
-        raise ValueError(f"No messages to send to LLM for sessions {session_id}")
+        raise ValueError(f"No messages to send to LLM for sessions: {session_id}")
     return messages
 
 
