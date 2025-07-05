@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 
+import emoji
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -57,9 +58,9 @@ class AnnotationSerializer(serializers.ModelSerializer):
         content = attrs.get("content", "")
 
         if is_emoji and content:
-            # Check if content is a single character
-            if len(content) != 1:
-                raise serializers.ValidationError("When is_emoji is True, content must be a single character")
+            # Check if content is an emoji
+            if emoji.emoji_count(content) != 1:
+                raise serializers.ValidationError("When is_emoji is True, content must be a single emoji")
         elif is_emoji and not content:
             raise serializers.ValidationError("When is_emoji is True, content cannot be empty")
 

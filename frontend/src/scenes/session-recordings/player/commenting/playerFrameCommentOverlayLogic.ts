@@ -10,6 +10,8 @@ import { AnnotationScope, AnnotationType } from '~/types'
 
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
@@ -43,6 +45,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     })),
     actions({
         editAnnotation: (annotation: RecordingAnnotationForm) => ({ annotation }),
+        addEmojiComment: (emoji: string) => ({ emoji }),
     }),
     selectors({
         timestampUnits: [
@@ -67,7 +70,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingAnnotationValue('dateForTimestamp', dayjs(values.currentTimestamp))
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props, values }) => ({
         editAnnotation: ({ annotation }) => {
             actions.setRecordingAnnotationValue('content', annotation.content)
             actions.setRecordingAnnotationValue('scope', annotation.scope)
@@ -75,6 +78,21 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
+        },
+        addEmojiComment: async ({ emoji }) => {
+            if (!isSingleEmoji(emoji)) {
+                lemonToast.error(`Emoji comments must be emojis 🙈, this string was too long: "${emoji}"`)
+                return
+            }
+            const apiPayload = {
+                date_marker: dayjs(values.currentTimestamp).toISOString(),
+                content: emoji,
+                scope: AnnotationScope.Recording,
+                recording_id: props.recordingId,
+                is_emoji: true,
+            }
+            const createdAnnotation = await api.annotations.create(apiPayload)
+            actions.appendAnnotations([createdAnnotation])
         },
     })),
     forms(({ props, values, actions }) => ({

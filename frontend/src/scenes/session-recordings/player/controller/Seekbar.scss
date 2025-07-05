@@ -148,5 +148,13 @@
             border-radius: 2px;
             opacity: 0.5;
         }
+
+        .PlayerSeekbarTick__emoji {
+            position: absolute;
+            width: var(--tick-width);
+            height: 100%;
+            margin-left: calc(var(--tick-width) / 2 * -1);
+            opacity: 0.75;
+        }
     }
 }
