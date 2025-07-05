@@ -4,8 +4,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-
 import { QuestionInput } from './components/QuestionInput'
 import { FloatingInputActions } from './components/FloatingInputActions'
 import { HedgehogAvatar } from './components/HedgehogAvatar'
@@ -17,9 +15,6 @@ import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
 import './MaxFloatingInput.scss'
 import clsx from 'clsx'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
 
 interface MaxQuestionInputProps {
     placeholder?: string
@@ -149,24 +144,15 @@ function MaxFloatingInputContent(): JSX.Element {
 
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { scene, sceneConfig } = useValues(sceneLogic)
-    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState, showFloatingMax } =
+        useValues(maxGlobalLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || !featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG]) {
         return null
     }
 
-    // Hide floating Max IF:
-    if (
-        (scene === Scene.Max && !isFloatingMaxExpanded) || // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
-        (sidePanelOpen && selectedTab === SidePanelTab.Max) // The Max side panel is open
-    ) {
-        return null
-    }
-
-    if (sceneConfig?.layout === 'plain') {
+    if (!showFloatingMax) {
         return null
     }
 

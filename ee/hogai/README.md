@@ -110,3 +110,86 @@ If you've got any requests for Max, including around tools, let us know at #team
 - Allow users to both get things done from scratch, and refine what's already there
 
 For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide](https://cookbook.openai.com/examples/gpt4-1_prompting_guide). While somewhat GPT-4.1 specific, those principles largely apply to LLMs overall.
+
+## Support new query types
+
+Max can now read from frontend context multiple query types like trends, funnels, retention, and HogQL queries. To add support for new query types, you need to extend both the QueryExecutor and the Root node.
+
+NOTE: this won't extend query types generation. For that, talk to the Max AI team.
+
+### Adding a new query type
+
+1. **Update the query executor** (`@ee/hogai/graph/query_executor/`):
+
+   - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
+     ```python
+     SupportedQueryTypes = (
+         AssistantTrendsQuery
+         | TrendsQuery
+         | AssistantFunnelsQuery
+         | FunnelsQuery
+         | AssistantRetentionQuery
+         | RetentionQuery
+         | AssistantHogQLQuery
+         | HogQLQuery
+         | YourNewQuery           # Add your query type
+     )
+     ```
+
+   - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
+   - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+     ```python
+     elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
+         return YourNewResultsFormatter(query, response["results"]).format()
+     ```
+   - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
+   - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+     ```python
+     if isinstance(viz_message.answer, YourNewAssistantQuery):
+         return YOUR_NEW_EXAMPLE_PROMPT
+     ```
+
+2. **Update the root node** (`@ee/hogai/graph/root/`):
+
+   - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
+     ```python
+     MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
+         "TrendsQuery": TrendsQuery,
+         "FunnelsQuery": FunnelsQuery,
+         "RetentionQuery": RetentionQuery,
+         "HogQLQuery": HogQLQuery,
+         "YourNewQuery": YourNewQuery,  # Add your query mapping
+     }
+     ```
+
+3. **Create the formatter class**:
+   
+   Create a new formatter in `format.py` following the pattern of existing formatters:
+   ```python
+   class YourNewResultsFormatter:
+       def __init__(self, query: YourNewQuery, results: dict, team: Optional[Team] = None, utc_now_datetime: Optional[datetime] = None):
+           self._query = query
+           self._results = results
+           self._team = team
+           self._utc_now_datetime = utc_now_datetime
+
+       def format(self) -> str:
+           # Format your query results for AI consumption
+           # Return a string representation optimized for LLM understanding
+           pass
+   ```
+
+4. **Add tests**:
+   - Add test cases in `test/test_query_executor.py` for your new query type
+   - Add test cases in `test/test_format.py` for your new formatter
+   - Ensure tests cover both successful execution and error handling
+
+### Key considerations
+
+- **Query execution**: The `AssistantQueryExecutor` class handles the complete query lifecycle including async polling and error handling
+- **Result formatting**: Each query type needs a specialized formatter that converts raw results into AI-readable format
+- **Error handling**: The system provides fallback to raw JSON if custom formatting fails
+- **Context awareness**: The root node provides UI context (dashboards, insights, events, actions) to help the AI understand the current state
+- **Memory integration**: The system can access core memory and onboarding state to provide contextual responses
+
+The query executor is designed to be extensible while maintaining robustness through comprehensive error handling and fallback mechanisms.

@@ -4,12 +4,15 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { routes } from 'scenes/scenes'
 import { IconCompass } from '@posthog/icons'
+import { Scene } from 'scenes/sceneTypes'
+import { SidePanelTab } from '~/types'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
@@ -45,7 +48,7 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization']],
+        values: [organizationLogic, ['currentOrganization'], sceneLogic, ['scene', 'sceneConfig']],
         actions: [router, ['locationChanged']],
     })),
     actions({
@@ -150,6 +153,22 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         },
     })),
     selectors({
+        showFloatingMax: [
+            (s) => [
+                s.scene,
+                s.sceneConfig,
+                s.isFloatingMaxExpanded,
+                sidePanelLogic.selectors.sidePanelOpen,
+                sidePanelLogic.selectors.selectedTab,
+            ],
+            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab) =>
+                sceneConfig &&
+                !sceneConfig.onlyUnauthenticated &&
+                sceneConfig.layout !== 'plain' &&
+                !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
+                !(sidePanelOpen && selectedTab === SidePanelTab.Max), // The Max side panel is open
+            // ,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
