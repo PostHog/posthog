@@ -59,7 +59,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
         if is_emoji and content:
             # Check if content is an emoji
-            if emoji.is_emoji(content) != 1:
+            if not emoji.is_emoji(content):
                 raise serializers.ValidationError("When is_emoji is True, content must be a single emoji")
         elif is_emoji and not content:
             raise serializers.ValidationError("When is_emoji is True, content cannot be empty")

@@ -17,7 +17,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     const { addEmojiComment } = useActions(theBuiltOverlayLogic)
 
     return (
-        <div className="flex flex-row items-center">
+        <div className="flex flex-row items-center justify-around">
             {quickEmojis.map((emoji) => (
                 <LemonButton
                     key={emoji}
