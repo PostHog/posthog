@@ -323,6 +323,9 @@ export function formatBreakdownLabel(
     }
 
     if (breakdownFilter?.breakdown_type === 'cohort') {
+        if (breakdown_value === 'all' || breakdown_value === 0) {
+            return 'All Users'
+        }
         if (cohorts == null || cohorts.length === 0) {
             if (itemLabel != null) {
                 return itemLabel
