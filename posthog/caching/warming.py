@@ -40,7 +40,7 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 WARM_INSIGHTS_CACHE_TASK_COUNTER = Counter(
     name="posthog_warm_insight_cache_task",
     documentation="tracks the warm_insight_cache_task task",
-    labelnames=["started", "swallowed_error", "error"],
+    labelnames=["started", "finished", "swallowed_error", "error"],
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
@@ -255,6 +255,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     },
                 )
 
+            WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("finished").inc()
         except CHQueryErrorTooManySimultaneousQueries:
             WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("swallowed_error").inc()
             raise
