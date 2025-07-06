@@ -13,6 +13,7 @@ import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
+import revenueAnalyticsCustomerCountQueryMock from './__mocks__/RevenueAnalyticsCustomerCountQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
 import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
@@ -27,7 +28,6 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
         testOptions: {
-            includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
         },
     },
@@ -51,6 +51,8 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
+                    } else if (queryKind === 'RevenueAnalyticsCustomerCountQuery') {
+                        return [200, revenueAnalyticsCustomerCountQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
                     } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
