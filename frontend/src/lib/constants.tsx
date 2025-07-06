@@ -285,6 +285,7 @@ export const FEATURE_FLAGS = {
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     REPLAY_BULK_DELETE_SELECTED_RECORDINGS: 'replay-bulk-delete-selected-recordings', // owner: @veryayskiy #team-replay
     NEW_SCENE_LAYOUT: 'new-scene-layout', // owner: @adamleithp #team-devex
+    EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
