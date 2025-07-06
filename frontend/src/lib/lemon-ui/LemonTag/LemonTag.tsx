@@ -111,7 +111,10 @@ export const LemonTag: React.FunctionComponent<
             {closable && !(closeOnClick && icon && onClose) && (
                 <LemonButton
                     icon={<IconX className="h-3.5 w-3.5" />}
-                    onClick={onClose}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose?.()
+                    }}
                     size="xsmall"
                     className="LemonTag__right-button"
                 />
