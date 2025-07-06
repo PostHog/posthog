@@ -835,27 +835,32 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
             if is_v2_enabled:
-                with timer("list_blocks__gather_session_recording_sources"):
-                    blocks = list_blocks(recording)
-
-                for i, block in enumerate(blocks):
-                    sources.append(
-                        {
-                            "source": "blob_v2",
-                            "start_timestamp": block.start_time,
-                            "end_timestamp": block.end_time,
-                            "blob_key": str(i),
-                        }
-                    )
-
-            with timer("list_objects__gather_session_recording_sources"):
-                if recording.object_storage_path:
-                    blob_prefix = recording.object_storage_path
+                if recording.full_recording_v2_path:
+                    blob_prefix = recording.full_recording_v2_path
                     blob_keys = object_storage.list_objects(cast(str, blob_prefix))
                     might_have_realtime = False
                 else:
-                    blob_prefix = recording.build_blob_ingestion_storage_path()
-                    blob_keys = object_storage.list_objects(blob_prefix)
+                    with timer("list_blocks__gather_session_recording_sources"):
+                        blocks = list_blocks(recording)
+
+                    for i, block in enumerate(blocks):
+                        sources.append(
+                            {
+                                "source": "blob_v2",
+                                "start_timestamp": block.start_time,
+                                "end_timestamp": block.end_time,
+                                "blob_key": str(i),
+                            }
+                        )
+            else:
+                with timer("list_objects__gather_session_recording_sources"):
+                    if recording.object_storage_path:
+                        blob_prefix = recording.object_storage_path
+                        blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                        might_have_realtime = False
+                    else:
+                        blob_prefix = recording.build_blob_ingestion_storage_path()
+                        blob_keys = object_storage.list_objects(blob_prefix)
 
             with timer("prepare_sources__gather_session_recording_sources"):
                 if blob_keys:
@@ -889,11 +894,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             "end_timestamp": None,
                         }
                     )
-                    # the UI will use this to try to load realtime snapshots
-                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                    # it takes a short while for the subscription to be sync'd into redis
-                    # let's use the network round trip time to get started
-                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+                    if not is_v2_enabled:
+                        # the UI will use this to try to load realtime snapshots
+                        # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                        # it takes a short while for the subscription to be sync'd into redis
+                        # let's use the network round trip time to get started
+                        publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+
                 response_data["sources"] = sources
 
             with timer("serialize_data__gather_session_recording_sources"):
