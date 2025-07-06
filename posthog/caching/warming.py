@@ -37,12 +37,6 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
     ["team_id", "dashboard", "is_cached"],
 )
 
-WARM_INSIGHTS_CACHE_TASK_COUNTER = Counter(
-    name="posthog_warm_insight_cache_task",
-    documentation="tracks the warm_insight_cache_task task",
-    labelnames=["started", "finished", "swallowed_error", "error"],
-)
-
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
 
@@ -202,8 +196,6 @@ def schedule_warming_for_teams_task():
     max_retries=3,
 )
 def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
-    WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("started").inc()
-
     try:
         insight = Insight.objects.get(pk=insight_id)
     except Insight.DoesNotExist:
@@ -255,10 +247,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     },
                 )
 
-            WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("finished").inc()
         except CHQueryErrorTooManySimultaneousQueries:
-            WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("swallowed_error").inc()
             raise
         except Exception as e:
-            WARM_INSIGHTS_CACHE_TASK_COUNTER.labels("error").inc()
-            capture_exception(e, {"$exception_fingerprint": f"warm_insight_cache_task_{e.__class__.__name__}"})
+            capture_exception(e)
