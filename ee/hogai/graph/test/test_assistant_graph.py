@@ -1,7 +1,8 @@
-from langgraph.graph import StateGraph
-from pydantic import Field
+from langchain_core.runnables import RunnableLambda
+from langgraph.checkpoint.memory import InMemorySaver
 
-from ee.hogai.utils.types import AssistantBaseState, AssistantNodeName
+from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.test.base import BaseTest
 
 
@@ -9,18 +10,19 @@ class TestAssistantGraph(BaseTest):
     async def test_pydantic_state_resets_with_none(self):
         """When a None field is set, it should be reset to None."""
 
-        class State(AssistantBaseState):
-            resettable_field: str | None = Field(default=None)
+        async def runnable(state: AssistantState) -> PartialAssistantState:
+            return PartialAssistantState(start_id=None)
 
-        def runnable(state: State) -> State:
-            return State(resettable_field=None)
-
-        graph = StateGraph(State)
+        graph = BaseAssistantGraph(self.team, self.user)
         compiled_graph = (
-            graph.add_node(AssistantNodeName.ROOT, runnable)
+            graph.add_node(AssistantNodeName.ROOT, RunnableLambda(runnable))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-            .compile(checkpointer=None)
+            .compile(checkpointer=InMemorySaver())
         )
-        state = await compiled_graph.ainvoke(State(resettable_field="test"))
-        self.assertEqual(state["resettable_field"], None)
+        state = await compiled_graph.ainvoke(
+            AssistantState(messages=[], graph_status="resumed", start_id=None),
+            {"configurable": {"thread_id": "test"}},
+        )
+        self.assertEqual(state["start_id"], None)
+        self.assertEqual(state["graph_status"], "resumed")
