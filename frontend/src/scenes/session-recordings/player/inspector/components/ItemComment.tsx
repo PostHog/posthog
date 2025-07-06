@@ -96,6 +96,7 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                             // so this shouldn't swallow the click
                             const annotationEditPayload: RecordingAnnotationForm = {
                                 annotationId: item.data.id,
+                                scope: item.data.scope,
                                 content: item.data.content ?? '',
                                 dateForTimestamp: item.data.date_marker,
                                 recordingId: item.data.recording_id ?? null,
