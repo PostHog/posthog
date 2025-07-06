@@ -26,6 +26,7 @@ export interface RecordingAnnotationForm {
     content: string
     recordingId: string | null
     annotationId: AnnotationType['id'] | null
+    scope: AnnotationType['scope'] | null
 }
 
 export interface PlayerCommentOverlayLogicProps extends SessionRecordingPlayerLogicProps {
@@ -75,6 +76,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
         editAnnotation: ({ annotation }) => {
             actions.setRecordingAnnotationValue('content', annotation.content)
             actions.setRecordingAnnotationValue('recordingId', annotation.recordingId)
+            // don't change the scope if it has one
+            actions.setRecordingAnnotationValue('scope', annotation.scope || AnnotationScope.Recording)
             actions.setRecordingAnnotationValue('annotationId', annotation.annotationId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
@@ -113,7 +116,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     : null,
             }),
             submit: async (data) => {
-                const { annotationId, content, dateForTimestamp } = data
+                const { annotationId, content, dateForTimestamp, scope } = data
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -122,7 +125,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 const apiPayload = {
                     date_marker: dateForTimestamp.toISOString(),
                     content,
-                    scope: AnnotationScope.Recording,
+                    scope: scope || AnnotationScope.Recording,
                     recording_id: props.recordingId,
                 }
 
