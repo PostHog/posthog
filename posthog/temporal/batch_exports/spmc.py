@@ -1182,6 +1182,7 @@ class ConsumerFromStage:
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.logger = LOGGER.bind()
+        self.external_logger = get_external_logger()
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
