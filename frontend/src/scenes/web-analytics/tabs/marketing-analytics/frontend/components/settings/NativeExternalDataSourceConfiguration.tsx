@@ -103,7 +103,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
 
     return (
         <div>
-            <h3 className="mb-2">Native Data Warehouse Sources Configuration</h3>
+            <h3 className="mb-2">Native data warehouse sources configuration</h3>
             <p className="mb-4">
                 Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the
                 required tables for each source to enable the functionality.
