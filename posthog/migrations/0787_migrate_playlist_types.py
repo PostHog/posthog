@@ -2,6 +2,9 @@ from django.db import migrations
 
 
 def migrate_playlist_types(apps, schema_editor):
+    # Bulk update every CHUNK_SIZE items
+    CHUNK_SIZE = 100
+
     SessionRecordingPlaylist = apps.get_model("posthog", "SessionRecordingPlaylist")
     SessionRecordingPlaylistItem = apps.get_model("posthog", "SessionRecordingPlaylistItem")
 
@@ -12,21 +15,39 @@ def migrate_playlist_types(apps, schema_editor):
         .distinct()
     )
 
-    # 2. Update playlists with items to COLLECTION type using chunking
+    # 2. Update playlists with items to COLLECTION type
     playlists_with_items = SessionRecordingPlaylist.objects.filter(
         id__in=playlist_ids_with_items, type__isnull=True, deleted=False
     )
 
-    for playlist in playlists_with_items.iterator(chunk_size=100):
+    chunk = []
+    for playlist in playlists_with_items.iterator(chunk_size=CHUNK_SIZE):
         playlist.type = "collection"
-        playlist.save(update_fields=["type"])
+        chunk.append(playlist)
 
-    # 3. Update remaining playlists with null type to FILTERS type using chunking
+        # Bulk update every CHUNK_SIZE items
+        if len(chunk) == CHUNK_SIZE:
+            SessionRecordingPlaylist.objects.bulk_update(chunk, ["type"])
+            chunk = []
+
+    if chunk:  # Handle remaining items if length is less than CHUNK_SIZE
+        SessionRecordingPlaylist.objects.bulk_update(chunk, ["type"])
+
+    # 3. Update remaining playlists with null type to FILTERS type
     remaining_playlists = SessionRecordingPlaylist.objects.filter(type__isnull=True, deleted=False)
 
-    for playlist in remaining_playlists.iterator(chunk_size=100):
+    chunk = []
+    for playlist in remaining_playlists.iterator(chunk_size=CHUNK_SIZE):
         playlist.type = "filters"
-        playlist.save(update_fields=["type"])
+        chunk.append(playlist)
+
+        # Bulk update every CHUNK_SIZE items
+        if len(chunk) == CHUNK_SIZE:
+            SessionRecordingPlaylist.objects.bulk_update(chunk, ["type"])
+            chunk = []
+
+    if chunk:  # Handle remaining items if length is less than CHUNK_SIZE
+        SessionRecordingPlaylist.objects.bulk_update(chunk, ["type"])
 
 
 class Migration(migrations.Migration):
