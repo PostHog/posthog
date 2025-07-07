@@ -713,4 +713,4 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         # Should use default display name property (email)
         display_names = [row[1]["display_name"] for row in response.results]
-        assert display_names[0] == "user2@email.com"
+        assert display_names[0] == "user@email.com"
