@@ -31,7 +31,7 @@ def migrate_playlist_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0785_team_drop_events_older_than_seconds"),
+        ("posthog", "0786_add_is_emoji_to_annotation"),
     ]
 
     operations = [
