@@ -5,7 +5,7 @@ from rest_framework import filters, serializers, viewsets, response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.ast import Field, Call
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import create_hogql_database, Database
 from posthog.hogql.parser import parse_expr
 from posthog.warehouse.models import DataWarehouseJoin
 
@@ -37,12 +37,16 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
         return view
 
-    def get_source_table_name(self, join: DataWarehouseJoin) -> str:
-        team_id = self.context["team_id"]
-
+    def _database(self, team_id: int) -> Database:
         database = self.context.get("database", None)
         if not database:
             database = create_hogql_database(team_id=team_id)
+        return database
+
+    def get_source_table_name(self, join: DataWarehouseJoin) -> str:
+        team_id = self.context["team_id"]
+
+        database = self._database(team_id)
 
         if not database.has_table(join.source_table_name):
             return join.source_table_name
@@ -54,9 +58,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
     def get_joining_table_name(self, join: DataWarehouseJoin) -> str:
         team_id = self.context["team_id"]
 
-        database = self.context.get("database", None)
-        if not database:
-            database = create_hogql_database(team_id=team_id)
+        database = self._database(team_id)
 
         if not database.has_table(join.joining_table_name):
             return join.joining_table_name
@@ -90,9 +92,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if "." in field_name:
             raise serializers.ValidationError("Field name must not contain a period: '.'")
 
-        database = self.context.get("database", None)
-        if not database:
-            database = create_hogql_database(team_id=team_id)
+        database = self._database(team_id)
 
         table = database.get_table(table_name)
         field = table.fields.get(field_name)
@@ -106,9 +106,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        database = self.context.get("database", None)
-        if not database:
-            database = create_hogql_database(team_id=team_id)
+        database = self._database(team_id)
 
         try:
             database.get_table(table)
