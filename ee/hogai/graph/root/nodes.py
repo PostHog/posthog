@@ -13,12 +13,13 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -40,7 +41,7 @@ from posthog.schema import (
     RetentionQuery,
     TrendsQuery,
 )
-from langgraph.errors import NodeInterrupt
+
 from ..base import AssistantNode
 from .prompts import (
     ROOT_DASHBOARD_CONTEXT_PROMPT,
@@ -353,7 +354,7 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, search_documentation, get_contextual_tool_class
+        from ee.hogai.tool import create_and_query_insight, get_contextual_tool_class, search_documentation
 
         available_tools: list[type[BaseModel]] = []
         if settings.INKEEP_API_KEY:
@@ -478,7 +479,7 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             # Reset tools.
@@ -512,7 +513,7 @@ class RootNodeTools(AssistantNode):
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(state)
-            result = tool_class.invoke(tool_call.model_dump(), config)
+            result = await tool_class.ainvoke(tool_call.model_dump(), config)
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
 
