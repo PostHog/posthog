@@ -626,7 +626,7 @@ class S3Consumer(Consumer):
             self.s3_upload = initialize_upload(self.s3_inputs, self.file_number)
 
         async with self.s3_upload as s3_upload:
-            self.external_logger.info(
+            self.logger.info(
                 "Uploading part %d for file number %d containing %d records with size %d bytes",
                 s3_upload.part_number + 1,
                 self.file_number,
@@ -1279,7 +1279,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        await self.logger.adebug("Starting new file: %s", self._get_current_key())
+        self.external_logger.adebug("Starting multipart upload for file number %s", self._get_current_key())
 
     async def _finalize_current_file(self):
         """Finalize the current file before starting a new one"""
@@ -1297,7 +1297,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 try:
                     await asyncio.gather(*self.pending_uploads.values())
                 except Exception:
-                    await self.logger.aexception("One or more upload parts failed")
+                    self.logger.exception("One or more upload parts failed")
                     raise
 
             # Complete multipart upload if needed
@@ -1305,8 +1305,8 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._complete_multipart_upload()
 
             self.files_uploaded.append(self._get_current_key())
-            await self.logger.ainfo(
-                "Completed multipart upload %s for file number %s", self.upload_id, self.current_file_index
+            self.external_logger.info(
+                "Completed multipart upload for file number %s", self.upload_id, self.current_file_index
             )
 
         except Exception:
@@ -1345,9 +1345,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             **optional_kwargs,  # type: ignore
         )
         self.upload_id = response["UploadId"]
-        await self.logger.ainfo(
-            "Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id
-        )
+        self.logger.ainfo("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
 
     async def finalize(self):
         """Finalize upload with proper cleanup"""
@@ -1376,9 +1374,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         # containing the list of files.  This is used to check if the export is complete.
         if self.s3_inputs.max_file_size_mb:
             manifest_key = get_manifest_key(self.s3_inputs)
-            await self.logger.ainfo("Uploading manifest file %s", manifest_key)
+            self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
-            await self.logger.ainfo("All uploads completed. Number of files uploaded = %s", len(self.files_uploaded))
+            self.external_logger.info("All uploads completed. Number of files uploaded = %d", len(self.files_uploaded))
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
