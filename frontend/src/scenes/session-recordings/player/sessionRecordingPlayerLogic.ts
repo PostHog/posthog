@@ -169,6 +169,41 @@ function isUserActivity(snapshot: eventWithTime): boolean {
     )
 }
 
+const updatePlayerTimeTracking = (
+    state: PlayerTimeTracking,
+    newState: PlayerTimeTracking['state']
+): PlayerTimeTracking => {
+    // if we were just playing then update watch time
+    const newWatchTime =
+        state.lastTimestamp !== null && state.state === 'playing'
+            ? state.watchTime + (performance.now() - state.lastTimestamp)
+            : state.watchTime
+
+    // if we were just buffering then update buffer time
+    const newBufferTime =
+        state.lastTimestamp !== null && state.state === 'buffering'
+            ? state.bufferTime + (performance.now() - state.lastTimestamp)
+            : state.bufferTime
+
+    const newLastTimestamp = ['paused', 'ended', 'errored'].includes(newState) ? null : performance.now()
+
+    return {
+        state: newState,
+        lastTimestamp: newLastTimestamp,
+        watchTime: newWatchTime,
+        bufferTime: newBufferTime,
+    }
+}
+const updatePlayerTimeTrackingIfChanged = (
+    state: PlayerTimeTracking,
+    newState: PlayerTimeTracking['state']
+): PlayerTimeTracking => {
+    if (state.state === newState) {
+        return state
+    }
+
+    return updatePlayerTimeTracking(state, newState)
+}
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -388,48 +423,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 updatePlayerTimeTracking: (state) => {
                     // called on a timer to avoid inactive watching from not capturing a clear time
-                    if (['playing', 'buffering'].includes(state.state)) {
-                        const theNow = performance.now()
-                        // if we are playing then update watchTime
-                        const newWatchTime =
-                            state.lastTimestamp !== null && state.state === 'playing'
-                                ? state.watchTime + (theNow - state.lastTimestamp)
-                                : state.watchTime
-                        // if we are buffering then update bufferTime
-                        const newBufferTime =
-                            state.lastTimestamp !== null && state.state === 'buffering'
-                                ? state.bufferTime + (theNow - state.lastTimestamp)
-                                : state.bufferTime
-
-                        return {
-                            ...state,
-                            lastTimestamp: theNow,
-                            watchTime: newWatchTime,
-                            bufferTime: newBufferTime,
-                        }
-                    }
-                    return state
+                    return ['playing', 'buffering'].includes(state.state)
+                        ? updatePlayerTimeTracking(state, state.state)
+                        : state
                 },
                 startBuffer: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
                         return state
                     }
                     const newState: PlayerTimeTracking['state'] = 'buffering'
-                    if (state.state === newState) {
-                        return state
-                    }
-
-                    // if we were just playing then update it
-                    const newWatchTime =
-                        state.lastTimestamp !== null && state.state === 'playing'
-                            ? state.watchTime + (performance.now() - state.lastTimestamp)
-                            : state.watchTime
-                    return {
-                        state: newState,
-                        lastTimestamp: performance.now(),
-                        watchTime: newWatchTime,
-                        bufferTime: state.bufferTime,
-                    }
+                    return updatePlayerTimeTrackingIfChanged(state, newState)
                 },
                 endBuffer: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -440,18 +443,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (state.state !== 'buffering') {
                         return state
                     }
-                    // we were just buffering so should have a timestamp and can increment that
-                    const newBufferTime =
-                        state.lastTimestamp !== null
-                            ? state.bufferTime + (performance.now() - state.lastTimestamp)
-                            : state.bufferTime
-                    return {
-                        state: state.state,
-                        lastTimestamp: performance.now(),
-                        // we know we were just buffering so we don't update watch time
-                        watchTime: state.watchTime,
-                        bufferTime: newBufferTime,
-                    }
+
+                    // don't change the state
+                    return updatePlayerTimeTracking(state, state.state)
                 },
                 setPlay: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -459,24 +453,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
 
                     const newState: PlayerTimeTracking['state'] = 'playing'
-                    if (state.state === newState) {
-                        return state
-                    }
-
-                    // we were just buffering so should have a timestamp and can increment that
-                    const newBufferTime =
-                        state.lastTimestamp !== null
-                            ? state.bufferTime + (performance.now() - state.lastTimestamp)
-                            : state.bufferTime
-
-                    return {
-                        state: newState,
-                        // if we are already playing then we carry the last timestamp over, otherwise we start from now
-                        lastTimestamp: performance.now(),
-                        // we started playing so just keep any watchtime accrued
-                        watchTime: state.watchTime,
-                        bufferTime: newBufferTime,
-                    }
+                    return updatePlayerTimeTrackingIfChanged(state, newState)
                 },
                 setPause: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -484,27 +461,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
 
                     const newState: PlayerTimeTracking['state'] = 'paused'
-                    if (state.state === newState) {
-                        return state
-                    }
-
-                    // if we were just playing then update watch time
-                    const newWatchTime =
-                        state.lastTimestamp !== null && state.state === 'playing'
-                            ? state.watchTime + (performance.now() - state.lastTimestamp)
-                            : state.watchTime
-                    // if we were just buffering then update buffer time
-                    const newBufferTime =
-                        state.lastTimestamp !== null && state.state === 'buffering'
-                            ? state.bufferTime + (performance.now() - state.lastTimestamp)
-                            : state.bufferTime
-
-                    return {
-                        state: newState,
-                        lastTimestamp: null,
-                        watchTime: newWatchTime,
-                        bufferTime: newBufferTime,
-                    }
+                    return updatePlayerTimeTrackingIfChanged(state, newState)
                 },
                 setEndReached: (state, { reached }) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -515,26 +472,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return state
                     }
                     const newState: PlayerTimeTracking['state'] = 'ended'
-                    if (state.state === newState) {
-                        return state
-                    }
-                    // if we were just playing then update watch time
-                    const newWatchTime =
-                        state.lastTimestamp !== null && state.state === 'playing'
-                            ? state.watchTime + (performance.now() - state.lastTimestamp)
-                            : state.watchTime
-                    // if we were just buffering then update buffer time
-                    const newBufferTime =
-                        state.lastTimestamp !== null && state.state === 'buffering'
-                            ? state.bufferTime + (performance.now() - state.lastTimestamp)
-                            : state.bufferTime
-
-                    return {
-                        state: newState,
-                        lastTimestamp: null,
-                        watchTime: newWatchTime,
-                        bufferTime: newBufferTime,
-                    }
+                    return updatePlayerTimeTrackingIfChanged(state, newState)
                 },
                 setPlayerError: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -542,23 +480,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
 
                     const newState: PlayerTimeTracking['state'] = 'errored'
-                    return {
-                        state: newState,
-                        lastTimestamp: null,
-                        watchTime:
-                            state.lastTimestamp !== null && state.state === 'playing'
-                                ? state.watchTime + (performance.now() - state.lastTimestamp)
-                                : state.watchTime,
-                        bufferTime:
-                            state.lastTimestamp !== null && state.state === 'buffering'
-                                ? state.bufferTime + (performance.now() - state.lastTimestamp)
-                                : state.bufferTime,
-                    }
+                    return updatePlayerTimeTrackingIfChanged(state, newState)
                 },
                 seekToTime: (state) => {
-                    return {
-                        ...state,
-                    }
+                    return state
                 },
             },
         ],
