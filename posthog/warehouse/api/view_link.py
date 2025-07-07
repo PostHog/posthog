@@ -39,7 +39,11 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
     def get_source_table_name(self, join: DataWarehouseJoin) -> str:
         team_id = self.context["team_id"]
-        database = create_hogql_database(team_id)
+
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
         if not database.has_table(join.source_table_name):
             return join.source_table_name
 
@@ -49,7 +53,10 @@ class ViewLinkSerializer(serializers.ModelSerializer):
 
     def get_joining_table_name(self, join: DataWarehouseJoin) -> str:
         team_id = self.context["team_id"]
-        database = create_hogql_database(team_id)
+
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
 
         if not database.has_table(join.joining_table_name):
             return join.joining_table_name
@@ -83,7 +90,10 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if "." in field_name:
             raise serializers.ValidationError("Field name must not contain a period: '.'")
 
-        database = create_hogql_database(team_id)
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
         table = database.get_table(table_name)
         field = table.fields.get(field_name)
         if field is not None:
@@ -96,7 +106,10 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if not table:
             raise serializers.ValidationError("View column must have a table.")
 
-        database = create_hogql_database(team_id)
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
         try:
             database.get_table(table)
         except Exception:
@@ -120,6 +133,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").order_by(self.ordering)
