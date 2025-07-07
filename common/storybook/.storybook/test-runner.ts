@@ -262,7 +262,6 @@ async function expectStoryToMatchComponentSnapshot(
         })
     })
 
-    // For full page screenshots, use page.screenshot() instead of locator.screenshot()
     await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,
     })
@@ -275,10 +274,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({
-        ...options,
-        fullPage: true, // This captures the full page including content below the viewport
-    })
+    const image = await locator.screenshot({ ...options })
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
