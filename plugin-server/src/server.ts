@@ -72,7 +72,7 @@ export class PluginServer {
         }
 
         this.expressApp = express()
-        this.expressApp.use(express.json())
+        this.expressApp.use(express.json({ limit: '200kb' }))
         this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
