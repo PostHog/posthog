@@ -15,9 +15,11 @@ from ee.session_recordings.session_summary.summarize_session import ExtraSummary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.models.team.team import Team
+from posthog.redis import get_client
 from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    generate_state_key,
     get_data_class_from_redis,
     get_redis_state_client,
     store_data_in_redis,
@@ -56,7 +58,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         )
     llm_input = cast(
         SingleSessionSummaryLlmInputs,
-        get_data_class_from_redis(
+        await get_data_class_from_redis(
             redis_client=redis_client,
             redis_key=redis_input_key,
             label=StateActivitiesEnum.SESSION_DB_DATA,
@@ -92,7 +94,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         last_summary_state = current_summary_state
         # Store the last summary state in Redis
         # The size of the output is limited to <20kb, so compressing is excessive
-        store_data_in_redis(
+        await store_data_in_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
             data=json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
@@ -185,11 +187,13 @@ def execute_summarize_session_stream(
     shared_id = session_id
     # Prepare the input data
     redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
-        key_base=redis_key_base,
-        input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        output_label=StateActivitiesEnum.SESSION_SUMMARY,
-        state_id=session_id,
+    # TODO: Write sync state client to use outside of asyncio
+    redis_client = get_client()
+    redis_input_key = generate_state_key(
+        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
+    )
+    redis_output_key = generate_state_key(
+        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_SUMMARY, state_id=session_id
     )
     if not redis_input_key or not redis_output_key:
         raise ApplicationError(

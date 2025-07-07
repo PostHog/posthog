@@ -20,7 +20,7 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     RawSessionGroupSummaryPatternsList,
 )
 from posthog.temporal.ai.session_summary.state import generate_state_key, store_data_in_redis
-from posthog.redis import get_client
+from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionGroupSummaryInputs,
     SummarizeSessionGroupWorkflow,
@@ -92,7 +92,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
     # Store initial input data
     assert redis_input_key
     assert redis_output_key
-    redis_test_setup.setup_input_data(
+    await redis_test_setup.setup_input_data(
         compressed_llm_input_data,
         redis_input_key,
         redis_output_key,
@@ -129,7 +129,7 @@ async def test_extract_session_group_patterns_activity_standalone(
     activity_inputs = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
 
     # Store session summaries in Redis for each session to be able to get them from inside the activity
-    redis_client = get_client()
+    redis_client = get_async_client()
     enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
     for single_session_input in single_session_inputs:
         session_summary_key = generate_state_key(
@@ -137,7 +137,7 @@ async def test_extract_session_group_patterns_activity_standalone(
             label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=single_session_input.session_id,
         )
-        store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        await store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
         redis_test_setup.keys_to_cleanup.append(session_summary_key)
 
     # Set up spies to track Redis operations
@@ -194,7 +194,7 @@ async def test_assign_events_to_patterns_activity_standalone(
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
     single_session_inputs = [mock_single_session_summary_inputs(session_id) for session_id in session_ids]
     activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs)
-    redis_client = get_client()
+    redis_client = get_async_client()
     enriched_summary_str = json.dumps(mock_enriched_llm_json_response)
 
     # Store session summaries in Redis for each session to be able to get them from inside the activity
@@ -204,7 +204,7 @@ async def test_assign_events_to_patterns_activity_standalone(
             label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=single_session_input.session_id,
         )
-        store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        await store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
         redis_test_setup.keys_to_cleanup.append(session_summary_key)
 
     # Store single session LLM inputs in Redis to be able to enrich assigned events
@@ -215,7 +215,7 @@ async def test_assign_events_to_patterns_activity_standalone(
             label=StateActivitiesEnum.SESSION_DB_DATA,
             state_id=single_session_input.session_id,
         )
-        store_data_in_redis(
+        await store_data_in_redis(
             redis_client=redis_client, redis_key=session_db_data_key, data=json.dumps(dataclasses.asdict(llm_input))
         )
         redis_test_setup.keys_to_cleanup.append(session_db_data_key)
@@ -229,7 +229,7 @@ async def test_assign_events_to_patterns_activity_standalone(
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=",".join(session_ids),
     )
-    store_data_in_redis(
+    await store_data_in_redis(
         redis_client=redis_client, redis_key=patterns_key, data=mock_patterns.model_dump_json(exclude_none=True)
     )
     redis_test_setup.keys_to_cleanup.append(patterns_key)

@@ -30,7 +30,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
     try:
         # Check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
         # TODO: Think about edge-cases like stale data for still-running sessions
-        get_data_class_from_redis(
+        await get_data_class_from_redis(
             redis_client=redis_client,
             redis_key=redis_input_key,
             label=StateActivitiesEnum.SESSION_DB_DATA,
@@ -60,6 +60,6 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         )
         # Store the input in Redis
         input_data_str = json.dumps(dataclasses.asdict(input_data))
-        store_data_in_redis(redis_client=redis_client, redis_key=redis_input_key, data=input_data_str)
+        await store_data_in_redis(redis_client=redis_client, redis_key=redis_input_key, data=input_data_str)
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None

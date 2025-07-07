@@ -118,10 +118,10 @@ class TestFetchSessionDataActivity:
             # Verify Redis operations
             assert spy_setex.call_count == 1  # Store compressed data
             # Verify the data was stored correctly
-            stored_data = redis_test_setup.redis_client.get(redis_input_key)
+            stored_data = await redis_test_setup.redis_client.get(redis_input_key)
             assert stored_data is not None
             # Verify we can decompress and parse the stored data
-            decompressed_data = get_data_class_from_redis(
+            decompressed_data = await get_data_class_from_redis(
                 redis_client=redis_test_setup.redis_client,
                 redis_key=redis_input_key,
                 label=StateActivitiesEnum.SESSION_DB_DATA,
@@ -192,7 +192,7 @@ class TestStreamLlmSummaryActivity:
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
         # Store initial input data
-        redis_test_setup.setup_input_data(
+        await redis_test_setup.setup_input_data(
             compressed_llm_input_data,
             redis_input_key,
             redis_output_key,
@@ -258,7 +258,7 @@ class TestSummarizeSingleSessionWorkflow:
                 ):
                     yield activity_environment, worker
 
-    def setup_workflow_test(
+    async def setup_workflow_test(
         self,
         mock_session_id: str,
         mock_single_session_summary_llm_inputs: Callable,
@@ -284,7 +284,7 @@ class TestSummarizeSingleSessionWorkflow:
         assert redis_input_key
         assert redis_output_key
         # Store input data in Redis
-        redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
+        await redis_test_setup.setup_input_data(compressed_llm_input_data, redis_input_key, redis_output_key)
         # Prepare expected final summary
         expected_final_summary = json.dumps(mock_enriched_llm_json_response)
         if session_id != mock_session_id:
@@ -407,7 +407,7 @@ class TestSummarizeSingleSessionWorkflow:
         # Set up spies to track Redis operations
         spy_get = mocker.spy(redis_test_setup.redis_client, "get")
         spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
-        _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+        _, workflow_id, workflow_input, expected_final_summary, _ = await self.setup_workflow_test(
             mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
@@ -453,7 +453,7 @@ class TestSummarizeSingleSessionWorkflow:
         redis_test_setup: RedisTestContext,
     ):
         """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
-        _, workflow_id, workflow_input, expected_final_summary, _ = self.setup_workflow_test(
+        _, workflow_id, workflow_input, expected_final_summary, _ = await self.setup_workflow_test(
             mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
@@ -511,7 +511,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
-        _, workflow_id, workflow_input, _, _ = self.setup_workflow_test(
+        _, workflow_id, workflow_input, _, _ = await self.setup_workflow_test(
             mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,
@@ -576,7 +576,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         """Test that the workflow properly handles incorrect argument types by failing or timing out during argument processing."""
-        self.setup_workflow_test(
+        await self.setup_workflow_test(
             mock_session_id,
             mock_single_session_summary_llm_inputs,
             mock_single_session_summary_inputs,

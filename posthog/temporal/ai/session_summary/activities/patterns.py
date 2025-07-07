@@ -1,6 +1,6 @@
 import asyncio
 from typing import cast
-from redis import Redis
+from redis import asyncio as aioredis
 import structlog
 import temporalio
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
@@ -38,8 +38,8 @@ from temporalio.exceptions import ApplicationError
 logger = structlog.get_logger(__name__)
 
 
-def _get_session_group_single_session_summaries_inputs_from_redis(
-    redis_client: Redis,
+async def _get_session_group_single_session_summaries_inputs_from_redis(
+    redis_client: aioredis.Redis,
     redis_input_keys: list[str],
 ) -> list[SingleSessionSummaryLlmInputs]:
     """Load input used for single-session-summaries generation, stored under given keys."""
@@ -47,7 +47,7 @@ def _get_session_group_single_session_summaries_inputs_from_redis(
     for redis_input_key in redis_input_keys:
         llm_input = cast(
             SingleSessionSummaryLlmInputs,
-            get_data_class_from_redis(
+            await get_data_class_from_redis(
                 redis_client=redis_client,
                 redis_key=redis_input_key,
                 label=StateActivitiesEnum.SESSION_DB_DATA,
@@ -67,12 +67,12 @@ def _get_session_ids_from_inputs(inputs: SessionGroupSummaryOfSummariesInputs) -
     )
 
 
-def _get_session_summaries_str_from_inputs(
-    redis_client: Redis, inputs: SessionGroupSummaryOfSummariesInputs
+async def _get_session_summaries_str_from_inputs(
+    redis_client: aioredis.Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
     """Fetch stringified session summaries for all input sessions from Redis."""
     return [
-        get_data_str_from_redis(
+        await get_data_str_from_redis(
             redis_client=redis_client,
             redis_key=generate_state_key(
                 key_base=single_session_input.redis_key_base,
@@ -96,7 +96,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     )
     try:
         # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-        get_data_class_from_redis(
+        await get_data_class_from_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
             label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
@@ -104,7 +104,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         )
     except ValueError:
         # Get session summaries from Redis
-        session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+        session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
             remove_excessive_content_from_session_summary_for_llm(session_summary_str)
@@ -122,7 +122,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
         # Store the extracted patterns in Redis
-        store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=patterns_extraction_str)
+        await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=patterns_extraction_str)
         return None
 
 
@@ -211,7 +211,7 @@ async def assign_events_to_patterns_activity(
     )
     try:
         # Check if patterns assignments are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
-        patterns_with_events_context = get_data_class_from_redis(
+        patterns_with_events_context = await get_data_class_from_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
             label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
@@ -219,7 +219,7 @@ async def assign_events_to_patterns_activity(
         )
     except ValueError:
         # Get session summaries from Redis
-        session_summaries_str = _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+        session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
             remove_excessive_content_from_session_summary_for_llm(session_summary_str)
@@ -234,7 +234,7 @@ async def assign_events_to_patterns_activity(
         # Get extracted patterns from Redis to be able to assign events to them
         patterns_extraction = cast(
             RawSessionGroupSummaryPatternsList,
-            get_data_class_from_redis(
+            await get_data_class_from_redis(
                 redis_client=redis_client,
                 redis_key=redis_input_key,
                 label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
@@ -251,7 +251,7 @@ async def assign_events_to_patterns_activity(
             trace_id=temporalio.activity.info().workflow_id,
         )
         # Get single session summaries LLM inputs from Redis to be able to enrich the patterns collected
-        single_session_summaries_llm_inputs = _get_session_group_single_session_summaries_inputs_from_redis(
+        single_session_summaries_llm_inputs = await _get_session_group_single_session_summaries_inputs_from_redis(
             redis_client=redis_client,
             redis_input_keys=[
                 generate_state_key(

@@ -52,7 +52,7 @@ async def get_llm_single_session_summary_activity(
     try:
         # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
         # TODO: Think about edge-cases like failed summaries
-        get_data_str_from_redis(
+        await get_data_str_from_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
             label=StateActivitiesEnum.SESSION_SUMMARY,
@@ -61,7 +61,7 @@ async def get_llm_single_session_summary_activity(
         # If not yet, or TTL expired - generate the summary with LLM
         llm_input = cast(
             SingleSessionSummaryLlmInputs,
-            get_data_class_from_redis(
+            await get_data_class_from_redis(
                 redis_client=redis_client,
                 redis_key=redis_input_key,
                 label=StateActivitiesEnum.SESSION_DB_DATA,
@@ -89,7 +89,7 @@ async def get_llm_single_session_summary_activity(
             trace_id=temporalio.activity.info().workflow_id,
         )
         # Store the generated summary in Redis
-        store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=session_summary_str)
+        await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=session_summary_str)
     # Returning nothing as the data is stored in Redis
     return None
 

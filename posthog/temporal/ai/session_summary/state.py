@@ -3,10 +3,10 @@ import json
 
 from enum import Enum
 from typing import TypeVar
-from redis import Redis
+from redis import asyncio as aioredis
 
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_DB_DATA_REDIS_TTL
-from posthog.redis import get_client
+from posthog.redis import get_async_client
 
 T = TypeVar("T")
 
@@ -23,7 +23,7 @@ def get_redis_state_client(
     input_label: StateActivitiesEnum | None = None,
     output_label: StateActivitiesEnum | None = None,
     state_id: str | None = None,
-) -> tuple[Redis, str | None, str | None]:
+) -> tuple[aioredis.Redis, str | None, str | None]:
     """Return a Redis client and generated state keys.
 
     Parameters
@@ -45,7 +45,7 @@ def get_redis_state_client(
         The Redis client instance together with the generated input and output
         keys. `None` is returned for a key when its label was not supplied.
     """
-    redis_client = get_client()
+    redis_client = get_async_client()
     redis_input_key, redis_output_key = None, None
     if key_base and input_label:
         redis_input_key = generate_state_key(key_base=key_base, label=input_label, state_id=state_id)
@@ -90,19 +90,19 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
     raise ValueError(f"Invalid Redis data type: {type(raw_redis_data)}")
 
 
-def store_data_in_redis(
-    redis_client: Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+async def store_data_in_redis(
+    redis_client: aioredis.Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
 ) -> None:
     """Compress and store data in Redis with an expiry time."""
     if not redis_key:
         raise ValueError(f"Redis key is required to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
-    redis_client.setex(redis_key, ttl, compressed_data)
+    await redis_client.setex(redis_key, ttl, compressed_data)
     return None
 
 
-def get_data_class_from_redis(
-    redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: type[T]
+async def get_data_class_from_redis(
+    redis_client: aioredis.Redis, redis_key: str | None, label: StateActivitiesEnum, target_class: type[T]
 ) -> T:
     """Load and parse a dataclass instance stored as JSON in Redis.
 
@@ -124,7 +124,7 @@ def get_data_class_from_redis(
     """
     if not redis_key:
         raise ValueError(f"Redis key is required for {label.value} to extract data from Redis ({target_class})")
-    redis_data_str = get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
+    redis_data_str = await get_data_str_from_redis(redis_client=redis_client, redis_key=redis_key, label=label)
     try:
         return target_class(**json.loads(redis_data_str))
     except Exception as err:
@@ -133,11 +133,13 @@ def get_data_class_from_redis(
         ) from err
 
 
-def get_data_str_from_redis(redis_client: Redis, redis_key: str | None, label: StateActivitiesEnum) -> str:
+async def get_data_str_from_redis(
+    redis_client: aioredis.Redis, redis_key: str | None, label: StateActivitiesEnum
+) -> str:
     """Retrieve and decompress a string value from Redis."""
     if not redis_key:
         raise ValueError(f"Redis key is required to get data from Redis ({label.value})")
-    raw_redis_data = redis_client.get(redis_key)
+    raw_redis_data = await redis_client.get(redis_key)
     if not raw_redis_data:
         raise ValueError(f"Output data not found in Redis for key {redis_key} ({label.value})")
     try:
