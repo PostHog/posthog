@@ -748,6 +748,10 @@ def create_hogql_database(
                     capture_exception(
                         Exception(
                             f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
+                            f"Team: {team.pk}, "
+                            f"Join: {join.source_table_name} -> {join.joining_table_name}, "
+                            f"field: {join.field_name}, "
+                            f"source_key: '{join.source_table_key}'"
                         )
                     )
                     continue
@@ -767,6 +771,10 @@ def create_hogql_database(
                     capture_exception(
                         Exception(
                             f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
+                            f"Team: {team.pk}, "
+                            f"Join: {join.source_table_name} -> {join.joining_table_name}, "
+                            f"field: {join.field_name}, "
+                            f"source_key: '{join.source_table_key}'"
                         )
                     )
                     continue
