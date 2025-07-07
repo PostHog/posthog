@@ -1,7 +1,6 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use super::cohort_models::CohortPropertyType;
 use super::cohort_models::CohortValues;
@@ -10,12 +9,12 @@ use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 
 impl Cohort {
     /// Returns all cohorts for a given team
     pub async fn list_from_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresReader,
         project_id: i64,
     ) -> Result<Vec<Cohort>, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {
