@@ -34,11 +34,7 @@ export const PaymentForm = (): JSX.Element => {
         if (result.error) {
             setLoading(false)
             setStripeError(result.error.message)
-            posthog.capture('payment entry stripe error', {
-                error_type: result.error.type,
-                error_message: result.error.message,
-                error_code: result.error.code,
-            })
+            posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
         } else {
             pollAuthorizationStatus(result.paymentIntent.id)
         }
