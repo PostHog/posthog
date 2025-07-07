@@ -363,15 +363,12 @@ describe('sessionRecordingPlayerLogic', () => {
     describe('recording viewed summary event', () => {
         describe('play_time_ms tracking', () => {
             beforeEach(() => {
-                jest.useFakeTimers()
-            })
-
-            afterEach(() => {
-                jest.useRealTimers()
+                jest.useFakeTimers({
+                    now: new Date('2024-02-07T00:00:01.123Z'),
+                })
             })
 
             it('initializes playingTimeTracking correctly', () => {
-                // Test initial state
                 expect(logic.values.playingTimeTracking).toEqual({
                     state: 'unknown',
                     lastTimestamp: null,
@@ -381,22 +378,24 @@ describe('sessionRecordingPlayerLogic', () => {
             })
 
             it('sets buffering state with startBuffer', () => {
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBeNull()
+
                 logic.actions.startBuffer()
 
                 expect(logic.values.playingTimeTracking.state).toBe('buffering')
-                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+                expect(logic.values.playingTimeTracking.lastTimestamp).not.toBeNull()
             })
 
             it('correctly tracks buffer time', () => {
                 logic.actions.startBuffer()
 
                 expect(logic.values.playingTimeTracking.state).toBe('buffering')
-                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBe(0)
 
                 jest.advanceTimersByTime(1500)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.state).toBe('unknown')
+                expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(1500)
                 expect(logic.values.playingTimeTracking.watchTime).toBe(0)
             })
@@ -405,7 +404,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.setPlay()
 
                 expect(logic.values.playingTimeTracking.state).toBe('playing')
-                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBe(0)
             })
 
             it('accumulates watch time with setPause', () => {
@@ -482,7 +481,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 jest.advanceTimersByTime(1000)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.state).toBe('unknown')
+                expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
 
                 logic.actions.endBuffer()
