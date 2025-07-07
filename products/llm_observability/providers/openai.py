@@ -30,19 +30,16 @@ class OpenAIConfig:
         "o4-mini",
         "o3-mini",
         "o3",
-        "o1",
-        "o1-mini",
+        "o3-pro" "o4-mini",
         "gpt-4o",
         "gpt-4o-mini",
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "o3",
+        "o3-pro",
         "o4-mini",
         "o3-mini",
-        "o1",
-        "o1-mini",
-        "o1-preview",
     ]
 
 
@@ -116,7 +113,7 @@ class OpenAIProvider:
                     "posthog_groups": groups or {},
                 }
                 if max_tokens is not None:
-                    common["max_tokens"] = max_tokens
+                    common["max_completion_tokens"] = max_tokens
                 return common
 
             if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
