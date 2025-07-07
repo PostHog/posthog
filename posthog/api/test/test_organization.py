@@ -152,8 +152,8 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify the capture event was called correctly
         mock_capture.assert_any_call(
-            self.user.distinct_id,
             "organization 2fa enforcement toggled",
+            distinct_id=self.user.distinct_id,
             properties={
                 "enabled": True,
                 "organization_id": str(self.organization.id),

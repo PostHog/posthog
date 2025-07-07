@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export function AddPrimaryMetric(): JSX.Element {
@@ -19,8 +19,8 @@ export function AddPrimaryMetric(): JSX.Element {
                 openPrimaryMetricSourceModal()
             }}
             disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
+                primaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_PRIMARY_METRICS
+                    ? `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
                     : undefined
             }
         >
@@ -41,8 +41,8 @@ export function AddSecondaryMetric(): JSX.Element {
                 openSecondaryMetricSourceModal()
             }}
             disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
+                secondaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_SECONDARY_METRICS
+                    ? `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
                     : undefined
             }
         >

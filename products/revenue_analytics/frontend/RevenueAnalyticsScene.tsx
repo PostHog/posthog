@@ -1,5 +1,5 @@
 import { IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -16,7 +16,7 @@ import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { GrossRevenueTile, OverviewTile, RevenueGrowthRateTile, TopCustomersTile, RevenueTile } from './tiles'
+import { CustomerCountTile, OverviewTile, RevenueTile, RevenueGrowthRateTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -92,7 +92,7 @@ const RevenueAnalyticsSceneContent = (): JSX.Element => {
     )
 
     return (
-        <div>
+        <div className="RevenueAnalyticsDashboard">
             <LemonBanner
                 type="info"
                 dismissKey="revenue-analytics-beta-banner"
@@ -192,14 +192,21 @@ const RevenueAnalyticsTables = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
-            <GrossRevenueTile />
-            <RevenueTile />
-
-            <LemonDivider className="mt-6" />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <RevenueGrowthRateTile />
-                <TopCustomersTile />
+                <div className="col-span-2">
+                    <RevenueTile />
+                </div>
+                <div className="col-span-2">
+                    <CustomerCountTile />
+                </div>
+
+                <div className="col-span-1">
+                    <RevenueGrowthRateTile />
+                </div>
+                <div className="col-span-1">
+                    <TopCustomersTile />
+                </div>
             </div>
         </div>
     )
