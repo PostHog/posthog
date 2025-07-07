@@ -15,6 +15,7 @@ from langgraph.checkpoint.base import (
     CheckpointMetadata,
     CheckpointTuple,
     PendingWrite,
+    empty_checkpoint,
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -136,7 +137,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
         async for checkpoint in qs:
             channel_values = self._get_checkpoint_channel_values(checkpoint)
-            loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
+            loaded_checkpoint: Checkpoint = (
+                self._load_json(checkpoint.checkpoint) if checkpoint.checkpoint else empty_checkpoint()
+            )
 
             pending_sends = (
                 [
@@ -175,7 +178,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     }
                 },
                 checkpoint_dict,
-                self._load_json(checkpoint.metadata),
+                self._load_json(checkpoint.metadata) if checkpoint.metadata else {},
                 (
                     {
                         "configurable": {
