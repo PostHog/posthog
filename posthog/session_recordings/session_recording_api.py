@@ -661,6 +661,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response({"success": True}, status=204)
 
+    @extend_schema(exclude=True)
     def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """
         Bulk soft delete all recordings matching the provided filters.
