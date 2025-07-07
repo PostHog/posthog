@@ -223,7 +223,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
             ).to_kafka(
-                topic=f"events_plugin_ingestion_historical",
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
             )
