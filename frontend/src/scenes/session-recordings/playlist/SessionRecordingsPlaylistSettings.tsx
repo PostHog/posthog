@@ -137,7 +137,7 @@ export function SessionRecordingsPlaylistTopSettings({
             },
         })
 
-    const items = [
+    const menuItems = [
         {
             label: 'Autoplay',
             items: [
@@ -158,16 +158,17 @@ export function SessionRecordingsPlaylistTopSettings({
                 },
             ],
         },
+        ...(featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_RECORDINGS]
+            ? [
+                  {
+                      label: 'Delete recordings',
+                      onClick: () => handleBulkDeleteRecordings(),
+                      status: 'danger' as const,
+                      icon: <IconTrash />,
+                  },
+              ]
+            : []),
     ]
-
-    if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_RECORDINGS]) {
-        items.push({
-            label: 'Delete recordings',
-            onClick: () => handleBulkDeleteRecordings(),
-            status: 'danger',
-            icon: <IconTrash />,
-        })
-    }
 
     return (
         <SettingsBar border="none" className="justify-between">
@@ -176,7 +177,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     Sort by: <SortedBy filters={filters} setFilters={setFilters} />
                 </span>
             ) : null}
-            <SettingsMenu items={items} icon={<IconEllipsis className="rotate-90" />} />
+            <SettingsMenu items={menuItems} icon={<IconEllipsis className="rotate-90" />} />
         </SettingsBar>
     )
 }
