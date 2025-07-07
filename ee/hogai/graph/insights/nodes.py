@@ -48,7 +48,9 @@ Your response:""")
     @classmethod
     def _get_cache_key(cls, query: str, insight_names: list[str]) -> str:
         """Generate cache key for semantic filtering results."""
-        content = f"{query}::{','.join(sorted(insight_names))}"
+        # Filter out None values and convert to strings to avoid sorting errors
+        cleaned_names = [name for name in insight_names if name is not None]
+        content = f"{query}::{','.join(sorted(cleaned_names))}"
         return hashlib.md5(content.encode()).hexdigest()
 
     @classmethod
