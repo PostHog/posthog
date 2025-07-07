@@ -32,8 +32,15 @@ interface UpstreamGraphProps {
     codeEditorKey: string
 }
 
-// Custom node component for lineage nodes
-function LineageNodeComponent({ data }: { data: LineageNode & { isCurrentView?: boolean } }): JSX.Element {
+interface LineageNodeComponentProps {
+    data: LineageNode & { isCurrentView?: boolean }
+    edges: { source: string; target: string }[]
+}
+
+const MAT_VIEW_HEIGHT = 92
+const TABLE_HEIGHT = 68
+
+function LineageNodeComponent({ data, edges }: LineageNodeComponentProps): JSX.Element {
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
             return lastRunAt ? 'Mat. View' : 'View'
@@ -45,12 +52,23 @@ function LineageNodeComponent({ data }: { data: LineageNode & { isCurrentView?: 
         if (type === 'view') {
             return 'primary'
         }
-        return 'default'
+        return 'highlight'
     }
 
+    // Only show handles if there are edges to/from this node
+    const hasIncoming = edges.some((edge) => edge.target === data.id)
+    const hasOutgoing = edges.some((edge) => edge.source === data.id)
+
+    // Dynamic height: mat views get extra height
+    const isMatView = data.type === 'view' && !!data.last_run_at
+    const nodeHeight = isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT
+
     return (
-        <div className="bg-bg-light border border-border rounded-lg p-3 min-w-[200px] shadow-sm">
-            <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />
+        <div
+            className="bg-bg-light border border-border rounded-lg p-3 min-w-[200px] shadow-sm"
+            style={{ minHeight: nodeHeight }}
+        >
+            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
 
             <div className="flex items-center gap-2 mb-2">
                 {data.isCurrentView && (
@@ -59,13 +77,11 @@ function LineageNodeComponent({ data }: { data: LineageNode & { isCurrentView?: 
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[160px] block" style={{ lineHeight: '1.2' }}>
-                        {data.name}
-                    </span>
+                    <span className="font-medium text-sm truncate max-w-[160px] block">{data.name}</span>
                 </Tooltip>
             </div>
 
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2">
                 <LemonTag type={getTagType(data.type)} size="small">
                     {getNodeType(data.type, data.last_run_at)}
                 </LemonTag>
@@ -80,18 +96,18 @@ function LineageNodeComponent({ data }: { data: LineageNode & { isCurrentView?: 
             </div>
 
             {data.last_run_at && (
-                <div className="text-xs text-muted">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
+                <div className="text-xs text-muted mt-2">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
             )}
 
-            <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />
+            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />}
         </div>
     )
 }
 
-// Node types for ReactFlow
-const nodeTypes: NodeTypes = {
-    lineageNode: LineageNodeComponent,
-}
+// We'll inject edges as a prop to each node
+const getNodeTypes = (edges: { source: string; target: string }[]): NodeTypes => ({
+    lineageNode: (props) => <LineageNodeComponent {...props} edges={edges} />,
+})
 
 // Layout the graph using dagre
 const getLayoutedElements = (
@@ -101,11 +117,12 @@ const getLayoutedElements = (
 ): { nodes: Node[]; edges: Edge[] } => {
     const dagreGraph = new dagre.graphlib.Graph()
     dagreGraph.setDefaultEdgeLabel(() => ({}))
-    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 160 })
+    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 68, ranksep: 160 })
 
     // Add nodes and edges to dagre
     nodes.forEach((node) => {
-        dagreGraph.setNode(node.id, { width: 240, height: 120 })
+        const isMatView = node.type === 'view' && !!node.last_run_at
+        dagreGraph.setNode(node.id, { width: 240, height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT })
     })
     edges.forEach((edge) => {
         dagreGraph.setEdge(edge.source, edge.target)
@@ -117,6 +134,7 @@ const getLayoutedElements = (
     // Convert back to ReactFlow format
     const layoutedNodes: Node[] = nodes.map((node) => {
         const nodeWithPosition = dagreGraph.node(node.id)
+        const isMatView = node.type === 'view' && !!node.last_run_at
         return {
             id: node.id,
             type: 'lineageNode',
@@ -129,7 +147,7 @@ const getLayoutedElements = (
                 isCurrentView: node.name === currentViewName,
             },
             width: 240,
-            height: 120,
+            height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT,
         }
     })
 
@@ -189,7 +207,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
                 edges={edges}
-                nodeTypes={nodeTypes}
+                nodeTypes={getNodeTypes(edges)}
                 fitView
                 fitViewOptions={{ padding: 0.1 }}
                 minZoom={0.1}
