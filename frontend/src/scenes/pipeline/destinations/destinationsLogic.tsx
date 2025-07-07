@@ -81,6 +81,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             tempOrder,
         }),
         saveTransformationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
+        loadMore: true,
     }),
     loaders(({ values, actions, props }) => ({
         plugins: [
@@ -180,30 +181,29 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
-
-        hogFunctions: [
-            [] as HogFunctionType[],
+        rawHogFunctions: [
+            { results: [] as HogFunctionType[], count: 0 as number },
             {
                 loadHogFunctions: async () => {
                     const siteDesinationsEnabled = !!values.featureFlags[FEATURE_FLAGS.SITE_DESTINATIONS]
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (
-                        await api.hogFunctions.list({
-                            types: destinationTypes,
-                        })
-                    ).results
+                    return await api.hogFunctions.list({
+                        types: destinationTypes,
+                        search: values.filters.search,
+                        limit: values.hogFunctionsLimit,
+                    })
                 },
                 saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
                         orders: newOrders,
                     })
-                    return response
+                    return { results: response, count: response.length }
                 },
                 deleteNodeHogFunction: async ({ destination }) => {
                     if (destination.backend !== PipelineBackend.HogFunction) {
-                        return values.hogFunctions
+                        return values.rawHogFunctions
                     }
 
                     await deleteWithUndo({
@@ -219,19 +219,30 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         },
                     })
 
-                    return values.hogFunctions.filter((hogFunction) => hogFunction.id !== destination.hog_function.id)
+                    const results = values.hogFunctions.filter(
+                        (hogFunction) => hogFunction.id !== destination.hog_function.id
+                    )
+                    return {
+                        results,
+                        count: results.length,
+                    }
                 },
                 toggleNodeHogFunction: async ({ destination, enabled }) => {
-                    const { hogFunctions } = values
-                    const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === destination.hog_function.id)
+                    const { rawHogFunctions } = values
+                    const hogFunctionIndex = rawHogFunctions.results.findIndex(
+                        (hf) => hf.id === destination.hog_function.id
+                    )
                     const response = await api.hogFunctions.update(destination.hog_function.id, {
                         enabled,
                     })
-                    return [
-                        ...hogFunctions.slice(0, hogFunctionIndex),
-                        response,
-                        ...hogFunctions.slice(hogFunctionIndex + 1),
-                    ]
+                    return {
+                        results: [
+                            ...rawHogFunctions.results.slice(0, hogFunctionIndex),
+                            response,
+                            ...rawHogFunctions.results.slice(hogFunctionIndex + 1),
+                        ],
+                        count: rawHogFunctions.count,
+                    }
                 },
             },
         ],
@@ -252,8 +263,20 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 saveTransformationsOrder: () => false,
             },
         ],
+        hogFunctionsLimit: [
+            100 as number,
+            {
+                loadMore: (state) => state + 100,
+            },
+        ],
     }),
     selectors({
+        hogFunctions: [
+            (s) => [s.rawHogFunctions],
+            (rawHogFunctions) => {
+                return rawHogFunctions.results
+            },
+        ],
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
@@ -262,9 +285,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.hogFunctionsLoading],
-            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
-                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.rawHogFunctionsLoading],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, rawHogFunctionsLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || rawHogFunctionsLoading,
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
@@ -345,7 +368,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props }) => ({
+        loadMore: () => {
+            actions.loadHogFunctions()
+        },
         toggleNode: ({ destination, enabled }) => {
             if (enabled && !values.canEnableDestination(destination)) {
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
@@ -372,6 +398,10 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     actions.deleteNodeHogFunction(destination)
                     break
             }
+        },
+        [destinationsFiltersLogic(props).actionTypes.setFilters]: async (_, breakpoint) => {
+            await breakpoint(300) // Debounce for 300ms
+            actions.loadHogFunctions()
         },
         saveTransformationsOrderSuccess: () => {
             actions.closeReorderTransformationsModal()
