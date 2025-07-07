@@ -431,8 +431,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
                         return state
                     }
-                    const newState: PlayerTimeTracking['state'] = 'buffering'
-                    return updatePlayerTimeTrackingIfChanged(state, newState)
+                    return updatePlayerTimeTrackingIfChanged(state, 'buffering')
                 },
                 endBuffer: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -452,16 +451,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return state
                     }
 
-                    const newState: PlayerTimeTracking['state'] = 'playing'
-                    return updatePlayerTimeTrackingIfChanged(state, newState)
+                    return updatePlayerTimeTrackingIfChanged(state, 'playing')
                 },
                 setPause: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
                         return state
                     }
 
-                    const newState: PlayerTimeTracking['state'] = 'paused'
-                    return updatePlayerTimeTrackingIfChanged(state, newState)
+                    return updatePlayerTimeTrackingIfChanged(state, 'paused')
                 },
                 setEndReached: (state, { reached }) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
@@ -471,16 +468,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (!reached) {
                         return state
                     }
-                    const newState: PlayerTimeTracking['state'] = 'ended'
-                    return updatePlayerTimeTrackingIfChanged(state, newState)
+
+                    return updatePlayerTimeTrackingIfChanged(state, 'ended')
                 },
                 setPlayerError: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
                         return state
                     }
 
-                    const newState: PlayerTimeTracking['state'] = 'errored'
-                    return updatePlayerTimeTrackingIfChanged(state, newState)
+                    return updatePlayerTimeTrackingIfChanged(state, 'errored')
                 },
                 seekToTime: (state) => {
                     return state
