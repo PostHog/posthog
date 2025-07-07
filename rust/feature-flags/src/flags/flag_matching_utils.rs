@@ -1,10 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+    time::Instant,
+};
 
+use common_database::{PostgresReader, PostgresWriter};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
@@ -27,10 +31,7 @@ use crate::{
     },
 };
 
-use super::{
-    flag_group_type_mapping::GroupTypeIndex,
-    flag_matching::{FlagEvaluationState, PostgresReader, PostgresWriter},
-};
+use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
