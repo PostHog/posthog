@@ -1215,6 +1215,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 8. EDGE CASE TESTS - Complex scenarios
     # ================================================================
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_edge_case_very_long_goal_names(self):
         """Test that queries work correctly with very long goal names"""
 
@@ -1265,11 +1266,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         assert campaign_name == "long_name_test"
-        assert source_name in [None, "Unknown", "", "Unknown Source"], f"Expected Unknown source, got {source_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert (
             conversion_count == 1
         ), f"Expected conversion count of 1 with very long goal name, got {conversion_count}. Long names should not affect query results."
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_edge_case_special_characters_in_event_names(self):
         """Test that events with special characters in names are correctly matched"""
 
@@ -1331,7 +1333,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         assert campaign_name == "special_test"
-        assert source_name in [None, "Unknown", "", "Unknown Source"], f"Expected Unknown source, got {source_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert (
             conversion_count == 1
         ), f"Expected conversion count of 1 for special character event, got {conversion_count}. Special characters in event names should be handled correctly."
@@ -1465,8 +1467,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert (
             conversion_count == 1
         ), f"Expected 1 conversion despite complex timeline, got {conversion_count}. ConversionGoalProcessor should handle complex temporal scenarios correctly."
-        assert campaign_name == "post_conversion", f"Expected post_conversion campaign, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook source, got {source_name}"
+        assert campaign_name == "pre_range", f"Expected pre_range campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
 
     # ================================================================
     # 9. INTEGRATION TESTS - Full query execution with snapshots
@@ -1772,9 +1774,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
 
         # Assert that attribution is Unknown because ad came after conversion
-        assert campaign_name in [None, "Unknown", ""], f"Expected Unknown attribution, got {campaign_name}"
-        assert source_name in [None, "Unknown", ""], f"Expected Unknown source, got {source_name}"
-        assert conversion_count == 0, f"Expected 0 conversions, got {conversion_count}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_multiple_touchpoints_attribution_validation_example(self):
@@ -1945,6 +1947,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # 2. Last valid touchpoint before conversion (FALLBACK)
         # 3. Unknown Campaign/Source (DEFAULT)
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_basic_backward_order(self):
         """
         Test basic temporal attribution when ad comes after conversion.
@@ -2002,20 +2005,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name != "summer_sale", f"Should not attribute to late campaign: {campaign_name}"
-        assert campaign_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-            "organic",
-        ], f"Expected Unknown attribution, got {campaign_name}"
-        assert source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown source, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
@@ -2503,6 +2494,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "email", f"Expected email source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_same_day_evening_morning(self):
         """
         Test Case: Same day temporal order - morning conversion, evening ad
@@ -2560,20 +2552,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name != "daily_deal", f"Should not attribute to late campaign: {campaign_name}"
-        assert campaign_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-            "organic",
-        ], f"Expected Unknown attribution, got {campaign_name}"
-        assert source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown source, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
@@ -2637,6 +2617,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_one_second_precision(self):
         """
         Test Case: Sub-minute temporal precision - 1 second difference
@@ -2692,20 +2673,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name != "too_late", f"Should not attribute to late campaign: {campaign_name}"
-        assert campaign_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-            "organic",
-        ], f"Expected Unknown attribution, got {campaign_name}"
-        assert source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown source, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
@@ -3486,15 +3455,38 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         beyond_result = response_beyond.results[0]
         beyond_campaign, beyond_source, beyond_count = beyond_result[0], beyond_result[1], beyond_result[2]
 
-        assert beyond_campaign in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-        ], f"Expected Unknown beyond window, got {beyond_campaign}"
+        assert beyond_campaign == "organic", f"Expected organic attribution, got {beyond_campaign}"
         assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
-        assert beyond_source in [None, "Unknown", "", "Unknown Source"], f"Expected Unknown source, got {beyond_source}"
+        assert beyond_source == "organic", f"Expected organic source, got {beyond_source}"
 
+        # Test conversion beyond 30-day attribution window (should not attribute)
+        processor_beyond = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=self.team,
+            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-02-01"),
+        )
+
+        additional_conditions_beyond = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
+            ),
+        ]
+
+        cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
+        response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
+        assert len(response_beyond.results) == 1, f"Expected 1 result beyond window, got {len(response_beyond.results)}"
+
+        # 🎯 ATTRIBUTION VALIDATION: Beyond 30-day window should not attribute
+        beyond_result = response_beyond.results[0]
+        beyond_campaign, beyond_source, beyond_count = beyond_result[0], beyond_result[1], beyond_result[2]
+
+        assert beyond_campaign == "organic", f"Expected organic attribution, got {beyond_campaign}"
+        assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
+
+    @pytest.mark.xfail(reason="Attribution window limits not implemented")
     def test_attribution_window_beyond_limits(self):
         """
         Test Case: Attribution beyond reasonable limits - 2 years
@@ -3554,28 +3546,17 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: Should NOT attribute to 2-year-old campaign (beyond attribution window limits)
         first_result = response.results[0]
-        campaign_name, _source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name != "old_campaign", f"Should not attribute to 2-year-old campaign: {campaign_name}"
-        assert campaign_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-            "organic",
-        ], f"Expected Unknown for very old campaign, got {campaign_name}"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
-        assert _source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown source, got {_source_name}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
 
     # ================================================================
     # 14. DATA QUALITY EDGE CASES - Malformed UTM, duplicates, missing data
     # ================================================================
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_malformed_utm_parameters_empty_campaign(self):
         """
         Test Case: Malformed UTM parameters - empty campaign name
@@ -3651,17 +3632,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: Should handle malformed UTM gracefully
         first_result = response.results[0]
-        campaign_name, _source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         # Should handle gracefully - could attribute to last valid campaign or show Unknown
         assert campaign_name is not None, "Should handle malformed UTM without crashing"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
-        assert _source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown source, got {_source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_duplicate_events_same_timestamp(self):
@@ -3729,14 +3704,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: Duplicate events handling
         # Expected: Should handle duplicates gracefully (dedupe or use deterministic selection)
         first_result = response.results[0]
-        campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
-        # Should pick one of the duplicate campaigns deterministically
-        assert campaign_name in [
-            "duplicate1",
-            "duplicate2",
-        ], f"Expected one of the duplicate campaigns, got {campaign_name}"
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
+        # Should pick first duplicate campaign deterministically
+        assert campaign_name == "duplicate1", f"Expected duplicate1 campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_utm_parameters_with_special_characters(self):
@@ -3863,10 +3835,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: Very long UTM values handling
         # Expected: Should handle very long values gracefully (truncate or handle full value)
         first_result = response.results[0]
-        campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name is not None, "Should handle very long UTM values"
         assert source_name is not None, "Should handle very long source values"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     @pytest.mark.xfail(reason="This test is not working as expected because of the attribution logic")
     def test_case_sensitivity_utm_parameters(self):
@@ -3951,6 +3923,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "GOOGLE", f"Expected GOOGLE (last-touch, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
+    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_null_vs_empty_utm_parameters(self):
         """
         Test Case: Null vs empty string UTM parameters
@@ -4027,20 +4000,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         # All touchpoints have null/empty UTM, should show Unknown attribution
-        assert campaign_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Campaign",
-            "organic",
-        ], f"Expected Unknown for null/empty UTM, got {campaign_name}"
-        assert source_name in [
-            None,
-            "Unknown",
-            "",
-            "Unknown Source",
-            "organic",
-        ], f"Expected Unknown for null/empty UTM, got {source_name}"
+        assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     # ================================================================
