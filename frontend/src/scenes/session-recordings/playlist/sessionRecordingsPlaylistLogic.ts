@@ -667,7 +667,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
 
                 lemonToast.promise(pollDeleteStatus(response.task_id), {
-                    pending: 'We are deleting recordings. You can close this window as it may take a while.',
+                    pending: 'Deleting recordings (it may take a while)...',
                     success: 'Recordings deleted successfully',
                     error: 'Failed to delete recordings. Please try again later.',
                 })
