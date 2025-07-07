@@ -31,6 +31,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    Node,
     NodeKind,
     PersistedFolder,
     QuerySchema,
@@ -1123,6 +1124,10 @@ export class ApiRequest {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
+    }
+
+    public queryUpgrade(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
     }
 
     // Conversations
@@ -2325,17 +2330,23 @@ const api = {
     hogFunctions: {
         async list({
             filter_groups,
+            search,
             types,
+            limit,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
+            search?: string
             types?: HogFunctionTypeType[]
-        }): Promise<PaginatedResponse<HogFunctionType>> {
+            limit?: number
+        }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(search ? { search } : {}),
+                    ...(limit ? { limit } : {}),
                 })
                 .get()
         },
@@ -2368,7 +2379,6 @@ const api = {
         },
         async listTemplates(params: {
             types: HogFunctionTypeType[]
-            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
@@ -2378,8 +2388,8 @@ const api = {
 
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
+        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
@@ -3513,10 +3523,17 @@ const api = {
         })
     },
 
+    schema: {
+        async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
+            return await new ApiRequest().queryUpgrade().create({ data })
+        },
+    },
+
     conversations: {
         async stream(
             data: {
-                content: string
+                /** The user message. Null content means we're continuing previous generation. */
+                content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxContextShape
                 conversation?: string | null

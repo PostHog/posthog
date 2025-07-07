@@ -19,7 +19,7 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
         table.save()
 
         if ph_client:
-            ph_client.capture(team_id, "validate_data_warehouse_table_columns succeeded")
+            ph_client.capture(distinct_id=team_id, event="validate_data_warehouse_table_columns succeeded")
     except Exception as e:
         logger.exception(
             f"validate_data_warehouse_table_columns raised an exception for table: {table_id}",
@@ -28,7 +28,7 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
         )
 
         if ph_client:
-            ph_client.capture(team_id, "validate_data_warehouse_table_columns errored")
+            ph_client.capture(distinct_id=team_id, event="validate_data_warehouse_table_columns errored")
     finally:
         if ph_client:
             ph_client.shutdown()

@@ -2327,6 +2327,8 @@ export interface RawAnnotationType {
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
     recording_id?: string | null
+    // convenience flag that indicates the content _should_ be a single emoji
+    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -5216,6 +5218,7 @@ export interface CyclotronJobFiltersType {
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
+    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }
