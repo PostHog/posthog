@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -12,15 +12,7 @@ from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import AssistantMessage
 from posthog.test.base import APIBaseTest
-
-
-async def _async_generator():
-    yield ("message", AssistantMessage(content="test response"))
-
-
-_generator_serialized_value = b'event: message\ndata: {"content":"test response","type":"ai"}\n\n'
 
 
 class TestConversation(APIBaseTest):
@@ -38,13 +30,13 @@ class TestConversation(APIBaseTest):
         return b"".join(response.streaming_content)
 
     def test_create_conversation(self):
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()) as stream_mock:
+        with patch.object(Assistant, "_stream", return_value=["test response"]) as stream_mock:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {"content": "test query", "trace_id": str(uuid.uuid4())},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+            self.assertEqual(self._get_streaming_content(response), b"test response")
             self.assertEqual(Conversation.objects.count(), 1)
             conversation: Conversation = Conversation.objects.first()
             self.assertEqual(conversation.user, self.user)
@@ -52,11 +44,7 @@ class TestConversation(APIBaseTest):
             stream_mock.assert_called_once()
 
     def test_add_message_to_existing_conversation(self):
-        with patch.object(
-            Assistant,
-            "astream",
-            return_value=_async_generator(),
-        ) as stream_mock:
+        with patch.object(Assistant, "_stream", return_value=["test response"]) as stream_mock:
             conversation = Conversation.objects.create(user=self.user, team=self.team)
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
@@ -67,7 +55,7 @@ class TestConversation(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+            self.assertEqual(self._get_streaming_content(response), b"test response")
             self.assertEqual(Conversation.objects.count(), 1)
             stream_mock.assert_called_once()
 
@@ -96,7 +84,7 @@ class TestConversation(APIBaseTest):
 
     def test_rate_limit_burst(self):
         # Create multiple requests to trigger burst rate limit
-        with patch.object(Assistant, "astream", return_value=_async_generator()):
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
             for _ in range(11):  # Assuming burst limit is less than this
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
@@ -121,14 +109,14 @@ class TestConversation(APIBaseTest):
 
     def test_none_content_in_post_request(self):
         """Test that when content is None in a POST request, the API handles it correctly and Assistant gets new_message=None."""
-        with patch("ee.api.conversation.Assistant.astream", return_value=_async_generator()):
+        with patch("ee.api.conversation.Assistant._stream", return_value=["test response"]):
             with patch("ee.api.conversation.Assistant.__init__", return_value=None) as mock_init:
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
                     {"content": None, "trace_id": str(uuid.uuid4())},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+                self.assertEqual(self._get_streaming_content(response), b"test response")
                 mock_init.assert_called_once()
                 # Check that new_message=None was passed
                 self.assertIn("new_message", mock_init.call_args.kwargs)
@@ -188,6 +176,48 @@ class TestConversation(APIBaseTest):
             {"content": "test query", "trace_id": str(uuid.uuid4())},
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_streaming_error_after_content_yields_proper_message(self):
+        """Test that errors occurring after streaming content yield proper SSE-formatted error messages."""
+
+        def stream_then_error():
+            yield 'event: message\ndata: {"type": "human", "content": "Hello"}\n\n'
+            yield 'event: message\ndata: {"type": "assistant", "content": "Hi there"}\n\n'
+            raise RuntimeError("Backend processing error")
+
+        with patch.object(Assistant, "_stream", side_effect=stream_then_error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Get all streaming content
+            content = self._get_streaming_content(response).decode("utf-8")
+
+            # Should contain original messages
+            self.assertIn('{"type": "human", "content": "Hello"}', content)
+            self.assertIn('{"type": "assistant", "content": "Hi there"}', content)
+
+            # Should contain error message at the end
+            self.assertIn("event: message", content)
+            self.assertIn('"type":"ai/failure"', content)
+            self.assertIn("It looks like I'm having trouble answering this", content)
+
+            # Verify the error message is the last thing the client sees
+            # Split content into lines and find the last message event
+            lines = content.strip().split("\n")
+            last_message_event = None
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].startswith("event: message"):
+                    # Find the corresponding data line
+                    if i + 1 < len(lines) and lines[i + 1].startswith("data: "):
+                        last_message_event = lines[i + 1]
+                        break
+
+            self.assertIsNotNone(last_message_event, "Should have a last message event")
+            self.assertIn('"type":"ai/failure"', last_message_event)
+            self.assertIn("It looks like I'm having trouble answering this", last_message_event)
 
     def test_cancel_conversation(self):
         conversation = Conversation.objects.create(
@@ -257,7 +287,7 @@ class TestConversation(APIBaseTest):
     def test_create_with_non_assistant_conversation(self):
         # Create a conversation with a non-assistant type
         conversation = Conversation.objects.create(user=self.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        with patch.object(Assistant, "astream", return_value=_async_generator()):
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {
@@ -271,7 +301,7 @@ class TestConversation(APIBaseTest):
     def test_create_with_no_title_conversation(self):
         # Create a conversation without a title
         conversation = Conversation.objects.create(user=self.user, team=self.team, title=None)
-        with patch.object(Assistant, "astream", return_value=_async_generator()):
+        with patch.object(Assistant, "_stream", return_value=["test response"]):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
                 {
@@ -290,7 +320,7 @@ class TestConversation(APIBaseTest):
         Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
         Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -307,7 +337,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT
         )
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -316,7 +346,7 @@ class TestConversation(APIBaseTest):
             user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL
         )
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -326,18 +356,19 @@ class TestConversation(APIBaseTest):
         )
 
         # Mock the get_state method to return data that will cause a validation error
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+        with patch("langgraph.graph.state.CompiledStateGraph.get_state") as mock_get_state:
 
             class MockSnapshot:
                 values = {"invalid_key": "invalid_value"}  # Invalid structure for AssistantState
 
             mock_get_state.return_value = MockSnapshot()
 
-            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
+                response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            # Should return empty messages array when validation fails
-            self.assertEqual(response.json()["messages"], [])
+                # Should return empty messages array when validation fails
+                self.assertEqual(response.json()["messages"], [])
 
     def test_list_conversations_ordered_by_updated_at(self):
         """Verify conversations are listed with most recently updated first"""
@@ -357,7 +388,7 @@ class TestConversation(APIBaseTest):
         conversation2.updated_at = timezone.now()
         conversation2.save()
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("ee.hogai.graph.graph.AssistantGraph.compile_full_graph"):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

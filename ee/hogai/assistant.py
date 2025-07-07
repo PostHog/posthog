@@ -1,20 +1,20 @@
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast
+import json
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 import posthoganalytics
 import structlog
-from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
@@ -28,6 +28,7 @@ from ee.hogai.graph import (
 )
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
 from ee.hogai.utils.state import (
@@ -42,10 +43,8 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
-    AssistantMessageUnion,
     AssistantMode,
     AssistantNodeName,
-    AssistantOutput,
     AssistantState,
     PartialAssistantState,
 )
@@ -57,13 +56,12 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantMessageType,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
@@ -156,47 +154,65 @@ class Assistant:
         self._trace_id = trace_id
         self._custom_update_ids = set()
 
-    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
-        """Returns all messages in once without streaming."""
+    def stream(self):
+        if SERVER_GATEWAY_INTERFACE == "ASGI":
+            return self._astream()
+        return self._stream()
+
+    def generate(self) -> list[dict[str, Any]]:
         messages = []
 
-        async for event_type, message in self.astream(stream_messages=False):
-            if event_type == AssistantEventType.MESSAGE and message.type != AssistantMessageType.AI_REASONING:
-                messages.append((event_type, cast(AssistantMessageUnion, message)))
+        for chunk in self._stream():
+            parsed_events = self._parse_sse_chunk(chunk)
+            for event_type, data in parsed_events:
+                if event_type == AssistantEventType.MESSAGE:
+                    messages.append({"type": event_type, "data": data})
 
         return messages
 
-    @async_to_sync
-    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
-        """Sync method. Returns all messages in once without streaming."""
-        return await self.ainvoke()
+    def _parse_sse_chunk(self, chunk: str) -> list[tuple[str, dict[str, Any]]]:
+        events = []
+        lines = chunk.strip().split("\n")
 
-    async def astream(self, stream_messages: bool = True) -> AsyncGenerator[AssistantOutput, None]:
-        state = await self._init_or_update_state()
+        i = 0
+        while i < len(lines):
+            if i + 1 < len(lines) and lines[i].startswith("event:") and lines[i + 1].startswith("data:"):
+                event_type = lines[i].replace("event:", "").strip()
+                data_str = lines[i + 1].replace("data:", "").strip()
+                try:
+                    data = json.loads(data_str)
+                    events.append((event_type, data))
+                except json.JSONDecodeError:
+                    pass
+                i += 2
+            else:
+                i += 1
+
+        return events
+
+    def _astream(self):
+        return SyncIterableToAsync(self._stream())
+
+    def _stream(self) -> Generator[str, None, None]:
+        state = self._init_or_update_state()
         config = self._get_config()
-
-        # Some execution modes don't need to stream messages.
-        stream_mode: list[StreamMode] = ["values", "updates", "debug", "custom"]
-        if stream_messages:
-            stream_mode.append("messages")
-
-        generator: AsyncIterator[Any] = self._graph.astream(
-            state, config=config, stream_mode=stream_mode, subgraphs=True
+        generator: Iterator[Any] = self._graph.stream(
+            state, config=config, stream_mode=["messages", "values", "updates", "debug", "custom"], subgraphs=True
         )
 
-        async with self._lock_conversation():
+        with self._lock_conversation():
             # Assign the conversation id to the client.
             if self._is_new_conversation:
-                yield AssistantEventType.CONVERSATION, self._conversation
+                yield self._serialize_conversation()
 
             if self._latest_message and self._mode == AssistantMode.ASSISTANT:
                 # Send the last message with the initialized id.
-                yield AssistantEventType.MESSAGE, self._latest_message
+                yield self._serialize_message(self._latest_message)
 
             try:
                 last_viz_message = None
-                async for update in generator:
-                    if messages := await self._process_update(update):
+                for update in generator:
+                    if messages := self._process_update(update):
                         for message in messages:
                             if isinstance(message, VisualizationMessage):
                                 last_viz_message = message
@@ -206,10 +222,10 @@ class Assistant:
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            yield AssistantEventType.MESSAGE, cast(AssistantMessageUnion, message)
+                            yield self._serialize_message(message)
 
                 # Check if the assistant has requested help.
-                state = await self._graph.aget_state(config)
+                state = self._graph.get_state(config)
                 if state.next:
                     interrupt_messages = []
                     for task in state.tasks:
@@ -220,9 +236,9 @@ class Assistant:
                                 else interrupt.value
                             )
                             interrupt_messages.append(interrupt_message)
-                            yield AssistantEventType.MESSAGE, interrupt_message
+                            yield self._serialize_message(interrupt_message)
 
-                    await self._graph.aupdate_state(
+                    self._graph.update_state(
                         config,
                         PartialAssistantState(
                             messages=interrupt_messages,
@@ -231,29 +247,26 @@ class Assistant:
                         ),
                     )
                 else:
-                    await self._report_conversation_state(last_viz_message)
+                    self._report_conversation_state(last_viz_message)
             except GraphRecursionError:
-                yield (
-                    AssistantEventType.MESSAGE,
+                yield self._serialize_message(
                     FailureMessage(
                         content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
                         id=str(uuid4()),
-                    ),
+                    )
                 )
             except Exception as e:
                 # Reset the state, so that the next generation starts from the beginning.
-                await self._graph.aupdate_state(config, PartialAssistantState.get_reset_state())
+                self._graph.update_state(config, PartialAssistantState.get_reset_state())
 
                 if not isinstance(e, GenerationCanceled):
-                    logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(e)
-
                     # This is an unhandled error, so we just stop further generation at this point
-                    snapshot = await self._graph.aget_state(config)
-                    state_snapshot = validate_state_update(snapshot.values)
+                    logger.exception("Error in assistant stream", error=e)
+                    state_snapshot = validate_state_update(self._graph.get_state(config).values)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
-                        yield AssistantEventType.MESSAGE, FailureMessage()
+                        yield self._serialize_message(FailureMessage())
+                    raise  # Re-raise, so that the error is printed or goes into error tracking
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -283,16 +296,16 @@ class Assistant:
         }
         return config
 
-    async def _init_or_update_state(self):
+    def _init_or_update_state(self):
         config = self._get_config()
-        snapshot = await self._graph.aget_state(config)
+        snapshot = self._graph.get_state(config)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message:
             saved_state = validate_state_update(snapshot.values)
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
-                await self._graph.aupdate_state(
+                self._graph.update_state(
                     config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
@@ -305,7 +318,7 @@ class Assistant:
         self._state = initial_state
         return initial_state
 
-    async def _node_to_reasoning_message(
+    def _node_to_reasoning_message(
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
@@ -345,9 +358,7 @@ class Assistant:
                                         else action.tool_input["action_id"]
                                     )
                                     try:
-                                        action_model = await Action.objects.aget(
-                                            pk=id, team__project_id=self._team.project_id
-                                        )
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
                                         elif action.tool == "retrieve_action_property_values" and isinstance(
@@ -393,7 +404,7 @@ class Assistant:
             case _:
                 return None
 
-    async def _process_update(self, update: Any) -> list[BaseModel] | None:
+    def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
             # Custom streams come from a tool call
             update = update[2]
@@ -405,7 +416,7 @@ class Assistant:
             return new_messages
         elif is_message_update(update) and (new_message := self._process_message_update(update)):
             return [new_message]
-        elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
+        elif is_task_started_update(update) and (new_message := self._process_task_started_update(update)):
             return [new_message]
         return None
 
@@ -459,15 +470,29 @@ class Assistant:
                     return AssistantMessage(content=cast(str, self._chunks.content))
         return None
 
-    async def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
+    def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
         _, task_update = update
         node_name = task_update["payload"]["name"]  # type: ignore
         node_input = task_update["payload"]["input"]  # type: ignore
-        if reasoning_message := await self._node_to_reasoning_message(node_name, node_input):
+        if reasoning_message := self._node_to_reasoning_message(node_name, node_input):
             return reasoning_message
         return None
 
-    async def _report_conversation_state(self, message: Optional[VisualizationMessage]):
+    def _serialize_message(self, message: BaseModel) -> str:
+        output = ""
+        if isinstance(message, AssistantGenerationStatusEvent):
+            output += f"event: {AssistantEventType.STATUS}\n"
+        else:
+            output += f"event: {AssistantEventType.MESSAGE}\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
+
+    def _serialize_conversation(self) -> str:
+        output = f"event: {AssistantEventType.CONVERSATION}\n"
+        json_conversation = json.dumps(ConversationMinimalSerializer(self._conversation).data)
+        output += f"data: {json_conversation}\n\n"
+        return output
+
+    def _report_conversation_state(self, message: Optional[VisualizationMessage]):
         if not (self._user and message):
             return
 
@@ -475,7 +500,7 @@ class Assistant:
 
         if self._mode == AssistantMode.ASSISTANT:
             if self._latest_message:
-                await database_sync_to_async(report_user_action)(
+                report_user_action(
                     self._user,
                     "chat with ai",
                     {"prompt": self._latest_message.content, "response": response},
@@ -483,7 +508,7 @@ class Assistant:
             return
 
         if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
-            await database_sync_to_async(report_user_action)(
+            report_user_action(
                 self._user,
                 "standalone ai tool call",
                 {
@@ -494,12 +519,12 @@ class Assistant:
             )
             return
 
-    @asynccontextmanager
-    async def _lock_conversation(self):
+    @contextmanager
+    def _lock_conversation(self):
         try:
             self._conversation.status = Conversation.Status.IN_PROGRESS
-            await self._conversation.asave(update_fields=["status"])
+            self._conversation.save(update_fields=["status"])
             yield
         finally:
             self._conversation.status = Conversation.Status.IDLE
-            await self._conversation.asave(update_fields=["status", "updated_at"])
+            self._conversation.save(update_fields=["status", "updated_at"])

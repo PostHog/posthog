@@ -18,8 +18,8 @@ from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment,
 
 
 @pytest.mark.django_db
-async def eval_funnel(call_root_for_insight_generation):
-    await MaxEval(
+def eval_funnel(call_root_for_insight_generation):
+    MaxEval(
         experiment_name="funnel",
         task=call_root_for_insight_generation,
         scores=[

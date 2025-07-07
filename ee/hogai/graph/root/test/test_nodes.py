@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -597,13 +597,12 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_4), "root")
 
-    async def test_run_no_assistant_message(self):
+    def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
-        result = await node.arun(state, {})
-        self.assertEqual(result, PartialAssistantState(root_tool_calls_count=0))
+        self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
-    async def test_run_valid_tool_call(self):
+    def test_run_valid_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -620,13 +619,13 @@ class TestRootNodeTools(BaseTest):
                 )
             ]
         )
-        result = await node.arun(state, {})
+        result = node.run(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
         self.assertEqual(result.root_tool_insight_type, "trends")
 
-    async def test_run_valid_contextual_tool_call(self):
+    def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -648,7 +647,7 @@ class TestRootNodeTools(BaseTest):
             "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
             return_value=("Success", {}),
         ):
-            result = await node.arun(
+            result = node.run(
                 state,
                 {
                     "configurable": {
@@ -665,7 +664,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
         self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
-    async def test_run_multiple_tool_calls_raises(self):
+    def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -688,10 +687,10 @@ class TestRootNodeTools(BaseTest):
             ]
         )
         with self.assertRaises(ValueError) as cm:
-            await node.arun(state, {})
+            node.run(state, {})
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
-    async def test_run_increments_tool_count(self):
+    def test_run_increments_tool_count(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -709,23 +708,23 @@ class TestRootNodeTools(BaseTest):
             ],
             root_tool_calls_count=2,  # Starting count
         )
-        result = await node.arun(state, {})
+        result = node.run(state, {})
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
 
-    async def test_run_resets_tool_count(self):
+    def test_run_resets_tool_count(self):
         node = RootNodeTools(self.team, self.user)
 
         # Test reset when no tool calls in AssistantMessage
         state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
-        result = await node.arun(state_1, {})
+        result = node.run(state_1, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
         # Test reset when last message is HumanMessage
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
-        result = await node.arun(state_2, {})
+        result = node.run(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
-    async def test_navigate_tool_call_raises_node_interrupt(self):
+    def test_navigate_tool_call_raises_node_interrupt(self):
         """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
         node = RootNodeTools(self.team, self.user)
 
@@ -741,15 +740,15 @@ class TestRootNodeTools(BaseTest):
 
         with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
             # Mock the navigate tool
-            mock_navigate_tool = AsyncMock()
-            mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
+            mock_navigate_tool = MagicMock()
+            mock_navigate_tool.invoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
             mock_tools.return_value = lambda _: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
-                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+                node.run(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
 
             # Verify the NodeInterrupt contains the expected message
             # NodeInterrupt wraps the message in an Interrupt object
@@ -762,7 +761,7 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
-    async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
+    def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
         """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
         node = RootNodeTools(self.team, self.user)
 
@@ -780,14 +779,14 @@ class TestRootNodeTools(BaseTest):
 
         with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
             # Mock the search_session_recordings tool
-            mock_search_session_recordings = AsyncMock()
-            mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
+            mock_search_session_recordings = MagicMock()
+            mock_search_session_recordings.invoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
             mock_tools.return_value = lambda _: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
-            result = await node.arun(
+            result = node.run(
                 state,
                 {
                     "configurable": {

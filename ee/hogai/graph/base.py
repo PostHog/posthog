@@ -1,5 +1,5 @@
 import datetime
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
@@ -13,7 +13,6 @@ from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
-from posthog.warehouse.util import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -26,42 +25,23 @@ class AssistantNode(ABC):
         self._team = team
         self._user = user
 
-    async def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
         thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and await self._is_conversation_cancelled(thread_id):
+        if thread_id and self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            return await database_sync_to_async(self.run)(state, config)
+        return self.run(state, config)
 
-    # DEPRECATED: Use `arun` instead
+    @abstractmethod
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        """DEPRECATED. Use `arun` instead."""
         raise NotImplementedError
-
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        raise NotImplementedError
-
-    async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return await Conversation.objects.aget(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
 
     def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
         try:
             return Conversation.objects.get(team=self._team, id=conversation_id)
         except Conversation.DoesNotExist:
-            return None
-
-    async def _aget_core_memory(self) -> CoreMemory | None:
-        try:
-            return await CoreMemory.objects.aget(team=self._team)
-        except CoreMemory.DoesNotExist:
             return None
 
     @property
@@ -102,10 +82,14 @@ class AssistantNode(ABC):
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
 
-    async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
-        conversation = await self._aget_conversation(conversation_id)
+    def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
+        conversation = self._get_conversation(conversation_id)
         if not conversation:
-            raise ValueError(f"Conversation {conversation_id} not found")
+            raise ValueError(
+                f"Conversation {conversation_id} not found",
+                Team.objects.all().count(),
+                Conversation.objects.all().count(),
+            )
         return conversation.status == Conversation.Status.CANCELING
 
     def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:

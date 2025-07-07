@@ -1,5 +1,4 @@
 import pydantic
-from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
@@ -25,10 +24,9 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     messages = serializers.SerializerMethodField()
 
-    @async_to_sync
-    async def get_messages(self, conversation: Conversation):
+    def get_messages(self, conversation: Conversation):
         graph: CompiledStateGraph = self.context["assistant_graph"]
-        snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id)}})
+        snapshot = graph.get_state({"configurable": {"thread_id": str(conversation.id)}})
         try:
             state = AssistantState.model_validate(snapshot.values)
             return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]

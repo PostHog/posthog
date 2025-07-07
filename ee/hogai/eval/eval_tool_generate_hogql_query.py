@@ -1,7 +1,6 @@
 import pytest
-from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase
-
+from autoevals.ragas import AnswerSimilarity
 from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
 from products.data_warehouse.backend.max_tools import HogQLGeneratorTool
 
@@ -25,8 +24,8 @@ def call_generate_hogql_query(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_tool_generate_hogql_query(call_generate_hogql_query):
-    await MaxEval(
+def eval_tool_generate_hogql_query(call_generate_hogql_query):
+    MaxEval(
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), AnswerSimilarity()],

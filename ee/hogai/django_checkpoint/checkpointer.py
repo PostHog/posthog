@@ -1,11 +1,11 @@
-import asyncio
 import json
 import random
-from collections.abc import AsyncIterator, Sequence
+import threading
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any, Optional, cast
 
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -18,19 +18,18 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
+from langgraph.checkpoint.serde.types import ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
-from posthog.warehouse.util import database_sync_to_async
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
-    _lock: asyncio.Lock
+    _lock: threading.Lock
 
     def __init__(self, *args):
         super().__init__(*args)
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -82,25 +81,16 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if before is not None:
             query &= Q(id__lt=get_checkpoint_id(before))
 
-        return (
-            ConversationCheckpoint.objects.filter(query)
-            .order_by("-id")
-            .select_related("parent_checkpoint")
-            .prefetch_related(
-                Prefetch("writes", queryset=ConversationCheckpointWrite.objects.order_by("idx", "task_id")),
-                Prefetch(
-                    "parent_checkpoint__writes",
-                    queryset=ConversationCheckpointWrite.objects.filter(channel=TASKS).order_by("task_id", "idx"),
-                ),
-            )
-        )
+        return ConversationCheckpoint.objects.filter(query).order_by("-id")
 
-    def _get_checkpoint_channel_values(self, checkpoint: ConversationCheckpoint):
+    def _get_checkpoint_channel_values(
+        self, checkpoint: ConversationCheckpoint
+    ) -> Iterable[ConversationCheckpointBlob]:
         if not checkpoint.checkpoint:
-            return None
+            return []
         loaded_checkpoint = self._load_json(checkpoint.checkpoint)
         if "channel_versions" not in loaded_checkpoint:
-            return None
+            return []
         query = Q()
         for channel, version in loaded_checkpoint["channel_versions"].items():
             query |= Q(channel=channel, version=version)
@@ -108,14 +98,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             Q(thread_id=checkpoint.thread_id, checkpoint_ns=checkpoint.checkpoint_ns) & query
         )
 
-    async def alist(
+    def list(
         self,
         config: Optional[RunnableConfig],
         *,
         filter: Optional[dict[str, Any]] = None,
         before: Optional[RunnableConfig] = None,
         limit: Optional[int] = None,
-    ) -> AsyncIterator[CheckpointTuple]:
+    ) -> Iterator[CheckpointTuple]:
         """List checkpoints from the database.
 
         This method retrieves a list of checkpoint tuples from the Postgres database based
@@ -134,36 +124,23 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if limit:
             qs = qs[:limit]
 
-        async for checkpoint in qs:
+        for checkpoint in qs:
             channel_values = self._get_checkpoint_channel_values(checkpoint)
             loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
 
-            pending_sends = (
-                [
+            checkpoint_dict: Checkpoint = {
+                **loaded_checkpoint,
+                "pending_sends": [
                     self.serde.loads_typed((checkpoint_write.type, checkpoint_write.blob))
-                    # Prefetched in `_get_checkpoint_qs`
-                    async for checkpoint_write in checkpoint.parent_checkpoint.writes.all()
-                ]
-                if checkpoint.parent_checkpoint
-                else []
-            )
-
-            channel_values = (
-                {
+                    for checkpoint_write in checkpoint.pending_sends
+                ],
+                "channel_values": {
                     checkpoint_blob.channel: self.serde.loads_typed((checkpoint_blob.type, checkpoint_blob.blob))
-                    async for checkpoint_blob in channel_values
+                    for checkpoint_blob in channel_values
                     if checkpoint_blob.type is not None
                     and checkpoint_blob.type != "empty"
                     and checkpoint_blob.blob is not None
-                }
-                if channel_values is not None
-                else {}
-            )
-
-            checkpoint_dict: Checkpoint = {
-                **loaded_checkpoint,
-                "pending_sends": pending_sends,
-                "channel_values": channel_values,
+                },
             }
 
             yield CheckpointTuple(
@@ -187,11 +164,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     if checkpoint.parent_checkpoint
                     else None
                 ),
-                # Prefetched in `_get_checkpoint_qs`
-                self._load_writes([write async for write in checkpoint.writes.all()]),
+                self._load_writes(checkpoint.pending_writes),
             )
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         """Get a checkpoint tuple from the database.
 
         This method retrieves a checkpoint tuple from the Postgres database based on the
@@ -205,20 +181,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         Returns:
             Optional[CheckpointTuple]: The retrieved checkpoint tuple, or None if no matching checkpoint was found.
         """
-        return await anext(self.alist(config), None)
+        return next(self.list(config), None)
 
-    async def aput(
-        self,
-        config: RunnableConfig,
-        checkpoint: Checkpoint,
-        metadata: CheckpointMetadata,
-        new_versions: ChannelVersions,
-    ) -> RunnableConfig:
-        async with self._lock:
-            return await self._put(config, checkpoint, metadata, new_versions)
-
-    @database_sync_to_async
-    def _put(
+    def put(
         self,
         config: RunnableConfig,
         checkpoint: Checkpoint,
@@ -255,7 +220,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             }
         }
 
-        with transaction.atomic():
+        with self._lock, transaction.atomic():
             updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
@@ -286,24 +251,13 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
         return next_config
 
-    async def aput_writes(
+    def put_writes(
         self,
         config: RunnableConfig,
         writes: Sequence[tuple[str, Any]],
         task_id: str,
         task_path: str = "",
     ) -> None:
-        async with self._lock:
-            return await self._put_writes(config, writes, task_id, task_path)
-
-    @database_sync_to_async
-    def _put_writes(
-        self,
-        config: RunnableConfig,
-        writes: Sequence[tuple[str, Any]],
-        task_id: str,
-        task_path: str = "",
-    ):
         """Store intermediate writes linked to a checkpoint.
 
         This method saves intermediate writes associated with a checkpoint to the Postgres database.
@@ -318,7 +272,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_id = get_checkpoint_id(config)
         checkpoint_ns: str | None = configurable.get("checkpoint_ns") or ""
 
-        with transaction.atomic():
+        with self._lock, transaction.atomic():
             # `put_writes` and `put` are concurrently called without guaranteeing the call order
             # so we need to ensure the checkpoint is created before creating writes.
             # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.

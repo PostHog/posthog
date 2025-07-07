@@ -1,17 +1,13 @@
 from typing import Optional
-
 import pytest
-from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
-
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.models.assistant import Conversation
-from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
-
+from autoevals.llm import LLMClassifier
 from .conftest import MaxEval
 from .scorers import ToolRelevance
+from ee.hogai.utils.types import AssistantState, AssistantNodeName
+from ee.hogai.graph import AssistantGraph
+from ee.models.assistant import Conversation
+from posthog.schema import HumanMessage, AssistantMessage, AssistantToolCall
 
 
 class MemoryContentRelevance(LLMClassifier):
@@ -69,13 +65,12 @@ def call_node(demo_org_team_user, core_memory):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_memory_collector(AssistantNodeName.END, AssistantNodeName.END)
-        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
-        .compile(checkpointer=DjangoCheckpointer())
+        .compile()
     )
 
-    async def callable(message: str) -> Optional[AssistantMessage]:
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        raw_state = await graph.ainvoke(
+    def callable(message: str) -> Optional[AssistantMessage]:
+        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
+        raw_state = graph.invoke(
             AssistantState(messages=[HumanMessage(content=message)]), {"configurable": {"thread_id": conversation.id}}
         )
         state = AssistantState.model_validate(raw_state)
@@ -90,8 +85,8 @@ def call_node(demo_org_team_user, core_memory):
 
 
 @pytest.mark.django_db
-async def eval_memory(call_node):
-    await MaxEval(
+def eval_memory(call_node):
+    MaxEval(
         experiment_name="memory",
         task=call_node,
         scores=[ToolRelevance(semantic_similarity_args={"memory_content", "new_fragment"}), MemoryContentRelevance()],

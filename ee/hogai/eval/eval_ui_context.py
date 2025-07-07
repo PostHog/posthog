@@ -1,7 +1,6 @@
 import pytest
 from braintrust import EvalCase
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
@@ -12,8 +11,8 @@ from posthog.schema import (
     AssistantToolCall,
     HumanMessage,
     MaxActionContext,
-    MaxContextShape,
     MaxEventContext,
+    MaxContextShape,
 )
 
 from .conftest import MaxEval
@@ -34,18 +33,17 @@ def call_root_with_ui_context(demo_org_team_user):
                 "end": AssistantNodeName.END,
             }
         )
-        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
-        .compile(checkpointer=DjangoCheckpointer())
+        .compile()
     )
 
-    async def callable(input_dict: dict) -> AssistantMessage:
+    def callable(input_dict: dict) -> AssistantMessage:
         messages = input_dict["messages"]
         ui_context = input_dict.get("ui_context")
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
         initial_state = AssistantState(
             messages=[HumanMessage(content=messages, ui_context=ui_context)] if isinstance(messages, str) else messages
         )
-        raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
+        raw_state = graph.invoke(initial_state, {"configurable": {"thread_id": conversation.id}})
         state = AssistantState.model_validate(raw_state)
         assert isinstance(state.messages[-1], AssistantMessage)
         return state.messages[-1]
@@ -66,9 +64,9 @@ def sample_action(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
+def eval_ui_context_actions(call_root_with_ui_context, sample_action):
     """Test that actions in UI context are properly used in RAG context retrieval"""
-    await MaxEval(
+    MaxEval(
         experiment_name="ui_context_actions",
         task=call_root_with_ui_context,
         scores=[
@@ -130,9 +128,9 @@ async def eval_ui_context_actions(call_root_with_ui_context, sample_action):
 
 
 @pytest.mark.django_db
-async def eval_ui_context_events(call_root_with_ui_context):
+def eval_ui_context_events(call_root_with_ui_context):
     """Test that events in UI context are properly used in taxonomy agent"""
-    await MaxEval(
+    MaxEval(
         experiment_name="ui_context_events",
         task=call_root_with_ui_context,
         scores=[
