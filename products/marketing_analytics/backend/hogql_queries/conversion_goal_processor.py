@@ -80,8 +80,6 @@ class ConversionGoalProcessor:
             elif self.goal.kind == "DataWarehouseNode":
                 distinct_id_field = self.goal.schema_map.get("distinct_id_field", "distinct_id")
                 return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
-            else:
-                return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
         elif math_type == "sum" or str(math_type).endswith("_sum") or math_type == PropertyMathType.SUM:
             math_property = self.goal.math_property
             if not math_property:
@@ -96,12 +94,6 @@ class ConversionGoalProcessor:
                 elif self.goal.kind == "DataWarehouseNode":
                     # round(sum(toFloat(math_property)), DECIMAL_PRECISION)
                     to_float = ast.Call(name="toFloat", args=[ast.Field(chain=[math_property])])
-                    sum_expr = ast.Call(name="sum", args=[to_float])
-                    return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
-                else:
-                    # Same as events node
-                    property_field = ast.Field(chain=["events", "properties", math_property])
-                    to_float = ast.Call(name="toFloat", args=[property_field])
                     sum_expr = ast.Call(name="sum", args=[to_float])
                     return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
         else:
