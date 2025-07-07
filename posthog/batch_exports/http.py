@@ -7,7 +7,15 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework import (
+    filters,
+    mixins,
+    request,
+    response,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -50,6 +58,7 @@ from posthog.models import (
 )
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.batch_exports.destination_tests import get_destination_test
+from posthog.temporal.batch_exports.s3_batch_export import SUPPORTED_COMPRESSIONS
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -305,6 +314,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
+        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+            config = destination_attrs["config"]
+            # JSONLines is the default file format for S3 exports for legacy reasons
+            file_format = config.get("file_format", "JSONLines")
+            supported_file_formats = SUPPORTED_COMPRESSIONS.keys()
+            if file_format not in supported_file_formats:
+                raise serializers.ValidationError(
+                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
+                )
+            compression = config.get("compression", None)
+            if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+                raise serializers.ValidationError(
+                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
+                )
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
