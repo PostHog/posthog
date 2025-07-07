@@ -1,4 +1,4 @@
-import { NativeTemplate } from '~/cdp/services/native-destination-executor.service'
+import { IntegrationError, NativeTemplate } from '~/cdp/services/native-destination-executor.service'
 
 export const template: NativeTemplate = {
     free: false,
@@ -11,16 +11,16 @@ export const template: NativeTemplate = {
     category: ['Custom'],
     perform: (request, { payload }) => {
         try {
-          return request(payload.url, {
-            method: payload.method,
-            headers: payload.headers,
-            json: payload.body
-          })
+            return request(payload.url, {
+                method: payload.method,
+                headers: payload.headers,
+                json: payload.body
+            })
         } catch (error) {
-          if (error instanceof TypeError) throw new Error(error.message)
-          throw error
+            if (error instanceof TypeError) throw new IntegrationError(error.message, 'INVALID_PAYLOAD', 400)
+            throw error
         }
-      },
+    },
     inputs_schema: [
         {
             key: 'url',
