@@ -178,7 +178,6 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        // TODO HANDLE THIS
         insert_flags_for_team_in_redis(redis_client.clone(), team.id, team.project_id, None)
             .await
             .expect("Failed to insert flags");
