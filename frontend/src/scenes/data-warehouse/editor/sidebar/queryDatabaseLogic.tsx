@@ -453,7 +453,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
-                s.joinsLoading,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -463,8 +462,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 searchTerm: string,
                 searchTreeData: TreeDataItem[],
                 databaseLoading: boolean,
-                dataWarehouseSavedQueriesLoading: boolean,
-                joinsLoading: boolean
+                dataWarehouseSavedQueriesLoading: boolean
             ): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchTreeData
@@ -473,10 +471,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const sourcesChildren: TreeDataItem[] = []
 
                 // Add loading indicator for sources if still loading
-                if (
-                    (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) ||
-                    joinsLoading
-                ) {
+                if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
                     sourcesChildren.push({
                         id: 'sources-loading/',
                         name: 'Loading...',
@@ -515,10 +510,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add loading indicator for views if still loading
                 if (
-                    (dataWarehouseSavedQueriesLoading &&
-                        dataWarehouseSavedQueries.length === 0 &&
-                        managedViews.length === 0) ||
-                    joinsLoading
+                    dataWarehouseSavedQueriesLoading &&
+                    dataWarehouseSavedQueries.length === 0 &&
+                    managedViews.length === 0
                 ) {
                     viewsChildren.push({
                         id: 'views-loading/',

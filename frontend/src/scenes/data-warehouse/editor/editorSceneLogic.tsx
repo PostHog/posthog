@@ -541,6 +541,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 router.values.location.pathname !== urls.sqlEditor()
             ) {
                 if (!values.wasPanelActive) {
+                    panelLayoutLogic.actions.clearActivePanelIdentifier()
                     panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
                     panelLayoutLogic.actions.showLayoutPanel(false)
                 }
