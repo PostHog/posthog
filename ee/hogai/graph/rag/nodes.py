@@ -46,7 +46,7 @@ class InsightRagContextNode(AssistantNode):
             embeddings_client = get_azure_embeddings_client()
             vector = embed_search_query(embeddings_client, plan)
         except (AzureHttpResponseError, ValueError) as e:
-            posthoganalytics.capture_exception(e, distinct_id, {"tag": "max"})
+            posthoganalytics.capture_exception(e, distinct_id=distinct_id, properties={"tag": "max"})
             if len(actions_in_context) == 0:
                 return None
             else:
@@ -124,9 +124,9 @@ class InsightRagContextNode(AssistantNode):
         }
         for metric_name, metric_value in metrics.items():
             posthoganalytics.capture(
-                distinct_id,
                 "$ai_metric",
-                {
+                distinct_id=distinct_id,
+                properties={
                     "$ai_trace_id": trace_id,
                     "$ai_metric_name": metric_name,
                     "$ai_metric_value": metric_value,

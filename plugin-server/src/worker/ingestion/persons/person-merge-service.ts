@@ -11,7 +11,7 @@ import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
-import { applyEventPropertyUpdates } from './person-update'
+import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -376,8 +376,13 @@ export class PersonMergeService {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        applyEventPropertyUpdates(this.context.event, properties)
+        const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        const propertyUpdates = computeEventPropertyUpdates(this.context.event, mergedProperties)
+
+        // Create a temporary person object to apply property updates to
+        const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }
+        const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
+        const properties = updatedTempPerson.properties
 
         const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,
