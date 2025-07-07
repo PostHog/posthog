@@ -8,6 +8,7 @@ export class Logger {
     private pino: ReturnType<typeof pino>
     private prefix: string
     private transport?: ReturnType<typeof pino.transport>
+    private isShutdown: boolean = false
 
     constructor(name: string) {
         this.prefix = `[${name.toUpperCase()}]`
@@ -47,7 +48,7 @@ export class Logger {
 
     private _log(level: LogLevel, ...args: any[]) {
         // Prevent logging after shutdown to avoid "worker has exited" errors
-        if (!this.pino || this.pino.destroyed) {
+        if (this.isShutdown || !this.pino) {
             return
         }
 
@@ -94,6 +95,7 @@ export class Logger {
     }
 
     async shutdown(): Promise<void> {
+        this.isShutdown = true
         try {
             if (this.transport) {
                 await this.transport.end()
