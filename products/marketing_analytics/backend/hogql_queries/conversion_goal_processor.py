@@ -37,7 +37,9 @@ class ConversionGoalProcessor:
     team: Team
     query_date_range: DateRange | None
     use_temporal_attribution: bool = True  # For now it's always true, but might be configurable by the user
-    utm_pageview_only: bool = True  # Optimization: only search pageviews for UTM data, but might be configurable by the user
+    utm_pageview_only: bool = (
+        True  # Optimization: only search pageviews for UTM data, but might be configurable by the user
+    )
 
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""
@@ -122,7 +124,9 @@ class ConversionGoalProcessor:
             if event_name:
                 # events.event = 'event_name'
                 event_condition = ast.CompareOperation(
-                    left=ast.Field(chain=["events", "event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=event_name)
+                    left=ast.Field(chain=["events", "event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=event_name),
                 )
                 conditions.append(event_condition)
         elif self.goal.kind == "ActionsNode":
@@ -146,36 +150,36 @@ class ConversionGoalProcessor:
         else:
             return "events.timestamp"
 
-    def generate_person_utm_subquery(self, additional_conditions: list[ast.Expr] = None) -> ast.SelectQuery:
+    def generate_person_utm_subquery(self, additional_conditions: list[ast.Expr] | None = None) -> ast.SelectQuery:
         """
         STEP 1: Generate person-level UTM fallback data subquery
-        
+
         PURPOSE: For each person, find their most recent UTM campaign/source data within the query date range
         This is used as FALLBACK when conversion events don't have their own UTM data
         Date filtering prevents future UTM data from attributing past conversions
-        
+
         EXAMPLE SQL OUTPUT:
-        SELECT 
+        SELECT
             events.person_id AS person_id,
-            argMax(if(utm_campaign IS NOT NULL AND utm_source IS NOT NULL 
-                     AND utm_campaign != '' AND utm_source != '', 
+            argMax(if(utm_campaign IS NOT NULL AND utm_source IS NOT NULL
+                     AND utm_campaign != '' AND utm_source != '',
                      utm_campaign, NULL), events.timestamp) AS utm_campaign,
-            argMax(if(utm_campaign IS NOT NULL AND utm_source IS NOT NULL 
-                     AND utm_campaign != '' AND utm_source != '', 
+            argMax(if(utm_campaign IS NOT NULL AND utm_source IS NOT NULL
+                     AND utm_campaign != '' AND utm_source != '',
                      utm_source, NULL), events.timestamp) AS utm_source
-        FROM events 
+        FROM events
         WHERE events.team_id = 123
-          AND events.timestamp >= toDate('2023-01-01') 
+          AND events.timestamp >= toDate('2023-01-01')
           AND events.timestamp <= toDate('2023-01-31')
         GROUP BY events.person_id
-        
+
         EXAMPLE RESULT ROWS:
         person_id | utm_campaign  | utm_source  | (meaning)
         ----------|---------------|-------------|------------------------------------------
         1001      | google_ads    | google      | Person 1001's most recent UTM data (within date range)
         1002      | facebook_ads  | facebook    | Person 1002's most recent UTM data (within date range)
         1003      | NULL          | NULL        | Person 1003 had no complete UTM data in date range
-        
+
         KEY LOGIC:
         - Only considers events where BOTH campaign AND source exist (complete UTM pair)
         - Uses argMax() to get the most recent complete UTM pair per person WITHIN DATE RANGE
@@ -184,25 +188,27 @@ class ConversionGoalProcessor:
         """
         utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
         utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
-        
+
         # CONDITION: Both UTM campaign and source must exist and be non-empty
         # This ensures we only use "complete" UTM attribution data
         # Incomplete UTM data (only campaign OR only source) is ignored
-        both_utm_exist = ast.And(exprs=[
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_campaign_field])]),
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_source_field])]),
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "properties", utm_campaign_field]),
-                op=ast.CompareOperationOp.NotEq,
-                right=ast.Constant(value=""),
-            ),
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "properties", utm_source_field]),
-                op=ast.CompareOperationOp.NotEq,
-                right=ast.Constant(value=""),
-            ),
-        ])
-        
+        both_utm_exist = ast.And(
+            exprs=[
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_campaign_field])]),
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_source_field])]),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "properties", utm_campaign_field]),
+                    op=ast.CompareOperationOp.NotEq,
+                    right=ast.Constant(value=""),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "properties", utm_source_field]),
+                    op=ast.CompareOperationOp.NotEq,
+                    right=ast.Constant(value=""),
+                ),
+            ]
+        )
+
         # CONDITIONAL EXTRACTION: Extract UTM campaign only if complete UTM pair exists
         # if(both_utm_exist, utm_campaign, NULL)
         # This means: "give me the campaign value, but only if we also have a source"
@@ -214,74 +220,69 @@ class ConversionGoalProcessor:
                 ast.Constant(value=None),
             ],
         )
-        
-        # CONDITIONAL EXTRACTION: Extract UTM source only if complete UTM pair exists  
+
+        # CONDITIONAL EXTRACTION: Extract UTM source only if complete UTM pair exists
         # if(both_utm_exist, utm_source, NULL)
         # This means: "give me the source value, but only if we also have a campaign"
         source_case = ast.Call(
-            name="if", 
+            name="if",
             args=[
                 both_utm_exist,
                 ast.Field(chain=["events", "properties", utm_source_field]),
                 ast.Constant(value=None),
             ],
         )
-        
+
         # MOST RECENT UTM: Use argMax to get the most recent complete UTM data per person
         # argMax(value, timestamp) = "give me the value from the row with the highest timestamp"
         # This gives us the person's GLOBALLY most recent UTM data (no time window filtering)
         utm_campaign_expr = ast.Call(name="argMax", args=[campaign_case, ast.Field(chain=["events", "timestamp"])])
         utm_source_expr = ast.Call(name="argMax", args=[source_case, ast.Field(chain=["events", "timestamp"])])
-        
+
         # SELECT COLUMNS: What this subquery returns
         select_columns = [
-            ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),    # Person identifier
-            ast.Alias(alias="utm_campaign", expr=utm_campaign_expr),                        # Most recent campaign
-            ast.Alias(alias="utm_source", expr=utm_source_expr),                           # Most recent source
+            ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),  # Person identifier
+            ast.Alias(alias="utm_campaign", expr=utm_campaign_expr),  # Most recent campaign
+            ast.Alias(alias="utm_source", expr=utm_source_expr),  # Most recent source
         ]
-        
+
         # FROM CLAUSE: Just events table - HogQL will handle person_distinct_ids join automatically
         from_expr = ast.JoinExpr(table=ast.Field(chain=["events"]))
-        
+
         # WHERE CONDITIONS: Filter by team and apply date range to prevent future attribution
         # We consider UTM data from different event types based on configuration
         where_conditions: list[ast.CompareOperation] = []
-        
+
         # OPTIONAL OPTIMIZATION: Only look for UTM data in $pageview events to reduce memory usage
         if self.utm_pageview_only:
             where_conditions.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["events", "event"]),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value="$pageview")
+                    right=ast.Constant(value="$pageview"),
                 )
             )
-        
+
         # Add date range conditions to prevent future UTM data from attributing past conversions
         if additional_conditions:
             where_conditions.extend(additional_conditions)
-        
+
         where_expr = None
         if len(where_conditions) == 1:
             where_expr = where_conditions[0]
         else:
             where_expr = ast.And(exprs=where_conditions)
-        
+
         # GROUP BY: One row per person
         # This is what triggers the argMax() aggregation - we get the most recent UTM per person
         group_by_exprs = [ast.Field(chain=["events", "person_id"])]
-        
-        return ast.SelectQuery(
-            select=select_columns,
-            select_from=from_expr,
-            where=where_expr,
-            group_by=group_by_exprs
-        )
+
+        return ast.SelectQuery(select=select_columns, select_from=from_expr, where=where_expr, group_by=group_by_exprs)
 
     def generate_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """
         MAIN ENTRY POINT: Generate the complete CTE query for this conversion goal
-        
+
         HYBRID ATTRIBUTION FLOW FOR EVENTS/ACTIONS:
         ┌─────────────────────────────────────────────────────────────────────────────┐
         │ STEP 1: generate_person_utm_subquery()                                     │
@@ -298,9 +299,9 @@ class ConversionGoalProcessor:
         │ → JOIN the above + use coalesce(event_utm, person_utm, 'organic')          │
         │ → Final output: campaign_name, source_name, conversion_count               │
         └─────────────────────────────────────────────────────────────────────────────┘
-        
+
         RESULT: Each conversion is attributed to:
-        1. Event UTM (if conversion event has UTM data) 
+        1. Event UTM (if conversion event has UTM data)
         2. Person UTM (if person has UTM history within date range but event doesn't)
         3. Organic (if no UTM data found within the query date range)
         """
@@ -312,61 +313,65 @@ class ConversionGoalProcessor:
             # For DataWarehouse: Use direct field access (existing behavior)
             return self.generate_direct_cte_query(additional_conditions)
 
-    def generate_person_level_cte_query(self, additional_conditions: list[ast.Expr], use_temporal_attribution: bool = False) -> ast.SelectQuery:
+    def generate_person_level_cte_query(
+        self, additional_conditions: list[ast.Expr], use_temporal_attribution: bool = False
+    ) -> ast.SelectQuery:
         """
         STEP 3: Generate main CTE query with HYBRID EVENT/PERSON-LEVEL UTM ATTRIBUTION
-        
+
         PURPOSE: Combine conversion data with UTM attribution using intelligent fallback logic
         This is the MAIN QUERY that implements the hybrid attribution model
-        
+
         EXAMPLE SQL OUTPUT:
-        SELECT 
+        SELECT
             coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign_name,
             coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source_name,
             sum(conversion_data.conversion_value) AS conversion_0
         FROM (conversion_data_subquery) AS conversion_data
-        LEFT JOIN (utm_attribution_subquery) AS utm_attribution 
+        LEFT JOIN (utm_attribution_subquery) AS utm_attribution
             ON conversion_data.person_id = utm_attribution.person_id
         GROUP BY campaign_name, source_name
-        
+
         EXAMPLE RESULT ROWS (with attribution logic):
         campaign_name | source_name | conversion_0 | (attribution used)
         --------------|-------------|--------------|---------------------------------------------
         google_ads    | google      | 150.50       | Event UTM (purchase had UTM data)
-        facebook_ads  | facebook    | 75.00        | Person UTM fallback (purchase had no UTM) 
+        facebook_ads  | facebook    | 75.00        | Person UTM fallback (purchase had no UTM)
         organic       | organic     | 25.00        | Organic default (no UTM data anywhere)
-        
+
         HYBRID ATTRIBUTION LOGIC:
         1. EVENT UTM FIRST: If conversion event has UTM data → use that (most direct)
         2. PERSON UTM FALLBACK: If conversion event has no UTM → use person's most recent UTM
         3. ORGANIC DEFAULT: If no UTM data anywhere → use "organic"
-        
+
         WHY THIS APPROACH:
         - Most accurate: Direct event attribution when available
         - Smart fallback: Person-level attribution for events without UTM
         - Always has data: Organic default ensures no NULL attribution
         """
-        
-        # STEP 3A: Create conversion data subquery with event-level UTM data  
+
+        # STEP 3A: Create conversion data subquery with event-level UTM data
         # This gets conversion events + their direct UTM parameters (if any)
         conversion_subquery = self.generate_conversion_data_with_utm_subquery(additional_conditions)
-        
-        # STEP 3B: Create person-level UTM attribution subquery 
+
+        # STEP 3B: Create person-level UTM attribution subquery
         if use_temporal_attribution:
             # PREFERRED: Event-level temporal attribution (most recent UTM before each conversion, ignores query date range)
-            utm_attribution_subquery = self.generate_person_utm_with_temporal_attribution_subquery(additional_conditions)
+            utm_attribution_subquery = self.generate_person_utm_with_temporal_attribution_subquery(
+                additional_conditions
+            )
         else:
-            # LEGACY: Date-bounded attribution (most recent UTM within date range only) 
+            # LEGACY: Date-bounded attribution (most recent UTM within date range only)
             utm_attribution_subquery = self.generate_person_utm_subquery(additional_conditions)
-        
+
         # STEP 3C: Build the HYBRID ATTRIBUTION LOGIC using coalesce()
         # NOTE: Schema mapping happens in subqueries when extracting from events.properties
         # Here we reference the standardized alias names that subqueries output
-        
+
         # CAMPAIGN ATTRIBUTION: event → person → organic
         # coalesce(A, B, C) = "use A if not null, else B if not null, else C"
         campaign_coalesce = ast.Call(
-            name="coalesce", 
+            name="coalesce",
             args=[
                 # 1st priority: Event-level UTM campaign
                 # "If this conversion event has utm_campaign, use that"
@@ -376,10 +381,10 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["utm_attribution", "utm_campaign"]),
                 # 3rd priority: Organic default
                 # "Else default to 'organic'"
-                ast.Constant(value=ORGANIC_CAMPAIGN)
-            ]
+                ast.Constant(value=ORGANIC_CAMPAIGN),
+            ],
         )
-        
+
         # SOURCE ATTRIBUTION: event → person → organic (same logic as campaign)
         source_coalesce = ast.Call(
             name="coalesce",
@@ -389,10 +394,10 @@ class ConversionGoalProcessor:
                 # 2nd priority: Person-level UTM source (global most recent)
                 ast.Field(chain=["utm_attribution", "utm_source"]),
                 # 3rd priority: Organic default
-                ast.Constant(value=ORGANIC_SOURCE)
-            ]
+                ast.Constant(value=ORGANIC_SOURCE),
+            ],
         )
-        
+
         # STEP 3D: Build SELECT columns for final output
         select_columns = [
             # Campaign attribution result
@@ -401,18 +406,15 @@ class ConversionGoalProcessor:
             ast.Alias(alias=MarketingSourceAdapter.source_name_field, expr=source_coalesce),
             # Sum all conversion values for this campaign/source combination
             ast.Alias(
-                alias=CONVERSION_GOAL_PREFIX + str(self.index), 
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["conversion_data", "conversion_value"])])
+                alias=CONVERSION_GOAL_PREFIX + str(self.index),
+                expr=ast.Call(name="sum", args=[ast.Field(chain=["conversion_data", "conversion_value"])]),
             ),
         ]
-        
+
         # STEP 3E: Build FROM clause with subquery joins
         # Start with conversion data (this has all the conversion events)
-        conversion_from = ast.JoinExpr(
-            table=conversion_subquery,
-            alias="conversion_data"
-        )
-        
+        conversion_from = ast.JoinExpr(table=conversion_subquery, alias="conversion_data")
+
         # LEFT JOIN person UTM data for fallback attribution
         # LEFT JOIN because not every person may have UTM history
         # Join on BOTH person_id AND conversion_timestamp to prevent Cartesian product
@@ -421,73 +423,71 @@ class ConversionGoalProcessor:
             table=utm_attribution_subquery,
             alias="utm_attribution",
             constraint=ast.JoinConstraint(
-                expr=ast.And(exprs=[
-                    # Match person
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["conversion_data", "person_id"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=["utm_attribution", "person_id"]),
-                    ),
-                    # Match specific conversion timestamp (prevents Cartesian product)
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["conversion_data", "conversion_timestamp"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=["utm_attribution", "conversion_timestamp"]),
-                    ),
-                ]),
+                expr=ast.And(
+                    exprs=[
+                        # Match person
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["conversion_data", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["utm_attribution", "person_id"]),
+                        ),
+                        # Match specific conversion timestamp (prevents Cartesian product)
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["conversion_data", "conversion_timestamp"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["utm_attribution", "conversion_timestamp"]),
+                        ),
+                    ]
+                ),
                 constraint_type="ON",
             ),
         )
-        
+
         # STEP 3F: Chain the joins: conversion_data LEFT JOIN utm_attribution
         conversion_from.next_join = utm_join
         from_expr = conversion_from
-        
+
         # STEP 3G: GROUP BY the final attribution results
         # This aggregates all conversions by their final campaign/source attribution
         # Multiple conversion events can roll up to the same campaign/source pair
         group_by_exprs = [
-            campaign_coalesce,   # Group by final campaign attribution
-            source_coalesce,     # Group by final source attribution
+            campaign_coalesce,  # Group by final campaign attribution
+            source_coalesce,  # Group by final source attribution
         ]
-        
-        return ast.SelectQuery(
-            select=select_columns,
-            select_from=from_expr,
-            group_by=group_by_exprs
-        )
+
+        return ast.SelectQuery(select=select_columns, select_from=from_expr, group_by=group_by_exprs)
 
     def generate_conversion_data_with_utm_subquery(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """
         STEP 2: Generate conversion data subquery WITH event-level UTM data
-        
+
         PURPOSE: Get all conversion events with their direct UTM parameters (if any)
         This extracts UTM data directly from each conversion event's properties
-        
+
         EXAMPLE SQL OUTPUT:
-        SELECT 
+        SELECT
             events.person_id AS person_id,
             count(*) AS conversion_value,                    -- OR sum(revenue) for sum math
             events.properties.utm_campaign AS event_utm_campaign,
-            events.properties.utm_source AS event_utm_source  
+            events.properties.utm_source AS event_utm_source
         FROM events
-        WHERE 
-            events.team_id = 123 
+        WHERE
+            events.team_id = 123
             AND events.event = 'purchase'
             AND events.timestamp >= '2023-01-01'
             AND events.timestamp <= '2023-01-31'
-        GROUP BY 
+        GROUP BY
             events.person_id,
             events.properties.utm_campaign,
             events.properties.utm_source
-        
+
         EXAMPLE RESULT ROWS:
         person_id | conversion_value | event_utm_campaign | event_utm_source | (meaning)
         ----------|------------------|--------------------|-----------------|---------------------------------
         1001      | 2                | google_ads         | google          | Person 1001: 2 purchases w/ UTM
-        1002      | 1                | NULL               | NULL            | Person 1002: 1 purchase w/o UTM  
+        1002      | 1                | NULL               | NULL            | Person 1002: 1 purchase w/o UTM
         1003      | 150.50           | facebook_ads       | facebook        | Person 1003: $150.50 w/ UTM
-        
+
         KEY BEHAVIOR:
         - Each row represents conversion events from one person with the same UTM combination
         - event_utm_campaign/event_utm_source are NULL if the conversion event had no UTM data
@@ -495,7 +495,7 @@ class ConversionGoalProcessor:
         """
         utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
         utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
-        
+
         # CONVERSION VALUE: Calculate based on math type (count, dau, sum)
         if self.goal.math in [BaseMathType.DAU, "dau"]:
             # For DAU, we want to count each person only once per UTM combination
@@ -505,38 +505,40 @@ class ConversionGoalProcessor:
             # For count/sum, use the regular aggregation logic
             # This will be count(*) for count math or sum(property) for sum math
             conversion_expr = self.get_select_field()
-        
+
         # EVENT UTM EXTRACTION: Get UTM data directly from the conversion event
         # These may be NULL if the conversion event doesn't have UTM parameters
         # NULL values will trigger person-level fallback in the main query
         event_utm_campaign = ast.Field(chain=["events", "properties", utm_campaign_field])
         event_utm_source = ast.Field(chain=["events", "properties", utm_source_field])
-        
+
         # SELECT COLUMNS: What this subquery returns
         select_columns = [
-            ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),       # Person who converted
-            ast.Alias(alias="conversion_timestamp", expr=ast.Field(chain=["events", "timestamp"])),  # Conversion timestamp for JOIN
-            ast.Alias(alias="conversion_value", expr=conversion_expr),                          # Conversion value/count
-            ast.Alias(alias="event_utm_campaign", expr=event_utm_campaign),                    # Event's UTM campaign (may be NULL)
-            ast.Alias(alias="event_utm_source", expr=event_utm_source),                        # Event's UTM source (may be NULL)
+            ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),  # Person who converted
+            ast.Alias(
+                alias="conversion_timestamp", expr=ast.Field(chain=["events", "timestamp"])
+            ),  # Conversion timestamp for JOIN
+            ast.Alias(alias="conversion_value", expr=conversion_expr),  # Conversion value/count
+            ast.Alias(alias="event_utm_campaign", expr=event_utm_campaign),  # Event's UTM campaign (may be NULL)
+            ast.Alias(alias="event_utm_source", expr=event_utm_source),  # Event's UTM source (may be NULL)
         ]
-        
+
         # FROM CLAUSE: Just events table - HogQL will handle person_distinct_ids join automatically
         from_expr = ast.JoinExpr(table=ast.Field(chain=["events"]))
-        
+
         # WHERE CONDITIONS: Filter for conversion events
         # This combines base conditions (team, event/action) with property filters and date range
         where_conditions = self.get_base_where_conditions()
         where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
         where_conditions.extend(additional_conditions)
-        
+
         where_expr = None
         if where_conditions:
             if len(where_conditions) == 1:
                 where_expr = where_conditions[0]
             else:
                 where_expr = ast.And(exprs=where_conditions)
-        
+
         # GROUP BY: Aggregate by person, timestamp, and UTM combination
         # This is CRITICAL for ClickHouse: we SELECT these fields, so we must GROUP BY them
         # Each row represents one conversion event with its specific timestamp and UTM data
@@ -546,17 +548,12 @@ class ConversionGoalProcessor:
             event_utm_campaign,
             event_utm_source,
         ]
-        
-        return ast.SelectQuery(
-            select=select_columns,
-            select_from=from_expr,
-            where=where_expr,
-            group_by=group_by_exprs
-        )
+
+        return ast.SelectQuery(select=select_columns, select_from=from_expr, where=where_expr, group_by=group_by_exprs)
 
     def generate_direct_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate CTE query with direct field access for DataWarehouse nodes"""
-        
+
         # Get all required components
         table = self.get_table_name()
         select_field = self.get_select_field()
@@ -589,7 +586,7 @@ class ConversionGoalProcessor:
             else:
                 where_expr = ast.And(exprs=where_conditions)
 
-        # Build GROUP BY 
+        # Build GROUP BY
         group_by_exprs: list[ast.Expr] = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
@@ -659,22 +656,24 @@ class ConversionGoalProcessor:
 
         return [conversion_goal_alias, cost_per_goal_alias]
 
-    def generate_person_utm_with_temporal_attribution_subquery(self, additional_conditions: list[ast.Expr] = None) -> ast.SelectQuery:
+    def generate_person_utm_with_temporal_attribution_subquery(
+        self, additional_conditions: list[ast.Expr] | None = None
+    ) -> ast.SelectQuery:
         """
         TEMPORAL ATTRIBUTION: Always find nearest UTM pageview before conversion
-        
+
         PURPOSE: For each conversion event, find the most recent UTM data from BEFORE that specific conversion
         Ignores query_date_range for UTM lookback - searches ALL historical UTM events
         This ensures conversions are always attributed to their nearest valid UTM touchpoint
         """
         utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
         utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
-        
+
         # Get conversion events (apply date filtering only to conversions)
         conversion_conditions = self.get_base_where_conditions()
         if additional_conditions:
             conversion_conditions.extend(additional_conditions)
-        
+
         # Create conversions CTE
         conversions_cte = ast.SelectQuery(
             select=[
@@ -684,7 +683,7 @@ class ConversionGoalProcessor:
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conversion_conditions) if len(conversion_conditions) > 1 else conversion_conditions[0],
         )
-        
+
         # Create UTM events CTE (no date filtering - we need historical data)
         utm_conditions = [
             # Complete UTM data only
@@ -701,17 +700,17 @@ class ConversionGoalProcessor:
                 right=ast.Constant(value=""),
             ),
         ]
-        
+
         # PAGEVIEW OPTIMIZATION: Only look for UTM data in $pageview events to reduce searching scope
         if self.utm_pageview_only:
             utm_conditions.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["events", "event"]),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value="$pageview")
+                    right=ast.Constant(value="$pageview"),
                 )
             )
-        
+
         utm_events_cte = ast.SelectQuery(
             select=[
                 ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
@@ -722,60 +721,58 @@ class ConversionGoalProcessor:
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=utm_conditions) if len(utm_conditions) > 1 else utm_conditions[0],
         )
-        
+
         # Main query: Join conversions with UTM events and find temporal attribution
         conversions_from = ast.JoinExpr(table=conversions_cte, alias="conversions")
-        
+
         # Cross join with UTM events to get all combinations, then filter and aggregate
         utm_join = ast.JoinExpr(
             join_type="LEFT JOIN",
             table=utm_events_cte,
             alias="utm_events",
             constraint=ast.JoinConstraint(
-                expr=ast.And(exprs=[
-                    # Same person
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["conversions", "person_id"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=["utm_events", "person_id"])
-                    ),
-                    # UTM event before or at conversion (includes simultaneous events)
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["utm_events", "timestamp"]),
-                        op=ast.CompareOperationOp.LtEq,
-                        right=ast.Field(chain=["conversions", "conversion_timestamp"])
-                    ),
-                ]),
-                constraint_type="ON"
-            )
+                expr=ast.And(
+                    exprs=[
+                        # Same person
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["conversions", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["utm_events", "person_id"]),
+                        ),
+                        # UTM event before or at conversion (includes simultaneous events)
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["utm_events", "timestamp"]),
+                            op=ast.CompareOperationOp.LtEq,
+                            right=ast.Field(chain=["conversions", "conversion_timestamp"]),
+                        ),
+                    ]
+                ),
+                constraint_type="ON",
+            ),
         )
-        
+
         conversions_from.next_join = utm_join
-        
+
         # Use argMax to get the most recent UTM data before each conversion
         utm_campaign_expr = ast.Call(
             name="argMax",
-            args=[
-                ast.Field(chain=["utm_events", "utm_campaign"]),
-                ast.Field(chain=["utm_events", "timestamp"])
-            ]
+            args=[ast.Field(chain=["utm_events", "utm_campaign"]), ast.Field(chain=["utm_events", "timestamp"])],
         )
-        
+
         utm_source_expr = ast.Call(
-            name="argMax", 
-            args=[
-                ast.Field(chain=["utm_events", "utm_source"]),
-                ast.Field(chain=["utm_events", "timestamp"])
-            ]
+            name="argMax",
+            args=[ast.Field(chain=["utm_events", "utm_source"]), ast.Field(chain=["utm_events", "timestamp"])],
         )
-        
+
         # Group by person AND conversion timestamp for per-conversion attribution
         # This gives each individual conversion its own temporal attribution lookup
         # Instead of person-level attribution, we now get conversion-level attribution
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias="person_id", expr=ast.Field(chain=["conversions", "person_id"])),
-                ast.Alias(alias="conversion_timestamp", expr=ast.Field(chain=["conversions", "conversion_timestamp"])),  # For JOIN
+                ast.Alias(
+                    alias="conversion_timestamp", expr=ast.Field(chain=["conversions", "conversion_timestamp"])
+                ),  # For JOIN
                 ast.Alias(alias="utm_campaign", expr=utm_campaign_expr),
                 ast.Alias(alias="utm_source", expr=utm_source_expr),
             ],
@@ -785,10 +782,6 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["conversions", "conversion_timestamp"]),
             ],
         )
-
-
-
-
 
 
 def add_conversion_goal_property_filters(

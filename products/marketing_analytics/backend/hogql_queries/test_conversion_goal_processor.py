@@ -3457,7 +3457,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # 🎯 ATTRIBUTION VALIDATION: Beyond 30-day window should not attribute
         beyond_result = response_beyond.results[0]
         beyond_campaign, beyond_source, beyond_count = beyond_result[0], beyond_result[1], beyond_result[2]
-        
+
         assert beyond_campaign == "organic", f"Expected organic attribution, got {beyond_campaign}"
         assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
 
