@@ -333,7 +333,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.healthy,
+                state: HogWatcherState[HogWatcherState.healthy],
             })
         })
         it('should force degraded', async () => {
@@ -351,7 +351,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.degraded,
+                state: HogWatcherState[HogWatcherState.degraded],
             })
         })
         it('should force disabledForPeriod', async () => {
@@ -372,7 +372,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.disabledForPeriod,
+                state: HogWatcherState[HogWatcherState.disabledForPeriod],
             })
         })
         it('should force disabledIndefinitely', async () => {
@@ -393,7 +393,7 @@ describe('HogWatcher', () => {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherState.disabledIndefinitely,
+                state: HogWatcherState[HogWatcherState.disabledIndefinitely],
             })
         })
     })

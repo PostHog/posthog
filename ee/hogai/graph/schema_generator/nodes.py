@@ -94,11 +94,12 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 return PartialAssistantState(
                     messages=[
                         FailureMessage(
-                            content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
+                            content=f"Oops! It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
                     intermediate_steps=[],
                     plan="",
+                    query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
             return PartialAssistantState(
@@ -106,6 +107,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     *intermediate_steps,
                     (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
                 ],
+                query_generation_retry_count=len(intermediate_steps) + 1,
             )
 
         final_message = VisualizationMessage(
@@ -120,6 +122,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             messages=[final_message],
             intermediate_steps=[],
             plan="",
+            query_generation_retry_count=len(intermediate_steps),
         )
 
     def router(self, state: AssistantState):
