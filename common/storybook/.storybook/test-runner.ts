@@ -263,7 +263,7 @@ async function expectStoryToMatchComponentSnapshot(
     })
 
     // For full page screenshots, use page.screenshot() instead of locator.screenshot()
-    await expectLocatorToMatchStorySnapshot(targetSelector, context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
         omitBackground: true,
     })
 }
