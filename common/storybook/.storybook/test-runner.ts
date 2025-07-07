@@ -95,7 +95,10 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
 
-        await page.evaluate(([retry, id]) => {}, [ATTEMPT_COUNT_PER_ID[context.id], context.id])
+        await page.evaluate(
+            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
+            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
+        )
 
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
