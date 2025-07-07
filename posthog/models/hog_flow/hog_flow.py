@@ -9,7 +9,6 @@ from posthog.models.utils import UUIDModel
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
-from posthog.cdp.validation import generate_template_bytecode
 
 if TYPE_CHECKING:
     pass
@@ -69,6 +68,8 @@ class HogFlow(UUIDModel):
         # Iterate through actions to validate and compile inputs for function* types
         for action in self.actions.values():
             if action.get("type", "").startswith("function"):
+                from posthog.cdp.validation import generate_template_bytecode
+
                 inputs = action.get("config", {}).get("inputs", {})
                 input_collector = set()
                 compiled_inputs = generate_template_bytecode(inputs, input_collector)
