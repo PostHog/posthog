@@ -1118,9 +1118,9 @@ describe('Event Pipeline E2E tests', () => {
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *
-            FROM ingestion_warnings
+            FROM ingestion_warnings_mv
+            FINAL
             WHERE team_id = ${teamId}
-            ORDER BY timestamp ASC
         `)) as unknown as ClickHouse.ObjectQueryResult<any>
         return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
     }

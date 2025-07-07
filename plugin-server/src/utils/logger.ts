@@ -46,6 +46,11 @@ export class Logger {
     }
 
     private _log(level: LogLevel, ...args: any[]) {
+        // Prevent logging after shutdown to avoid "worker has exited" errors
+        if (!this.pino || this.pino.destroyed) {
+            return
+        }
+
         // Get the last arg - if it is an object then we spread it into our log values
         const lastArg = args[args.length - 1]
         // Check if it is an object and not an error
@@ -58,10 +63,18 @@ export class Logger {
 
         const msg = `${this.prefix} ${args.join(' ')}`
 
-        this.pino[level]({
-            ...(extra || {}),
-            msg,
-        })
+        try {
+            this.pino[level]({
+                ...(extra || {}),
+                msg,
+            })
+        } catch (error) {
+            // Ignore errors during logging if logger is shutting down
+            if (error.message?.includes('worker has exited')) {
+                return
+            }
+            throw error
+        }
     }
 
     debug(...args: any[]) {
