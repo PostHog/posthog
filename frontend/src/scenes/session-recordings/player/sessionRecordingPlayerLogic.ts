@@ -278,6 +278,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
         setIsCommenting: (isCommenting: boolean) => ({ isCommenting }),
+        updatePlayerTimeTracking: true,
     }),
     reducers(({ props }) => ({
         isCommenting: [
@@ -385,6 +386,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 bufferTime: 0,
             } as PlayerTimeTracking,
             {
+                updatePlayerTimeTracking: (state) => {
+                    // called on a timer to avoid inactive watching from not capturing a clear time
+                    if (['playing', 'buffering'].includes(state.state)) {
+                        const theNow = performance.now()
+                        return {
+                            ...state,
+                            lastTimestamp: theNow,
+                            watchTime:
+                                // if we are playing then update watchTime
+                                state.lastTimestamp !== null && state.state === 'playing'
+                                    ? state.watchTime + (theNow - state.lastTimestamp)
+                                    : state.watchTime,
+                            // if we are buffering then update bufferTime
+                            bufferTime:
+                                state.lastTimestamp !== null && state.state === 'buffering'
+                                    ? state.bufferTime + (theNow - state.lastTimestamp)
+                                    : state.bufferTime,
+                        }
+                    }
+                    return state
+                },
                 startBuffer: (state) => {
                     if (props.mode === SessionRecordingPlayerMode.Preview) {
                         return state
@@ -1546,6 +1568,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
+        if (cache.playerTimeTrackingTimer) {
+            clearInterval(cache.playerTimeTrackingTimer)
+        }
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
@@ -1594,6 +1619,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.openTime = performance.now()
+        // we rely on actions hitting a reducer to update the timer
+        // let's ping it once in a while so that if the user
+        // is autoplaying and doesn't interact we get a more recent value
+        cache.playerTimeTrackingTimer = setInterval(() => {
+            actions.updatePlayerTimeTracking()
+        }, 5000)
     }),
 ])
 
