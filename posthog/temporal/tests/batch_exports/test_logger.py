@@ -430,6 +430,6 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     assert row[1] == "info"
     assert row[2] == expected_log_source
     assert row[3] == BATCH_EXPORT_ID
-    assert row[4] == "Hi! This is an info log from an activity"
+    assert row[4] == "Hi! This is an external info log from an activity"
     assert row[5] == 3
     assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"
