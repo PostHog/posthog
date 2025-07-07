@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -356,6 +357,227 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(mockWarn).toHaveBeenCalledWith(
                 '[PostHog Replayer] 1 logs (window.__posthog_player_logs to safely log them)'
             )
+        })
+    })
+
+    describe('recording viewed summary event', () => {
+        describe('play_time_ms tracking', () => {
+            it('initializes playingTimeTracking correctly', () => {
+                // Test initial state
+                expect(logic.values.playingTimeTracking).toEqual({
+                    isPlaying: false,
+                    isBuffering: false,
+                    lastTimestamp: null,
+                    watchTime: 0,
+                    bufferTime: 0,
+                })
+            })
+
+            it('sets buffering state with startBuffer', () => {
+                logic.actions.startBuffer()
+
+                expect(logic.values.playingTimeTracking.isBuffering).toBe(true)
+                expect(logic.values.playingTimeTracking.isPlaying).toBe(false)
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+            })
+
+            it('demonstrates the issue with endBuffer not tracking buffer time', () => {
+                // This test documents the current bug where endBuffer doesn't track buffer time
+                logic.actions.startBuffer()
+
+                // Verify we are in buffering state in playingTimeTracking
+                expect(logic.values.playingTimeTracking.isBuffering).toBe(true)
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+
+                // The separate isBuffering state should also be true
+                expect(logic.values.isBuffering).toBe(true)
+
+                // End buffering
+                logic.actions.endBuffer()
+
+                // The issue: endBuffer only updates the separate isBuffering state,
+                // not the playingTimeTracking state, so buffer time is not accumulated
+                expect(logic.values.isBuffering).toBe(false) // This gets updated
+                expect(logic.values.playingTimeTracking.isBuffering).toBe(true) // This stays true!
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(0) // No time accumulated
+            })
+
+            it('sets playing state with setPlay', () => {
+                logic.actions.setPlay()
+
+                expect(logic.values.playingTimeTracking.isPlaying).toBe(true)
+                expect(logic.values.playingTimeTracking.isBuffering).toBe(false)
+                expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
+            })
+
+            it('accumulates watch time with setPause', () => {
+                // Start playing
+                logic.actions.setPlay()
+                const initialTimestamp = logic.values.playingTimeTracking.lastTimestamp
+
+                // Mock performance.now to advance time
+                const originalNow = performance.now
+                performance.now = jest.fn().mockReturnValue((initialTimestamp || 0) + 1000)
+
+                logic.actions.setPause()
+
+                expect(logic.values.playingTimeTracking.isPlaying).toBe(false)
+                expect(logic.values.playingTimeTracking.watchTime).toBeGreaterThan(0)
+
+                // Restore original performance.now
+                performance.now = originalNow
+            })
+
+            it('correctly separates play time from buffer time in alternating sequence', () => {
+                // This test ensures we don't accumulate playing time while buffering
+                // Scenario: 4 x 1-second play blocks with 3 x 1-second buffer blocks between them
+                // Expected: 4 seconds play time, 3 seconds buffer time (total 7 seconds, but only 4 should count as play time)
+
+                const originalNow = performance.now
+                let currentTime = 1000
+                performance.now = jest.fn(() => currentTime)
+
+                // Play block 1 (1 second)
+                logic.actions.setPlay()
+                currentTime += 1000
+                logic.actions.setPause()
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(0)
+
+                // Buffer block 1 (1 second)
+                logic.actions.startBuffer()
+                currentTime += 1000
+                logic.actions.endBuffer() // Note: this doesn't actually accumulate buffer time due to the bug
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(1000) // Should stay the same
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(0) // Bug: doesn't accumulate
+
+                // Play block 2 (1 second)
+                logic.actions.setPlay()
+                currentTime += 1000
+                logic.actions.setPause()
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(2000)
+
+                // Buffer block 2 (1 second)
+                logic.actions.startBuffer()
+                currentTime += 1000
+                logic.actions.endBuffer()
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(2000) // Should stay the same
+
+                // Play block 3 (1 second)
+                logic.actions.setPlay()
+                currentTime += 1000
+                logic.actions.setPause()
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(3000)
+
+                // Buffer block 3 (1 second)
+                logic.actions.startBuffer()
+                currentTime += 1000
+                logic.actions.endBuffer()
+
+                expect(logic.values.playingTimeTracking.watchTime).toBe(3000) // Should stay the same
+
+                // Play block 4 (1 second)
+                logic.actions.setPlay()
+                currentTime += 1000
+                logic.actions.setPause()
+
+                // Final verification: only 4 seconds of play time, not 7 seconds total
+                expect(logic.values.playingTimeTracking.watchTime).toBe(4000)
+                // expect this to fail due to a bug we need to fix
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
+
+                // Restore original performance.now
+                performance.now = originalNow
+            })
+        })
+
+        describe('recording viewed summary analytics', () => {
+            it('captures all required analytics properties on unmount', () => {
+                // Mock posthog.capture to spy on the analytics event
+                const mockCapture = jest.fn()
+                ;(posthog as any).capture = mockCapture
+
+                // Mock performance.now to simulate time passing
+                const originalNow = performance.now
+                let currentTime = 1000
+                performance.now = jest.fn(() => currentTime)
+
+                // Simulate user interaction that generates play time
+                logic.actions.setPlay()
+                currentTime += 1000 // Advance time by 1 second
+                logic.actions.setPause()
+
+                logic.actions.incrementClickCount()
+                logic.actions.incrementWarningCount(2)
+                logic.actions.incrementErrorCount()
+
+                // Unmount to trigger the analytics event
+                logic.unmount()
+
+                expect(mockCapture).toHaveBeenCalledWith(
+                    'recording viewed summary',
+                    expect.objectContaining({
+                        viewed_time_ms: expect.any(Number),
+                        play_time_ms: expect.any(Number),
+                        buffer_time_ms: expect.any(Number),
+                        rrweb_warning_count: 2,
+                        error_count_during_recording_playback: 1,
+                        engagement_score: 1,
+                    })
+                )
+
+                // Verify play_time_ms is greater than 0
+                const capturedArgs = mockCapture.mock.calls[0][1]
+                expect(capturedArgs.play_time_ms).toBeGreaterThan(0)
+                expect(capturedArgs).toHaveProperty('recording_duration_ms')
+                expect(capturedArgs).toHaveProperty('recording_age_ms')
+
+                // Restore original performance.now
+                performance.now = originalNow
+            })
+
+            it('captures "no playtime summary" event when play_time_ms is 0', async () => {
+                // Mock posthog.capture to spy on the analytics event
+                const mockCapture = jest.fn()
+                ;(posthog as any).capture = mockCapture
+
+                // Don't play the recording, just unmount
+                logic.unmount()
+
+                expect(mockCapture).toHaveBeenCalledWith(
+                    'recording viewed with no playtime summary',
+                    expect.objectContaining({
+                        viewed_time_ms: expect.any(Number),
+                        play_time_ms: 0,
+                        buffer_time_ms: 0,
+                        engagement_score: 0,
+                    })
+                )
+            })
+
+            it('calculates engagement score based on click count', async () => {
+                const mockCapture = jest.fn()
+                ;(posthog as any).capture = mockCapture
+
+                // Simulate multiple clicks
+                logic.actions.incrementClickCount()
+                logic.actions.incrementClickCount()
+                logic.actions.incrementClickCount()
+
+                logic.unmount()
+
+                expect(mockCapture).toHaveBeenCalledWith(
+                    'recording viewed with no playtime summary',
+                    expect.objectContaining({
+                        engagement_score: 3,
+                    })
+                )
+            })
         })
     })
 })
