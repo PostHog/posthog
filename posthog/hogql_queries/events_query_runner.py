@@ -173,6 +173,17 @@ class EventsQueryRunner(QueryRunner):
                             timings=self.timings,
                         )
                     )
+                    # Add inserted_at filter for partition pruning on recent_events table
+                    if self.query.useRecentEventsTable:
+                        # Add a buffer for potential delays between timestamp and inserted_at
+                        inserted_after = parsed_date - timedelta(hours=1)
+                        where_exprs.append(
+                            parse_expr(
+                                "inserted_at > {inserted_at}",
+                                {"inserted_at": ast.Constant(value=inserted_after)},
+                                timings=self.timings,
+                            )
+                        )
 
             # where & having
             with self.timings.measure("where"):
@@ -261,12 +272,23 @@ class EventsQueryRunner(QueryRunner):
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
+        # Use custom modifiers for recent_events table to avoid timezone conversion on inserted_at
+        modifiers = self.modifiers
+        if (
+            self.query.useRecentEventsTable
+            and self.query.orderBy
+            and any("inserted_at" in order for order in self.query.orderBy)
+        ):
+            # Temporarily disable timezone conversion for better performance
+            modifiers = self.modifiers.model_copy()
+            modifiers.convertToProjectTimezone = False
+
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=self.limit_context,
         )
 
