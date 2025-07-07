@@ -155,9 +155,11 @@ class FilterOptionsNode(AssistantNode):
             
         ).bind_tools(
             [
-                dynamic_retrieve_entity_properties,
-                dynamic_retrieve_entity_property_values,
+                # dynamic_retrieve_entity_properties,
+                # dynamic_retrieve_entity_property_values,
                 # Put final_answer last so it's less likely to be chosen early
+                retrieve_entity_properties,
+                retrieve_entity_property_values,
                 ask_user_for_help,
                 final_answer,
             ],

@@ -66,22 +66,22 @@ class SearchSessionRecordingsTool(MaxTool):
         graph_result = graph.compile_full_graph().invoke(graph_input)
 
         # Check if this is a help request (filter_options_dict is None but has messages)
-        # if graph_result.get("filter_options_dict") is None and graph_result.get("messages"):
-        #     messages = graph_result["messages"]
-        #     help_content = "I need more information to proceed."
+        if graph_result.get("filter_options_dict") is None and graph_result.get("messages"):
+            messages = graph_result["messages"]
+            help_content = "I need more information to proceed."
             
-        #     # Extract the actual help message from the graph result
-        #     for message in messages:
-        #         if hasattr(message, 'content') and message.content:
-        #             help_content = message.content
-        #             break
+            # Extract the actual help message from the graph result
+            for message in messages:
+                if hasattr(message, 'content') and message.content:
+                    help_content = message.content
+                    break
             
-        #     print(f"DEBUG: Detected help request with content: {help_content}")
+            print(f"DEBUG: Detected help request with content: {help_content}")
             
-        #     # Return the help message and current filters unchanged
-        #     current_filters = self.context.get("current_filters", {})
-        #     current_filters_obj = MaxRecordingUniversalFilters.model_validate(current_filters)
-        #     return help_content, current_filters_obj
+            # Return the help message and current filters unchanged
+            current_filters = self.context.get("current_filters", {})
+            current_filters_obj = MaxRecordingUniversalFilters.model_validate(current_filters)
+            return help_content, current_filters_obj
             
         # Convert to the expected type
         try:
