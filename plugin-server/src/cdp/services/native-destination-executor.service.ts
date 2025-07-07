@@ -17,7 +17,7 @@ import { sanitizeLogMessage } from './hog-executor.service'
 
 export type Response = {
     status: number
-    data: string
+    data: any
     content: string
     headers: Record<string, any>
 }
