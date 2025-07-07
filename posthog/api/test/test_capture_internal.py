@@ -124,6 +124,34 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is None
 
     @patch("posthog.api.capture.Session")
+    def test_new_capture_internal_with_capture_post_server_error(self, mock_session_class):
+        token = "abc123"
+        distinct_id = "xyz987"
+        event_name = "test_event"
+        timestamp = datetime.now(UTC).isoformat()
+
+        test_event = {
+            "event": event_name,
+            "distinct_id": distinct_id,
+            "api_key": token,
+            "timestamp": timestamp,
+            "properties": {
+                "$current_url": "https://example.com",
+                "$ip": "127.0.0.1",
+                "$lib": "python",
+                "$lib_version": "1.0.0",
+                "$screen_width": 1920,
+                "$screen_height": 1080,
+                "some_custom_property": True,
+            },
+        }
+
+        InstallCapturePostSpy(mock_session_class, status_code=503)
+        response = new_capture_internal(token, distinct_id, test_event, False)
+        assert response.status_code == 503
+        # note: retry mechanism is disabled since we mocked requests.Session
+
+    @patch("posthog.api.capture.Session")
     def test_new_capture_internal_replay(self, mock_session_class):
         token = "abc123"
         distinct_id = "xyz987"
@@ -385,3 +413,37 @@ class TestCaptureInternal(BaseTest):
             with self.assertRaises(CaptureInternalError) as e:
                 future.result()
             assert str(e.exception) == "capture_internal: distinct ID is required"
+
+    @patch("posthog.api.capture.Session")
+    def test_new_capture_batch_internal_bad_req(self, mock_session_class):
+        token = "abc123"
+        base_event_name = "test_event"
+        timestamp = datetime.now(UTC).isoformat()
+
+        test_events = []
+        for i in range(1, 4):
+            test_events.append(
+                {
+                    "event": f"{base_event_name}_{i}",
+                    "distinct_id": "xyz456",
+                    "api_key": token,
+                    "timestamp": timestamp,
+                    "properties": {
+                        "$current_url": "https://example.com",
+                        "$ip": "127.0.0.1",
+                        "$lib": "python",
+                        "$lib_version": "1.0.0",
+                        "$screen_width": 1920,
+                        "$screen_height": 1080,
+                        "some_custom_property": True,
+                    },
+                }
+            )
+
+        InstallCapturePostSpy(mock_session_class, status_code=400)
+        resp_futures = new_capture_batch_internal(test_events, token, False)
+        assert len(resp_futures) == 3
+
+        for future in resp_futures:
+            resp = future.result()
+            assert resp.status_code == 400
