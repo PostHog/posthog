@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import faulthandler
 import functools
+import logging
 import signal
 
 import structlog
@@ -182,6 +183,7 @@ class Command(BaseCommand):
         tag_queries(kind="temporal")
 
         if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+            logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
             configure_logger_async()
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
