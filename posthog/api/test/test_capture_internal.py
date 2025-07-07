@@ -337,7 +337,7 @@ class TestCaptureInternal(BaseTest):
         timestamp = datetime.now(UTC).isoformat()
 
         test_events = []
-        for i in range(1, 11):
+        for i in range(10):
             test_events.append(
                 {
                     "event": f"{base_event_name}_{i}",
@@ -367,11 +367,11 @@ class TestCaptureInternal(BaseTest):
         assert len(spied_calls) == 10
 
         # ensure stable test assertions against test_events list
-        sorted(spied_calls, key=lambda evt: evt["event_payload"]["event"])
+        spied_calls = sorted(spied_calls, key=lambda evt: evt["event_payload"]["event"])
 
         for i in range(10):
             assert CAPTURE_INTERNAL_URL in spied_calls[i]["url"]
-            assert spied_calls[i]["event_payload"]["event"] == f"{base_event_name}_{i+1}"
+            assert spied_calls[i]["event_payload"]["event"] == f"{base_event_name}_{i}"
             assert spied_calls[i]["event_payload"]["distinct_id"] == test_events[i]["distinct_id"]
             assert spied_calls[i]["event_payload"]["api_key"] == token
             assert spied_calls[i]["event_payload"]["timestamp"] == timestamp
@@ -388,7 +388,7 @@ class TestCaptureInternal(BaseTest):
         timestamp = datetime.now(UTC).isoformat()
 
         test_events = []
-        for i in range(1, 4):
+        for i in range(3):
             test_events.append(
                 {
                     "event": f"{base_event_name}_{i}",
@@ -408,6 +408,7 @@ class TestCaptureInternal(BaseTest):
             )
 
         resp_futures = new_capture_batch_internal(test_events, token, False)
+        assert len(resp_futures) == 3
 
         for future in resp_futures:
             with self.assertRaises(CaptureInternalError) as e:
@@ -421,7 +422,7 @@ class TestCaptureInternal(BaseTest):
         timestamp = datetime.now(UTC).isoformat()
 
         test_events = []
-        for i in range(1, 4):
+        for i in range(3):
             test_events.append(
                 {
                     "event": f"{base_event_name}_{i}",
