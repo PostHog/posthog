@@ -3,7 +3,6 @@ import dataclasses
 import datetime as dt
 import json
 import random
-import time
 import uuid
 
 import aiokafka
@@ -406,6 +405,8 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         "headers": None,
     }
 
+    await producer.flush()
+
     results = sync_execute(
         f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
     )
@@ -413,7 +414,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     iterations = 0
     while not results:
         # It may take a bit for CH to ingest.
-        time.sleep(1)
+        await asyncio.sleep(1)
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
         )
