@@ -357,9 +357,7 @@ const getFieldType = (field: any) => {
 }
 
 const getFieldDescription = (description: string) => {
-    return description
-        .replaceAll(' (Actions)', '')
-        .replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
+    return description.replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
 }
 
 const translateInputsSchema = (
