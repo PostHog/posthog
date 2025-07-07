@@ -127,10 +127,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         query = parse_select("SELECT 1 FROM events LIMIT 1")
         prepare_ast_for_printing(query, context, "clickhouse")
 
-        reused_warehouse_tables = context.database.get_warehouse_tables()
+        reused_warehouse_tables = context.database.get_warehouse_tables() if context.database else []
         assert len(warehouse_tables_optimized) == len(reused_warehouse_tables) == 0
 
-        posthog_tables = context.database.get_posthog_tables()
+        posthog_tables = context.database.get_posthog_tables() if context.database else []
         assert len(posthog_tables) > 0
         assert "events" in posthog_tables
 
