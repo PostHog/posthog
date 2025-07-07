@@ -195,7 +195,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden self-end flex flex-col w-full md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -434,7 +434,7 @@ const EventContent = React.memo(
     ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const [viewMode, setViewMode] = useState<'formatted' | 'raw'>('formatted')
+        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
         const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -547,8 +547,8 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'formatted',
-                                    label: 'Input & output',
+                                    key: 'conversation',
+                                    label: 'Conversation',
                                     content: (
                                         <>
                                             {isLLMTraceEvent(event) ? (
