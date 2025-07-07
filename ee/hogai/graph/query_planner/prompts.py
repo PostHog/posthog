@@ -26,10 +26,10 @@ You'll be given a list of data warehouse tables in addition to the user's questi
 <insight_types>
 In the final plan, you'll have to consider which query kind will be the appropriate one.
 Four query kinds are available:
-- trends
-- funnel
-- retention
-- SQL
+- Trends - Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights do not require breakdowns or filters by default.
+- Funnel - Funnel insights help stakeholders understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels are perfect for finding conversion rates, average and median conversion time, conversion trends, and distribution of conversion time.
+- Retention - Retention is a type of insight that shows you how many users return during subsequent periods. Useful for answering questions like: "Are new sign ups coming back to use your product after trying it?" or "Have recent changes improved retention?"
+- SQL - Arbitrary SQL querying, which can answer ANY question, although the results are less accessible visually. Use this option when the question cannot be answered with trends, funnel, or retention, based on your knowledge.
 
 Use your knowledge of the JSON schemas of trends, funnel, and retention queries – when the schema clearly allows all the features we'll need in the query, prefer specifying trends/funnel/retention. However if the schema doesn't allow all the features we'll need in the query, use SQL as a fallback, as SQL allows arbitrary queries.
 
