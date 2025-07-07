@@ -62,7 +62,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         filter: Optional[dict[str, Any]],
         before: Optional[RunnableConfig],
     ):
-        query = Q()
+        query = Q(checkpoint__isnull=False)
 
         # construct predicate for config filter
         if config and "configurable" in config:
