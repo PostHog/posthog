@@ -341,3 +341,27 @@ export const gameballInputs = {
     email: null,
     internal_partner_action: 'trackEvent',
 }
+
+export const createExampleNativeInvocation = (
+    _hogFunction: Partial<HogFunctionType> = {},
+    inputs: Record<string, any> = {}
+): CyclotronJobInvocationHogFunction => {
+    const hogFunction = createHogFunction(_hogFunction)
+
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            globals: {
+                inputs,
+                ...SAMPLE_GLOBALS,
+            },
+            timings: [],
+            attempts: 0,
+        },
+        teamId: hogFunction.team_id,
+        functionId: hogFunction.id,
+        hogFunction,
+        queue: 'native',
+        queuePriority: 0,
+    }
+}
