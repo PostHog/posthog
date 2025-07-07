@@ -251,6 +251,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         preset: preset.value,
                         label: preset.label,
                         scopes: preset.scopes,
+                        access_type: preset.access_type,
                     })
                 }
             }

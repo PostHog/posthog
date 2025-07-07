@@ -1,0 +1,4 @@
+locations:
+    - location_name: dags
+      code_source:
+          package_name: dags

@@ -84,7 +84,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_table', objectPlural: 'warehouse tables' },
 ]
 
-export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
+export const API_KEY_SCOPE_PRESETS: {
+    value: string
+    label: string
+    scopes: string[]
+    access_type?: 'all' | 'organizations' | 'teams'
+    isCloudOnly?: boolean
+}[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
         value: 'zapier',
@@ -103,6 +109,7 @@ export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: stri
         scopes: API_SCOPES.map(({ key }) =>
             ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
         ),
+        access_type: 'all',
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

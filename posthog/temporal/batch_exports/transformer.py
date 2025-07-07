@@ -15,6 +15,8 @@ import pyarrow.parquet as pq
 import structlog
 from django.conf import settings
 
+from posthog.temporal.batch_exports.metrics import ExecutionTimeRecorder
+
 logger = structlog.get_logger()
 
 
@@ -373,19 +375,30 @@ class ParquetStreamTransformer:
         current_file_size = 0
 
         async for record_batch in record_batches:
-            # Running write in a thread to yield control back to event loop.
-            chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
+            with ExecutionTimeRecorder(
+                "parquet_stream_transformer_record_batch_transform_duration",
+                description="Duration to transform a record batch into Parquet bytes.",
+                log_message=(
+                    "Processed record batch with %(num_records)d records to parquet."
+                    " Record batch size: %(mb_processed).2f MB, process time:"
+                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                log_attributes={"num_records": record_batch.num_rows},
+            ) as recorder:
+                recorder.add_bytes_processed(record_batch.nbytes)
+                # Running write in a thread to yield control back to event loop.
+                chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
 
-            yield Chunk(chunk, False)
+                yield Chunk(chunk, False)
 
-            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                footer = await asyncio.to_thread(self.finish_parquet_file)
+                if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                    footer = await asyncio.to_thread(self.finish_parquet_file)
 
-                yield Chunk(footer, True)
-                current_file_size = 0
+                    yield Chunk(footer, True)
+                    current_file_size = 0
 
-            else:
-                current_file_size += len(chunk)
+                else:
+                    current_file_size += len(chunk)
 
         footer = await asyncio.to_thread(self.finish_parquet_file)
         yield Chunk(footer, True)
@@ -398,7 +411,6 @@ class ParquetStreamTransformer:
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
-                write_statistics=False,  # Disable statistics to improve performance
             )
         assert self._parquet_writer is not None
         return self._parquet_writer
