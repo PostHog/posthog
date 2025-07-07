@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { useState } from 'react'
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
@@ -65,10 +64,9 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView, upstream } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
+    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [upstreamViewMode, setUpstreamViewMode] = useState<'table' | 'graph'>('table')
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
@@ -389,14 +387,14 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center justify-between">
                                 <div>
                                     <h3 className="mb-1">Tables we use</h3>
-                                    <p className="text-xs">Tables and views that this query relies on.</p>
+                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
                                 </div>
                                 <LemonSegmentedButton
                                     value={upstreamViewMode}
-                                    onChange={setUpstreamViewMode}
+                                    onChange={(mode) => setUpstreamViewMode(mode)}
                                     options={[
                                         {
                                             value: 'table',

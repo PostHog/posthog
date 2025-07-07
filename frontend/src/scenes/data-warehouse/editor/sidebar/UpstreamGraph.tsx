@@ -191,7 +191,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
         return (
             <div className="w-full h-full flex items-center justify-center text-muted">
                 <div className="text-center">
-                    <div className="text-lg mb-2">No upstream dependencies found</div>
+                    <div className="text-lg mb-2">No tables or views found</div>
                     <div className="text-sm">This query doesn't depend on any other tables or views</div>
                 </div>
             </div>
