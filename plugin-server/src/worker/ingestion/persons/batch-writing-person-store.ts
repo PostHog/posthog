@@ -556,6 +556,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
+                      properties_last_updated_at: { ...result.properties_last_updated_at },
+                      properties_last_operation: result.properties_last_operation
+                          ? { ...result.properties_last_operation }
+                          : {},
                       created_at: result.created_at,
                   }
         } else {
@@ -579,6 +583,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
+                      properties_last_updated_at: { ...result.properties_last_updated_at },
+                      properties_last_operation: result.properties_last_operation
+                          ? { ...result.properties_last_operation }
+                          : {},
                       properties_to_set: { ...result.properties_to_set },
                       properties_to_unset: [...result.properties_to_unset],
                   }
@@ -729,7 +737,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         // Apply other updates (excluding properties which we handled above)
-        const { properties, is_identified, created_at, ...otherUpdates } = update
+        const { properties, is_identified, ...otherUpdates } = update
         Object.assign(personUpdate, otherUpdates)
 
         // Handle is_identified specially with || operator
@@ -858,6 +866,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
             // Update the PersonUpdate with latest data and merged properties
             personUpdate.properties = mergedProperties
+            personUpdate.properties_last_updated_at = latestPerson.properties_last_updated_at || {}
+            personUpdate.properties_last_operation = latestPerson.properties_last_operation || {}
             personUpdate.version = latestPerson.version
         }
 
