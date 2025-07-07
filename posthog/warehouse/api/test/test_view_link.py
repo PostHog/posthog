@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -257,7 +257,10 @@ class TestViewLinkQuery(APIBaseTest):
         )
 
         # Test that listing joins uses efficient querying
-        with self.assertNumQueries(17):
+
+        with self.assertNumQueries(
+            FuzzyInt(16, 17)
+        ):  # depends when team revenue analytisc config cache is hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 
         self.assertEqual(response.status_code, 200)
