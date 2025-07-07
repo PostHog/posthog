@@ -133,7 +133,7 @@ def joins_set_for_properties(self) -> set[str]:
 
 ### 6. GroupBy Implementation
 
-**File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_gross_revenue_query_runner.py`
+**File**: `products/revenue_analytics/backend/hogql_queries/revenue_analytics_revenue_query_runner.py`
 
 Add the new case inside `_join_to_and_field_name_for_group_by()`
 
@@ -210,7 +210,7 @@ When adding a new Revenue Analytics filter/breakdown option, you need to modify 
 1. **`posthog/hogql/property.py`** - HogQL property mapping
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`** - Join requirements
 1. **`products/revenue_analytics/backend/api.py`** - API values endpoint
-1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_gross_revenue_query_runner.py`** - GroupBy implementation
+1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_revenue_query_runner.py`** - GroupBy implementation
 1. **Database view files** (e.g., `revenue_analytics_customer_view.py`) - Ensure required fields exist
 1. **Frontend component files** (e.g., `RevenueAnalyticsFilters.tsx`) - UI integration
 

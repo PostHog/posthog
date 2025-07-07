@@ -3,7 +3,6 @@ set -o pipefail
 
 set -e
 
-# Get dir of this script
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$DIR/../share"
@@ -11,22 +10,21 @@ mkdir -p "$DIR/../share"
 if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2-City.json" ]; then
     rm -f "$DIR/../share/GeoLite2-City.mmdb" "$DIR/../share/GeoLite2-City.json"
 
-    # Try up to 3 times since this download is flaky
-    for attempt in 1 2 3; do
-        echo "Downloading GeoLite2-City.mmdb (attempt $attempt/3)..."
-        if curl -L "https://mmdbcdn.posthog.net/" --http1.1 --fail | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
-            echo "Download successful"
-            break
-        fi
-
-        echo "Download failed"
-        if [ $attempt -eq 3 ]; then
-            echo "Failed after 3 attempts"
-            exit 1
-        fi
-        echo "Retrying in 5 seconds..."
-        sleep 5
-    done
+    echo "Downloading GeoLite2-City.mmdb..."
+    if curl -L "https://mmdbcdn.posthog.net/" \
+        --http1.1 \
+        --fail \
+        --retry 10 \
+        --retry-max-time 300 \
+        --retry-all-errors \
+        --progress-bar \
+        --show-error |
+        brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
+        echo "Download successful"
+    else
+        echo "Download failed after retries"
+        exit 1
+    fi
 
     DATE=$(date +"%Y-%m-%d")
     echo "{ \"date\": \"$DATE\" }" >"$DIR/../share/GeoLite2-City.json"
