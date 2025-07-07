@@ -13,21 +13,21 @@ T = TypeVar("T", redis.Redis, aioredis.Redis)
 
 def _get_client_impl(redis_url: str, is_async: bool) -> Any:
     """Internal implementation for getting Redis clients."""
-    if not _client_map.get(redis_url):
-        client: Any = None
+    existing_client = _client_map.get(redis_url)
+    # If the client is created and of a proper type - reuse it
+    if existing_client and isinstance(existing_client, aioredis.Redis if is_async else redis.Redis):
+        return existing_client
+    # Otherwise, create a new client
+    client: Any = None
+    if settings.TEST:
+        import fakeredis
 
-        if settings.TEST:
-            import fakeredis
-
-            client = fakeredis.FakeAsyncRedis() if is_async else fakeredis.FakeRedis()
-        elif redis_url:
-            client = aioredis.from_url(redis_url, db=0) if is_async else redis.from_url(redis_url, db=0)
-
-        if not client:
-            raise ImproperlyConfigured("Redis not configured!")
-
-        _client_map[redis_url] = client
-
+        client = fakeredis.FakeAsyncRedis() if is_async else fakeredis.FakeRedis()
+    elif redis_url:
+        client = aioredis.from_url(redis_url, db=0) if is_async else redis.from_url(redis_url, db=0)
+    if not client:
+        raise ImproperlyConfigured("Redis not configured!")
+    _client_map[redis_url] = client
     return _client_map[redis_url]
 
 
