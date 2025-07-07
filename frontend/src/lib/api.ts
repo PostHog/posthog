@@ -31,6 +31,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    Node,
     NodeKind,
     PersistedFolder,
     QuerySchema,
@@ -1123,6 +1124,10 @@ export class ApiRequest {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
+    }
+
+    public queryUpgrade(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
     }
 
     // Conversations
@@ -3511,6 +3516,12 @@ const api = {
                 variables_override: queryOptions?.variablesOverride,
             },
         })
+    },
+
+    schema: {
+        async queryUpgrade(data: { query: Node }): Promise<{ query: Node }> {
+            return await new ApiRequest().queryUpgrade().create({ data })
+        },
     },
 
     conversations: {

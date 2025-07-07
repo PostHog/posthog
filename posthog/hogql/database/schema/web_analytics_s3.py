@@ -51,7 +51,7 @@ def get_s3_web_bounces_structure() -> str:
         sessions_uniq_state AggregateFunction(uniq, String),
         pageviews_count_state AggregateFunction(sum, UInt64),
         bounces_count_state AggregateFunction(sum, UInt64),
-        total_session_duration_state AggregateFunction(sum, Int64)
+        total_session_duration_state AggregateFunction(sum, UInt64)
     """
 
 
@@ -75,29 +75,42 @@ WEB_BOUNCES_S3_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def create_s3_web_stats_table(team_id: int) -> S3Table:
-    url = get_s3_url(table_name="web_stats_daily_export", team_id=team_id)
+def _get_s3_credentials() -> tuple[str | None, str | None]:
+    if DEBUG:
+        return OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+    return None, None
+
+
+def _create_s3_web_table(team_id: int, table_name: str, s3_name: str, structure_func, fields: dict) -> S3Table:
+    url = get_s3_url(table_name=table_name, team_id=team_id)
+    access_key, access_secret = _get_s3_credentials()
 
     return S3Table(
-        name="web_stats_daily_s3",
+        name=s3_name,
         url=url,
         format="Native",
-        access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-        access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        structure=get_s3_web_stats_structure(),
+        access_key=access_key,
+        access_secret=access_secret,
+        structure=structure_func(),
+        fields=fields,
+    )
+
+
+def create_s3_web_stats_table(team_id: int) -> S3Table:
+    return _create_s3_web_table(
+        team_id=team_id,
+        table_name="web_stats_daily_export",
+        s3_name="web_stats_daily_s3",
+        structure_func=get_s3_web_stats_structure,
         fields=WEB_STATS_S3_FIELDS,
     )
 
 
 def create_s3_web_bounces_table(team_id: int) -> S3Table:
-    url = get_s3_url(table_name="web_bounces_daily_export", team_id=team_id)
-
-    return S3Table(
-        name="web_bounces_daily_s3",
-        url=url,
-        format="Native",
-        access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-        access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        structure=get_s3_web_bounces_structure(),
+    return _create_s3_web_table(
+        team_id=team_id,
+        table_name="web_bounces_daily_export",
+        s3_name="web_bounces_daily_s3",
+        structure_func=get_s3_web_bounces_structure,
         fields=WEB_BOUNCES_S3_FIELDS,
     )
