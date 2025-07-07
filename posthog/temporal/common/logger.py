@@ -43,7 +43,7 @@ def bind_contextvars(**kwargs):
 
 def get_external_logger(**kwargs) -> FilteringBoundLogger:
     """Return a bound logger to log user-facing logs."""
-    return EXTERNAL_LOGGER.bind(**kwargs, logger=EXTERNAL_LOGGER_NAME)
+    return EXTERNAL_LOGGER.bind(**kwargs)
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -174,7 +174,7 @@ def configure_logger_sync(
 
 
 def configure_logger_async(
-    logger_factory=structlog.PrintLoggerFactory,
+    logger_factory=structlog.stdlib.LoggerFactory,
     extra_processors: list[structlog.types.Processor] | None = None,
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
@@ -198,11 +198,20 @@ def configure_logger_async(
             Should always be True except in tests.
     """
     base_processors: list[structlog.types.Processor] = [
-        structlog.processors.add_log_level,
-        structlog.processors.format_exc_info,
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.format_exc_info,
+        structlog.processors.CallsiteParameterAdder(
+            {
+                structlog.processors.CallsiteParameter.FILENAME,
+                structlog.processors.CallsiteParameter.FUNC_NAME,
+                structlog.processors.CallsiteParameter.LINENO,
+            }
+        ),
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
     ]
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
@@ -222,12 +231,12 @@ def configure_logger_async(
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
         base_processors += [
             EventRenamer("msg"),
-            structlog.dev.ConsoleRenderer(),
+            structlog.dev.ConsoleRenderer(event_key="msg"),
         ]
     else:
         base_processors += [
-            EventRenamer("msg"),
             structlog.processors.dict_tracebacks,
+            EventRenamer("msg"),
             structlog.processors.JSONRenderer(),
         ]
 
@@ -236,6 +245,7 @@ def configure_logger_async(
     structlog.configure(
         processors=base_processors + extra_processors_to_add,
         logger_factory=logger_factory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=cache_logger_on_first_use,
     )
 
@@ -292,7 +302,7 @@ class PutInLogQueueProcessor:
         Always return event_dict so that processors that come later in the chain can do
         their own thing.
         """
-        if event_dict.get("logger", None) != EXTERNAL_LOGGER_NAME and settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+        if logger.name != EXTERNAL_LOGGER_NAME and settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
             return event_dict
 
         try:
