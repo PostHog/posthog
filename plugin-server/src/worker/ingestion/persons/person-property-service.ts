@@ -88,37 +88,19 @@ export class PersonPropertyService {
         // Check if we have any changes to make
         const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
         if (!hasChanges) {
-            applyEventPropertyUpdates(propertyUpdates, person.properties)
-            return [person, Promise.resolve()]
+            const [updatedPerson, _] = applyEventPropertyUpdates(propertyUpdates, person)
+            return [updatedPerson, Promise.resolve()]
         }
 
-        // For batch stores, use the new method that handles properties to set and unset explicitly
-        if (this.context.personBatchWritingMode === 'BATCH' || this.context.personBatchWritingMode === 'SHADOW') {
-            const [updatedPerson, kafkaMessages] =
-                await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    propertyUpdates.toSet,
-                    propertyUpdates.toUnset,
-                    otherUpdates,
-                    this.context.distinctId
-                )
-            const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return [updatedPerson, kafkaAck]
-        } else {
-            // For regular stores, apply the updates to person.properties and use the regular method
-            const update: Partial<InternalPerson> = { ...otherUpdates }
-            if (applyEventPropertyUpdates(propertyUpdates, person.properties)) {
-                update.properties = person.properties
-            }
-
-            const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonForUpdate(
-                person,
-                update,
-                this.context.distinctId
-            )
-            const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return [updatedPerson, kafkaAck]
-        }
+        const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            propertyUpdates.toSet,
+            propertyUpdates.toUnset,
+            otherUpdates,
+            this.context.distinctId
+        )
+        const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
+        return [updatedPerson, kafkaAck]
     }
 
     private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {

@@ -51,8 +51,8 @@ def report_user_signed_up(
 
     props = {**props, "$set": {**props, **user.get_analytics_metadata()}}
     posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
+        distinct_id=user.distinct_id,
+        event="user signed up",
         properties=props,
         groups=groups(user.organization, user.team),
     )
@@ -66,8 +66,8 @@ def report_user_verified_email(current_user: User) -> None:
         return
 
     posthoganalytics.capture(
-        current_user.distinct_id,
-        "user verified email",
+        distinct_id=current_user.distinct_id,
+        event="user verified email",
         properties={
             "$set": current_user.get_analytics_metadata(),
         },
@@ -89,8 +89,8 @@ def report_user_joined_organization(organization: Organization, current_user: Us
         return
 
     posthoganalytics.capture(
-        current_user.distinct_id,
-        "user joined organization",
+        distinct_id=current_user.distinct_id,
+        event="user joined organization",
         properties={
             "organization_id": str(organization.id),
             "user_number_of_org_membership": current_user.organization_memberships.count(),
@@ -114,8 +114,8 @@ def report_user_logged_in(
         return
 
     posthoganalytics.capture(
-        user.distinct_id,
-        "user logged in",
+        distinct_id=user.distinct_id,
+        event="user logged in",
         properties={"social_provider": social_provider},
         groups=groups(user.current_organization, user.current_team),
     )
@@ -130,8 +130,8 @@ def report_user_updated(user: User, updated_attrs: list[str]) -> None:
 
     updated_attrs.sort()
     posthoganalytics.capture(
-        user.distinct_id,
-        "user updated",
+        distinct_id=user.distinct_id,
+        event="user updated",
         properties={"updated_attrs": updated_attrs, "$set": user.get_analytics_metadata()},
         groups=groups(user.current_organization, user.current_team),
     )
@@ -145,8 +145,8 @@ def report_user_password_reset(user: User) -> None:
         return
 
     posthoganalytics.capture(
-        user.distinct_id,
-        "user password reset",
+        distinct_id=user.distinct_id,
+        event="user password reset",
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -184,16 +184,16 @@ def report_team_member_invited(
     # Report for inviting user
     if inviting_user.distinct_id:
         posthoganalytics.capture(
-            inviting_user.distinct_id,
-            "team member invited",
+            distinct_id=inviting_user.distinct_id,
+            event="team member invited",
             properties=inviting_user_properties,
             groups=groups(inviting_user.current_organization, inviting_user.current_team),
         )
 
     # Report for invitee
     posthoganalytics.capture(
-        f"invite_{invite_id}",  # see `alias_invite_id` too
-        "user invited",
+        distinct_id=f"invite_{invite_id}",  # see `alias_invite_id` too
+        event="user invited",
         properties=properties,
         groups=groups(inviting_user.current_organization, None),
     )
@@ -216,8 +216,8 @@ def report_bulk_invited(
         return
 
     posthoganalytics.capture(
-        user.distinct_id,
-        "bulk invite executed",
+        distinct_id=user.distinct_id,
+        event="bulk invite executed",
         properties={
             "invitee_count": invitee_count,
             "name_count": name_count,
@@ -243,8 +243,8 @@ def report_user_organization_membership_level_changed(
     if not user.distinct_id:
         return
     posthoganalytics.capture(
-        user.distinct_id,
-        "membership level changed",
+        distinct_id=user.distinct_id,
+        event="membership level changed",
         properties={
             "new_level": new_level,
             "previous_level": previous_level,
@@ -260,8 +260,8 @@ def report_user_action(user: User, event: str, properties: Optional[dict] = None
     if properties is None:
         properties = {}
     posthoganalytics.capture(
-        user.distinct_id,
-        event,
+        distinct_id=user.distinct_id,
+        event=event,
         properties=properties,
         groups=groups(user.current_organization, team or user.current_team),
     )
@@ -271,9 +271,9 @@ def report_organization_deleted(user: User, organization: Organization):
     if not user.distinct_id:
         return
     posthoganalytics.capture(
-        user.distinct_id,
-        "organization deleted",
-        organization.get_analytics_metadata(),
+        distinct_id=user.distinct_id,
+        event="organization deleted",
+        properties=organization.get_analytics_metadata(),
         groups=groups(organization),
     )
 
@@ -303,7 +303,7 @@ def report_team_action(
     """
     if properties is None:
         properties = {}
-    posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))
+    posthoganalytics.capture(distinct_id=str(team.uuid), event=event, properties=properties, groups=groups(team=team))
 
     if group_properties:
         posthoganalytics.group_identify("team", str(team.id), properties=group_properties)
@@ -321,8 +321,8 @@ def report_organization_action(
     if properties is None:
         properties = {}
     posthoganalytics.capture(
-        str(organization.id),
-        event,
+        distinct_id=str(organization.id),
+        event=event,
         properties=properties,
         groups=groups(organization=organization),
     )

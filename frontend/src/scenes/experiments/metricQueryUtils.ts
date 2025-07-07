@@ -3,13 +3,18 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { match } from 'ts-pattern'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import {
+    actionsAndEventsToSeries,
+    FilterTypeActionsAndEvents,
+} from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
+    DataWarehouseNode,
     DateRange,
     EntityNode,
     EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
@@ -147,17 +152,38 @@ export const getQuery =
                     trendsFilter,
                     series: [
                         {
-                            kind: source.kind,
                             ...match(source)
-                                .with({ kind: NodeKind.EventsNode }, (event) => ({
-                                    event: event.event,
-                                    name: event.name,
-                                }))
-                                .with({ kind: NodeKind.ActionsNode }, (action) => ({
-                                    id: action.id,
-                                    name: action.name,
-                                }))
-                                .otherwise(() => {}),
+                                .with(
+                                    { kind: NodeKind.EventsNode },
+                                    (event): EventsNode => ({
+                                        kind: NodeKind.EventsNode,
+                                        event: event.event,
+                                        name: event.name,
+                                        properties: event.properties,
+                                    })
+                                )
+                                .with(
+                                    { kind: NodeKind.ActionsNode },
+                                    (action): ActionsNode => ({
+                                        kind: NodeKind.ActionsNode,
+                                        id: action.id,
+                                        name: action.name,
+                                        properties: action.properties,
+                                    })
+                                )
+                                .with(
+                                    { kind: NodeKind.ExperimentDataWarehouseNode },
+                                    (dataWarehouse): DataWarehouseNode => ({
+                                        kind: NodeKind.DataWarehouseNode,
+                                        id: dataWarehouse.table_name,
+                                        name: dataWarehouse.name,
+                                        table_name: dataWarehouse.table_name,
+                                        timestamp_field: dataWarehouse.timestamp_field,
+                                        distinct_id_field: dataWarehouse.events_join_key,
+                                        id_field: dataWarehouse.data_warehouse_join_key,
+                                    })
+                                )
+                                .exhaustive(),
                             ...getMathProperties(source),
                         },
                     ],
@@ -175,15 +201,18 @@ export const getQuery =
                     dateRange,
                     funnelsFilter,
                     interval: funnelsInterval,
-                    series: getFunnelSeries(funnelMetric),
+                    series: getFunnelSeries(funnelMetric), // Use proper conversion pipeline
                 }) as FunnelsQuery
             })
             .otherwise(() => undefined)
     }
 
 /**
- * takes an experiment funnel metric and returns a series of events and actions
- * that can be used in a query.
+ * converts a funnel metric to a series of events and actions
+ * this is part of the conversion pipeline for funnel metrics.
+ *
+ * Funnel series are validated with:
+ * Metric Series -> Filter -> Query Series
  */
 const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | ActionsNode)[] => {
     const { events, actions } = getFilter(funnelMetric)
@@ -192,40 +221,14 @@ const getFunnelSeries = (funnelMetric: ExperimentFunnelMetric): (EventsNode | Ac
         {
             actions,
             events,
-            data_warehouse: [],
-        } as any,
-        true,
-        MathAvailability.None
+            data_warehouse: [], // Data warehouse not supported in funnels
+        } as FilterTypeActionsAndEvents,
+        true, // includeProperties
+        MathAvailability.None // No math for funnels
     ).filter((series) => series.kind === NodeKind.EventsNode || series.kind === NodeKind.ActionsNode) as (
         | EventsNode
         | ActionsNode
     )[]
-}
-
-/**
- * takes an experiment funnel step and returns a source node that can be used in a query
- */
-const createSourceNode = (step: ExperimentFunnelMetricStep): ExperimentMetricSource => {
-    return {
-        kind: step.kind,
-        type: step.kind === NodeKind.EventsNode ? 'events' : 'actions',
-        id: step.kind === NodeKind.EventsNode ? step.event : step.id,
-        name: step.kind === NodeKind.EventsNode ? step.event : step.name,
-        custom_name: step.custom_name,
-        math: step.math,
-        math_property: step.math_property,
-        math_hogql: step.math_hogql,
-        properties: step.properties,
-        /**
-         * TODO: datawarehouse is not supported yet.
-         * See ExperimentFunnelMetricStep type definition.
-         */
-        // ...(step.kind === NodeKind.DataWarehouseNode && {
-        //     timestamp_field: step.timestamp_field,
-        //     events_join_key: step.events_join_key,
-        //     data_warehouse_join_key: step.data_warehouse_join_key,
-        // }),
-    } as ExperimentMetricSource
 }
 
 /**
@@ -248,16 +251,12 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
                     actions: [createSourceNode(source)],
                     data_warehouse: [],
                 }
-                /**
-                 * TODO: datawarehouse is not supported yet.
-                 * See ExperimentFunnelMetricStep type definition.
-                 */
-                // } else if (source.kind === NodeKind.DataWarehouseNode) {
-                //     return {
-                //         events: [],
-                //         actions: [],
-                //         data_warehouse: [createSourceNode(source)],
-                //     }
+            } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+                return {
+                    events: [],
+                    actions: [],
+                    data_warehouse: [createSourceNode(source)],
+                }
             }
 
             return {
@@ -281,7 +280,7 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
             return {
                 events: funnelSteps.filter((step) => step.type === 'events'),
                 actions: funnelSteps.filter((step) => step.type === 'actions'),
-                data_warehouse: [],
+                data_warehouse: [], // datawarehouse nodes are not supported for funnel metrics yet
             }
         })
         .otherwise(() => ({
@@ -291,6 +290,45 @@ export const getFilter = (metric: ExperimentMetric): FilterType => {
         }))
 }
 
+/**
+ * Enhanced version of ExperimentMetricSource with legacy filter properties
+ * This type represents what createSourceNode actually returns - a node with additional
+ * filter-compatible properties needed for the legacy filter system
+ */
+type ExperimentMetricSourceWithType =
+    | (EventsNode & { type: 'events'; id: string; name: string })
+    | (ActionsNode & { type: 'actions'; id: number; name: string })
+    | (ExperimentDataWarehouseNode & { type: 'data_warehouse'; id: string; name: string })
+
+/**
+ * this is a type adapter between metrics and filters.
+ * takes an experiment mean metric source or funnel metric step and returns a source node that can be used in a filter
+ */
+const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSource): ExperimentMetricSourceWithType =>
+    match(step)
+        .with({ kind: NodeKind.EventsNode }, (eventStep) => ({
+            ...eventStep,
+            type: 'events' as const,
+            id: eventStep.event || '',
+            name: eventStep.name || eventStep.event || '',
+        }))
+        .with({ kind: NodeKind.ActionsNode }, (actionStep) => ({
+            ...actionStep,
+            type: 'actions' as const,
+            id: actionStep.id,
+            name: actionStep.name || '',
+        }))
+        .with({ kind: NodeKind.ExperimentDataWarehouseNode }, (dwStep) => ({
+            ...dwStep,
+            type: 'data_warehouse' as const,
+            id: dwStep.table_name,
+            name: dwStep.name || dwStep.table_name,
+        }))
+        .exhaustive()
+
+/**
+ * this is used on the running time calculator to create a node that can be used in a filter
+ */
 export const getEventNode = (
     event: EventConfig,
     options?: { mathProps?: MathProperties }
@@ -317,6 +355,9 @@ export const getEventNode = (
         .exhaustive()
 }
 
+/**
+ * converts the experiment exposure config in to an events node
+ */
 export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
     options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
@@ -382,10 +423,12 @@ export const addExposureToQuery =
     (exposureEvent: EventsNode | ActionsNode) =>
     (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
         query
-            ? {
-                  ...query,
-                  series: [exposureEvent, ...query.series],
-              }
+            ? query.kind === NodeKind.FunnelsQuery
+                ? {
+                      ...query,
+                      series: [exposureEvent, ...query.series],
+                  }
+                : query // Don't add exposure to TrendsQuery
             : undefined
 
 type InsightVizNodeOptions = {

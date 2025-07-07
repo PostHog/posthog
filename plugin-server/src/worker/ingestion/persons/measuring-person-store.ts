@@ -14,6 +14,7 @@ import {
     personMethodCallsPerBatchHistogram,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -248,15 +249,23 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
     }
 
-    updatePersonWithPropertiesDiffForUpdate(
-        _person: InternalPerson,
-        _propertiesToSet: Properties,
-        _propertiesToUnset: string[],
-        _otherUpdates: Partial<InternalPerson>,
-        _distinctId: string,
-        _tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        throw new Error('updatePersonWithPropertiesDiffForUpdate not implemented for MeasuringPersonsStoreForBatch')
+    async updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
+        tx?: TransactionClient
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
+
+        const update: Partial<InternalPerson> = { ...otherUpdates }
+        const [updatedPerson, wasUpdated] = applyEventPropertyUpdates(mainStorePropertyUpdates, person)
+        if (wasUpdated) {
+            update.properties = updatedPerson.properties
+        }
+
+        return await this.updatePersonForUpdate(person, update, distinctId, tx)
     }
 
     private async updatePerson(

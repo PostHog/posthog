@@ -129,9 +129,9 @@ async def query_usage_reports(
         total_orgs_sent = 0
 
         pha_client.capture(
-            "internal_billing_events",
-            "usage reports - starting to send",
-            {
+            distinct_id="internal_billing_events",
+            event="usage reports - starting to send",
+            properties={
                 "total_orgs": total_orgs,
                 "period_start": period_start.isoformat(),
                 "period_end": period_end.isoformat(),
@@ -192,9 +192,9 @@ async def query_usage_reports(
         print(f"Total orgs sent: {total_orgs_sent}")  # noqa: T201
 
         pha_client.capture(
-            "internal_billing_events",
-            "usage reports - sending complete",
-            {
+            distinct_id="internal_billing_events",
+            event="usage reports - sending complete",
+            properties={
                 "total_orgs": total_orgs,
                 "total_orgs_sent": total_orgs_sent,
                 "period_start": period_start.isoformat(),

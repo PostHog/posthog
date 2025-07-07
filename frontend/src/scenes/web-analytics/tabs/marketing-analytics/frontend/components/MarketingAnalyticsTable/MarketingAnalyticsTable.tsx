@@ -5,38 +5,26 @@ import { useCallback, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
 import {
+    MarketingAnalyticsBaseColumns,
     ConversionGoalFilter,
     DataTableNode,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    MarketingAnalyticsHelperForColumnNames,
 } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnTitleComponent } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
-
-interface ColumnConfig {
-    renderTitle?: QueryContextColumnTitleComponent
-    render?: ({ value }: { value: any }) => React.ReactNode
-    align?: 'left' | 'center' | 'right'
-}
 
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import {
-    CAMPAIGN_COST_CTE_NAME,
-    CAMPAIGN_NAME_FIELD,
-    CONVERSION_GOAL_PREFIX,
-    CONVERSION_GOAL_PREFIX_ABBREVIATION,
-    SOURCE_NAME_FIELD,
-    TOTAL_CLICKS_FIELD,
-    TOTAL_COST_FIELD,
-    TOTAL_IMPRESSIONS_FIELD,
-} from '../../logic/utils'
 import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
     insightProps: InsightLogicProps
 }
+
+const QUERY_ORDER_BY_START_INDEX = 1
 
 // TODO: refactor this component to support column actions (`...` button) to be more explicit on the different actions
 // Also we need to centralize the column names and orderBy fields whether in the backend or frontend
@@ -52,9 +40,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
         const source: MarketingAnalyticsTableQuery = {
             ...query.source,
-            orderBy: marketingAnalyticsOrderBy
-                ? [`${marketingAnalyticsOrderBy[0]} ${marketingAnalyticsOrderBy[1]}`]
-                : undefined,
+            orderBy: marketingAnalyticsOrderBy ? [marketingAnalyticsOrderBy] : undefined,
         }
 
         return {
@@ -75,21 +61,22 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         return goals
     }, [conversion_goals, dynamicConversionGoal])
 
-    const MarketingSortableCell = useCallback(
-        (name: string, orderByField: string): QueryContextColumnTitleComponent =>
-            function MarketingSortableCell() {
-                const isSortedByMyField = marketingAnalyticsOrderBy?.[0] === orderByField
-                const isAscending = marketingAnalyticsOrderBy?.[1] === 'ASC'
-                const isDescending = marketingAnalyticsOrderBy?.[1] === 'DESC'
+    const makeMarketingSortableCell = useCallback(
+        (name: string, index: number) => {
+            return function MarketingSortableCellComponent() {
+                const [orderIndex, orderDirection] = marketingAnalyticsOrderBy || [null, null]
+                const isSortedByMyField = orderIndex === index
+                const isAscending = orderDirection === 'ASC'
+                const isDescending = orderDirection === 'DESC'
 
                 const onClick = useCallback(() => {
                     // 3-state cycle: None -> DESC -> ASC -> None (clear/reset to default)
                     if (!isSortedByMyField) {
                         // Not currently sorted by this field, start with DESC
-                        setMarketingAnalyticsOrderBy(orderByField, 'DESC')
+                        setMarketingAnalyticsOrderBy(index, 'DESC')
                     } else if (isDescending) {
                         // Currently DESC, change to ASC
-                        setMarketingAnalyticsOrderBy(orderByField, 'ASC')
+                        setMarketingAnalyticsOrderBy(index, 'ASC')
                     } else if (isAscending) {
                         // Currently ASC, clear the sort (reset to default order)
                         clearMarketingAnalyticsOrderBy()
@@ -108,41 +95,39 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                         />
                     </span>
                 )
-            },
+            }
+        },
         [marketingAnalyticsOrderBy, setMarketingAnalyticsOrderBy, clearMarketingAnalyticsOrderBy]
     )
 
     const conversionGoalColumns = useMemo(() => {
-        const columns: Record<string, ColumnConfig> = {}
+        const columns: Record<string, QueryContextColumn> = {}
 
         allConversionGoals?.forEach((goal: ConversionGoalFilter, index: number) => {
-            const goalName = goal.conversion_goal_name || `Goal ${index + 1}`
-            const costPerGoalName = `Cost per ${goalName}`
+            const goalName = goal.conversion_goal_name || `${MarketingAnalyticsHelperForColumnNames.Goal} ${index + 1}`
+            const costPerGoalName = `${MarketingAnalyticsHelperForColumnNames.CostPer} ${goalName}`
+
+            // Each conversion goal creates 2 columns (goal count + cost per goal), hence index * 2
+            const goalColumnIndex =
+                Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX
+            const costColumnIndex =
+                Object.keys(MarketingAnalyticsBaseColumns).length + index * 2 + QUERY_ORDER_BY_START_INDEX + 1
 
             // Add conversion count column
             columns[goalName] = {
-                renderTitle: MarketingSortableCell(
-                    goalName,
-                    `${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}`
-                ),
-                render: ({ value }: { value: any }) => value || '-',
+                renderTitle: makeMarketingSortableCell(goalName, goalColumnIndex),
                 align: 'right',
             }
 
             // Add cost per conversion column
             columns[costPerGoalName] = {
-                renderTitle: MarketingSortableCell(
-                    costPerGoalName,
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CONVERSION_GOAL_PREFIX_ABBREVIATION}${index}.${CONVERSION_GOAL_PREFIX}${index}, 0)`
-                ),
-                render: ({ value }: { value: any }) =>
-                    value && typeof value === 'number' ? `$${value.toFixed(2)}` : '-',
+                renderTitle: makeMarketingSortableCell(costPerGoalName, costColumnIndex),
                 align: 'right',
             }
         })
 
         return columns
-    }, [allConversionGoals, MarketingSortableCell])
+    }, [allConversionGoals, makeMarketingSortableCell])
 
     // Create custom context with sortable headers for marketing analytics
     const marketingAnalyticsContext: QueryContext = {
@@ -150,48 +135,13 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         insightProps,
         columns: {
             ...webAnalyticsDataTableQueryContext.columns,
-            // Add sortable column headers for marketing analytics fields
-            // These match the backend output column names
-            Campaign: {
-                renderTitle: MarketingSortableCell('Campaign', `${CAMPAIGN_COST_CTE_NAME}.${CAMPAIGN_NAME_FIELD}`),
-            },
-            Source: {
-                renderTitle: MarketingSortableCell('Source', `${CAMPAIGN_COST_CTE_NAME}.${SOURCE_NAME_FIELD}`),
-            },
-            'Total Cost': {
-                renderTitle: MarketingSortableCell('Total Cost', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD}`),
-                render: webAnalyticsDataTableQueryContext.columns?.cost?.render,
-                align: 'right',
-            },
-            'Total Clicks': {
-                renderTitle: MarketingSortableCell('Total Clicks', `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}`),
-                render: webAnalyticsDataTableQueryContext.columns?.clicks?.render,
-                align: 'right',
-            },
-            'Total Impressions': {
-                renderTitle: MarketingSortableCell(
-                    'Total Impressions',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}`
-                ),
-                render: webAnalyticsDataTableQueryContext.columns?.impressions?.render,
-                align: 'right',
-            },
-            'Cost per Click': {
-                renderTitle: MarketingSortableCell(
-                    'Cost per Click',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_COST_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD}, 0)`
-                ),
-                render: webAnalyticsDataTableQueryContext.columns?.cpc?.render,
-                align: 'right',
-            },
-            CTR: {
-                renderTitle: MarketingSortableCell(
-                    'CTR',
-                    `${CAMPAIGN_COST_CTE_NAME}.${TOTAL_CLICKS_FIELD} / nullif(${CAMPAIGN_COST_CTE_NAME}.${TOTAL_IMPRESSIONS_FIELD}, 0) * 100`
-                ),
-                render: webAnalyticsDataTableQueryContext.columns?.ctr?.render,
-                align: 'right',
-            },
+            // Indexes start at 1 because the orderBy field is 1-indexed e.g ORDER BY 1 DESC would sort by the first column
+            ...Object.values(MarketingAnalyticsBaseColumns).reduce((acc, column, index) => {
+                acc[column] = {
+                    renderTitle: makeMarketingSortableCell(column, index + QUERY_ORDER_BY_START_INDEX),
+                }
+                return acc
+            }, {} as Record<string, QueryContextColumn>),
             ...conversionGoalColumns,
         },
     }
