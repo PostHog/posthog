@@ -3,19 +3,68 @@
   '''
   
   SELECT
-      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
-      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
-      count('*') AS conversion_0
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
+      sum(conversion_data.conversion_value) AS conversion_0
   
   FROM
-      events
-  
+      (
+  SELECT
+          events.person_id AS person_id,
+          events.timestamp AS conversion_timestamp,
+          count('*') AS conversion_value,
+          events.properties.utm_campaign AS event_utm_campaign,
+          events.properties.utm_source AS event_utm_source
+      
+  FROM
+          events
+      
   WHERE
-      and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+          and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      
+  GROUP BY
+          events.person_id,
+          events.timestamp,
+          events.properties.utm_campaign,
+          events.properties.utm_source) AS conversion_data
+      LEFT JOIN (
+  SELECT
+          conversions.person_id AS person_id,
+          conversions.conversion_timestamp AS conversion_timestamp,
+          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
+          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+      
+  FROM
+          (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS conversion_timestamp
+          
+  FROM
+              events
+          
+  WHERE
+              and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
+          LEFT JOIN (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS timestamp,
+              events.properties.utm_campaign AS utm_campaign,
+              events.properties.utm_source AS utm_source
+          
+  FROM
+              events
+          
+  WHERE
+              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
+      
+  GROUP BY
+          conversions.person_id,
+          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
   
   GROUP BY
-      campaign,
-      source
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
   
   LIMIT 100
   '''
@@ -24,19 +73,68 @@
   '''
   
   SELECT
-      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
-      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
-      count('*') AS conversion_0
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
+      sum(conversion_data.conversion_value) AS conversion_0
   
   FROM
-      events
-  
+      (
+  SELECT
+          events.person_id AS person_id,
+          events.timestamp AS conversion_timestamp,
+          count('*') AS conversion_value,
+          events.properties.utm_campaign AS event_utm_campaign,
+          events.properties.utm_source AS event_utm_source
+      
+  FROM
+          events
+      
   WHERE
-      and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+          and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      
+  GROUP BY
+          events.person_id,
+          events.timestamp,
+          events.properties.utm_campaign,
+          events.properties.utm_source) AS conversion_data
+      LEFT JOIN (
+  SELECT
+          conversions.person_id AS person_id,
+          conversions.conversion_timestamp AS conversion_timestamp,
+          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
+          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+      
+  FROM
+          (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS conversion_timestamp
+          
+  FROM
+              events
+          
+  WHERE
+              and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
+          LEFT JOIN (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS timestamp,
+              events.properties.utm_campaign AS utm_campaign,
+              events.properties.utm_source AS utm_source
+          
+  FROM
+              events
+          
+  WHERE
+              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
+      
+  GROUP BY
+          conversions.person_id,
+          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
   
   GROUP BY
-      campaign,
-      source
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
   
   LIMIT 100
   '''
@@ -45,19 +143,68 @@
   '''
   
   SELECT
-      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
-      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
-      round(sum(toFloat(events.properties.revenue)), 2) AS conversion_0
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
+      sum(conversion_data.conversion_value) AS conversion_0
   
   FROM
-      events
-  
+      (
+  SELECT
+          events.person_id AS person_id,
+          events.timestamp AS conversion_timestamp,
+          round(sum(toFloat(events.properties.revenue)), 2) AS conversion_value,
+          events.properties.utm_campaign AS event_utm_campaign,
+          events.properties.utm_source AS event_utm_source
+      
+  FROM
+          events
+      
   WHERE
-      and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+          and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+      
+  GROUP BY
+          events.person_id,
+          events.timestamp,
+          events.properties.utm_campaign,
+          events.properties.utm_source) AS conversion_data
+      LEFT JOIN (
+  SELECT
+          conversions.person_id AS person_id,
+          conversions.conversion_timestamp AS conversion_timestamp,
+          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
+          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+      
+  FROM
+          (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS conversion_timestamp
+          
+  FROM
+              events
+          
+  WHERE
+              and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
+          LEFT JOIN (
+  SELECT
+              events.person_id AS person_id,
+              events.timestamp AS timestamp,
+              events.properties.utm_campaign AS utm_campaign,
+              events.properties.utm_source AS utm_source
+          
+  FROM
+              events
+          
+  WHERE
+              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
+      
+  GROUP BY
+          conversions.person_id,
+          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
   
   GROUP BY
-      campaign,
-      source
+      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
+      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
   
   LIMIT 100
   '''
