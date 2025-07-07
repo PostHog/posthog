@@ -1560,9 +1560,9 @@ def send_all_org_usage_reports(
     queue_time_start = datetime.now()
 
     pha_client.capture(
-        "internal_billing_events",
-        "usage reports starting",
-        {
+        distinct_id="internal_billing_events",
+        event="usage reports starting",
+        properties={
             "total_orgs": total_orgs,
             "region": get_instance_region(),
         },
@@ -1605,9 +1605,9 @@ def send_all_org_usage_reports(
 
     queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
     pha_client.capture(
-        "internal_billing_events",
-        "usage reports complete",
-        {
+        distinct_id="internal_billing_events",
+        event="usage reports complete",
+        properties={
             "total_orgs": total_orgs,
             "period_start": period_start.isoformat(),
             "period_end": period_end.isoformat(),

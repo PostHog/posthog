@@ -292,7 +292,9 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"], max_retries=3
+        )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
@@ -346,7 +348,9 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"], max_retries=3
+        )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
         core_memory = self.core_memory
@@ -414,7 +418,9 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
+        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True, max_retries=3).bind_tools(
+            memory_collector_tools
+        )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []

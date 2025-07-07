@@ -1,6 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -143,20 +143,20 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         )
     }
 
-    const editingViewDisabledReason = useMemo(() => {
+    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
-            return 'Saving...'
+            return ['Saving...', Spinner]
         }
 
         if (!response) {
-            return 'Run query to update'
+            return ['Run query to update', IconDownload]
         }
 
         if (!changesToSave) {
-            return 'No changes to save'
+            return ['No changes to save', IconDownload]
         }
 
-        return undefined
+        return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     return (
@@ -208,7 +208,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 })
                             }
                             disabledReason={editingViewDisabledReason}
-                            icon={<IconDownload />}
+                            icon={<EditingViewButtonIcon />}
                             type="tertiary"
                             size="xsmall"
                             id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
