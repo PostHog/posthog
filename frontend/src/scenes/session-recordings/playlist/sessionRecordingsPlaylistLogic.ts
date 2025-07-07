@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -361,6 +362,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
+        bulkDeleteRecordings: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -630,6 +632,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         setHideViewedRecordings: () => {
             actions.maybeLoadSessionRecordings('older')
+        },
+
+        bulkDeleteRecordings: async () => {
+            const params: RecordingsQuery = {
+                ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                person_uuid: props.personUUID ?? '',
+                // KLUDGE: some persons have >8MB of distinct_ids,
+                // which wouldn't fit in the URL,
+                // so we limit to 100 distinct_ids for now
+                // if you have so many that it is an issue,
+                // you probably want the person UUID PoE optimisation anyway
+                // TODO: maybe we can slice this instead
+                distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
+            }
+
+            const response = await api.recordings.bulkDelete(params)
+            if (response.success) {
+                // here we need to call the method that shows a toast with loader that shows the progress of the task
+            } else {
+                lemonToast.error('Failed to delete recordings. Please try again later.')
+            }
         },
     })),
     selectors({

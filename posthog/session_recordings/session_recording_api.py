@@ -668,6 +668,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         """
         user_distinct_id = cast(User, request.user).distinct_id
 
+        # TODO: remove this once we have a proper task
+        # return Response({"success": True, "task_id": "123", "message": "Bulk delete task started. Check task status for progress."}, status=202)
+
         try:
             query = filter_from_params_to_query(request.GET.dict())
 

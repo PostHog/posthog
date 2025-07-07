@@ -1,11 +1,15 @@
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { RecordingUniversalFilters } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -92,6 +96,18 @@ function SortedBy({
     )
 }
 
+function BulkDeleteRecordingsDialog(): JSX.Element {
+    return (
+        <>
+            <div>Are you sure you want to delete recordings matching these filters? This cannot be undone.</div>
+            <div className="text-xs mt-2">
+                <strong>Important:</strong> Removing recordings does not change your billing, as we charge for ingestion
+                of recordings, not the number of recordings stored.
+            </div>
+        </>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -101,6 +117,54 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { bulkDeleteRecordings } = useActions(sessionRecordingsPlaylistLogic)
+
+    const handleBulkDeleteRecordings = (): void =>
+        LemonDialog.open({
+            title: 'Delete recordings',
+            content: <BulkDeleteRecordingsDialog />,
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: () => bulkDeleteRecordings(filters || {}),
+            },
+        })
+
+    const items = [
+        {
+            label: 'Autoplay',
+            items: [
+                {
+                    label: 'Off',
+                    onClick: () => setAutoplayDirection(null),
+                    active: !autoplayDirection,
+                },
+                {
+                    label: 'Newer recordings',
+                    onClick: () => setAutoplayDirection('newer'),
+                    active: autoplayDirection === 'newer',
+                },
+                {
+                    label: 'Older recordings',
+                    onClick: () => setAutoplayDirection('older'),
+                    active: autoplayDirection === 'older',
+                },
+            ],
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_RECORDINGS]) {
+        items.push({
+            label: 'Delete recordings',
+            onClick: () => handleBulkDeleteRecordings(),
+            status: 'danger',
+            icon: <IconTrash />,
+        })
+    }
 
     return (
         <SettingsBar border="none" className="justify-between">
@@ -109,31 +173,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     Sort by: <SortedBy filters={filters} setFilters={setFilters} />
                 </span>
             ) : null}
-            <SettingsMenu
-                items={[
-                    {
-                        label: 'Autoplay',
-                        items: [
-                            {
-                                label: 'Off',
-                                onClick: () => setAutoplayDirection(null),
-                                active: !autoplayDirection,
-                            },
-                            {
-                                label: 'Newer recordings',
-                                onClick: () => setAutoplayDirection('newer'),
-                                active: autoplayDirection === 'newer',
-                            },
-                            {
-                                label: 'Older recordings',
-                                onClick: () => setAutoplayDirection('older'),
-                                active: autoplayDirection === 'older',
-                            },
-                        ],
-                    },
-                ]}
-                icon={<IconEllipsis className="rotate-90" />}
-            />
+            <SettingsMenu items={items} icon={<IconEllipsis className="rotate-90" />} />
         </SettingsBar>
     )
 }

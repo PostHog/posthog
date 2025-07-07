@@ -1,16 +1,20 @@
 from celery import shared_task
+from celery.app.task import Task
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.schema import RecordingsQuery
 from posthog.event_usage import report_user_action
 import structlog
+from typing import Any
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task
-def bulk_delete_recordings_task(self, team_id: int, user_id: int, filters: dict, user_distinct_id: str):
+@shared_task(bind=True)
+def bulk_delete_recordings_task(
+    self: Task, team_id: int, user_id: int, filters: dict[str, Any], user_distinct_id: str
+) -> dict[str, Any]:
     """
     Bulk delete recordings matching the provided filters.
     Also mark associated playlist items as deleted.
