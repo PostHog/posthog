@@ -278,11 +278,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.PublicSurvey]: {
-        allowUnauthenticated: true,
-        layout: 'plain',
-        name: 'Public Survey',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
