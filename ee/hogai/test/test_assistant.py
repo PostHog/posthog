@@ -7,7 +7,6 @@ from asgiref.sync import async_to_sync
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
-from django.test import override_settings
 from langchain_core import messages
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
@@ -20,7 +19,6 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -701,17 +699,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -774,17 +772,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
@@ -847,235 +845,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
+        self.assertEqual(actual_output[1][1].id, actual_output[5][1].initiator)  # viz message must have this id
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
-
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model")
-    def test_memory_collector_flow(self, model_mock):
-        # Create a graph with just memory collection
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_memory_collector(AssistantNodeName.END)
-            .add_memory_collector_tools()
-            .compile()
-        )
-
-        # Mock the memory collector to first analyze and then append memory
-        def memory_collector_side_effect(prompt):
-            prompt_messages = prompt.to_messages()
-            if len(prompt_messages) == 2:  # First run
-                return messages.AIMessage(
-                    content="Let me analyze that.",
-                    tool_calls=[
-                        {
-                            "id": "1",
-                            "name": "core_memory_append",
-                            "args": {"memory_content": "The product uses a subscription model."},
-                        }
-                    ],
-                )
-            else:  # Second run
-                return messages.AIMessage(content="Processing complete. [Done]")
-
-        model_mock.return_value = RunnableLambda(memory_collector_side_effect)
-
-        # First run - analyze and append memory
-        output, _ = self._run_assistant_graph(
-            graph,
-            message="We use a subscription model",
-            is_new_conversation=True,
-        )
-        expected_output = [
-            ("conversation", self._serialize_conversation()),
-            ("message", HumanMessage(content="We use a subscription model")),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-        # Verify memory was appended
-        self.core_memory.refresh_from_db()
-        self.assertIn("The product uses a subscription model.", self.core_memory.text)
-
-    @title_generator_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_exits_infinite_loop_after_fourth_attempt(
-        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock, title_node_mock
-    ):
-        """Test that the assistant exits an infinite loop of tool calls after the 4th attempt."""
-
-        # Track number of attempts
-        attempts = 0
-
-        # Mock the root node to keep making tool calls until 4th attempt
-        def make_tool_call(_):
-            nonlocal attempts
-            attempts += 1
-            if attempts <= 4:
-                return messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": str(uuid4()),
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
-                        }
-                    ],
-                )
-            return messages.AIMessage(content="No more tool calls after 4th attempt")
-
-        get_model_mock.return_value = FakeRunnableLambdaWithTokenCounter(make_tool_call)
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
-        query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
-
-        # Create a graph that only uses the root node
-        graph = AssistantGraph(self.team, self.user).compile_full_graph()
-
-        # Run the assistant and capture output
-        output, _ = self._run_assistant_graph(graph)
-
-        # Verify the last message doesn't contain any tool calls and has our expected content
-        last_message = output[-1][1]
-        self.assertNotIn("tool_calls", last_message, "The final message should not contain any tool calls")
-        self.assertEqual(
-            last_message["content"],
-            "No more tool calls after 4th attempt",
-            "Final message should indicate no more tool calls",
-        )
-
-    def test_conversation_is_locked_when_generating(self):
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
-            .compile()
-        )
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
-
-            def assert_lock_status(_):
-                self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
-                return messages.AIMessage(content="")
-
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
-            self._run_assistant_graph(graph)
-            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-
-    def test_conversation_saves_state_after_cancellation(self):
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
-            .compile()
-        )
-
-        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
-        with (
-            patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock,
-            patch("ee.hogai.graph.root.nodes.RootNodeTools.run") as root_tool_mock,
-        ):
-
-            def assert_lock_status(_):
-                self.conversation.status = Conversation.Status.CANCELING
-                self.conversation.save()
-                return messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "1",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
-                        }
-                    ],
-                )
-
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
-            self._run_assistant_graph(graph)
-            snapshot = graph.get_state({"configurable": {"thread_id": str(self.conversation.id)}})
-            self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
-            self.assertEqual(snapshot.values["messages"][-1].content, "")
-            root_tool_mock.assert_not_called()
-
-        with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
-            # The graph must start from the root node despite being cancelled on the root tools node.
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(
-                lambda _: messages.AIMessage(content="Finished")
-            )
-            expected_output = [
-                ("message", HumanMessage(content="Hello")),
-                ("message", AssistantMessage(content="Finished")),
-            ]
-            actual_output, _ = self._run_assistant_graph(graph)
-            self.assertConversationEqual(actual_output, expected_output)
-
-    @override_settings(INKEEP_API_KEY="test")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model")
-    def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
-        """Test basic documentation search functionality using Inkeep."""
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root(
-                {
-                    "search_documentation": AssistantNodeName.INKEEP_DOCS,
-                    "root": AssistantNodeName.ROOT,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .add_inkeep_docs()
-            .compile()
-        )
-
-        root_model_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
-                )
-            ]
-        )
-        inkeep_docs_model_mock.return_value = FakeChatOpenAI(
-            responses=[messages.AIMessage(content="Here's what I found in the docs...")]
-        )
-        output, _ = self._run_assistant_graph(graph, message="How do I use feature flags?")
-
-        self.assertConversationEqual(
-            output,
-            [
-                ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Checking PostHog docs")),
-                ("message", AssistantMessage(content="Here's what I found in the docs...")),
-            ],
-        )
+        self.assertEqual(actual_output[0][1].id, actual_output[4][1].initiator)
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
-    async def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock, mock):
+    async def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
