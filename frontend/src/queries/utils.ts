@@ -40,6 +40,7 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
@@ -149,6 +150,12 @@ export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQ
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isRevenueAnalyticsCustomerCountQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsCustomerCountQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsCustomerCountQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
@@ -744,4 +751,30 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     }
 
     return cloned as T
+}
+
+/** Checks wether a given query node satisfies all latest versions of the query schema. */
+export function checkLatestVersionsOnQuery(node: any): boolean {
+    if (node === null || typeof node !== 'object') {
+        return true
+    }
+
+    if (Array.isArray(node)) {
+        return node.every((value) => checkLatestVersionsOnQuery(value))
+    }
+
+    if ('kind' in node && Object.values(NodeKind).includes(node.kind)) {
+        const latest = LATEST_VERSIONS[node.kind as NodeKind]
+        if (node.version !== latest) {
+            return false
+        }
+    }
+
+    for (const value of Object.values(node)) {
+        if (!checkLatestVersionsOnQuery(value)) {
+            return false
+        }
+    }
+
+    return true
 }
