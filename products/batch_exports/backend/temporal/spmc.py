@@ -524,6 +524,19 @@ class RecordBatchModel(abc.ABC):
         """Produce a printed query and any necessary ClickHouse query parameters."""
         raise NotImplementedError
 
+    @abc.abstractmethod
+    async def as_insert_into_s3_query_with_parameters(
+        self,
+        data_interval_start: dt.datetime | None,
+        data_interval_end: dt.datetime,
+        s3_folder: str,
+        s3_key: str,
+        s3_secret: str,
+        num_partitions: int,
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        raise NotImplementedError
+
 
 class SessionsRecordBatchModel(RecordBatchModel):
     """A model to produce record batches from the sessions table.
@@ -601,6 +614,42 @@ class SessionsRecordBatchModel(RecordBatchModel):
             stack=[],
         )
         return printed, context.values
+
+    async def as_insert_into_s3_query_with_parameters(
+        self,
+        data_interval_start: dt.datetime | None,
+        data_interval_end: dt.datetime,
+        s3_folder: str,
+        s3_key: str,
+        s3_secret: str,
+        num_partitions: int,
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
+        context = await self.get_hogql_context(self.team_id)
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        printed = print_prepared_ast(
+            prepared_hogql_query,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+        )
+        insert_query = f"""
+INSERT INTO FUNCTION
+   s3(
+       '{s3_folder}/export_{{{{_partition_id}}}}.arrow',
+       '{s3_key}',
+       '{s3_secret}',
+       'ArrowStream'
+    )
+    PARTITION BY rand() %% {num_partitions}
+{printed}
+"""
+
+        return insert_query, context.values
 
 
 def resolve_batch_exports_model(
