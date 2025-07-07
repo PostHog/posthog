@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -1948,12 +1947,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) {
                     actions.createExperiment(true)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Experiments',
-                        callback: (folder) => {
-                            actions.createExperiment(true, folder)
-                        },
-                    })
+                    actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
         },

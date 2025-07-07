@@ -1569,4 +1569,93 @@ describe('Event Pipeline E2E tests', () => {
             })
         }
     )
+
+    testWithTeamIngester('Should set and $unset person properties, different batches', async (ingester, hub, team) => {
+        const user1DistinctId = 'user1-distinct-id'
+
+        const events = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    property_to_unset: 'value',
+                })
+            )
+        })
+
+        const events2 = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $unset: ['property_to_unset'],
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events2))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+        })
+    })
+
+    testWithTeamIngester('Should set and $unset person properties, same batch', async (ingester, hub, team) => {
+        const user1DistinctId = 'user1-distinct-id'
+
+        const events = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $unset: ['property_to_unset'],
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+        })
+    })
 })
