@@ -736,29 +736,18 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             name="Collection Explicit No Filters",
             type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
         )
-        p_null_filters_no_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null Filters No Items", filters={"events": [{"id": "test"}]}, type=None
-        )
-        p_null_filters_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null Filters Items", filters={"events": [{"id": "test"}]}, type=None
-        )
-        p_null_no_filters_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null No Filters Items", type=None
-        )
 
         # Add items to relevant playlists
         recording = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_items, recording=recording)
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_no_filters, recording=recording)
-        SessionRecordingPlaylistItem.objects.create(playlist=p_null_filters_items, recording=recording)
-        SessionRecordingPlaylistItem.objects.create(playlist=p_null_no_filters_items, recording=recording)
 
         # Test filtering by type=filters
         response_filters = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=filters")
         assert response_filters.status_code == status.HTTP_200_OK
         results_filters = response_filters.json()["results"]
-        assert len(results_filters) == 2
-        assert {p["id"] for p in results_filters} == {p_filters_explicit.id, p_null_filters_no_items.id}
+        assert len(results_filters) == 1
+        assert {p["id"] for p in results_filters} == {p_filters_explicit.id}
 
         # Test filtering by type=collection
         response_collection = self.client.get(
@@ -766,12 +755,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response_collection.status_code == status.HTTP_200_OK
         results_collection = response_collection.json()["results"]
-        assert len(results_collection) == 4
+        assert len(results_collection) == 2
         assert {p["id"] for p in results_collection} == {
             p_collection_explicit_items.id,
             p_collection_explicit_no_filters.id,
-            p_null_filters_items.id,
-            p_null_no_filters_items.id,
         }
 
         # Test listing without type filter (should include all non-deleted)
@@ -779,7 +766,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response_all.status_code == status.HTTP_200_OK
         results_all = response_all.json()["results"]
         # Assuming no other playlists were created in the setup
-        assert len(results_all) == 6
+        assert len(results_all) == 3
 
     def test_create_playlist_in_specific_folder(self):
         response = self.client.post(

@@ -199,7 +199,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         created_by = validated_data.pop("created_by", request.user)
         # If 'type' is in read_only_fields, it won't be in validated_data.
         # Get it from initial_data to allow setting it on creation.
-        playlist_type = self.initial_data.get("type")
+        playlist_type = self.initial_data.get("type") or SessionRecordingPlaylist.PlaylistType.FILTERS
 
         playlist = SessionRecordingPlaylist.objects.create(
             team=team,
