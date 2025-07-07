@@ -82,6 +82,12 @@ export function cloneObject<T>(obj: T): T {
     if (Array.isArray(obj)) {
         return (obj as any[]).map(cloneObject) as unknown as T
     }
+    if (obj instanceof Date) {
+        return new Date(obj.getTime()) as T
+    }
+    if (obj instanceof DateTime) {
+        return obj.toUTC() as T
+    }
     const clone: Record<string, any> = {}
     for (const i in obj) {
         clone[i] = cloneObject(obj[i])
@@ -337,12 +343,6 @@ export function castTimestampToClickhouseFormat(
     timestamp: DateTime,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
 ): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
-    if (typeof timestamp.toUTC !== 'function') {
-        logger.error('🔴', 'Timestamp is missing toUTC method', {
-            timestamp,
-            type: typeof timestamp,
-        })
-    }
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:
