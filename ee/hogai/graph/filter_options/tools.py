@@ -119,7 +119,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         reset_state = PartialAssistantState.get_reset_state()
         reset_state.messages = [
             AssistantToolCallMessage(
-                tool_call_id=state.root_tool_call_id or "",  # Default to empty string if None
+                tool_call_id=state.root_tool_call_id,  # Default to empty string if None
                 content=output,
             )
         ]
