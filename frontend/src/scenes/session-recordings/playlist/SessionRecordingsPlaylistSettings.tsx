@@ -97,13 +97,16 @@ function SortedBy({
 
 function BulkDeleteRecordingsDialog(): JSX.Element {
     return (
-        <>
-            <div>Are you sure you want to delete recordings matching these filters? This cannot be undone.</div>
-            <div className="text-xs mt-2">
-                <strong>Important:</strong> Removing recordings does not change your billing, as we charge for ingestion
-                of recordings, not the number of recordings stored.
+        <div className="space-y-3">
+            <p>Are you sure you want to delete all recordings matching these filters?</p>
+            <div className="bg-warning-highlight border border-warning rounded p-3 text-sm">
+                This action cannot be undone.
             </div>
-        </>
+            <div className="text-muted text-xs">
+                <strong>Note:</strong> Deleting recordings won't affect your billing since we charge for ingestion, not
+                storage.
+            </div>
+        </div>
     )
 }
 

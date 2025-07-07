@@ -649,6 +649,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             const response = await api.recordings.bulkDelete(params)
             if (response.success && response.task_id) {
+                // Show that the deleting started
+                lemonToast.info('Deleting recordings in the background...')
+
                 const pollDeleteStatus = async (taskId: string): Promise<void> => {
                     while (true) {
                         const response = await api.recordings.bulkDeleteStatus(taskId)
@@ -656,8 +659,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         if (response.state === 'SUCCESS') {
                             // we need to reload the recordings after the task is done
                             actions.loadSessionRecordings()
+                            lemonToast.success('Recordings deleted successfully')
                             return
                         } else if (response.state === 'FAILURE' || response.error) {
+                            lemonToast.error('Failed to delete recordings. Please try again later.')
                             throw new Error('Could not delete recordings. Please try again later.')
                         }
 
@@ -666,11 +671,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
                 }
 
-                lemonToast.promise(pollDeleteStatus(response.task_id), {
-                    pending: 'Deleting recordings (it may take a while)...',
-                    success: 'Recordings deleted successfully',
-                    error: 'Failed to delete recordings. Please try again later.',
-                })
+                pollDeleteStatus(response.task_id)
             } else {
                 lemonToast.error('Failed to delete recordings. Please try again later.')
             }
