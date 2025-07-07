@@ -362,11 +362,18 @@ describe('sessionRecordingPlayerLogic', () => {
 
     describe('recording viewed summary event', () => {
         describe('play_time_ms tracking', () => {
+            beforeEach(() => {
+                jest.useFakeTimers()
+            })
+
+            afterEach(() => {
+                jest.useRealTimers()
+            })
+
             it('initializes playingTimeTracking correctly', () => {
                 // Test initial state
                 expect(logic.values.playingTimeTracking).toEqual({
-                    isPlaying: false,
-                    isBuffering: false,
+                    state: 'unknown',
                     lastTimestamp: null,
                     watchTime: 0,
                     bufferTime: 0,
@@ -376,63 +383,39 @@ describe('sessionRecordingPlayerLogic', () => {
             it('sets buffering state with startBuffer', () => {
                 logic.actions.startBuffer()
 
-                expect(logic.values.playingTimeTracking.isBuffering).toBe(true)
-                expect(logic.values.playingTimeTracking.isPlaying).toBe(false)
+                expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
             })
 
-            it('correctly tracks buffer time with endBuffer', () => {
-                // This test verifies that endBuffer now correctly tracks buffer time
-                const originalNow = performance.now
-                let currentTime = 1000
-                performance.now = jest.fn(() => currentTime)
-
+            it('correctly tracks buffer time', () => {
                 logic.actions.startBuffer()
 
-                // Verify we are in buffering state in playingTimeTracking
-                expect(logic.values.playingTimeTracking.isBuffering).toBe(true)
+                expect(logic.values.playingTimeTracking.state).toBe('buffering')
                 expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
 
-                // The separate isBuffering state should also be true
-                expect(logic.values.isBuffering).toBe(true)
-
-                // Advance time and end buffering
-                currentTime += 1500
+                jest.advanceTimersByTime(1500)
                 logic.actions.endBuffer()
 
-                // Now both states are correctly updated
-                expect(logic.values.isBuffering).toBe(false) // This gets updated
-                expect(logic.values.playingTimeTracking.isBuffering).toBe(false) // This is now also updated
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1500) // Time is correctly accumulated
-
-                // Restore original performance.now
-                performance.now = originalNow
+                expect(logic.values.playingTimeTracking.state).toBe('unknown')
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1500)
+                expect(logic.values.playingTimeTracking.watchTime).toBe(0)
             })
 
             it('sets playing state with setPlay', () => {
                 logic.actions.setPlay()
 
-                expect(logic.values.playingTimeTracking.isPlaying).toBe(true)
-                expect(logic.values.playingTimeTracking.isBuffering).toBe(false)
+                expect(logic.values.playingTimeTracking.state).toBe('playing')
                 expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
             })
 
             it('accumulates watch time with setPause', () => {
-                // Start playing
                 logic.actions.setPlay()
-                const initialTimestamp = logic.values.playingTimeTracking.lastTimestamp
 
-                // Mock performance.now to advance time
-                const originalNow = performance.now
-                performance.now = jest.fn().mockReturnValue((initialTimestamp || 0) + 1000)
-
+                jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
-                expect(logic.values.playingTimeTracking.isPlaying).toBe(false)
-                expect(logic.values.playingTimeTracking.watchTime).toBeGreaterThan(0)
-
-                // Restore original performance.now
-                performance.now = originalNow
+                expect(logic.values.playingTimeTracking.state).toBe('paused')
+                expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
             })
 
             it('correctly separates play time from buffer time in alternating sequence', () => {
@@ -440,68 +423,79 @@ describe('sessionRecordingPlayerLogic', () => {
                 // Scenario: 4 x 1-second play blocks with 3 x 1-second buffer blocks between them
                 // Expected: 4 seconds play time, 3 seconds buffer time (total 7 seconds, but only 4 should count as play time)
 
-                const originalNow = performance.now
-                let currentTime = 1000
-                performance.now = jest.fn(() => currentTime)
-
                 // Play block 1 (1 second)
                 logic.actions.setPlay()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(0)
 
-                // Buffer block 1 (1 second)
                 logic.actions.startBuffer()
-                currentTime += 1000
-                logic.actions.endBuffer() // Now correctly accumulates buffer time
+                jest.advanceTimersByTime(1000)
+                logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.watchTime).toBe(1000) // Should stay the same
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000) // Now correctly accumulates
+                expect(logic.values.playingTimeTracking.watchTime).toBe(1000)
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
 
-                // Play block 2 (1 second)
                 logic.actions.setPlay()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(2000)
 
-                // Buffer block 2 (1 second)
                 logic.actions.startBuffer()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.watchTime).toBe(2000) // Should stay the same
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(2000) // Cumulative buffer time
+                expect(logic.values.playingTimeTracking.watchTime).toBe(2000)
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(2000)
 
-                // Play block 3 (1 second)
                 logic.actions.setPlay()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(3000)
 
-                // Buffer block 3 (1 second)
                 logic.actions.startBuffer()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.endBuffer()
 
-                expect(logic.values.playingTimeTracking.watchTime).toBe(3000) // Should stay the same
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(3000) // Final cumulative buffer time
+                expect(logic.values.playingTimeTracking.watchTime).toBe(3000)
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
 
-                // Play block 4 (1 second)
                 logic.actions.setPlay()
-                currentTime += 1000
+                jest.advanceTimersByTime(1000)
                 logic.actions.setPause()
 
                 // Final verification: only 4 seconds of play time, not 7 seconds total
                 expect(logic.values.playingTimeTracking.watchTime).toBe(4000)
                 // Should correctly track 3 seconds of buffer time
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
+            })
 
-                // Restore original performance.now
-                performance.now = originalNow
+            it('handles repeated endBuffer calls without losing time', () => {
+                // This test simulates the real-world scenario where endBuffer gets called multiple times
+                logic.actions.startBuffer()
+                expect(logic.values.playingTimeTracking.state).toBe('buffering')
+
+                jest.advanceTimersByTime(1000)
+                logic.actions.endBuffer()
+
+                expect(logic.values.playingTimeTracking.state).toBe('unknown')
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
+
+                logic.actions.endBuffer()
+
+                // This should NOT reset the buffer time to 0
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
+
+                logic.actions.endBuffer()
+                logic.actions.endBuffer()
+                logic.actions.endBuffer()
+
+                // Buffer time should remain stable
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000)
             })
         })
 
@@ -511,14 +505,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 const mockCapture = jest.fn()
                 ;(posthog as any).capture = mockCapture
 
-                // Mock performance.now to simulate time passing
-                const originalNow = performance.now
-                let currentTime = 1000
-                performance.now = jest.fn(() => currentTime)
+                // Use fake timers for this test
+                jest.useFakeTimers()
 
                 // Simulate user interaction that generates play time
                 logic.actions.setPlay()
-                currentTime += 1000 // Advance time by 1 second
+                jest.advanceTimersByTime(1000) // Advance time by 1 second
                 logic.actions.setPause()
 
                 logic.actions.incrementClickCount()
@@ -546,8 +538,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(capturedArgs).toHaveProperty('recording_duration_ms')
                 expect(capturedArgs).toHaveProperty('recording_age_ms')
 
-                // Restore original performance.now
-                performance.now = originalNow
+                jest.useRealTimers()
             })
 
             it('captures "no playtime summary" event when play_time_ms is 0', async () => {
