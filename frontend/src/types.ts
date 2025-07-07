@@ -4607,15 +4607,12 @@ export interface DataModelingJob {
     saved_query_id: string
     status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
+    rows_expected: number | null
     error: string | null
     created_at: string
     last_run_at: string
     workflow_id: string
     workflow_run_id: string
-    total_rows_expected: number | null
-    progress_percentage: number
-    batches_processed: number
-    last_progress_update: string
 }
 
 export interface SimpleExternalDataSourceSchema {

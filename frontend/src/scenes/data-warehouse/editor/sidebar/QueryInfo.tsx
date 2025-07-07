@@ -248,7 +248,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     title: 'Status',
                                     dataIndex: 'status',
                                     render: (_, job: DataModelingJob) => {
-                                        const { status, error, progress_percentage } = job
+                                        const { status, error, rows_materialized, rows_expected } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
@@ -256,11 +256,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         }
                                         const type = statusToType[status] || 'warning'
 
-                                        if (status === 'Running' && progress_percentage > 0) {
+                                        const progressPercentage =
+                                            rows_expected && rows_expected > 0
+                                                ? Math.min(100, (rows_materialized / rows_expected) * 100)
+                                                : 0
+
+                                        // Only show progress if there is > 0 progress and we have expected rows
+                                        // many small result sets will never show progress as they are written in only 1 batch
+                                        if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
                                             return (
-                                                <Tooltip title={`Running: ${progress_percentage.toFixed(1)}%`}>
+                                                <Tooltip title={`Running: ${progressPercentage.toFixed(1)}%`}>
                                                     <div className="w-[68px]">
-                                                        <LemonProgress percent={progress_percentage} />
+                                                        <LemonProgress percent={progressPercentage} />
                                                     </div>
                                                 </Tooltip>
                                             )

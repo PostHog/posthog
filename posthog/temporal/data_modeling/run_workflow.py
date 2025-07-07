@@ -436,8 +436,16 @@ async def materialize_model(
         except FileNotFoundError:
             await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
-        total_rows_expected = await get_query_row_count(hogql_query, team, logger)
-        await logger.ainfo(f"Expected total rows: {total_rows_expected}")
+        try:
+            rows_expected = await get_query_row_count(hogql_query, team, logger)
+            await logger.ainfo(f"Expected rows: {rows_expected}")
+            # Set expected rows on the job
+            job.rows_expected = rows_expected
+            await database_sync_to_async(job.save)()
+        except Exception as e:
+            await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
+            job.rows_expected = None
+            await database_sync_to_async(job.save)()
 
         delta_table: deltalake.DeltaTable | None = None
 
@@ -471,12 +479,8 @@ async def materialize_model(
             )
 
             row_count = row_count + batch.num_rows
-            await update_job_progress(
-                job=job,
-                rows_materialized=row_count,
-                batches_processed=index + 1,
-                total_rows_expected=total_rows_expected,
-            )
+            job.rows_materialized = row_count
+            await database_sync_to_async(job.save)()
 
             shutdown_monitor.raise_if_is_worker_shutdown()
 
@@ -575,33 +579,6 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
-    await database_sync_to_async(job.save)()
-
-
-async def update_job_progress(
-    job: DataModelingJob,
-    rows_materialized: int,
-    batches_processed: int,
-    total_rows_expected: int | None = None,
-) -> None:
-    """
-    Update the progress of a DataModelingJob during materialization.
-    Args:
-        job: The DataModelingJob to update
-        rows_materialized: Total rows materialized so far
-        batches_processed: Number of batches processed
-        total_rows_expected: Optional total rows expected (for percentage calculation)
-    """
-    job.rows_materialized = rows_materialized
-    job.batches_processed = batches_processed
-
-    if total_rows_expected is not None and total_rows_expected > 0:
-        job.total_rows_expected = total_rows_expected
-        job.progress_percentage = min(100.0, (rows_materialized / total_rows_expected) * 100.0)
-    else:
-        # If we don't have total rows, just track batches without percentage
-        job.progress_percentage = 0.0
-
     await database_sync_to_async(job.save)()
 
 

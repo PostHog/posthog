@@ -19,10 +19,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "last_run_at",
             "workflow_id",
             "workflow_run_id",
-            "total_rows_expected",
-            "progress_percentage",
-            "batches_processed",
-            "last_progress_update",
+            "rows_expected",
         ]
         read_only_fields = fields
 

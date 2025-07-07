@@ -18,11 +18,4 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     last_run_at = models.DateTimeField(default=timezone.now)
-
-    # Progress tracking fields
-    total_rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
-    progress_percentage = models.FloatField(default=0.0, help_text="Progress percentage (0.0 to 100.0)")
-    batches_processed = models.IntegerField(default=0, help_text="Number of batches processed")
-    last_progress_update = models.DateTimeField(
-        auto_now=True, null=True, blank=True, help_text="Last time progress was updated"
-    )
+    rows_expected = models.IntegerField(null=True, blank=True, help_text="Rows expected to be materialized")

@@ -1111,8 +1111,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
 
         # Verify initial state
         assert job.rows_materialized == 0
-        assert job.batches_processed == 0
-        assert job.progress_percentage == 0.0
 
         key, delta_table, job_id = await materialize_model(
             saved_query.id.hex,
@@ -1127,6 +1125,4 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
         assert job.rows_materialized == 6
-        assert job.batches_processed == 3
-        assert job.progress_percentage == 100.0
-        assert job.last_progress_update is not None
+        assert job.rows_expected == 6

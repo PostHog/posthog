@@ -11,24 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="datamodelingjob",
-            name="batches_processed",
-            field=models.IntegerField(default=0, help_text="Number of batches processed"),
-        ),
-        migrations.AddField(
-            model_name="datamodelingjob",
-            name="last_progress_update",
-            field=models.DateTimeField(
-                auto_now=True, null=True, blank=True, help_text="Last time progress was updated"
-            ),
-        ),
-        migrations.AddField(
-            model_name="datamodelingjob",
-            name="progress_percentage",
-            field=models.FloatField(default=0.0, help_text="Progress percentage (0.0 to 100.0)"),
-        ),
-        migrations.AddField(
-            model_name="datamodelingjob",
-            name="total_rows_expected",
+            name="rows_expected",
             field=models.IntegerField(blank=True, help_text="Total rows expected to be materialized", null=True),
         ),
     ]
