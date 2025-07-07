@@ -10,6 +10,7 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
@@ -41,7 +42,6 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
-import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer '
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
