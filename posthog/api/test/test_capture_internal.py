@@ -12,7 +12,8 @@ from posthog.settings.ingestion import (
 
 
 class InstallCapturePostSpy:
-    def __init__(self, mock_session_class):
+    def __init__(self, mock_session_class, status_code=200):
+        self.status_code = status_code
         self.spied_calls: list[dict[str, Any]] = []
 
         def spy_post(*args, **kwargs):
@@ -23,7 +24,7 @@ class InstallCapturePostSpy:
                 }
             )
             mock_response = MagicMock()
-            mock_response.status_code = 200
+            mock_response.status_code = self.status_code
             return mock_response
 
         mock_session = MagicMock()
@@ -352,3 +353,35 @@ class TestCaptureInternal(BaseTest):
             # since process_person_profile is False, it should have been injected into the event
             assert spied_calls[i]["event_payload"]["properties"].get("$process_person_profile", None) is not None
             assert spied_calls[i]["event_payload"]["properties"]["$process_person_profile"] is False
+
+    def test_new_capture_batch_internal_invalid_payload(self):
+        token = "abc123"
+        base_event_name = "test_event"
+        timestamp = datetime.now(UTC).isoformat()
+
+        test_events = []
+        for i in range(1, 4):
+            test_events.append(
+                {
+                    "event": f"{base_event_name}_{i}",
+                    # without a distinct_id on each event, this won't go well
+                    "api_key": token,
+                    "timestamp": timestamp,
+                    "properties": {
+                        "$current_url": "https://example.com",
+                        "$ip": "127.0.0.1",
+                        "$lib": "python",
+                        "$lib_version": "1.0.0",
+                        "$screen_width": 1920,
+                        "$screen_height": 1080,
+                        "some_custom_property": True,
+                    },
+                }
+            )
+
+        resp_futures = new_capture_batch_internal(test_events, token, False)
+
+        for future in resp_futures:
+            with self.assertRaises(CaptureInternalError) as e:
+                future.result()
+            assert str(e.exception) == "capture_internal: distinct ID is required"
