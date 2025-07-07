@@ -76,7 +76,51 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        # note: event payload passed to new_capture_internal is mutated. here we inject a source marker
+        assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_event["properties"])
+        # when process_person_profile is False, new_capture_internal explicitly sets this on the event
+        assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is not None
+        assert spied_calls[0]["event_payload"]["properties"]["$process_person_profile"] is False
+
+    @patch("posthog.api.capture.Session")
+    def test_new_capture_internal_with_persons_processing(self, mock_session_class):
+        token = "abc123"
+        distinct_id = "xyz987"
+        event_name = "test_event"
+        timestamp = datetime.now(UTC).isoformat()
+
+        test_event = {
+            "event": event_name,
+            "distinct_id": distinct_id,
+            "api_key": token,
+            "timestamp": timestamp,
+            "properties": {
+                "$current_url": "https://example.com",
+                "$ip": "127.0.0.1",
+                "$lib": "python",
+                "$lib_version": "1.0.0",
+                "$screen_width": 1920,
+                "$screen_height": 1080,
+                "some_custom_property": True,
+            },
+        }
+
+        spy = InstallCapturePostSpy(mock_session_class)
+        response = new_capture_internal(token, distinct_id, test_event, True)
+        assert response.status_code == 200
+
+        spied_calls = spy.get_calls()
+        assert len(spied_calls) == 1
+        assert CAPTURE_INTERNAL_URL in spied_calls[0]["url"]
+        assert spied_calls[0]["event_payload"]["event"] == event_name
+        assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
+        assert spied_calls[0]["event_payload"]["api_key"] == token
+        assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
+        assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_event["properties"])
+        # when new_capture_internal is called with process_person_profile == True, we don't alter the event payload
+        assert spied_calls[0]["event_payload"]["properties"].get("$process_person_profile", None) is None
 
     @patch("posthog.api.capture.Session")
     def test_new_capture_internal_replay(self, mock_session_class):
@@ -178,6 +222,7 @@ class TestCaptureInternal(BaseTest):
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
         assert spied_calls[0]["event_payload"]["timestamp"] == timestamp
+        assert spied_calls[0]["event_payload"]["properties"]["capture_internal"] is True
         assert len(spied_calls[0]["event_payload"]["properties"]) == len(test_replay_event["properties"])
 
     def test_new_capture_internal_invalid_token(self):
@@ -283,7 +328,7 @@ class TestCaptureInternal(BaseTest):
             )
 
         spy = InstallCapturePostSpy(mock_session_class)
-        resp_futures = new_capture_batch_internal(token, None, test_events)
+        resp_futures = new_capture_batch_internal(test_events, token, False)
 
         for future in resp_futures:
             resp = future.result()
@@ -292,10 +337,18 @@ class TestCaptureInternal(BaseTest):
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 10
 
-        for i in range(1, 11):
+        # ensure stable test assertions against test_events list
+        sorted(spied_calls, key=lambda evt: evt["event_payload"]["event"])
+
+        for i in range(10):
             assert CAPTURE_INTERNAL_URL in spied_calls[i]["url"]
-            assert spied_calls[i]["event_payload"]["event"] == "f{base_event_name}_{i}"
+            assert spied_calls[i]["event_payload"]["event"] == f"{base_event_name}_{i+1}"
             assert spied_calls[i]["event_payload"]["distinct_id"] == test_events[i]["distinct_id"]
             assert spied_calls[i]["event_payload"]["api_key"] == token
             assert spied_calls[i]["event_payload"]["timestamp"] == timestamp
             assert len(spied_calls[i]["event_payload"]["properties"]) == len(test_events[i]["properties"])
+            # every event in the batch should be marked asinternally-sourced
+            assert spied_calls[i]["event_payload"]["properties"]["capture_internal"] is True
+            # since process_person_profile is False, it should have been injected into the event
+            assert spied_calls[i]["event_payload"]["properties"].get("$process_person_profile", None) is not None
+            assert spied_calls[i]["event_payload"]["properties"]["$process_person_profile"] is False
