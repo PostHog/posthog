@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -150,17 +149,14 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     type="primary"
                                     htmlType="submit"
                                     loading={actionLoading}
-                                    onClick={() =>
-                                        id
-                                            ? submitAction()
-                                            : openSaveToModal({
-                                                  callback: (folder) => {
-                                                      setActionValue('_create_in_folder', folder)
-                                                      submitAction()
-                                                  },
-                                                  defaultFolder: 'Unfiled/Insights',
-                                              })
-                                    }
+                                    onClick={() => {
+                                        if (id) {
+                                            submitAction()
+                                        } else {
+                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                            submitAction()
+                                        }
+                                    }}
                                     disabledReason={!actionChanged && !id ? 'No changes to save' : undefined}
                                 >
                                     Save

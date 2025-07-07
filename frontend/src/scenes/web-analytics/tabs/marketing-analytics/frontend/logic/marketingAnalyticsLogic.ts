@@ -1,14 +1,30 @@
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable, SourceMap } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, PipelineNodeTab, PipelineStage } from '~/types'
+import {
+    CurrencyCode,
+    DatabaseSchemaDataWarehouseTable,
+    DataWarehouseNode,
+    SourceMap,
+    ConversionGoalFilter,
+    MarketingAnalyticsOrderBy,
+    MarketingAnalyticsColumnsSchemaNames,
+} from '~/queries/schema/schema-general'
+import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { externalAdsCostTile } from './marketingCostTile'
+import {
+    MarketingDashboardMapper,
+    NativeMarketingSource,
+    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from './utils'
 
 export type ExternalTable = {
     name: string
@@ -22,14 +38,42 @@ export type ExternalTable = {
     external_type: DataWarehouseSettingsTab
     source_map: SourceMap | null
     schema_name: string
+    dw_source_type: string
+}
+
+export type NativeSource = {
+    source: ExternalDataSource
+    tables: DatabaseSchemaDataWarehouseTable[]
 }
 
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
-    path(['scenes', 'web-analytics', 'marketingAnalyticsLogic']),
+    path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    actions({
+        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        clearMarketingAnalyticsOrderBy: () => true,
+        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+    }),
+    reducers({
+        marketingAnalyticsOrderBy: [
+            null as MarketingAnalyticsOrderBy | null,
+            {
+                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+        dynamicConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDynamicConversionGoal: (_, { goal }) => goal,
+            },
+        ],
+    }),
     connect(() => ({
         values: [
+            teamLogic,
+            ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map'],
+            ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
         ],
@@ -44,11 +88,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 const validSourcesMap = sources_map
 
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
+                Object.values(MarketingAnalyticsColumnsSchemaNames)
+                    .filter(
+                        (column_name: MarketingAnalyticsColumnsSchemaNames) =>
+                            MARKETING_ANALYTICS_SCHEMA[column_name].required
+                    )
+                    .forEach((column_name: MarketingAnalyticsColumnsSchemaNames) => {
                         Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
+                            if (fieldMapping && !fieldMapping[column_name]) {
                                 delete validSourcesMap[tableId]
                             }
                         })
@@ -57,13 +104,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (Object.keys(validSourcesMap).length === 0) {
                     return null
                 }
-
                 return validSourcesMap
             },
         ],
         externalTables: [
             (s) => [s.dataWarehouseTables, s.sources_map, s.dataWarehouseSources],
-            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[], sources_map, dataWarehouseSources) => {
+            (dataWarehouseTables, sources_map, dataWarehouseSources) => {
                 const externalTables: ExternalTable[] = []
                 if (dataWarehouseTables?.length) {
                     dataWarehouseTables.forEach((table) => {
@@ -99,6 +145,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             external_type: tableType,
                             source_map: sourceMap,
                             schema_name: table.schema?.name || table.name,
+                            dw_source_type: tableType,
                         })
                     })
                 }
@@ -107,29 +154,71 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         validExternalTables: [
-            (s) => [s.externalTables, s.sources_map],
-            (externalTables: ExternalTable[], sources_map: SourceMap): ExternalTable[] => {
-                const validSourcesMap = sources_map ?? {}
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
-                        Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
-                                delete validSourcesMap[tableId]
-                            }
-                        })
-                    })
-
-                if (Object.keys(validSourcesMap).length === 0) {
+            (s) => [s.externalTables, s.validSourcesMap],
+            (externalTables, validSourcesMap: Record<string, SourceMap> | null): ExternalTable[] => {
+                if (!validSourcesMap || Object.keys(validSourcesMap).length === 0) {
                     return []
                 }
 
                 return externalTables.filter((table) => validSourcesMap[table.source_map_id])
             },
         ],
+        nativeSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): ExternalDataSource[] => {
+                const nativeSources =
+                    dataWarehouseSources?.results.filter((source) =>
+                        VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
+                    ) ?? []
+                nativeSources.forEach((source) => {
+                    const neededFieldsWithSync =
+                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+                    source.schemas = source.schemas.filter((schema) => neededFieldsWithSync.includes(schema.name))
+                })
+                return nativeSources
+            },
+        ],
+        validNativeSources: [
+            (s) => [s.nativeSources, s.dataWarehouseTables],
+            (nativeSources, dataWarehouseTables): NativeSource[] => {
+                return nativeSources.reduce((validNativeSources: NativeSource[], source) => {
+                    if (
+                        source.schemas.length ===
+                        NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource].length
+                    ) {
+                        validNativeSources.push({
+                            source,
+                            tables:
+                                dataWarehouseTables?.filter((table) =>
+                                    source.schemas.some((schema) => schema.id === table.schema?.id)
+                                ) ?? [],
+                        })
+                    }
+                    return validNativeSources
+                }, [])
+            },
+        ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
+        ],
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.validExternalTables, s.baseCurrency, s.validNativeSources],
+            (
+                validExternalTables: ExternalTable[],
+                baseCurrency: CurrencyCode,
+                validNativeSources: NativeSource[]
+            ): DataWarehouseNode[] => {
+                const nonNativeNodeList: DataWarehouseNode[] = validExternalTables
+                    .map((table) => externalAdsCostTile(table, baseCurrency))
+                    .filter(Boolean) as DataWarehouseNode[]
+
+                const nativeNodeList: DataWarehouseNode[] = validNativeSources
+                    .map(MarketingDashboardMapper)
+                    .filter(Boolean) as DataWarehouseNode[]
+
+                return [...nativeNodeList, ...nonNativeNodeList]
+            },
         ],
     }),
 ])

@@ -51,7 +51,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
-from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events import EventsTable, RecentEventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -137,6 +137,7 @@ class Database(BaseModel):
 
     # Users can query from the tables below
     events: EventsTable = EventsTable()
+    recent_events: RecentEventsTable = RecentEventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
@@ -330,16 +331,34 @@ class Database(BaseModel):
 
 def _use_person_properties_from_events(database: Database) -> None:
     database.events.fields["person"] = FieldTraverser(chain=["poe"])
+    database.recent_events.fields["person"] = FieldTraverser(chain=["poe"])
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    database.recent_events.fields["event_person_id"] = StringDatabaseField(name="person_id")
+
     database.events.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.person_distinct_id_overrides,
         join_function=join_with_person_distinct_id_overrides_table,
     )
+    database.recent_events.fields["override"] = LazyJoin(
+        from_field=["distinct_id"],
+        join_table=database.person_distinct_id_overrides,
+        join_function=join_with_person_distinct_id_overrides_table,
+    )
+
     database.events.fields["person_id"] = ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
+            start=None,
+        ),
+        isolate_scope=True,
+    )
+    database.recent_events.fields["person_id"] = ExpressionField(
         name="person_id",
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
@@ -510,7 +529,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -524,7 +543,7 @@ def create_hogql_database(
         # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
         # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsBaseView.for_events(team)
+            revenue_views = RevenueAnalyticsBaseView.for_events(team, modifiers)
             for view in revenue_views:
                 views[view.name] = view
                 create_nested_table_group(view.name.split("."), views, view)
@@ -726,7 +745,12 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
-                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
+                    capture_exception(
+                        Exception(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
+                        )
+                    )
+                    continue
 
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
@@ -740,7 +764,12 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
-                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
+                    capture_exception(
+                        Exception(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
+                        )
+                    )
+                    continue
 
                 source_table.fields[join.field_name] = LazyJoin(
                     from_field=from_field,
@@ -775,14 +804,23 @@ def create_hogql_database(
 
                         if isinstance(table_or_field, ast.VirtualTable):
                             table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+
+                            override_source_table_key = f"person.{join.source_table_key}"
+
+                            # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
+                            source_table_key_node = parse_expr(join.source_table_key)
+                            if isinstance(source_table_key_node, ast.Call) and isinstance(
+                                source_table_key_node.args[0], ast.Field
+                            ):
+                                source_table_key_node.args[0].chain = ["person", *source_table_key_node.args[0].chain]
+                                override_source_table_key = source_table_key_node.to_hogql()
+
                             database.events.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join.join_function(
-                                    override_source_table_key=f"person.{join.source_table_key}"
-                                ),
+                                join_function=join.join_function(override_source_table_key=override_source_table_key),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(

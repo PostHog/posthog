@@ -886,6 +886,12 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "ForeignKeyViolation",
                 # Data (usually event properties) contains garbage that we cannot clean.
                 "UntranslatableCharacter",
+                "InvalidTextRepresentation",
+                # Can be raised when merging tables with an incompatible schema (eg if the destination table has been
+                # created manually)
+                "DatatypeMismatch",
+                # Exceeded limits for indexes that we do not maintain.
+                "ProgramLimitExceeded",
             ],
             finish_inputs=finish_inputs,
         )

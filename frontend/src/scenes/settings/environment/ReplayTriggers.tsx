@@ -30,7 +30,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
+import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -191,7 +191,7 @@ function UrlConfigForm({
                                     } else {
                                         addUrlBlocklist(payload)
                                     }
-                                } catch (error) {
+                                } catch {
                                     lemonToast.error('Failed to apply regex')
                                 }
                             }}
@@ -393,8 +393,13 @@ function EventSelectButton(): JSX.Element {
             overlay={
                 <TaxonomicFilter
                     onChange={(_, value) => {
-                        updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value as string]))))
+                        if (isStringWithLength(value)) {
+                            updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
+                        }
                         setOpen(false)
+                    }}
+                    excludedProperties={{
+                        [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
                     }}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                 />

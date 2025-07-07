@@ -7,11 +7,13 @@ from typing import Optional
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
@@ -100,9 +102,9 @@ class Command(BaseCommand):
             days_past=options["days_past"],
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
-            group_type_index_offset=GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count()
-            if existing_team
-            else 0,
+            group_type_index_offset=(
+                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
+            ),
         )
         print("Running simulation...")
         matrix.simulate()
@@ -139,15 +141,19 @@ class Command(BaseCommand):
                 print(
                     "\nMaster project reset!\n"
                     if existing_team_id == 0
-                    else f"\nDemo data ready for project {team.name}!\n"
-                    if existing_team_id is not None
-                    else f"\nDemo data ready for {email}!\n\n"
-                    "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8000/login?email={email}\n"
-                    f"The password is:\n{password}\n\n"
-                    "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8000/signup?email={email}\n"
+                    else (
+                        f"\nDemo data ready for project {team.name}!\n"
+                        if existing_team_id is not None
+                        else f"\nDemo data ready for {email}!\n\n"
+                        "Pre-fill the login form with this link:\n"
+                        f"http://localhost:8000/login?email={email}\n"
+                        f"The password is:\n{password}\n\n"
+                        "If running demo mode (DEMO=1), log in instantly with this link:\n"
+                        f"http://localhost:8000/signup?email={email}\n"
+                    )
                 )
+            print("Materializing common columns...")
+            self.materialize_common_columns()
         else:
             print("Dry run - not saving results.")
 
@@ -198,3 +204,64 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'} (of which {future_event_count} {'is' if future_event_count == 1 else 'are'} in the future)."
         )
         print("\n".join(summary_lines))
+
+    def materialize_common_columns(self) -> None:
+        event_properties = {
+            *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
+            "$prev_pageview_pathname",
+            "$prev_pageview_max_content_percentage",
+            "$prev_pageview_max_scroll_percentage",
+            "$screen_name",
+            "$lib",
+            "$geoip_country_code",
+            "$geoip_subdivision_1_code",
+            "$geoip_subdivision_1_name",
+            "$geoip_city_name",
+            "$browser_language",
+            "$timezone_offset",
+            "$exception_issue_id",
+            "$exception_types",
+            "$exception_values",
+            "$exception_sources",
+            "$exception_functions",
+        }
+
+        person_properties = {*PERSON_PROPERTIES_ADAPTED_FROM_EVENT, "email"}
+        for prop in person_properties.copy():
+            if prop.startswith("$initial_"):
+                continue
+            person_properties.add("$initial_" + (prop[1:] if prop[0] == "$" else prop))
+
+        materialize_properties_task(
+            properties_to_materialize=[
+                (
+                    "events",
+                    "properties",
+                    prop,
+                )
+                for prop in sorted(event_properties)
+            ],
+            backfill_period_days=365,
+        )
+        materialize_properties_task(
+            properties_to_materialize=[
+                (
+                    "events",
+                    "person_properties",
+                    prop,
+                )
+                for prop in sorted(person_properties)
+            ],
+            backfill_period_days=365,
+        )
+        materialize_properties_task(
+            properties_to_materialize=[
+                (
+                    "person",
+                    "properties",
+                    prop,
+                )
+                for prop in sorted(person_properties)
+            ],
+            backfill_period_days=365,
+        )

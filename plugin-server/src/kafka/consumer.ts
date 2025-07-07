@@ -1,5 +1,6 @@
 import {
     ClientMetrics,
+    CODES,
     ConsumerGlobalConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
@@ -13,7 +14,10 @@ import {
 import { hostname } from 'os'
 import { Gauge, Histogram } from 'prom-client'
 
+import { isTestEnv } from '~/utils/env-utils'
+
 import { defaultConfig } from '../config/config'
+import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -59,6 +63,13 @@ const histogramKafkaBatchSizeKb = new Histogram({
     name: 'consumer_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+})
+
+const histogramKafkaConsumeInterval = new Histogram({
+    name: 'kafka_consume_interval_ms',
+    help: 'Time elapsed between Kafka consume calls',
+    labelNames: ['topic', 'groupId'],
+    buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
 })
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
@@ -117,9 +128,11 @@ export class KafkaConsumer {
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
+    private podName: string
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.backgroundTask = []
+        this.podName = process.env.HOSTNAME || hostname()
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
@@ -149,9 +162,10 @@ export class KafkaConsumer {
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
+            'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
+            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            'partition.assignment.strategy': 'cooperative-sticky',
             'enable.partition.eof': true,
             rebalance_cb: true,
             offset_commit_cb: true,
@@ -227,6 +241,41 @@ export class KafkaConsumer {
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
+        })
+
+        // Set up rebalancing event handlers
+        consumer.on('rebalance', (err, topicPartitions) => {
+            logger.info('🔁', 'kafka_consumer_rebalancing', { err, topicPartitions })
+
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                topicPartitions.forEach((tp) => {
+                    kafkaConsumerAssignment.set(
+                        {
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
+                            pod: this.podName,
+                            group_id: this.config.groupId,
+                        },
+                        1
+                    )
+                })
+            } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                topicPartitions.forEach((tp) => {
+                    kafkaConsumerAssignment.set(
+                        {
+                            topic_name: tp.topic,
+                            partition_id: tp.partition.toString(),
+                            pod: this.podName,
+                            group_id: this.config.groupId,
+                        },
+                        0
+                    )
+                })
+            } else {
+                // We had a "real" error
+                logger.error('🔥', 'kafka_consumer_rebalancing_error', { err })
+                captureException(err)
+            }
         })
 
         consumer.on('event.log', (log) => {
@@ -309,17 +358,22 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
         const startConsuming = async () => {
+            let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
 
+                    const consumeStartTime = performance.now()
+                    if (lastConsumeTime > 0) {
+                        const intervalMs = consumeStartTime - lastConsumeTime
+                        histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
+                    }
+                    lastConsumeTime = consumeStartTime
                     // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
                     // error when consuming, hence the retryIfRetriable.
                     const messages = await retryIfRetriable(() =>
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
-
-                    logger.debug('🔁', 'messages', { count: messages.length })
 
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()

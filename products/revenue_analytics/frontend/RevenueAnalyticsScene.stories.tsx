@@ -9,12 +9,13 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
+import revenueAnalyticsCustomerCountQueryMock from './__mocks__/RevenueAnalyticsCustomerCountQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
-import revenueAnalyticsInsightsQueryMock from './__mocks__/RevenueAnalyticsInsightsQuery.json'
+import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -25,14 +26,8 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [
-            FEATURE_FLAGS.REVENUE_ANALYTICS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_FILTERS,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_PRODUCT_GROUPING,
-            FEATURE_FLAGS.REVENUE_ANALYTICS_COHORT_GROUPING,
-        ],
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
         testOptions: {
-            includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
         },
     },
@@ -56,14 +51,16 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
+                    } else if (queryKind === 'RevenueAnalyticsCustomerCountQuery') {
+                        return [200, revenueAnalyticsCustomerCountQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
                     } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
                         return [200, revenueAnalyticsTopCustomersMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsInsightsQuery') {
-                        return [200, revenueAnalyticsInsightsQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsRevenueQuery') {
+                        return [200, revenueAnalyticsRevenueQueryMock]
                     }
                 },
             },
@@ -90,7 +87,7 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsInsightsQueryGroupBy.PRODUCT])
+        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     useEffect(() => {
@@ -126,7 +123,7 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
         setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
-        setGroupBy([RevenueAnalyticsInsightsQueryGroupBy.PRODUCT])
+        setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
 
     return <App />

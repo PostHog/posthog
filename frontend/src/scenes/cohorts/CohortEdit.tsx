@@ -280,8 +280,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 Persons in this cohort
                                 <span className="text-secondary ml-2">
                                     {!cohort.is_calculating &&
+                                        cohort.count !== undefined &&
                                         `(${cohort.count} matching ${pluralize(
-                                            cohort.count ?? 0,
+                                            cohort.count,
                                             'person',
                                             'persons',
                                             false
@@ -291,11 +292,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
-                                    We're recalculating who belongs to this cohort. This could take up to a couple of
-                                    minutes.
+                                    {cohort.is_static
+                                        ? "We're creating this cohort. This could take up to a couple of minutes."
+                                        : "We're recalculating who belongs to this cohort. This could take up to a couple of minutes."}
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} context={{ refresh: 'force_blocking' }} />
+                                <Query
+                                    query={query}
+                                    setQuery={setQuery}
+                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                />
                             )}
                         </div>
                     </>

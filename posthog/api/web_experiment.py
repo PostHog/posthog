@@ -1,8 +1,10 @@
 from typing import Any
+
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
 from nanoid import generate
-from rest_framework import status, serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -10,7 +12,6 @@ from rest_framework.request import Request
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from django.views.decorators.csrf import csrf_exempt
 from posthog.auth import (
     TemporaryTokenAuthentication,
 )
@@ -29,6 +30,53 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
     class Meta:
         model = WebExperiment
         fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
+
+    def to_representation(self, instance):
+        """
+        Override to return variants with actual rollout percentages from the feature flag.
+        """
+        data = super().to_representation(instance)
+
+        # Get corrected variants with actual feature flag rollout percentages
+        data["variants"] = self._get_corrected_variants(instance)
+
+        return data
+
+    def _get_corrected_variants(self, obj):
+        """
+        Returns ALL variants from the feature flag with actual rollout percentages,
+        combined with transforms from the experiment variants where available.
+        """
+        if not obj.feature_flag:
+            return obj.variants or {}
+
+        multivariate = obj.feature_flag.filters.get("multivariate", {})
+        variants_list = multivariate.get("variants", [])
+
+        # If no feature flag variants, fall back to experiment variants
+        if not variants_list:
+            return obj.variants or {}
+
+        # Build result using ALL feature flag variants as the source of truth
+        result_variants = {}
+        experiment_variants = obj.variants or {}
+
+        for variant in variants_list:
+            key = variant.get("key")
+            rollout_percentage = variant.get("rollout_percentage", 0)
+            if key:
+                # Start with feature flag data
+                result_variants[key] = {"rollout_percentage": rollout_percentage}
+
+                # Add experiment-specific data (transforms, etc.) if available
+                if key in experiment_variants:
+                    experiment_data = experiment_variants[key].copy()
+                    # Remove rollout_percentage from experiment data to avoid conflicts
+                    experiment_data.pop("rollout_percentage", None)
+                    # Merge experiment data into result
+                    result_variants[key].update(experiment_data)
+
+        return result_variants
 
     # Validates that the `variants` property in the request follows this known object format.
     # {
@@ -100,7 +148,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
         default_method = team.organization.default_experiment_stats_method
         stats_config = {
-            "version": 2,
             "method": default_method,
         }
 
@@ -149,12 +196,12 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = (
-        WebExperiment.objects.select_related("feature_flag", "created_by")
-        .exclude(deleted=True)
-        .order_by("-created_at")
-        .all()
-    )
+    queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
+
+    def safely_get_queryset(self, queryset):
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+        return queryset
 
 
 @csrf_exempt

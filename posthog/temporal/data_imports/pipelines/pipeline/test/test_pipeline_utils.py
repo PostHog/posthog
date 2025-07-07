@@ -1,15 +1,11 @@
 import decimal
 import uuid
 from ipaddress import IPv4Address, IPv6Address
-from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pytest
 from dateutil import parser
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.pipeline import should_partition_table
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
     normalize_table_column_names,
@@ -293,94 +289,6 @@ def test_table_from_py_list_with_ipv6_address():
     )
 
 
-def test_should_partition_table_non_incremental_schema():
-    schema = MagicMock()
-    schema.should_use_incremental_field = False
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_paritioning_settingd():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = True
-    schema.partitioning_size = 100
-    schema.partitioning_keys = ["id"]
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_incremental_with_bucket_size():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_no_table():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_with_table_and_no_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2"]
-
-    schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_with_table_and_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
-
-    schema_mock = MagicMock()
-    schema_mock.to_arrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is True
-
-
 def test_normalize_table_column_names_prevents_collisions():
     # Create a table with columns that would collide when normalized
     table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
@@ -398,3 +306,23 @@ def test_normalize_table_column_names_prevents_collisions():
     assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
     assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
     assert normalized_table.column("another_field").to_pylist() == ["value3"]
+
+
+def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
+    # Very restrictive type, and the large_decimal value is too large for the schema
+    schema = pa.schema({"column": pa.decimal128(5, 1)})
+    large_decimal = decimal.Decimal("12345.6789")
+
+    table = table_from_py_list([{"column": large_decimal}], schema)
+
+    expected_schema = pa.schema([pa.field("column", pa.decimal128(38, 32))])
+    assert table.equals(
+        pa.table(
+            {
+                "column": pa.array(
+                    [decimal.Decimal("12345.67890000000000000000000000000000")], type=pa.decimal128(38, 32)
+                )
+            }
+        )
+    )
+    assert table.schema.equals(expected_schema)

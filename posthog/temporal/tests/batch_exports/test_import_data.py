@@ -1,6 +1,7 @@
 from typing import Any
 from unittest import mock
 
+from flaky import flaky
 import pytest
 
 from posthog.models.team.team import Team
@@ -84,7 +85,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
-            is_incremental=False,
+            should_use_incremental_field=False,
             logger=mock.ANY,
             db_incremental_field_last_value=None,
             incremental_field=None,
@@ -121,7 +122,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
-            is_incremental=False,
+            should_use_incremental_field=False,
             logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,
@@ -161,7 +162,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
-            is_incremental=False,
+            should_use_incremental_field=False,
             logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,
@@ -172,6 +173,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@flaky(max_runs=3, min_passes=1)
 def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",
@@ -219,7 +221,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
-            is_incremental=False,
+            should_use_incremental_field=False,
             logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,

@@ -216,9 +216,12 @@ class EventsQueryRunner(QueryRunner):
                     events_query.order_by = order_by
                     return events_query
 
+                # Choose table based on useRecentEventsTable flag
+                table_name = "recent_events" if self.query.useRecentEventsTable else "events"
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -237,7 +240,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
+                        f"SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM {table_name}"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
@@ -302,13 +305,18 @@ class EventsQueryRunner(QueryRunner):
                 # Make a query into postgres to fetch person
                 person_idx = person_indices[0]
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
-                persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
-                persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
                 distinct_to_person: dict[str, Person] = {}
-                for person in persons:
-                    if person:
-                        for person_distinct_id in person.distinct_ids:
-                            distinct_to_person[person_distinct_id] = person
+                # Process distinct_ids in batches to avoid overwhelming PostgreSQL
+                batch_size = 1000
+                for i in range(0, len(distinct_ids), batch_size):
+                    batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
+                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+                    for person in persons.iterator(chunk_size=1000):
+                        if person:
+                            for person_distinct_id in person.distinct_ids:
+                                distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:

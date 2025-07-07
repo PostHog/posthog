@@ -51,7 +51,7 @@ const isManagedViewTable = (
     return 'type' in table && table.type === 'managed_view'
 }
 
-const isJoined = (field: DatabaseSchemaField): boolean => {
+export const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
@@ -75,6 +75,8 @@ const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearc
     record: {
         type: 'column',
         columnName: field.name,
+        field,
+        table: tableName,
     },
 })
 
@@ -199,16 +201,34 @@ const createTopLevelFolderNode = (
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
-): TreeDataItem => ({
-    id: isSearch ? `search-${type}` : type,
-    name: type === 'sources' ? 'Sources' : 'Views',
-    type: 'node',
-    icon: icon,
-    record: {
-        type,
-    },
-    children,
-})
+): TreeDataItem => {
+    let finalChildren = children
+
+    // Add empty folder child if views folder is empty
+    if (type === 'views' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}views-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
+    return {
+        id: isSearch ? `search-${type}` : type,
+        name: type === 'sources' ? 'Sources' : 'Views',
+        type: 'node',
+        icon: icon,
+        record: {
+            type,
+        },
+        children: finalChildren,
+    }
+}
 
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
@@ -518,6 +538,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     createTopLevelFolderNode('views', viewsChildren),
                 ]
+            },
+        ],
+        joinsByFieldName: [
+            (s) => [s.joins],
+            (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
+                return joins.reduce((acc, join) => {
+                    if (join.field_name) {
+                        acc[join.field_name] = join
+                    }
+                    return acc
+                }, {} as Record<string, DataWarehouseViewLink>)
             },
         ],
         sidebarOverlayTreeItems: [

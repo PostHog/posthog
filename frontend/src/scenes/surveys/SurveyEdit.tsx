@@ -63,7 +63,7 @@ import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogi
 import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
-    const { survey, dataCollectionType, isPartialResponsesEnabled, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
+    const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
     const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
         useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
@@ -219,7 +219,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
-            {isPartialResponsesEnabled && <SurveyResponsesCollection />}
+            <SurveyResponsesCollection />
         </div>
     )
 }

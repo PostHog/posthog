@@ -2,7 +2,7 @@ import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
-        await page.goToMenuItem('data')
+        await page.goToMenuItem('datamanagement')
         await page.goToMenuItem('annotations')
     })
 

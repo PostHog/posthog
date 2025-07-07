@@ -92,16 +92,14 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
     })),
-    loaders(({ props, values }) => ({
+    loaders(({ props }) => ({
         rawTemplates: [
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type, ...(props.additionalTypes || [])],
-                            db_templates: dbTemplates,
                         })
                     ).results
                 },
@@ -203,8 +201,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         : null
 
                     const configuration: Record<string, any> = {
-                        ...(subTemplate ?? {}),
-                        ...(configurationOverrides ?? {}),
+                        ...subTemplate,
+                        ...configurationOverrides,
                     }
 
                     return combineUrl(

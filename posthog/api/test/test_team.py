@@ -347,7 +347,7 @@ def team_api_test_factory():
             assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
 
             # we can't query by API but can prove the log was recorded
-            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).all()]
+            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
             expected_activity = [
                 {
                     "_state": ANY,
@@ -427,18 +427,23 @@ def team_api_test_factory():
             )
             expected_capture_calls = [
                 call(
-                    self.user.distinct_id,
-                    "membership level changed",
+                    distinct_id=self.user.distinct_id,
+                    event="membership level changed",
                     properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
                     groups=mock.ANY,
                 ),
-                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+                call(
+                    distinct_id=self.user.distinct_id,
+                    event="team deleted",
+                    properties={},
+                    groups=mock.ANY,
+                ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_capture_calls.append(
                     call(
-                        self.user.distinct_id,
-                        "project deleted",
+                        distinct_id=self.user.distinct_id,
+                        event="project deleted",
                         properties={"project_name": "Default project"},
                         groups=mock.ANY,
                     )

@@ -77,7 +77,7 @@ export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
     type?: PropertyDefinitionType,
-    groupTypeIndex?: GroupTypeIndex
+    groupTypeIndex?: GroupTypeIndex | null
 ) => string | string[] | null
 
 /** Update cached property definition metadata */
@@ -216,7 +216,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
-                        values: [...Array.from(new Set(values))],
+                        values: Array.from(new Set(values)),
                         status: 'loaded',
                         allowCustomValues,
                     },
@@ -333,7 +333,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     }
                     actions.updatePropertyDefinitions(newProperties)
                 }
-            } catch (e) {
+            } catch {
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {

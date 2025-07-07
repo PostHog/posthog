@@ -89,7 +89,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                        } catch (e) {
+                        } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
                         }
                     }
@@ -116,7 +116,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                                 state,
                                 activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                             )
-                        } catch (e) {
+                        } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return null below
                         }
                     }
@@ -233,13 +233,21 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 return tailBreadcrumbs
             },
         ],
+        sceneBreadcrumbsDisplayString: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): string =>
+                sceneBreadcrumbs
+                    .filter((breadcrumb) => !!breadcrumb.name)
+                    .map((breadcrumb) => breadcrumb.name)
+                    .join(' / '),
+        ],
         documentTitle: [
             (s) => [s.sceneBreadcrumbs, s.preflight],
             (sceneBreadcrumbs, preflight): string =>
                 [
                     ...sceneBreadcrumbs
                         .filter((breadcrumb) => !!breadcrumb.name)
-                        .map((breadcrumb) => breadcrumb.name as string)
+                        .map((breadcrumb) => breadcrumb.name)
                         .reverse(),
                     preflight?.demo ? 'PostHog Demo' : 'PostHog',
                 ].join(' • '),

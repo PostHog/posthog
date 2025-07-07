@@ -140,6 +140,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -266,6 +267,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -361,6 +363,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -493,6 +496,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
@@ -635,6 +639,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -753,6 +758,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -829,6 +835,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -899,6 +906,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -991,6 +999,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1095,6 +1104,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1213,6 +1223,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1289,6 +1300,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1359,6 +1371,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1451,6 +1464,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1654,6 +1668,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1749,6 +1764,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1881,6 +1897,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
@@ -1991,6 +2008,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."project_id" = 99999
@@ -2030,7 +2048,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2067,7 +2086,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -2171,6 +2191,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2241,7 +2262,8 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."is_publicly_shareable"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''
@@ -2271,6 +2293,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2584,6 +2607,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid

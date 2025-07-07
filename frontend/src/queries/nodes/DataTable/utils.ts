@@ -1,16 +1,18 @@
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema/schema-general'
 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
-    'person_display_name -- Person',
+    PERSON_DISPLAY_NAME_COLUMN_NAME,
     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: HogQLExpression[] = ['person_display_name -- Person', 'id', 'created_at']
+export const defaultDataTablePersonColumns: HogQLExpression[] = [PERSON_DISPLAY_NAME_COLUMN_NAME, 'id', 'created_at']
 
 export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'key', 'created_at']
 
