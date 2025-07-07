@@ -41,7 +41,7 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-class SegmentFetchError extends Error {
+class FetchError extends Error {
     constructor(message?: string) {
         super(message)
     }
@@ -110,7 +110,7 @@ export class NativeDestinationExecutorService {
             const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
             const start = performance.now()
 
-            // All segment options are done as inputs
+            // All native plugin options are done as inputs
             const config = invocation.state.globals.inputs
 
             if (config.debug_mode) {
@@ -215,7 +215,7 @@ export class NativeDestinationExecutorService {
 
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
-                            throw new SegmentFetchError(
+                            throw new FetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
                                 }: Request failed with status ${fetchResponse?.status} (${
@@ -249,7 +249,7 @@ export class NativeDestinationExecutorService {
                     return convertedResponse
                 },
                 {
-                    payload: invocation.state.globals.inputs
+                    payload: config
                 }
             )
 
@@ -257,11 +257,11 @@ export class NativeDestinationExecutorService {
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof SegmentFetchError) {
+            if (e instanceof FetchError) {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'segment'
+                    result.invocation.queue = 'native'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result
@@ -270,7 +270,7 @@ export class NativeDestinationExecutorService {
                 }
             }
 
-            logger.error('💩', 'Segment destination errored', {
+            logger.error('💩', 'Native destination errored', {
                 error: e.message,
                 nativeDestinationId,
                 invocationId: invocation.id,
