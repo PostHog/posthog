@@ -381,8 +381,12 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.playingTimeTracking.lastTimestamp).toBeGreaterThan(0)
             })
 
-            it('demonstrates the issue with endBuffer not tracking buffer time', () => {
-                // This test documents the current bug where endBuffer doesn't track buffer time
+            it('correctly tracks buffer time with endBuffer', () => {
+                // This test verifies that endBuffer now correctly tracks buffer time
+                const originalNow = performance.now
+                let currentTime = 1000
+                performance.now = jest.fn(() => currentTime)
+
                 logic.actions.startBuffer()
 
                 // Verify we are in buffering state in playingTimeTracking
@@ -392,14 +396,17 @@ describe('sessionRecordingPlayerLogic', () => {
                 // The separate isBuffering state should also be true
                 expect(logic.values.isBuffering).toBe(true)
 
-                // End buffering
+                // Advance time and end buffering
+                currentTime += 1500
                 logic.actions.endBuffer()
 
-                // The issue: endBuffer only updates the separate isBuffering state,
-                // not the playingTimeTracking state, so buffer time is not accumulated
+                // Now both states are correctly updated
                 expect(logic.values.isBuffering).toBe(false) // This gets updated
-                expect(logic.values.playingTimeTracking.isBuffering).toBe(true) // This stays true!
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(0) // No time accumulated
+                expect(logic.values.playingTimeTracking.isBuffering).toBe(false) // This is now also updated
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1500) // Time is correctly accumulated
+
+                // Restore original performance.now
+                performance.now = originalNow
             })
 
             it('sets playing state with setPlay', () => {
@@ -448,10 +455,10 @@ describe('sessionRecordingPlayerLogic', () => {
                 // Buffer block 1 (1 second)
                 logic.actions.startBuffer()
                 currentTime += 1000
-                logic.actions.endBuffer() // Note: this doesn't actually accumulate buffer time due to the bug
+                logic.actions.endBuffer() // Now correctly accumulates buffer time
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(1000) // Should stay the same
-                expect(logic.values.playingTimeTracking.bufferTime).toBe(0) // Bug: doesn't accumulate
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(1000) // Now correctly accumulates
 
                 // Play block 2 (1 second)
                 logic.actions.setPlay()
@@ -466,6 +473,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.endBuffer()
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(2000) // Should stay the same
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(2000) // Cumulative buffer time
 
                 // Play block 3 (1 second)
                 logic.actions.setPlay()
@@ -480,6 +488,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.endBuffer()
 
                 expect(logic.values.playingTimeTracking.watchTime).toBe(3000) // Should stay the same
+                expect(logic.values.playingTimeTracking.bufferTime).toBe(3000) // Final cumulative buffer time
 
                 // Play block 4 (1 second)
                 logic.actions.setPlay()
@@ -488,7 +497,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
                 // Final verification: only 4 seconds of play time, not 7 seconds total
                 expect(logic.values.playingTimeTracking.watchTime).toBe(4000)
-                // expect this to fail due to a bug we need to fix
+                // Should correctly track 3 seconds of buffer time
                 expect(logic.values.playingTimeTracking.bufferTime).toBe(3000)
 
                 // Restore original performance.now

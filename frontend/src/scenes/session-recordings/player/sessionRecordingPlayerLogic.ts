@@ -389,8 +389,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         bufferTime: state.bufferTime,
                     }
                 },
-                stopBuffer: (state) => {
-                    throw new Error('why even am i')
+                endBuffer: (state) => {
                     return {
                         isPlaying: state.isPlaying,
                         isBuffering: false,
