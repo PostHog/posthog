@@ -145,8 +145,7 @@ class BatchImportConfigBuilder:
                 }
             case DateRangeExportSource.MIXPANEL:
                 if is_eu_region:
-                    # TODO: Confirm the correct EU endpoint for Mixpanel
-                    base_url = "https://data.eu.mixpanel.com/api/2.0/export"
+                    base_url = "https://data-eu.mixpanel.com/api/2.0/export"
                 else:
                     base_url = "https://data.mixpanel.com/api/2.0/export"
                 auth_config = {
