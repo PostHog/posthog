@@ -13,7 +13,6 @@ from collections.abc import Collection
 from dataclasses import asdict
 from unittest import mock
 from unittest.mock import patch
-from flaky import flaky
 
 import aioboto3
 import botocore.exceptions
@@ -22,6 +21,7 @@ import pytest
 import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
+from flaky import flaky
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -35,6 +35,7 @@ from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
+    S3BatchExportInputs,
 )
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
@@ -47,13 +48,14 @@ from posthog.temporal.batch_exports.pre_export_stage import (
 from posthog.temporal.batch_exports.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+    SUPPORTED_COMPRESSIONS,
     IntermittentUploadPartTimeoutError,
     InvalidS3EndpointError,
-    S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3HeartbeatDetails,
     S3InsertInputs,
     S3MultiPartUpload,
+    _use_internal_stage,
     get_s3_key,
     insert_into_s3_activity,
     insert_into_s3_activity_from_stage,
@@ -472,7 +474,7 @@ class TestInsertIntoS3Activity:
 
         return records_exported
 
-    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_S3_MODELS)
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
@@ -514,6 +516,9 @@ class TestInsertIntoS3Activity:
 
         if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
             pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
+
+        if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
         prefix = str(uuid.uuid4())
 
@@ -578,7 +583,7 @@ class TestInsertIntoS3Activity:
             sort_key=sort_key,
         )
 
-    @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+    @pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
     @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
     # Use 0 to test that the file is not split up and 6MB since this is slightly
@@ -610,6 +615,9 @@ class TestInsertIntoS3Activity:
 
         if file_format == "JSONLines" and compression is not None:
             pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
+
+        if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+            pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
         prefix = str(uuid.uuid4())
 
@@ -981,7 +989,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
@@ -1002,6 +1010,9 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     use_internal_s3_stage: bool,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local MinIO bucket and various compression and file formats."""
+
+    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     with override_settings(
         BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []
@@ -1263,7 +1274,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
 @pytest.mark.parametrize("use_internal_s3_stage", [True, False])
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
@@ -1289,6 +1300,9 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and
     encryption.
     """
+
+    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
+        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
@@ -2428,3 +2442,69 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
     with mock_clickhouse_client() as mock_client:
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
         mock_client.expect_select_from_table(expected_table)
+
+
+@pytest.mark.parametrize(
+    "team_id,batch_export_model,team_ids_in_settings,rollout_percentage,expected",
+    [
+        # Sessions model should always return False (for now, until we support it)
+        (1, BatchExportModel(name="sessions", schema=None), [], 0, False),
+        (1, BatchExportModel(name="sessions", schema=None), ["1"], 50, False),
+        # Team ID in settings should return True (regardless of rollout percentage)
+        (1, BatchExportModel(name="events", schema=None), ["1"], 0, True),
+        (5, BatchExportModel(name="events", schema=None), ["5"], 50, True),
+        # Team ID not in settings, rollout percentage determines result
+        (1, BatchExportModel(name="events", schema=None), [], 0, False),  # 1 % 100 = 1, 1 < 0 = False
+        (100, BatchExportModel(name="events", schema=None), [], 1, True),  # 100 % 100 = 0, 0 < 1 = True
+        (1, BatchExportModel(name="events", schema=None), [], 50, True),  # 1 % 100 = 1, 1 < 50 = True
+        (99, BatchExportModel(name="events", schema=None), [], 50, False),  # 99 % 100 = 99, 99 < 50 = False
+        (100, BatchExportModel(name="events", schema=None), [], 50, True),  # 100 % 100 = 0, 0 < 50 = True
+        (101, BatchExportModel(name="events", schema=None), [], 50, True),  # 101 % 100 = 1, 1 < 50 = True
+        (99, BatchExportModel(name="events", schema=None), [], 100, True),  # 99 % 100 = 99, 99 < 100 = True
+        # Multiple team IDs in settings
+        (1, BatchExportModel(name="events", schema=None), ["1", "2", "3"], 0, True),
+        (2, BatchExportModel(name="events", schema=None), ["1", "2", "3"], 0, True),
+        (4, BatchExportModel(name="events", schema=None), ["1", "2", "3"], 50, True),  # 4 % 100 = 4, 4 < 50 = True
+        # No batch export model (None)
+        (1, None, [], 0, False),
+        (1, None, ["1"], 0, True),
+        (1, None, [], 50, True),
+        # Different model names (not sessions)
+        (1, BatchExportModel(name="persons", schema=None), [], 50, True),
+        (1, BatchExportModel(name="custom_model", schema=None), [], 50, True),
+    ],
+)
+def test_use_internal_stage(team_id, batch_export_model, team_ids_in_settings, rollout_percentage, expected):
+    """Test the _use_internal_stage function with various inputs.
+
+    The function should return True if:
+    1. The batch export model is NOT "sessions" AND
+    2. Either:
+       - The team_id is in BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS, OR
+       - team_id % 100 < BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+
+    Otherwise, it should return False.
+    """
+
+    # Create minimal inputs object
+    inputs = S3BatchExportInputs(
+        team_id=team_id,
+        batch_export_id="test-id",
+        batch_export_model=batch_export_model,
+        bucket_name="test-bucket",
+        region="us-east-1",
+        prefix="test-prefix",
+    )
+
+    with override_settings(
+        BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=team_ids_in_settings,
+        BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE=rollout_percentage,
+    ):
+        result = _use_internal_stage(inputs)
+        assert result == expected, (
+            f"Expected {expected} for team_id={team_id}, "
+            f"batch_export_model={batch_export_model.name if batch_export_model else None}, "
+            f"team_ids_in_settings={team_ids_in_settings}, "
+            f"rollout_percentage={rollout_percentage}, "
+            f"but got {result}"
+        )

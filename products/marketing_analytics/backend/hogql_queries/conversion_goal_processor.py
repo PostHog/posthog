@@ -11,10 +11,10 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
 from .adapters.base import MarketingSourceAdapter
-from .utils import sanitize_conversion_goal_name
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
@@ -37,17 +37,11 @@ class ConversionGoalProcessor:
 
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""
-        goal_name = self.goal.conversion_goal_name
-        sanitized_name = sanitize_conversion_goal_name(goal_name)
-        return f"{CONVERSION_GOAL_PREFIX_ABBREVIATION}{self.index}_{sanitized_name}"
+        return self.goal.conversion_goal_id
 
     def get_table_name(self):
         """Get table name for conversion goal"""
-        name = self.goal.name
         kind = self.goal.kind
-
-        if not name:
-            return "events"
 
         if kind == "EventsNode":
             return "events"
@@ -267,7 +261,9 @@ class ConversionGoalProcessor:
         # Build: round(division_expr, DECIMAL_PRECISION)
         round_expr = ast.Call(name="round", args=[division_expr, ast.Constant(value=DECIMAL_PRECISION)])
 
-        cost_per_goal_alias = ast.Alias(alias=f"Cost per {goal_name}", expr=round_expr)
+        cost_per_goal_alias = ast.Alias(
+            alias=f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {goal_name}", expr=round_expr
+        )
 
         return [conversion_goal_alias, cost_per_goal_alias]
 

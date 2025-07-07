@@ -126,7 +126,16 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT 1
+  SELECT 1 AS event,
+         1 AS event_name,
+         1 AS original_amount,
+         1 AS currency_aware_amount,
+         1 AS original_currency,
+         1 AS amount,
+         1 AS currency,
+         1 AS person,
+         1 AS session_id,
+         1 AS timestamp
   WHERE 0
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

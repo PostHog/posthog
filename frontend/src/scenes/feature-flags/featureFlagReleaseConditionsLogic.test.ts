@@ -11,7 +11,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { featureFlagReleaseConditionsLogic } from './FeatureFlagReleaseConditionsLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 function generateFeatureFlagFilters(
     groups: FeatureFlagGroupType[],

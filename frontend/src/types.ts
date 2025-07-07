@@ -2327,6 +2327,8 @@ export interface RawAnnotationType {
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
     recording_id?: string | null
+    // convenience flag that indicates the content _should_ be a single emoji
+    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
