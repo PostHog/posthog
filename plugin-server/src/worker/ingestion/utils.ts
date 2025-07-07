@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
-import { isTestEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
@@ -78,7 +77,7 @@ export async function captureIngestionWarning(
     debounce?: { key?: string; alwaysSend?: boolean }
 ) {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
-    if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1) || isTestEnv()) {
+    if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
         // TODO: Either here or in follow up change this to an await as we do care.
         void kafkaProducer
             .queueMessages({

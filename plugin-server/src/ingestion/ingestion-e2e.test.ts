@@ -24,9 +24,10 @@ import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
+const mockConsume = jest.fn().mockReturnValue(true)
 jest.mock('~/utils/token-bucket', () => ({
     IngestionWarningLimiter: {
-        consume: jest.fn().mockReturnValue(true),
+        consume: mockConsume,
     },
 }))
 
@@ -225,6 +226,12 @@ describe('Event Pipeline E2E tests', () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
         process.env.SITE_URL = 'https://example.com'
+    })
+
+    beforeEach(() => {
+        // Reset the mock between tests to ensure consistent behavior
+        mockConsume.mockClear()
+        mockConsume.mockReturnValue(true)
     })
 
     afterAll(async () => {
