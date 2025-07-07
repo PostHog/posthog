@@ -21,6 +21,23 @@ interface QueryInfoProps {
     codeEditorKey: string
 }
 
+function getMaterializationStatusMessage(rowsMaterialized: number, progressPercentage: number): string {
+    switch (true) {
+        case rowsMaterialized === 0:
+            return 'Spinning up spikes — starting materialization job...'
+        case progressPercentage < 10:
+            return 'Digging into HogQL... executing your query now.'
+        case progressPercentage < 25:
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away...`
+        case progressPercentage < 50:
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage...`
+        case progressPercentage < 90:
+            return `Still going — ${humanFriendlyNumber(rowsMaterialized)} rows written...`
+        default:
+            return `Almost there — ${humanFriendlyNumber(rowsMaterialized)} rows processed...`
+    }
+}
+
 const OPTIONS = [
     {
         value: 'never' as OrNever,
@@ -265,7 +282,13 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         // many small result sets will never show progress as they are written in only 1 batch
                                         if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
                                             return (
-                                                <Tooltip title={`Running: ${progressPercentage.toFixed(1)}%`}>
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={getMaterializationStatusMessage(
+                                                        rows_materialized,
+                                                        progressPercentage
+                                                    )}
+                                                >
                                                     <div className="w-[68px]">
                                                         <LemonProgress percent={progressPercentage} />
                                                     </div>
