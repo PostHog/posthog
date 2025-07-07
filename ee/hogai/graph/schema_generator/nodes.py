@@ -148,9 +148,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         # Add the group mapping prompt to the beginning of the conversation.
         conversation: list[BaseMessage] = [
-            SystemMessagePromptTemplate.from_template(
-                content=PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
-            ),
+            SystemMessagePromptTemplate.from_template(PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"),
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
                 group_mapping=self._group_mapping_prompt
             ),
