@@ -69,3 +69,33 @@ exports[`NativeDestinationExecutorService native plugins should handle non retry
   },
 ]
 `;
+
+exports[`NativeDestinationExecutorService native plugins should retry retryable fetch errors 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "endpoint, https://posthog.com/webhook",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "debug",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+  {
+    "level": "warn",
+    "message": "HTTP request failed with status 429 ({"error":"Too many requests"}). Scheduling retry...",
+    "timestamp": "2025-01-01T00:00:00.000Z",
+  },
+]
+`;
