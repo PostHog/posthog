@@ -6,12 +6,18 @@ from rest_framework.response import Response
 import posthoganalytics
 import uuid
 from datetime import timedelta
+from enum import Enum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
+
+
+class BatchImportKafkaTopic(str, Enum):
+    MAIN = "main"
+    HISTORICAL = "historical"
+    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -130,7 +136,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
         ).to_kafka(
-            topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+            topic=BatchImportKafkaTopic.HISTORICAL,
             send_rate=1000,
             transaction_timeout_seconds=60,
         )
@@ -223,7 +229,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
             ).to_kafka(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
             )
