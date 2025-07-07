@@ -26,8 +26,9 @@ from posthog.clickhouse.log_entries import (
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
-    bind_temporal_worker_logger,
+    bind_contextvars,
     configure_logger_async,
+    get_external_logger,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -135,7 +136,7 @@ async def producer(event_loop):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def configure(log_capture, queue, producer):
+async def configure(configure_logger, log_capture, queue, producer):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
@@ -161,7 +162,9 @@ async def configure(log_capture, queue, producer):
 
 async def test_batch_exports_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
-    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
+    bind_contextvars(team_id=1, destination="Somewhere")
+    logger = structlog.get_logger()
+    logger.setLevel("INFO")
 
     logger.info("Hi! This is an info log")
     logger.error("Hi! This is an erro log")
@@ -179,7 +182,9 @@ async def test_batch_exports_logger_binds_context(log_capture):
 
 async def test_batch_exports_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
-    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
+    bind_contextvars(team_id=1, destination="Somewhere")
+    logger = structlog.get_logger()
+    logger.setLevel("INFO")
 
     logger.info("Hi! This is an %s log", "info")
     logger.error("Hi! This is an %s log", "error")
@@ -240,8 +245,9 @@ async def test_batch_exports_logger_binds_activity_context(
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
-
+        bind_contextvars(team_id=1, destination="Somewhere")
+        logger = structlog.get_logger()
+        logger.setLevel("INFO")
         logger.info("Hi! This is an %s log from an activity", "info")
 
     await activity_environment.run(log_activity)
@@ -288,11 +294,17 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=2, destination="Somewhere")
+        bind_contextvars(team_id=2, destination="Somewhere")
+        logger = structlog.get_logger("test")
+        logger.setLevel("INFO")
+        external_logger = get_external_logger()
+        external_logger.setLevel("INFO")
 
-        logger.info("Hi! This is an %s log from an activity", "info")
+        external_logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    await activity_environment.run(log_activity)
+    with override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
+        await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1
     message_dict = json.loads(queue.entries[0].decode("utf-8"))
@@ -306,9 +318,9 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
         assert message_dict["log_source"] == "batch_exports"
 
     assert message_dict["log_source_id"] == BATCH_EXPORT_ID
-    assert message_dict["message"] == "Hi! This is an info log from an activity"
+    assert message_dict["message"] == "Hi! This is an external info log from an activity"
     assert message_dict["team_id"] == 2
-    assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
+    assert message_dict["timestamp"] == "2023-11-02T10:00:00.123123Z"
 
 
 @pytest.fixture
@@ -345,7 +357,7 @@ def log_entries_table():
     indirect=True,
 )
 async def test_batch_exports_logger_produces_to_kafka(activity_environment, producer, queue, log_entries_table):
-    """Test whether our logger produces messages to Kafka.
+    """Test whether our external logger produces messages to Kafka.
 
     We also check if those messages are ingested into ClickHouse.
     """
@@ -353,11 +365,16 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=3, destination="Somewhere")
+        bind_contextvars(team_id=3)
+        logger = structlog.get_logger("test")
+        logger.setLevel("INFO")
+        external_logger = get_external_logger()
+        external_logger.setLevel("INFO")
 
-        logger.info("Hi! This is an %s log from an activity", "info")
+        external_logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+    with freezegun.freeze_time("2023-11-03 10:00:00.123123"), override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
         await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1
@@ -374,9 +391,9 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         "level": "info",
         "log_source": expected_log_source,
         "log_source_id": BATCH_EXPORT_ID,
-        "message": "Hi! This is an info log from an activity",
+        "message": "Hi! This is an external info log from an activity",
         "team_id": 3,
-        "timestamp": "2023-11-03 10:00:00.123123",
+        "timestamp": "2023-11-03T10:00:00.123123Z",
     }
 
     assert len(producer.entries) == 1
