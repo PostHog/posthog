@@ -2,7 +2,7 @@ import { IntegrationError, NativeTemplate } from '~/cdp/services/native-destinat
 
 export const template: NativeTemplate = {
     free: false,
-    status: 'stable',
+    status: 'hidden',
     type: 'destination',
     id: 'native-webhook',
     name: 'Native HTTP Webhook',
@@ -14,10 +14,12 @@ export const template: NativeTemplate = {
             return request(payload.url, {
                 method: payload.method,
                 headers: payload.headers,
-                json: payload.body
+                json: payload.body,
             })
         } catch (error) {
-            if (error instanceof TypeError) throw new IntegrationError(error.message, 'INVALID_PAYLOAD', 400)
+            if (error instanceof TypeError) {
+                throw new IntegrationError(error.message, 'INVALID_PAYLOAD', 400)
+            }
             throw error
         }
     },
@@ -88,5 +90,5 @@ export const template: NativeTemplate = {
             required: false,
             default: false,
         },
-    ]
+    ],
 }
