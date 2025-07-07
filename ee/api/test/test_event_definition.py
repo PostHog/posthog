@@ -7,7 +7,8 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import AvailableFeature, License, LicenseManager
+from ee.models.license import License, LicenseManager
+from posthog.constants import AvailableFeature
 from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
