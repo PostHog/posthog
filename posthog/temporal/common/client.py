@@ -2,7 +2,6 @@ import dataclasses
 from typing import Any
 
 import temporalio.converter
-import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
 from django.conf import settings as django_settings
 from temporalio.client import Client, TLSConfig
@@ -28,13 +27,11 @@ async def connect(
             client_cert=bytes(client_cert, "utf-8"),
             client_private_key=bytes(client_key, "utf-8"),
         )
-
     client = await Client.connect(
         f"{host}:{port}",
         namespace=namespace,
         tls=tls,
         runtime=runtime,
-        interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
         data_converter=dataclasses.replace(
             temporalio.converter.default(),
             payload_codec=EncryptionCodec(settings=settings),
