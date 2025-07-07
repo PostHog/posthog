@@ -3,6 +3,7 @@ from abc import ABC
 from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -52,9 +53,17 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def query_date_range(self):
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        timezone_info = (
+            typing.cast(ZoneInfo, ZoneInfo("UTC"))
+            if self.modifiers and not self.modifiers.convertToProjectTimezone
+            else self.team.timezone_info
+        )
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            timezone_info=timezone_info,
             interval=None,
             now=datetime.now(),
         )
