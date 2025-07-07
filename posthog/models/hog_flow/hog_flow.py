@@ -71,7 +71,7 @@ class HogFlow(UUIDModel):
                 from posthog.cdp.validation import generate_template_bytecode
 
                 inputs = action.get("config", {}).get("inputs", {})
-                input_collector = set()
+                input_collector: set[str] = set()
                 compiled_inputs = generate_template_bytecode(inputs, input_collector)
                 action["config"]["inputs"]["bytecode"] = compiled_inputs
         super().save(*args, **kwargs)
