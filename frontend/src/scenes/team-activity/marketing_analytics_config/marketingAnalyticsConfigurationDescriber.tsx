@@ -11,17 +11,17 @@ import { ConfigurationAddedDescriber } from './ConfigurationAddedDescriber'
 import { ConfigurationRemovedDescriber } from './ConfigurationRemovedDescriber'
 import { SourceAddedDescriber } from './SourceAddedDescriber'
 
-export const MarketingAnalyticsConfigurationDescriber = (change?: ActivityChange): ChangeMapping | null => {
+export const marketingAnalyticsConfigurationDescriber = (change?: ActivityChange): ChangeMapping | null => {
     if (!change) {
         return null
     }
 
-    const sourceMapDescriptions = MarketingAnalyticsSourceMapDescriber(change) ?? []
+    const sourceMapDescriptions = marketingAnalyticsSourceMapDescriber(change) ?? []
 
     return { description: [...sourceMapDescriptions] }
 }
 
-const MarketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Element[] | null => {
+const marketingAnalyticsSourceMapDescriber = (change?: ActivityChange): JSX.Element[] | null => {
     if (!change) {
         return null
     }

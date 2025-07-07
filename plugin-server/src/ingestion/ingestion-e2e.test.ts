@@ -24,11 +24,14 @@ import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
-jest.mock('~/utils/token-bucket', () => ({
-    IngestionWarningLimiter: {
-        consume: jest.fn().mockReturnValue(true),
-    },
-}))
+jest.mock('~/utils/token-bucket', () => {
+    const mockConsume = jest.fn().mockReturnValue(true)
+    return {
+        IngestionWarningLimiter: {
+            consume: mockConsume,
+        },
+    }
+})
 
 const waitForKafkaMessages = async (hub: Hub) => {
     await hub.db.kafkaProducer.flush()
@@ -1118,9 +1121,8 @@ describe('Event Pipeline E2E tests', () => {
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *
-            FROM ingestion_warnings
+            FROM ingestion_warnings_mv
             WHERE team_id = ${teamId}
-            ORDER BY timestamp ASC
         `)) as unknown as ClickHouse.ObjectQueryResult<any>
         return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
     }
@@ -1569,4 +1571,93 @@ describe('Event Pipeline E2E tests', () => {
             })
         }
     )
+
+    testWithTeamIngester('Should set and $unset person properties, different batches', async (ingester, hub, team) => {
+        const user1DistinctId = 'user1-distinct-id'
+
+        const events = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    property_to_unset: 'value',
+                })
+            )
+        })
+
+        const events2 = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $unset: ['property_to_unset'],
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events2))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+        })
+    })
+
+    testWithTeamIngester('Should set and $unset person properties, same batch', async (ingester, hub, team) => {
+        const user1DistinctId = 'user1-distinct-id'
+
+        const events = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $unset: ['property_to_unset'],
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+        })
+    })
 })
