@@ -123,9 +123,9 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_semantic_filter_insights(self, mock_openai):
         """Test semantic filtering with mocked LLM."""
-        # Mock LLM response
+        # Mock LLM response in expected batch format
         mock_response = MagicMock()
-        mock_response.content = "high"
+        mock_response.content = "1: high"
         mock_openai.return_value.invoke.return_value = mock_response
 
         insights = [
@@ -145,9 +145,9 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_semantic_filter_insights_low_relevance(self, mock_openai):
         """Test semantic filtering filters out low relevance insights."""
-        # Mock LLM response with low relevance
+        # Mock LLM response with low relevance in batch format
         mock_response = MagicMock()
-        mock_response.content = "low"
+        mock_response.content = "1: low"
         mock_openai.return_value.invoke.return_value = mock_response
 
         insights = [
