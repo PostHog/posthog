@@ -95,7 +95,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
 
     return (
         <div
-            className={cn('scene-layout flex-1 flex flex-col', className)}
+            className={cn('scene-layout', className)}
             ref={sceneLayoutContainer}
             style={
                 {
