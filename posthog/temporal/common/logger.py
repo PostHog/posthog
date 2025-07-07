@@ -211,7 +211,7 @@ def configure_logger_async(
             }
         ),
         structlog.contextvars.merge_contextvars,
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
     ]
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)

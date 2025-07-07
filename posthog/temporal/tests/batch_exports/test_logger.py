@@ -319,7 +319,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     assert message_dict["log_source_id"] == BATCH_EXPORT_ID
     assert message_dict["message"] == "Hi! This is an external info log from an activity"
     assert message_dict["team_id"] == 2
-    assert message_dict["timestamp"] == "2023-11-02T10:00:00.123123Z"
+    assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
 
 
 @pytest.fixture
@@ -392,7 +392,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         "log_source_id": BATCH_EXPORT_ID,
         "message": "Hi! This is an external info log from an activity",
         "team_id": 3,
-        "timestamp": "2023-11-03T10:00:00.123123Z",
+        "timestamp": "2023-11-03 10:00:00.123123",
     }
 
     assert len(producer.entries) == 1
