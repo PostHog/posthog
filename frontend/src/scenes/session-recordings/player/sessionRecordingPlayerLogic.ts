@@ -170,20 +170,20 @@ function isUserActivity(snapshot: eventWithTime): boolean {
 }
 
 const updatePlayerTimeTracking = (
-    state: PlayerTimeTracking,
+    current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state']
 ): PlayerTimeTracking => {
     // if we were just playing then update watch time
     const newWatchTime =
-        state.lastTimestamp !== null && state.state === 'playing'
-            ? state.watchTime + (performance.now() - state.lastTimestamp)
-            : state.watchTime
+        current.lastTimestamp !== null && current.state === 'playing'
+            ? current.watchTime + (performance.now() - current.lastTimestamp)
+            : current.watchTime
 
     // if we were just buffering then update buffer time
     const newBufferTime =
-        state.lastTimestamp !== null && state.state === 'buffering'
-            ? state.bufferTime + (performance.now() - state.lastTimestamp)
-            : state.bufferTime
+        current.lastTimestamp !== null && current.state === 'buffering'
+            ? current.bufferTime + (performance.now() - current.lastTimestamp)
+            : current.bufferTime
 
     const newLastTimestamp = ['paused', 'ended', 'errored'].includes(newState) ? null : performance.now()
 
@@ -195,14 +195,14 @@ const updatePlayerTimeTracking = (
     }
 }
 const updatePlayerTimeTrackingIfChanged = (
-    state: PlayerTimeTracking,
+    current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state']
 ): PlayerTimeTracking => {
-    if (state.state === newState) {
-        return state
+    if (current.state === newState) {
+        return current
     }
 
-    return updatePlayerTimeTracking(state, newState)
+    return updatePlayerTimeTracking(current, newState)
 }
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
