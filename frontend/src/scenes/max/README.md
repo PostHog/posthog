@@ -1,4 +1,5 @@
 ### Max Context
+
 Scene logics can expose a `maxContext` selector to provide relevant context to MaxAI.
 
 To do so:
@@ -6,16 +7,16 @@ To do so:
 1.  Import the necessary types and helpers:
 
     ```typescript
-    import { MaxContextItem, createMaxContextHelpers } from 'scenes/max/maxTypes'
+    import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
     ```
 
-2.  Add a `maxContext` selector that returns MaxContextItem[]:
+2.  Add a `maxContext` selector that returns MaxContextInput[]:
 
     ```typescript
     selectors({
         maxContext: [
             (s) => [s.dashboard],
-            (dashboard): MaxContextItem[] => {
+            (dashboard): MaxContextInput[] => {
                 if (!dashboard) {
                     return []
                 }
@@ -29,7 +30,7 @@ To do so:
     ```typescript
     maxContext: [
         (s) => [s.insight, s.events],
-        (insight, events): MaxContextItem[] => {
+        (insight, events): MaxContextInput[] => {
             const context = []
             if (insight) context.push(createMaxContextHelpers.insight(insight))
             if (events?.length) context.push(...events.map(createMaxContextHelpers.event))
@@ -42,10 +43,11 @@ The maxContextLogic will automatically detect and process these context items.
 Use the helper functions to ensure type safety and consistency.
 
 Currently, these context entities are supported:
-- Dashboards
-- Insights
-- Events
-- Actions
+
+-   Dashboards
+-   Insights
+-   Events
+-   Actions
 
 If you want to add new entities, you need to extend `maxContextLogic.ts`, slightly more difficult, but doable, check how other entities are supported and start from there.
 

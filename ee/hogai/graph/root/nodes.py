@@ -36,7 +36,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxContextShape,
+    MaxUIContext,
     MaxInsightContext,
     RetentionQuery,
     TrendsQuery,
@@ -73,7 +73,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
+    def _format_ui_context(self, ui_context: Optional[MaxUIContext]) -> str:
         """
         Format UI context into template variables for the prompt.
 

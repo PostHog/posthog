@@ -2,7 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { MaxContextItem, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -44,7 +44,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                     return logic.selectors.dashboard(state)
                 },
             ],
-            (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextItem[] => {
+            (dashboard: DashboardType<QueryBasedInsightModel> | null): MaxContextInput[] => {
                 if (!dashboard) {
                     return []
                 }

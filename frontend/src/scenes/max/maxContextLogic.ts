@@ -13,15 +13,15 @@ import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedI
 import type { maxContextLogicType } from './maxContextLogicType'
 import {
     InsightWithQuery,
-    MaxActionContextPayload,
-    MaxContextPayload,
+    MaxActionContext,
+    MaxContextItem,
     MaxContextTaxonomicFilterOption,
     MaxUIContext,
     MaxContextType,
-    MaxDashboardContextPayload,
-    MaxEventContextPayload,
-    MaxInsightContextPayload,
-    MaxContextItem,
+    MaxDashboardContext,
+    MaxEventContext,
+    MaxInsightContext,
+    MaxContextInput,
 } from './maxTypes'
 import { subscriptions } from 'kea-subscriptions'
 import { dashboardLogic, RefreshStatus } from 'scenes/dashboard/dashboardLogic'
@@ -88,7 +88,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             item: TaxonomicItem
         ) => ({ value, groupType, item }),
         resetContext: true,
-        applyContext: (context: MaxContextPayload[]) => ({ context }),
+        applyContext: (context: MaxContextItem[]) => ({ context }),
     }),
     reducers({
         loadedEntities: [
@@ -105,48 +105,48 @@ export const maxContextLogic = kea<maxContextLogicType>([
             },
         ],
         contextInsights: [
-            [] as MaxInsightContextPayload[],
+            [] as MaxInsightContext[],
             {
-                addOrUpdateContextInsight: (state: MaxInsightContextPayload[], { data }: { data: InsightWithQuery }) =>
+                addOrUpdateContextInsight: (state: MaxInsightContext[], { data }: { data: InsightWithQuery }) =>
                     addOrUpdateEntity(state, insightToMaxContext(data)),
-                removeContextInsight: (state: MaxInsightContextPayload[], { id }: { id: string | number }) =>
+                removeContextInsight: (state: MaxInsightContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
-                applyContext: (_: MaxInsightContextPayload[], { context }: { context: MaxContextPayload[] }) =>
+                applyContext: (_: MaxInsightContext[], { context }: { context: MaxContextItem[] }) =>
                     sceneContextReducer(MaxContextType.INSIGHT, context),
             },
         ],
         contextDashboards: [
-            [] as MaxDashboardContextPayload[],
+            [] as MaxDashboardContext[],
             {
                 addOrUpdateContextDashboard: (
-                    state: MaxDashboardContextPayload[],
+                    state: MaxDashboardContext[],
                     { data }: { data: DashboardType<QueryBasedInsightModel> }
                 ) => addOrUpdateEntity(state, dashboardToMaxContext(data)),
-                removeContextDashboard: (state: MaxDashboardContextPayload[], { id }: { id: string | number }) =>
+                removeContextDashboard: (state: MaxDashboardContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
-                applyContext: (_: MaxDashboardContextPayload[], { context }: { context: MaxContextPayload[] }) =>
+                applyContext: (_: MaxDashboardContext[], { context }: { context: MaxContextItem[] }) =>
                     sceneContextReducer(MaxContextType.DASHBOARD, context),
             },
         ],
         contextEvents: [
-            [] as MaxEventContextPayload[],
+            [] as MaxEventContext[],
             {
-                addOrUpdateContextEvent: (state: MaxEventContextPayload[], { data }: { data: EventDefinition }) =>
+                addOrUpdateContextEvent: (state: MaxEventContext[], { data }: { data: EventDefinition }) =>
                     addOrUpdateEntity(state, eventToMaxContextPayload(data)),
-                removeContextEvent: (state: MaxEventContextPayload[], { id }: { id: string | number }) =>
+                removeContextEvent: (state: MaxEventContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
-                applyContext: (_: MaxEventContextPayload[], { context }: { context: MaxContextPayload[] }) =>
+                applyContext: (_: MaxEventContext[], { context }: { context: MaxContextItem[] }) =>
                     sceneContextReducer(MaxContextType.EVENT, context),
             },
         ],
         contextActions: [
-            [] as MaxActionContextPayload[],
+            [] as MaxActionContext[],
             {
-                addOrUpdateContextAction: (state: MaxActionContextPayload[], { data }: { data: ActionType }) =>
+                addOrUpdateContextAction: (state: MaxActionContext[], { data }: { data: ActionType }) =>
                     addOrUpdateEntity(state, actionToMaxContextPayload(data)),
-                removeContextAction: (state: MaxActionContextPayload[], { id }: { id: string | number }) =>
+                removeContextAction: (state: MaxActionContext[], { id }: { id: string | number }) =>
                     removeEntity(state, id),
-                applyContext: (_: MaxActionContextPayload[], { context }: { context: MaxContextPayload[] }) =>
+                applyContext: (_: MaxActionContext[], { context }: { context: MaxContextItem[] }) =>
                     sceneContextReducer(MaxContextType.ACTION, context),
             },
         ],
@@ -353,7 +353,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
         rawSceneContext: [
             () => [
                 // Pass scene selector through to get automatic updates when scene changes
-                (state): MaxContextItem[] => {
+                (state): MaxContextInput[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, {})
 
                     if (activeSceneLogic && 'maxContext' in activeSceneLogic.selectors) {
@@ -370,14 +370,14 @@ export const maxContextLogic = kea<maxContextLogicType>([
                     return []
                 },
             ],
-            (context: MaxContextPayload[]): MaxContextPayload[] => context,
+            (context: MaxContextItem[]): MaxContextItem[] => context,
             { equalityCheck: objectsEqual },
         ],
         sceneContext: [
             (s: any) => [s.rawSceneContext],
-            (rawSceneContext: MaxContextItem[]): MaxContextPayload[] => {
+            (rawSceneContext: MaxContextInput[]): MaxContextItem[] => {
                 return rawSceneContext
-                    .map((item): MaxContextPayload | null => {
+                    .map((item): MaxContextItem | null => {
                         switch (item.type) {
                             case MaxContextType.INSIGHT:
                                 return insightToMaxContext(item.data)
@@ -391,12 +391,12 @@ export const maxContextLogic = kea<maxContextLogicType>([
                                 return null
                         }
                     })
-                    .filter((item): item is MaxContextPayload => item !== null)
+                    .filter((item): item is MaxContextItem => item !== null)
             },
         ],
         contextOptions: [
             (s: any) => [s.sceneContext],
-            (sceneContext: MaxContextPayload[]): MaxContextTaxonomicFilterOption[] => {
+            (sceneContext: MaxContextItem[]): MaxContextTaxonomicFilterOption[] => {
                 const options: MaxContextTaxonomicFilterOption[] = []
                 sceneContext.forEach((item) => {
                     if (item.type == MaxContextType.INSIGHT) {
@@ -466,10 +466,10 @@ export const maxContextLogic = kea<maxContextLogicType>([
             ],
             (
                 hasData: boolean,
-                contextInsights: MaxInsightContextPayload[],
-                contextDashboards: MaxDashboardContextPayload[],
-                contextEvents: MaxEventContextPayload[],
-                contextActions: MaxActionContextPayload[],
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
                 filtersOverride: DashboardFilter,
                 variablesOverride: Record<string, HogQLVariable> | null
             ): MaxUIContext | null => {
@@ -542,18 +542,18 @@ export const maxContextLogic = kea<maxContextLogicType>([
         hasData: [
             (s: any) => [s.contextInsights, s.contextDashboards, s.contextEvents, s.contextActions],
             (
-                contextInsights: MaxInsightContextPayload[],
-                contextDashboards: MaxDashboardContextPayload[],
-                contextEvents: MaxEventContextPayload[],
-                contextActions: MaxActionContextPayload[]
+                contextInsights: MaxInsightContext[],
+                contextDashboards: MaxDashboardContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[]
             ): boolean => {
                 return [contextInsights, contextDashboards, contextEvents, contextActions].some((arr) => arr.length > 0)
             },
         ],
     }),
     subscriptions(({ values, actions }) => ({
-        rawSceneContext: (rawContext: MaxContextItem[]) => {
-            rawContext.forEach((item: MaxContextItem) => {
+        rawSceneContext: (rawContext: MaxContextInput[]) => {
+            rawContext.forEach((item: MaxContextInput) => {
                 if (
                     item.type === MaxContextType.INSIGHT &&
                     item.data.short_id &&
@@ -572,7 +572,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 }
             })
         },
-        sceneContext: (context: MaxContextPayload[]) => {
+        sceneContext: (context: MaxContextItem[]) => {
             actions.applyContext(context)
         },
     })),

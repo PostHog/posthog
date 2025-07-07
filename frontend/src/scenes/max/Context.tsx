@@ -7,12 +7,7 @@ import { useMemo } from 'react'
 import React from 'react'
 
 import { maxContextLogic } from './maxContextLogic'
-import {
-    MaxActionContextPayload,
-    MaxDashboardContextPayload,
-    MaxEventContextPayload,
-    MaxInsightContextPayload,
-} from './maxTypes'
+import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 import clsx from 'clsx'
 
 function pluralize(count: number, word: string): string {
@@ -26,10 +21,10 @@ interface ContextTagItem {
 }
 
 interface ContextSummaryProps {
-    insights?: MaxInsightContextPayload[]
-    dashboards?: MaxDashboardContextPayload[]
-    events?: MaxEventContextPayload[]
-    actions?: MaxActionContextPayload[]
+    insights?: MaxInsightContext[]
+    dashboards?: MaxDashboardContext[]
+    events?: MaxEventContext[]
+    actions?: MaxActionContext[]
     useCurrentPageContext?: boolean
 }
 
@@ -171,28 +166,28 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                 type: 'dashboard',
                 icon: IconDashboard,
                 removeAction: removeContextDashboard,
-                getName: (item: MaxDashboardContextPayload) => item.name || `Dashboard ${item.id}`,
+                getName: (item: MaxDashboardContext) => item.name || `Dashboard ${item.id}`,
             },
             {
                 items: contextInsights,
                 type: 'insight',
                 icon: IconGraph,
                 removeAction: removeContextInsight,
-                getName: (item: MaxInsightContextPayload) => item.name || `Insight ${item.id}`,
+                getName: (item: MaxInsightContext) => item.name || `Insight ${item.id}`,
             },
             {
                 items: contextEvents,
                 type: 'event',
                 icon: IconEvent,
                 removeAction: removeContextEvent,
-                getName: (item: MaxEventContextPayload) => item.name,
+                getName: (item: MaxEventContext) => item.name,
             },
             {
                 items: contextActions,
                 type: 'action',
                 icon: IconAction,
                 removeAction: removeContextAction,
-                getName: (item: MaxActionContextPayload) => item.name || `Action ${item.id}`,
+                getName: (item: MaxActionContext) => item.name || `Action ${item.id}`,
             },
         ]
 

@@ -36,7 +36,7 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
-import { MaxContextItem, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -238,7 +238,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
         maxContext: [
             (s) => [s.insight],
-            (insight: Partial<QueryBasedInsightModel>): MaxContextItem[] => {
+            (insight: Partial<QueryBasedInsightModel>): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }

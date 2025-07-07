@@ -12750,7 +12750,7 @@
                     "type": "string"
                 },
                 "ui_context": {
-                    "$ref": "#/definitions/MaxContextShape"
+                    "$ref": "#/definitions/MaxUIContext"
                 }
             },
             "required": ["type", "content"],
@@ -14418,45 +14418,6 @@
             "required": ["type", "id", "name"],
             "type": "object"
         },
-        "MaxContextShape": {
-            "additionalProperties": false,
-            "properties": {
-                "actions": {
-                    "items": {
-                        "$ref": "#/definitions/MaxActionContext"
-                    },
-                    "type": "array"
-                },
-                "dashboards": {
-                    "items": {
-                        "$ref": "#/definitions/MaxDashboardContext"
-                    },
-                    "type": "array"
-                },
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/MaxEventContext"
-                    },
-                    "type": "array"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
-                "insights": {
-                    "items": {
-                        "$ref": "#/definitions/MaxInsightContext"
-                    },
-                    "type": "array"
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
         "MaxDashboardContext": {
             "additionalProperties": false,
             "properties": {
@@ -14588,6 +14549,45 @@
                 }
             },
             "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUIContext": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "$ref": "#/definitions/MaxActionContext"
+                    },
+                    "type": "array"
+                },
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MaxEventContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "MaxUniversalFilterValue": {
