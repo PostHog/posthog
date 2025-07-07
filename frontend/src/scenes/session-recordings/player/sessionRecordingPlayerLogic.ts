@@ -379,8 +379,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         playingTimeTracking: [
             {
-                state: 'unknown' as 'buffering' | 'playing' | 'paused' | 'errored' | 'ended' | 'unknown',
-                lastTimestamp: null as number | null,
+                state: 'unknown',
+                lastTimestamp: null,
                 watchTime: 0,
                 bufferTime: 0,
             } as PlayerTimeTracking,
