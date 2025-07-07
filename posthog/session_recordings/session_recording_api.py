@@ -27,7 +27,7 @@ from openai.types.chat import (
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -41,8 +41,9 @@ from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -66,6 +67,7 @@ from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
 )
+from tenacity import retry, wait_random_exponential, retry_if_exception_type, stop_after_attempt
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -470,6 +472,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
@@ -508,6 +511,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=False)
     def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        tag_queries(product=Product.REPLAY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
@@ -546,6 +550,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     )
     @action(methods=["GET"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        tag_queries(product=Product.REPLAY)
         recording: SessionRecording = self.get_object()
 
         if not request.user.is_anonymous:
@@ -559,6 +564,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
 
         loaded = recording.load_metadata()
@@ -579,6 +585,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
         loaded = recording.load_metadata()
 
@@ -682,6 +689,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         NB version 1 of this API has been deprecated and ClickHouse stored snapshots are no longer supported.
         """
 
+        tag_queries(product=Product.REPLAY)
         timer = ServerTimingsGathered()
 
         with timer("get_recording"):
@@ -711,9 +719,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             # we want to track personal api key usage of this endpoint
             # with better visibility than just the token in a counter
             posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "snapshots_api_called_with_personal_api_key",
-                {
+                distinct_id=self._distinct_id_from_request(request),
+                event="snapshots_api_called_with_personal_api_key",
+                properties={
                     "key_label": used_key.label,
                     "key_scopes": used_key.scopes,
                     "key_scoped_teams": used_key.scoped_teams,
@@ -760,10 +768,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            return Response(
-                {"error": "An unexpected error has occurred. Please try again later."},
-                status=500,
+            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+            message = (
+                "ClickHouse over capacity. Please retry"
+                if is_ch_error
+                else "An unexpected error has occurred. Please try again later."
             )
+            response_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+            return Response({"error": message}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -795,6 +810,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 metadata={"$current_url": current_url, "$session_id": session_id, **partial_filters},
             )
 
+    @retry(
+        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        # if retrying doesn't work, raise the actual error, not a retry error
+        reraise=True,
+        # try again after 0.2 seconds
+        # and then exponentially waits up to a max of 3 seconds between requests
+        wait=wait_random_exponential(multiplier=0.2, max=3),
+        # make a maximum of 6 attempts before stopping
+        stop=stop_after_attempt(6),
+    )
     def _gather_session_recording_sources(
         self,
         recording: SessionRecording,
@@ -909,6 +934,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     def summarize(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
+        tag_queries(product=Product.REPLAY)
 
         user = cast(User, request.user)
 
@@ -1141,6 +1167,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     def similar_recordings(self, request: request.Request, **kwargs) -> Response:
         """Find recordings with similar event sequences to the given recording."""
         timer = ServerTimingsGathered()
+        tag_queries(product=Product.REPLAY)
         recording = self.get_object()
 
         if recording.deleted:

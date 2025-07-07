@@ -2373,7 +2373,6 @@ const api = {
         },
         async listTemplates(params: {
             types: HogFunctionTypeType[]
-            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
@@ -2383,8 +2382,8 @@ const api = {
 
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
+        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
@@ -3527,7 +3526,8 @@ const api = {
     conversations: {
         async stream(
             data: {
-                content: string
+                /** The user message. Null content means we're continuing previous generation. */
+                content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxContextShape
                 conversation?: string | null

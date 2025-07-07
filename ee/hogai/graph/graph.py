@@ -51,7 +51,7 @@ from .trends.nodes import (
 
 from .insights.nodes import InsightSearchNode
 
-checkpointer = DjangoCheckpointer()
+global_checkpointer = DjangoCheckpointer()
 
 
 class BaseAssistantGraph:
@@ -75,10 +75,10 @@ class BaseAssistantGraph:
         self._graph.add_node(node, action)
         return self
 
-    def compile(self):
+    def compile(self, checkpointer: DjangoCheckpointer | None = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer)
+        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
 class InsightsAssistantGraph(BaseAssistantGraph):
@@ -306,8 +306,8 @@ class InsightsAssistantGraph(BaseAssistantGraph):
             .add_sql_generator(next_node=next_node)
         )
 
-    def compile_full_graph(self):
-        return self.add_query_creation_flow().add_query_executor().compile()
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+        return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
 
 
 class AssistantGraph(BaseAssistantGraph):
@@ -471,7 +471,7 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_conditional_edges(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node.router, path_map=path_map)
         return self
 
-    def compile_full_graph(self):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
             .add_memory_onboarding()
@@ -481,5 +481,5 @@ class AssistantGraph(BaseAssistantGraph):
             .add_insights()
             .add_inkeep_docs()
             .add_insights_search()
-            .compile()
+            .compile(checkpointer=checkpointer)
         )
