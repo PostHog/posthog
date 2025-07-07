@@ -373,7 +373,19 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
             if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+                s3_folder = _get_clickhouse_s3_staging_folder_url(
+                    batch_export_id=batch_export_id,
+                    data_interval_start=data_interval_start,
+                    data_interval_end=data_interval_end,
+                )
+                query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
+                    data_interval_start=interval_start,
+                    data_interval_end=interval_end,
+                    s3_folder=s3_folder,
+                    s3_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    s3_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                    num_partitions=settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
+                )
             else:
                 query = query_or_model
 
