@@ -9864,6 +9864,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useRecentEventsTable": {
+                    "description": "Use recent_events table (last 7 days) for better performance when querying recent data",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12570,6 +12574,12 @@
                 "propertyGroupsMode": {
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
+                },
+                "revenueAnalyticsPersonsJoinMode": {
+                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinModeModifier"
+                },
+                "revenueAnalyticsPersonsJoinModeCustom": {
+                    "type": ["string", "null"]
                 },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
@@ -19802,6 +19812,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "RevenueAnalyticsPersonsJoinModeModifier": {
+            "enum": ["id", "email", "custom"],
+            "type": "string"
         },
         "RevenueAnalyticsPropertyFilter": {
             "additionalProperties": false,

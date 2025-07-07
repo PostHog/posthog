@@ -2017,6 +2017,12 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
+class RevenueAnalyticsPersonsJoinModeModifier(StrEnum):
+    ID = "id"
+    EMAIL = "email"
+    CUSTOM = "custom"
+
+
 class RevenueAnalyticsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3363,6 +3369,8 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
+    revenueAnalyticsPersonsJoinMode: Optional[RevenueAnalyticsPersonsJoinModeModifier] = None
+    revenueAnalyticsPersonsJoinModeCustom: Optional[str] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
@@ -11939,6 +11947,10 @@ class EventsQuery(BaseModel):
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
     tags: Optional[QueryLogTags] = None
+    useRecentEventsTable: Optional[bool] = Field(
+        default=None,
+        description="Use recent_events table (last 7 days) for better performance when querying recent data",
+    )
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
