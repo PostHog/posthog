@@ -39,7 +39,14 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             <LemonInput disabled={true} />
                         </LemonField>
                     </div>
-                    <EmojiCommentRow onSelectEmoji={() => setIsCommenting(false)} />
+                    <EmojiCommentRow
+                        onSelectEmoji={() => setIsCommenting(false)}
+                        disabledReason={
+                            recordingAnnotation.content?.length
+                                ? 'Clear the comment below to use a quick emoji reaction.'
+                                : undefined
+                        }
+                    />
                     <div>
                         <LemonField name="content">
                             <LemonTextArea

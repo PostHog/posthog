@@ -8,7 +8,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { IconComment } from 'lib/lemon-ui/icons'
 
-export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
+export function EmojiCommentRow({
+    onSelectEmoji,
+    disabledReason,
+}: {
+    onSelectEmoji?: () => void
+    disabledReason?: string | undefined
+}): JSX.Element {
     const {
         sessionPlayerData: { sessionRecordingId },
         logicProps,
@@ -26,6 +32,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
                         onSelectEmoji?.()
                     }}
                     data-attr="emoji-quick-comment-button"
+                    disabledReason={disabledReason}
                 >
                     {emoji}
                 </LemonButton>
