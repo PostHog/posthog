@@ -21,18 +21,6 @@ export const MAX_ITEMS_TO_SHOW = 3
 export const GOOGLE_ADS_CAMPAIGN_TABLE_NAME = 'campaign'
 export const GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 
-export const CAMPAIGN_COST_CTE_NAME = 'campaign_costs'
-export const CAMPAIGN_NAME_FIELD = 'campaign_name'
-export const CLICKS_FIELD = 'clicks'
-export const CONVERSION_GOAL_PREFIX = 'conversion_'
-export const CONVERSION_GOAL_PREFIX_ABBREVIATION = 'cg_'
-export const COST_FIELD = 'cost'
-export const IMPRESSIONS_FIELD = 'impressions'
-export const SOURCE_NAME_FIELD = 'source_name'
-export const TOTAL_CLICKS_FIELD = 'total_clicks'
-export const TOTAL_COST_FIELD = 'total_cost'
-export const TOTAL_IMPRESSIONS_FIELD = 'total_impressions'
-
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     MetaAds: [], // TODO: Add required fields when MetaAds cost tile is implemented in MarketingDashboardMapper
@@ -51,3 +39,26 @@ export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNod
 }
 
 export const COST_MICROS_MULTIPLIER = 1 / 1000000
+
+/**
+ * Generates a unique name by adding a numeric suffix if the base name already exists in the given list.
+ * @param baseName The desired base name
+ * @param existingNames Array of names that already exist
+ * @returns A unique name, either the original or with a numeric suffix like "(1)", "(2)", etc.
+ */
+export function generateUniqueName(baseName: string, existingNames: string[]): string {
+    if (!existingNames.includes(baseName)) {
+        return baseName
+    }
+
+    // Find the next available number suffix
+    let counter = 1
+    let newName = `${baseName} (${counter})`
+
+    while (existingNames.includes(newName)) {
+        counter++
+        newName = `${baseName} (${counter})`
+    }
+
+    return newName
+}
