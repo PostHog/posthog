@@ -1,6 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,11 +10,13 @@ import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_res
 import { NodeKind } from '~/queries/schema/schema-general'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
+        pageUrl: urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS.id),
     },
     decorators: [
         mswDecorator({
@@ -47,13 +47,10 @@ const meta: Meta = {
 }
 export default meta
 
-export const ExperimentWithMultipleMetrics: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS.id))
-    }, [])
-    return <App />
-}
-ExperimentWithMultipleMetrics.play = async () => {
-    // Add a small delay to ensure charts render completely
-    await new Promise((resolve) => setTimeout(resolve, 500))
+type Story = StoryObj<typeof meta>
+export const ExperimentWithMultipleMetrics: Story = {
+    play: async () => {
+        // Add a small delay to ensure charts render completely
+        await new Promise((resolve) => setTimeout(resolve, 500))
+    },
 }
