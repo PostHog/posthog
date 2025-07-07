@@ -66,9 +66,9 @@ class HogFlow(UUIDModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
     def save(self, *args, **kwargs):
-        # Iterate through actions to validate and compile inputs for function_* types
+        # Iterate through actions to validate and compile inputs for function* types
         for action in self.actions.values():
-            if action.get("type", "").startswith("function_"):
+            if action.get("type", "").startswith("function"):
                 inputs = action.get("config", {}).get("inputs", {})
                 input_collector = set()
                 compiled_inputs = generate_template_bytecode(inputs, input_collector)
