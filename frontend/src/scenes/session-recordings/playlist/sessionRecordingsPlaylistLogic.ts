@@ -654,6 +654,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const response = await api.recordings.bulkDeleteStatus(taskId)
 
                         if (response.state === 'SUCCESS') {
+                            // we need to reload the recordings after the task is done
+                            actions.loadSessionRecordings()
                             return
                         } else if (response.state === 'FAILURE' || response.error) {
                             throw new Error('Could not delete recordings. Please try again later.')
