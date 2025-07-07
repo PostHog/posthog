@@ -1,23 +1,19 @@
 import LRUCache from 'lru-cache'
 
-import { Hub } from '../../../types'
+import { CyclotronPerson } from '~/cdp/types'
 
-type PersonProperties = Record<string, any>
-type Person = {
-    id: string
-    properties: PersonProperties
-}
+import { Hub } from '../../../types'
 
 const PERSONS_CACHE_AGE_MS = 60 * 1000 // 1 minute
 
 export class PersonsManagerService {
-    private personsCache: LRUCache<string, Person>
+    private personsCache: LRUCache<string, CyclotronPerson>
 
     constructor(private hub: Hub) {
         this.personsCache = new LRUCache({ max: 1_000_000, maxAge: PERSONS_CACHE_AGE_MS })
     }
 
-    public async getPerson(teamId: number, distinctId: string): Promise<Person> {
+    public async getPerson(teamId: number, distinctId: string): Promise<CyclotronPerson> {
         const cachedProperties = this.personsCache.get(distinctId)
         if (cachedProperties) {
             return cachedProperties
