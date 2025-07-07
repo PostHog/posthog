@@ -120,7 +120,13 @@ class BillingConsumer(SQSConsumer):
 
         logger.info(f"Processing billing customer update for {organization_id}")
 
-        organization = Organization.objects.get(id=organization_id)
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            logger.exception(f"Organization {organization_id} does not exist")
+            capture_exception(Exception(f"Organization {organization_id} does not exist"))
+            return
+
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
         billing_manager.update_org_details(organization, data)
