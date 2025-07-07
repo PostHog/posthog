@@ -1135,7 +1135,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             await self._initialize_multipart_upload()
 
         if final:
-            await self.logger.ainfo(
+            self.logger.info(
                 "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
             )
             # take all the data
@@ -1229,7 +1229,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                         error_code = err.response.get("Error", {}).get("Code", None)
                         attempt += 1
 
-                        await self.logger.ainfo(
+                        self.logger.info(
                             "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
                             self.current_file_index,
                             part_number,
@@ -1245,7 +1245,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                             retry_delay = min(
                                 max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
                             )
-                            await self.logger.ainfo("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                            self.logger.info("Retrying part %s upload in %s seconds", part_number, retry_delay)
                             await asyncio.sleep(retry_delay)
                             continue
                         else:
@@ -1279,7 +1279,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        self.external_logger.adebug("Starting multipart upload for file number %s", self._get_current_key())
+        self.external_logger.info("Starting multipart upload for file number %s", self._get_current_key())
 
     async def _finalize_current_file(self):
         """Finalize the current file before starting a new one"""
@@ -1345,7 +1345,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             **optional_kwargs,  # type: ignore
         )
         self.upload_id = response["UploadId"]
-        self.logger.ainfo("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
+        self.logger.info("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
 
     async def finalize(self):
         """Finalize upload with proper cleanup"""
