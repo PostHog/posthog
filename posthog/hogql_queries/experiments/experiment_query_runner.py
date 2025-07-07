@@ -601,9 +601,6 @@ class ExperimentQueryRunner(QueryRunner):
 
     def calculate(self) -> ExperimentQueryResponse:
         try:
-            # Mock exception for testing
-            raise Exception("Mocking experiment error")
-
             sorted_results = self._evaluate_experiment_query()
 
             # Check if we should use the new Bayesian method
