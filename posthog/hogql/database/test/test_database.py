@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any, cast
 
 from unittest.mock import patch
@@ -18,8 +19,9 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, prepare_ast_for_printing
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.timings import HogQLTimings
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -78,6 +80,107 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         posthog_tables_with_dw = db_with_dw_tables.get_posthog_tables()
         posthog_tables_without_dw = db_without_dw_tables.get_posthog_tables()
         assert posthog_tables_with_dw == posthog_tables_without_dw
+
+    def test_database_reuse_optimization_shows_correct_timings(self):
+        optimized_db = create_hogql_database(team=self.team, skip_dw_tables=True)
+        query = parse_select("SELECT 1 FROM events LIMIT 1")
+
+        fresh_timings = HogQLTimings()
+        fresh_context = HogQLContext(team_id=self.team.pk, timings=fresh_timings)
+        prepare_ast_for_printing(query, fresh_context, "clickhouse")
+        fresh_timing_names = [t.k for t in fresh_timings.to_list()]
+        create_timings = [t for t in fresh_timing_names if "create_hogql_database" in t]
+        reuse_timings_fresh = [t for t in fresh_timing_names if "reuse_hogql_database" in t]
+        assert len(create_timings) > 0
+        assert len(reuse_timings_fresh) == 0
+
+        reuse_timings = HogQLTimings()
+        reuse_context = HogQLContext(team_id=self.team.pk, database=optimized_db, timings=reuse_timings)
+        prepare_ast_for_printing(query, reuse_context, "clickhouse")
+        reuse_timing_names = [t.k for t in reuse_timings.to_list()]
+        reuse_timings_reuse = [t for t in reuse_timing_names if "reuse_hogql_database" in t]
+        create_timings_reuse = [t for t in reuse_timing_names if "create_hogql_database" in t]
+        assert len(reuse_timings_reuse) > 0
+        assert len(create_timings_reuse) == 0
+
+    def test_database_reuse_preserves_optimization_flags(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test_source_reuse",
+            connection_id="test_connection",
+            destination_id="test_destination",
+            team=self.team,
+            status=ExternalDataSource.Status.RUNNING,
+            source_type="Stripe",
+        )
+        DataWarehouseTable.objects.create(
+            name="test_reuse_table",
+            format="Parquet",
+            team_id=self.team.pk,
+            url_pattern="https://example.com/reuse_data.parquet",
+            external_data_source=source,
+        )
+
+        optimized_db = create_hogql_database(team=self.team, skip_dw_tables=True)
+        warehouse_tables_optimized = optimized_db.get_warehouse_tables()
+
+        context = HogQLContext(team_id=self.team.pk, database=optimized_db)
+        query = parse_select("SELECT 1 FROM events LIMIT 1")
+        prepare_ast_for_printing(query, context, "clickhouse")
+
+        reused_warehouse_tables = context.database.get_warehouse_tables()
+        assert len(warehouse_tables_optimized) == len(reused_warehouse_tables) == 0
+
+        posthog_tables = context.database.get_posthog_tables()
+        assert len(posthog_tables) > 0
+        assert "events" in posthog_tables
+
+    def test_database_reuse_performance_comparison(self):
+        source = ExternalDataSource.objects.create(
+            source_id="perf_test_source",
+            connection_id="test_connection",
+            destination_id="test_destination",
+            team=self.team,
+            status=ExternalDataSource.Status.RUNNING,
+            source_type="Stripe",
+        )
+
+        for i in range(3):
+            DataWarehouseTable.objects.create(
+                name=f"perf_test_table_{i}",
+                format="Parquet",
+                team_id=self.team.pk,
+                url_pattern=f"https://example.com/perf_data_{i}.parquet",
+                external_data_source=source,
+            )
+
+        query = parse_select("SELECT 1 FROM events LIMIT 1")
+
+        fresh_timings = HogQLTimings()
+        fresh_context = HogQLContext(team_id=self.team.pk, timings=fresh_timings)
+        start_time = time.time()
+        prepare_ast_for_printing(query, fresh_context, "clickhouse")
+        fresh_duration = time.time() - start_time
+        fresh_timing_dict = {t.k: t.t for t in fresh_timings.to_list()}
+
+        optimized_db = create_hogql_database(team=self.team, skip_dw_tables=True)
+        reuse_timings = HogQLTimings()
+        reuse_context = HogQLContext(team_id=self.team.pk, database=optimized_db, timings=reuse_timings)
+        start_time = time.time()
+        prepare_ast_for_printing(query, reuse_context, "clickhouse")
+        reuse_duration = time.time() - start_time
+        reuse_timing_dict = {t.k: t.t for t in reuse_timings.to_list()}
+
+        fresh_create_timings = [k for k in fresh_timing_dict.keys() if "create_hogql_database" in k]
+        reuse_reuse_timings = [k for k in reuse_timing_dict.keys() if "reuse_hogql_database" in k]
+        assert len(fresh_create_timings) > 0
+        assert len(reuse_reuse_timings) > 0
+        assert reuse_duration < fresh_duration or reuse_duration < 0.1
+
+        dw_timing_keys = ["data_warehouse_saved_query", "data_warehouse_tables", "revenue_analytics_views"]
+        reuse_has_dw_timings = any(
+            any(dw_key in timing_key for dw_key in dw_timing_keys) for timing_key in reuse_timing_dict.keys()
+        )
+        assert not reuse_has_dw_timings
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
