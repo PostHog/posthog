@@ -188,7 +188,7 @@ Your response:""")
         """Optimized insight search with improved data pipeline."""
 
         # Step 1: Get basic insight data with optimized query size
-        initial_fetch_size = 15 if self._should_semantic_filter(root_to_search_insights) else 3
+        initial_fetch_size = 1500 if self._should_semantic_filter(root_to_search_insights) else 3
 
         insights_qs = (
             InsightViewed.objects.filter(team=self._team)
