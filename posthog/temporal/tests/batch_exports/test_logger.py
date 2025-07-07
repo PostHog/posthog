@@ -408,7 +408,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     await producer.flush()
 
     results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
     )
 
     iterations = 0
@@ -416,7 +416,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         # It may take a bit for CH to ingest.
         await asyncio.sleep(1)
         results = sync_execute(
-            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
+            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
         )
 
         iterations += 1
