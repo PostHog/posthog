@@ -47,7 +47,9 @@ describe('Hogflow Executor', () => {
         })
 
         await resetTestDatabase()
-        hub = await createHub()
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
 
@@ -268,7 +270,7 @@ describe('Hogflow Executor', () => {
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Fetch 2, 200",
-                  "Workflow will pause until 2025-01-01T01:00:00.000+01:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
                 ]
             `)
 
