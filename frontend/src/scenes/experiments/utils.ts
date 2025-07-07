@@ -1,37 +1,29 @@
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     ActionsNode,
     AnyEntityNode,
-    DataWarehouseNode,
     EventsNode,
     ExperimentEventExposureConfig,
-    ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentFunnelMetricTypeProps,
     ExperimentFunnelsQuery,
     ExperimentMeanMetricTypeProps,
     ExperimentMetric,
-    ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     type FunnelsQuery,
-    InsightQueryNode,
-    InsightVizNode,
     NodeKind,
     type TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
-    ActionFilter,
-    BillingType,
     ChartDisplayType,
     Experiment,
     ExperimentMetricMathType,
@@ -301,6 +293,9 @@ export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): 
     throw new Error('Feature flag must use multiple variants with control as the first variant.')
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     return {
         kind: NodeKind.ExperimentTrendsQuery,
@@ -360,6 +355,9 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -374,6 +372,9 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
     }
 }
 
+/**
+ * @deprecated
+ */
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -386,18 +387,9 @@ export function getDefaultCountMetric(): ExperimentMetric {
     }
 }
 
-export function getDefaultContinuousMetric(): ExperimentMetric {
-    return {
-        kind: NodeKind.ExperimentMetric,
-        metric_type: ExperimentMetricType.MEAN,
-        source: {
-            kind: NodeKind.EventsNode,
-            event: '$pageview',
-            math: ExperimentMetricMathType.Sum,
-        },
-    }
-}
-
+/**
+ * TODO: review. Probably deprecated
+ */
 export function getDefaultExperimentMetric(metricType: ExperimentMetricType): ExperimentMetric {
     switch (metricType) {
         case ExperimentMetricType.FUNNEL:
@@ -458,6 +450,9 @@ export function getExperimentMetricFromInsight(
     return undefined
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
     if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
         return {
@@ -478,6 +473,9 @@ export function exposureConfigToFilter(exposure_config: ExperimentEventExposureC
     return {}
 }
 
+/**
+ * Used when setting a custom exposure criteria
+ */
 export function filterToExposureConfig(
     entity: Record<string, any> | undefined
 ): ExperimentEventExposureConfig | undefined {
@@ -498,69 +496,9 @@ export function filterToExposureConfig(
     return undefined
 }
 
-export function metricToFilter(metric: ExperimentMetric): FilterType {
-    const createSourceNode = (source: any, type: string): ExperimentMetricSource => {
-        return {
-            id: type === 'events' ? source.event : source.id,
-            name: type === 'events' ? source.event : source.name,
-            kind: source.kind,
-            type,
-            math: source.math,
-            math_property: source.math_property,
-            math_hogql: source.math_hogql,
-            properties: source.properties || [],
-            ...(type === 'data_warehouse' && {
-                timestamp_field: source.timestamp_field,
-                events_join_key: source.events_join_key,
-                data_warehouse_join_key: source.data_warehouse_join_key,
-            }),
-        } as ExperimentMetricSource
-    }
-
-    // Handle funnel metrics
-    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        const funnelSteps = metric.series.map((step, index: number) => {
-            const type = step.kind === NodeKind.EventsNode ? 'events' : 'actions'
-            return {
-                ...createSourceNode(step, type),
-                order: index,
-                type,
-            }
-        })
-
-        return {
-            events: funnelSteps.filter((step) => step.type === 'events'),
-            actions: funnelSteps.filter((step) => step.type === 'actions'),
-            data_warehouse: [],
-        }
-    }
-
-    // Handle mean metrics
-    if (metric.metric_type === ExperimentMetricType.MEAN) {
-        if (metric.source.kind === NodeKind.EventsNode) {
-            return {
-                events: [createSourceNode(metric.source, 'events')],
-                actions: [],
-                data_warehouse: [],
-            }
-        } else if (metric.source.kind === NodeKind.ActionsNode) {
-            return {
-                events: [],
-                actions: [createSourceNode(metric.source, 'actions')],
-                data_warehouse: [],
-            }
-        } else if (metric.source.kind === NodeKind.ExperimentDataWarehouseNode) {
-            return {
-                events: [],
-                actions: [],
-                data_warehouse: [createSourceNode(metric.source, 'data_warehouse')],
-            }
-        }
-    }
-
-    return { events: [], actions: [], data_warehouse: [] }
-}
-
+/**
+ * TODO: review for refactor.
+ */
 export function filterToMetricConfig(
     metricType: ExperimentMetricType,
     actions: Record<string, any>[] | undefined,
@@ -672,106 +610,9 @@ export function filterToMetricConfig(
     )
 }
 
-export function metricToQuery(
-    metric: ExperimentMetric,
-    filterTestAccounts: boolean
-): FunnelsQuery | TrendsQuery | undefined {
-    const commonTrendsQueryProps: Partial<TrendsQuery> = {
-        kind: NodeKind.TrendsQuery,
-        interval: 'day',
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-        trendsFilter: {
-            display: ChartDisplayType.ActionsLineGraph,
-        },
-        filterTestAccounts,
-    }
-
-    switch (metric.metric_type) {
-        case ExperimentMetricType.MEAN: {
-            const source = metric.source as EventsNode | ActionsNode
-            // Return undefined if this is not an EventsNode and has no math specified
-            if (source.kind !== NodeKind.EventsNode && !metric.source.math) {
-                return undefined
-            }
-            return {
-                ...commonTrendsQueryProps,
-                series: [
-                    {
-                        kind: source.kind,
-                        ...(source.kind === NodeKind.EventsNode
-                            ? { event: source.event, name: source.name }
-                            : { id: source.id, name: source.name }),
-                        ...(metric.source.math_property != null && {
-                            math: metric.source.math,
-                            math_property: source.math_property,
-                        }),
-                        ...(metric.source.math === ExperimentMetricMathType.UniqueSessions && {
-                            math: ExperimentMetricMathType.UniqueSessions,
-                        }),
-                        properties: source.properties || [],
-                    },
-                ],
-            } as TrendsQuery
-        }
-        case ExperimentMetricType.FUNNEL: {
-            return {
-                kind: NodeKind.FunnelsQuery,
-                filterTestAccounts,
-                dateRange: {
-                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    explicitDate: true,
-                },
-                funnelsFilter: {
-                    layout: FunnelLayout.horizontal,
-                    ...(metric.funnel_order_type && { funnelOrderType: metric.funnel_order_type }),
-                },
-                series: getFunnelPreviewSeries(metric),
-            } as FunnelsQuery
-        }
-        default:
-            return undefined
-    }
-}
-
-const shiftOrderRight = (step: ActionFilter): ActionFilter => ({
-    ...step,
-    order: (step.order ?? 0) + 1,
-})
-
-export function getFunnelPreviewSeries(
-    metric: ExperimentFunnelMetric
-): (EventsNode | ActionsNode | DataWarehouseNode)[] {
-    const filter = metricToFilter(metric)
-    let { events, actions } = filter
-
-    // Shift all events and actions to the right to make space for the exposure event
-    events = (events as ActionFilter[])?.map(shiftOrderRight)
-    actions = (actions as ActionFilter[])?.map(shiftOrderRight)
-
-    // Insert a pageview event at the beginning of the funnel to simulate the exposure criteria.
-    // An in improvement that could be considered later is to use the traffic estimation in the running
-    // time calculator.
-    events?.unshift({
-        kind: NodeKind.EventsNode,
-        id: '$pageview',
-        event: '$pageview',
-        name: '$pageview',
-        custom_name: 'Placeholder for experiment exposure',
-        properties: [],
-        order: 0,
-    })
-    return actionsAndEventsToSeries(
-        { actions: actions, events, data_warehouse: [] } as any,
-        true,
-        MathAvailability.None
-    )
-}
-
+/**
+ * returns the math availability for a metric type
+ */
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
@@ -781,6 +622,9 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
     }
 }
 
+/**
+ * returns the allowed math types that can be used when creating a metric
+ */
 export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
@@ -794,49 +638,6 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
             ]
         default:
             return [ExperimentMetricMathType.TotalCount]
-    }
-}
-
-type AllowedNodeKind =
-    | typeof NodeKind.ExperimentTrendsQuery
-    | typeof NodeKind.ExperimentFunnelsQuery
-    | typeof NodeKind.ExperimentMetric
-    | typeof NodeKind.ExperimentQuery
-
-type AllowedQuery = { kind: AllowedNodeKind } & Record<string, any>
-
-type QueryHandler = (query: AllowedQuery) => InsightQueryNode | undefined
-
-const queryKindtoSource: Record<AllowedNodeKind, QueryHandler> = {
-    /**
-     * Legacy Experiments
-     */
-    [NodeKind.ExperimentTrendsQuery]: ({ count_query }) => count_query,
-    [NodeKind.ExperimentFunnelsQuery]: ({ funnels_query }) => funnels_query,
-    /**
-     * I know that this may be confusing. With the Legacy Engine,
-     * metrics had a query property, but the ExperimentMetric
-     * has a more flatten structure, and we have the helper functions
-     * to convert to queries. Experiment stores Metrics, results come from queries.
-     */
-    [NodeKind.ExperimentMetric]: (query) => metricToQuery(query as ExperimentMetric, false),
-    [NodeKind.ExperimentQuery]: ({ metric }) => metricToQuery(metric, false),
-}
-
-export const toInsightVizNode = <T extends AllowedQuery>(query: T): InsightVizNode => {
-    const handler = queryKindtoSource[query.kind]
-    if (!handler) {
-        throw new Error(`Unsupported query kind: ${query.kind}`)
-    }
-
-    const source = handler(query)
-    if (!source) {
-        throw new Error(`Could not transform query into insight`)
-    }
-
-    return {
-        kind: NodeKind.InsightVizNode,
-        source,
     }
 }
 
@@ -872,15 +673,3 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
-
-export const shouldUseNewQueryRunnerForNewObjects = (featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
-    // For non-paying users, we use dedicated flag to control the rollout of the new query runner
-    const isOnFreePlan = billing?.subscription_level === 'free'
-    if (isOnFreePlan && !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER_FOR_USERS_ON_FREE_PLAN]) {
-        return true
-    }
-
-    // If the users org. is on a paid plan, or the feature flag above is disabled, we use the default
-    // feature flag to control the rollout of the new query runner
-    return !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
-}

@@ -40,6 +40,7 @@ import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 
@@ -373,8 +374,14 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 // until we decide if we want to keep the same components/states for both tabs
 const Filters = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-
-    return productTab === ProductTab.PAGE_REPORTS ? <PageReportsFilters /> : <WebAnalyticsFilters />
+    switch (productTab) {
+        case ProductTab.PAGE_REPORTS:
+            return <PageReportsFilters />
+        case ProductTab.MARKETING:
+            return <MarketingAnalyticsFilters />
+        default:
+            return <WebAnalyticsFilters />
+    }
 }
 
 const MainContent = (): JSX.Element => {

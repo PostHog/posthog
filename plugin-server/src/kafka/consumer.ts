@@ -65,6 +65,13 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
+const histogramKafkaConsumeInterval = new Histogram({
+    name: 'kafka_consume_interval_ms',
+    help: 'Time elapsed between Kafka consume calls',
+    labelNames: ['topic', 'groupId'],
+    buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
+})
+
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
     const messagesByTopicPartition = messages.reduce((acc, message) => {
@@ -156,6 +163,7 @@ export class KafkaConsumer {
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
+            'group.instance.id': this.podName, // https://kafka.apache.org/documentation/#static_membership
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
@@ -350,17 +358,22 @@ export class KafkaConsumer {
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
         const startConsuming = async () => {
+            let lastConsumeTime = 0
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
 
+                    const consumeStartTime = performance.now()
+                    if (lastConsumeTime > 0) {
+                        const intervalMs = consumeStartTime - lastConsumeTime
+                        histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
+                    }
+                    lastConsumeTime = consumeStartTime
                     // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
                     // error when consuming, hence the retryIfRetriable.
                     const messages = await retryIfRetriable(() =>
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
-
-                    logger.debug('🔁', 'messages', { count: messages.length })
 
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()

@@ -27,7 +27,8 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, materialized
+from posthog.test.base import BaseTest, _create_event, materialized, APIBaseTest
+from posthog.hogql.query import execute_hogql_query
 
 
 class TestPrinter(BaseTest):
@@ -2388,3 +2389,106 @@ class TestPrinter(BaseTest):
             printed
             == "SELECT event FROM events WHERE and(equals(event, 'purchase'), person_id NOT IN COHORT 'some fake cohort') LIMIT 50000"
         )
+
+    def test_can_call_parametric_function(self):
+        query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+        )
+        assert printed == (
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, 3])` LIMIT 50000"
+        )
+
+    def test_can_call_parametric_function_from_placeholder(self):
+        query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="sum")})
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+        )
+        assert printed == (
+            "SELECT arrayReduce(%(hogql_val_0)s, [1, 2, 3]) AS `arrayReduce('sum', [1, 2, " "3])` LIMIT 50000"
+        )
+
+    def test_fails_on_parametric_function_with_no_arguments(self):
+        query = parse_select("SELECT arrayReduce()")
+        with pytest.raises(QueryError, match="Missing arguments in function 'arrayReduce'"):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_numeric(self):
+        query = parse_select("SELECT arrayReduce(1, [1, 2, 3])")
+        with pytest.raises(
+            QueryError, match="Expected constant string as first arg in function 'arrayReduce', got IntegerType '1'"
+        ):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_lambda(self):
+        query = parse_select("SELECT arrayReduce(x -> x, [1, 2, 3])")
+        with pytest.raises(
+            QueryError, match="Expected constant string as first arg in function 'arrayReduce', got Lambda"
+        ):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_expression(self):
+        query = parse_select("SELECT arrayReduce('ev' + 'il', [1, 2, 3])")
+        with pytest.raises(
+            QueryError, match="Expected constant string as first arg in function 'arrayReduce', got ArithmeticOperation"
+        ):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_missing(self):
+        query = parse_select("SELECT arrayReduce('evil', [1, 2, 3])")
+        with pytest.raises(QueryError, match="Invalid parametric function in 'arrayReduce', 'evil' is not supported."):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_invalid(self):
+        query = parse_select("SELECT arrayReduce('array_agg', [1, 2, 3])")
+        with pytest.raises(
+            QueryError, match="Invalid parametric function in 'arrayReduce', 'array_agg' is not supported."
+        ):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_fails_on_parametric_function_with_evil_placeholder(self):
+        query = parse_select("SELECT arrayReduce({f}, [1, 2, 3])", placeholders={"f": ast.Constant(value="evil")})
+        with pytest.raises(QueryError, match="Invalid parametric function in 'arrayReduce', 'evil' is not supported."):
+            print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+
+class TestPrinted(APIBaseTest):
+    def test_can_call_parametric_function(self):
+        query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
+        query_response = execute_hogql_query(
+            team=self.team,
+            query=query,
+        )
+        assert query_response.results == [(6,)]

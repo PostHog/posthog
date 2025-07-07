@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
@@ -83,10 +83,7 @@ impl Team {
         Ok(())
     }
 
-    pub async fn from_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
-        token: &str,
-    ) -> Result<Team, FlagError> {
+    pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
         let query = "SELECT 
@@ -147,7 +144,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         let team = insert_new_team_in_redis(client.clone())
             .await
@@ -165,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_invalid_team_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), "banana").await {
             Err(FlagError::TokenValidationError) => (),
@@ -174,13 +171,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "Failed to create redis client")]
     async fn test_cant_connect_to_redis_error_is_not_token_validation_error() {
-        let client = setup_redis_client(Some("redis://localhost:1111/".to_string()));
-
-        match Team::from_redis(client.clone(), "banana").await {
-            Err(FlagError::RedisUnavailable) => (),
-            _ => panic!("Expected RedisUnavailable"),
-        };
+        // Test that client creation fails when Redis is unavailable
+        setup_redis_client(Some("redis://localhost:1111/".to_string())).await;
     }
 
     #[tokio::test]
@@ -213,7 +207,7 @@ mod tests {
         .expect("Failed to write data to redis");
 
         // now get client connection for data
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
 
         match Team::from_redis(client.clone(), team.api_token.as_str()).await {
             Err(FlagError::RedisDataParsingError) => (),
@@ -224,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None);
+        let client = setup_redis_client(None).await;
         let target_token = "phc_123456789012".to_string();
         // A payload form before December 2025, it's missing `project_id`
         let test_team = Team {
@@ -290,5 +284,52 @@ mod tests {
             Err(FlagError::RowNotFound) => (),
             _ => panic!("Expected RowNotFound"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_null_array_elements_from_pg() {
+        let client = setup_pg_reader_client(None).await;
+
+        // Insert a team with NULL elements in the array
+        let team = insert_new_team_in_pg(client.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Manually update the team to have NULL elements in session_recording_event_trigger_config
+        let mut conn = client
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+
+        // Update with an array containing NULL elements: {NULL, 'valid_event', NULL, 'another_event'}
+        sqlx::query(
+            "UPDATE posthog_team SET session_recording_event_trigger_config = $1 WHERE id = $2",
+        )
+        .bind(vec![
+            None,
+            Some("valid_event".to_string()),
+            None,
+            Some("another_event".to_string()),
+        ])
+        .bind(team.id)
+        .execute(&mut *conn)
+        .await
+        .expect("Failed to update team with NULL array elements");
+
+        // Now fetch the team and verify it deserializes correctly
+        let team_from_pg = Team::from_pg(client.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with NULL array elements from pg");
+
+        // Verify the field was deserialized correctly
+        assert!(team_from_pg
+            .session_recording_event_trigger_config
+            .is_some());
+        let config = team_from_pg.session_recording_event_trigger_config.unwrap();
+        assert_eq!(config.len(), 4);
+        assert_eq!(config[0], None);
+        assert_eq!(config[1], Some("valid_event".to_string()));
+        assert_eq!(config[2], None);
+        assert_eq!(config[3], Some("another_event".to_string()));
     }
 }

@@ -2,6 +2,8 @@ import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
 import {
+    IconBolt,
+    IconBrackets,
     IconCode,
     IconCopy,
     IconDownload,
@@ -18,12 +20,13 @@ import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
-import DataGrid from 'react-data-grid'
+import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
 import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -253,6 +256,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const { editingView } = useValues(multitabEditorLogic)
 
     const {
         sourceQuery,
@@ -327,7 +331,7 @@ export function OutputPane(): JSX.Element {
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
-                const baseColumn = {
+                const baseColumn: DataGridProps<Record<string, any>>['columns'][0] = {
                     key: column,
                     name: (
                         <>
@@ -338,7 +342,30 @@ export function OutputPane(): JSX.Element {
                         </>
                     ),
                     resizable: true,
+                    sortable: true,
                     width: finalWidth,
+                    headerCellClass: 'cursor-pointer',
+                    renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
+                        <div className="flex items-center justify-between py-2">
+                            <span>{col.name}</span>
+                            <div className="flex flex-col ml-1">
+                                <span
+                                    className={`text-[7px] leading-none ${
+                                        sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
+                                    }`}
+                                >
+                                    ▲
+                                </span>
+                                <span
+                                    className={`text-[7px] leading-none ${
+                                        sortDirection === 'DESC' ? 'text-black-600' : 'text-gray-400'
+                                    }`}
+                                >
+                                    ▼
+                                </span>
+                            </div>
+                        </div>
+                    ),
                 }
 
                 // Hack to get bools to render in the data grid
@@ -368,7 +395,8 @@ export function OutputPane(): JSX.Element {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[], index: number) => {
+
+        let processedRows = response.results.map((row: any[], index: number) => {
             const rowObject: Record<string, any> = { __index: index }
             response.columns?.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
@@ -380,6 +408,8 @@ export function OutputPane(): JSX.Element {
             })
             return rowObject
         })
+
+        return processedRows
     }, [response])
 
     const hasColumns = columns.length > 1
@@ -392,20 +422,31 @@ export function OutputPane(): JSX.Element {
                         {
                             key: OutputTab.Results,
                             label: 'Results',
+                            icon: <IconTableChart />,
                         },
                         {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
+                            icon: <IconGraph />,
                         },
                         ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
                             ? [
                                   {
                                       key: OutputTab.Variables,
-                                      label: 'Variables',
+                                      label: (
+                                          <Tooltip
+                                              title={editingView ? 'Variables are not allowed in views.' : undefined}
+                                          >
+                                              Variables
+                                          </Tooltip>
+                                      ),
+                                      disabled: editingView,
+                                      icon: <IconBrackets />,
                                   },
                                   {
                                       key: OutputTab.Materialization,
                                       label: 'Materialization',
+                                      icon: <IconBolt />,
                                   },
                               ]
                             : []),
@@ -413,14 +454,16 @@ export function OutputPane(): JSX.Element {
                         <div
                             key={tab.key}
                             className={clsx(
-                                'flex-1 bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
                                 {
                                     'font-semibold !border-brand-yellow': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
+                                    'opacity-50 cursor-not-allowed': tab.disabled,
                                 }
                             )}
-                            onClick={() => setActiveTab(tab.key)}
+                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
                         >
+                            <span className="mr-1">{tab.icon}</span>
                             {tab.label}
                         </div>
                     ))}
@@ -618,7 +661,7 @@ function InternalDataTableVisualization(
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
+                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
                     {isChartSettingsPanelOpen && (
                         <div>
                             <SideBar />
@@ -641,7 +684,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
         : responseError
 
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
@@ -678,6 +721,35 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
+    const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+    const { editingView } = useValues(multitabEditorLogic)
+
+    const sortedRows = useMemo(() => {
+        if (!sortColumns.length) {
+            return rows
+        }
+
+        return [...rows].sort((a, b) => {
+            for (const { columnKey, direction } of sortColumns) {
+                const aVal = a[columnKey]
+                const bVal = b[columnKey]
+
+                if (aVal === bVal) {
+                    continue
+                }
+                if (aVal == null) {
+                    return 1
+                }
+                if (bVal == null) {
+                    return -1
+                }
+
+                const result = aVal < bVal ? -1 : 1
+                return direction === 'DESC' ? -result : result
+            }
+            return 0
+        })
+    }, [rows, sortColumns])
     if (activeTab === OutputTab.Materialization) {
         return (
             <TabScroller>
@@ -689,6 +761,13 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Variables) {
+        if (editingView) {
+            return (
+                <TabScroller>
+                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
+                </TabScroller>
+            )
+        }
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">
@@ -745,7 +824,9 @@ const Content = ({
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
-                    rows={rows}
+                    rows={sortedRows}
+                    sortColumns={sortColumns}
+                    onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
         )

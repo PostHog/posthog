@@ -679,7 +679,7 @@ def update_all_orgs_billing_quotas(
 
             report_index += 1
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"organization_id": org_id})
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
@@ -750,7 +750,9 @@ def get_team_attribute_by_quota_resource(organization: Organization) -> list[str
     team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
-        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No team tokens found for organization"), {"organization_id": organization.id}
+        )
 
     return team_tokens
 
@@ -776,13 +778,14 @@ def update_organization_usage_fields(
     as it only makes one database call.
     """
     if not organization.usage:
-        capture_exception(Exception(f"quota_limiting: No usage found for organization: {organization.id}"))
+        capture_exception(
+            Exception(f"quota_limiting: No usage found for organization"), {"organization_id": organization.id}
+        )
         return
     if resource.value not in organization.usage:
         capture_exception(
-            Exception(
-                f"quota_limiting: No usage found for resource: {resource.value} for organization: {organization.id}"
-            )
+            Exception(f"quota_limiting: No usage found for resource for organization"),
+            {"organization_id": organization.id, "resource": resource.value},
         )
         return
 

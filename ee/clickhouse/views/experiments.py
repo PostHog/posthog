@@ -137,9 +137,51 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_metrics(self, value):
-        # TODO 2024-11-15: commented code will be addressed when persistent metrics are implemented.
-
+        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
+            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
         return value
+
+    def validate_metrics_secondary(self, value):
+        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
+            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
+        return value
+
+    def validate(self, data):
+        # Validate that total metrics (regular + shared) don't exceed limits
+        metrics = data.get("metrics", [])
+        metrics_secondary = data.get("metrics_secondary", [])
+        saved_metrics_ids = data.get("saved_metrics_ids", [])
+
+        if saved_metrics_ids:
+            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+            primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
+            secondary_shared_count = len(
+                [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
+            )
+
+            total_primary = len(metrics) + primary_shared_count
+            total_secondary = len(metrics_secondary) + secondary_shared_count
+
+            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
+                raise ValidationError(
+                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
+                )
+            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
+                raise ValidationError(
+                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
+                )
+
+        # Validate start/end dates
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # Only validate if both dates are present
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+        return super().validate(data)
 
     def validate_parameters(self, value):
         if not value:
@@ -180,16 +222,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
-
-    def validate(self, data):
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
-
-        # Only validate if both dates are present
-        if start_date and end_date and start_date >= end_date:
-            raise ValidationError("End date must be after start date")
-
-        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
@@ -240,6 +272,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "active": not is_draft,
                 "creation_context": "experiments",
             }
+
+            # Pass ensure_experience_continuity from experiment parameters
+            parameters = validated_data.get("parameters") or {}
+            if parameters.get("ensure_experience_continuity") is not None:
+                feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
             if validated_data.get("_create_in_folder") is not None:
                 feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(
@@ -250,11 +287,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag_serializer.is_valid(raise_exception=True)
             feature_flag = feature_flag_serializer.save()
 
-        if not validated_data.get("stats_config"):
+        # Ensure stats_config has a method set, preserving any other fields passed from frontend
+        stats_config = validated_data.get("stats_config", {})
+        if not stats_config.get("method"):
             # Get organization's default stats method setting
             team = Team.objects.get(id=self.context["team_id"])
             default_method = team.organization.default_experiment_stats_method
-            validated_data["stats_config"] = {"method": default_method}
+            stats_config["method"] = default_method
+            validated_data["stats_config"] = stats_config
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data

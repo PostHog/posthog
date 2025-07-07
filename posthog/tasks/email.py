@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
+from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.models import (
     Organization,
@@ -123,7 +124,9 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + timezone.timedelta(days=3)).strftime("%b %d %Y"),
+            "expiry_date": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+                "%B %d, %Y at %H:%M %Z"
+            ),
             "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
             "organization_name": invite.organization.name,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
@@ -198,8 +201,8 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        user.distinct_id,
-        "verification email sent",
+        distinct_id=user.distinct_id,
+        event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -457,13 +460,6 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             membership
             for membership in memberships_to_email
             if (membership.user == assignment.user and membership.user != assigner)
-        ]
-    elif assignment.user_group:
-        group_users = assignment.user_group.members.all()
-        memberships_to_email = [
-            membership
-            for membership in memberships_to_email
-            if (membership.user in group_users and membership.user != assigner)
         ]
     elif assignment.role:
         role_users = assignment.role.members.all()

@@ -1,10 +1,11 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
@@ -22,8 +23,10 @@ from posthog.schema import (
     HogQLQuery,
     HumanMessage,
     LifecycleQuery,
+    MaxActionContext,
     MaxContextShape,
     MaxDashboardContext,
+    MaxEventContext,
     MaxInsightContext,
     RetentionEntity,
     RetentionFilter,
@@ -537,6 +540,23 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
 
+    def test_model_has_correct_max_retries(self):
+        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+            mock_model = MagicMock()
+            mock_model.get_num_tokens_from_messages.return_value = 100
+            mock_model.bind_tools.return_value = mock_model
+            mock_chat_openai.return_value = mock_model
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="test")])
+
+            node._get_model(state, {})
+
+            # Verify ChatOpenAI was called with max_retries=3
+            mock_chat_openai.assert_called_once()
+            call_args = mock_chat_openai.call_args
+            self.assertEqual(call_args.kwargs["max_retries"], 3)
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -577,12 +597,13 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_4), "root")
 
-    def test_run_no_assistant_message(self):
+    async def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
+        result = await node.arun(state, {})
+        self.assertEqual(result, PartialAssistantState(root_tool_calls_count=0))
 
-    def test_run_valid_tool_call(self):
+    async def test_run_valid_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -599,13 +620,13 @@ class TestRootNodeTools(BaseTest):
                 )
             ]
         )
-        result = node.run(state, {})
+        result = await node.arun(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
         self.assertEqual(result.root_tool_insight_type, "trends")
 
-    def test_run_valid_contextual_tool_call(self):
+    async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -627,7 +648,7 @@ class TestRootNodeTools(BaseTest):
             "products.replay.backend.max_tools.SearchSessionRecordingsTool._run_impl",
             return_value=("Success", {}),
         ):
-            result = node.run(
+            result = await node.arun(
                 state,
                 {
                     "configurable": {
@@ -644,7 +665,7 @@ class TestRootNodeTools(BaseTest):
         self.assertIsNone(result.root_tool_insight_type)  # No insight type for contextual tools
         self.assertTrue(result.messages[-1].visible)  # The tool call must have the visible attribute set
 
-    def test_run_multiple_tool_calls_raises(self):
+    async def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -667,10 +688,10 @@ class TestRootNodeTools(BaseTest):
             ]
         )
         with self.assertRaises(ValueError) as cm:
-            node.run(state, {})
+            await node.arun(state, {})
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
 
-    def test_run_increments_tool_count(self):
+    async def test_run_increments_tool_count(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -688,21 +709,100 @@ class TestRootNodeTools(BaseTest):
             ],
             root_tool_calls_count=2,  # Starting count
         )
-        result = node.run(state, {})
+        result = await node.arun(state, {})
         self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
 
-    def test_run_resets_tool_count(self):
+    async def test_run_resets_tool_count(self):
         node = RootNodeTools(self.team, self.user)
 
         # Test reset when no tool calls in AssistantMessage
         state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
-        result = node.run(state_1, {})
+        result = await node.arun(state_1, {})
         self.assertEqual(result.root_tool_calls_count, 0)
 
         # Test reset when last message is HumanMessage
         state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
-        result = node.run(state_2, {})
+        result = await node.arun(state_2, {})
         self.assertEqual(result.root_tool_calls_count, 0)
+
+    async def test_navigate_tool_call_raises_node_interrupt(self):
+        """Test that navigate tool calls raise NodeInterrupt to pause graph execution"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="I'll help you navigate to insights",
+                    id="test-id",
+                    tool_calls=[AssistantToolCall(id="nav-123", name="navigate", args={"page_key": "insights"})],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the navigate tool
+            mock_navigate_tool = AsyncMock()
+            mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
+                content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
+            )
+            mock_tools.return_value = lambda _: mock_navigate_tool
+
+            # The navigate tool call should raise NodeInterrupt
+            with self.assertRaises(NodeInterrupt) as cm:
+                await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})
+
+            # Verify the NodeInterrupt contains the expected message
+            # NodeInterrupt wraps the message in an Interrupt object
+            interrupt_data = cm.exception.args[0]
+            if isinstance(interrupt_data, list):
+                interrupt_data = interrupt_data[0].value
+            self.assertIsInstance(interrupt_data, AssistantToolCallMessage)
+            self.assertEqual(interrupt_data.content, "XXX")
+            self.assertEqual(interrupt_data.tool_call_id, "nav-123")
+            self.assertTrue(interrupt_data.visible)
+            self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
+
+    async def test_non_navigate_contextual_tool_call_does_not_raise_interrupt(self):
+        """Test that non-navigate contextual tool calls don't raise NodeInterrupt"""
+        node = RootNodeTools(self.team, self.user)
+
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me search for recordings",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="search-123", name="search_session_recordings", args={"change": "test"})
+                    ],
+                )
+            ]
+        )
+
+        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
+            # Mock the search_session_recordings tool
+            mock_search_session_recordings = AsyncMock()
+            mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
+                content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
+            )
+            mock_tools.return_value = lambda _: mock_search_session_recordings
+
+            # This should not raise NodeInterrupt
+            result = await node.arun(
+                state,
+                {
+                    "configurable": {
+                        "team": self.team,
+                        "user": self.user,
+                        "contextual_tools": {"search_session_recordings": {"current_filters": {}}},
+                    }
+                },
+            )
+
+            # Should return a normal result
+            self.assertIsInstance(result, PartialAssistantState)
+            self.assertIsNone(result.root_tool_call_id)
+            self.assertEqual(len(result.messages), 1)
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
 
 
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
@@ -716,7 +816,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="User Trends",
             description="Daily active users",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -745,7 +845,7 @@ Trend results: 100 users
         mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
 
         insight = MaxInsightContext(
-            id=456,
+            id="456",
             name="Conversion Funnel",
             description=None,
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
@@ -772,7 +872,7 @@ Funnel results: 50% conversion
         mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
 
         insight = MaxInsightContext(
-            id=789,
+            id="789",
             name=None,
             description=None,
             query=RetentionQuery(
@@ -803,7 +903,7 @@ Retention: 30% Day 7
         mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
 
         insight = MaxInsightContext(
-            id=101,
+            id="101",
             name="Custom Query",
             description="HogQL analysis",
             query=HogQLQuery(query="SELECT count() FROM events"),
@@ -829,7 +929,7 @@ Query results: 42 events
     def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
 
-        insight = MaxInsightContext(id=123, name="Unsupported", description=None, query=LifecycleQuery(series=[]))
+        insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = self.mixin._run_and_format_insight(insight, mock_query_runner)
 
@@ -842,7 +942,7 @@ Query results: 42 events
         mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
 
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Query",
             description=None,
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -859,7 +959,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Dashboard Insight",
             description="Test insight",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -885,6 +985,58 @@ Query results: 42 events
         self.assertIn("Insight: Dashboard Insight", result)
         self.assertNotIn("# Insights", result)
 
+    def test_format_ui_context_with_events(self):
+        # Create mock events
+        event1 = MaxEventContext(id="1", name="page_view")
+        event2 = MaxEventContext(id="2", name="button_click")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view", "button_click"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_events_with_descriptions(self):
+        # Create mock events with descriptions
+        event1 = MaxEventContext(id="1", name="page_view", description="User viewed a page")
+        event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
+        self.assertIn("<events_context>", result)
+
+    def test_format_ui_context_with_actions(self):
+        # Create mock actions
+        action1 = MaxActionContext(id=1.0, name="Sign Up")
+        action2 = MaxActionContext(id=2.0, name="Purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up", "Purchase"', result)
+        self.assertIn("<actions_context>", result)
+
+    def test_format_ui_context_with_actions_with_descriptions(self):
+        # Create mock actions with descriptions
+        action1 = MaxActionContext(id=1.0, name="Sign Up", description="User creates account")
+        action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
+
+        # Create mock UI context
+        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+
+        result = self.mixin._format_ui_context(ui_context)
+
+        self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
+        self.assertIn("<actions_context>", result)
+
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
@@ -892,7 +1044,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Standalone Insight",
             description="Test standalone insight",
             query=FunnelsQuery(series=[EventsNode(event="sign_up")]),
@@ -924,7 +1076,7 @@ Query results: 42 events
 
         # Create mock insight
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Test Insight",
             description="Test description",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -947,7 +1099,7 @@ Query results: 42 events
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
-            id=123,
+            id="123",
             name="Failed Insight",
             description=None,
             query=TrendsQuery(series=[]),

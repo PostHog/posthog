@@ -8,15 +8,24 @@ from freezegun import freeze_time
 from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
-from posthog.models.team.team import Team
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team, WeekStartDay
+from posthog.hogql.constants import LimitContext
 from posthog.schema import (
     CacheMissResponse,
     HogQLQuery,
     HogQLQueryModifiers,
+    InCohortVia,
     MaterializationMode,
+    BounceRatePageViewMode,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    SessionsV2JoinMode,
+    SessionTableVersion,
+    RevenueAnalyticsPersonsJoinModeModifier,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
+    IntervalType,
 )
 from posthog.test.base import BaseTest
 
@@ -84,7 +93,7 @@ class TestQueryRunner(BaseTest):
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
 
         # changes to the cache payload have a significant impact, as they'll
@@ -93,25 +102,39 @@ class TestQueryRunner(BaseTest):
         # memory usage (until old cache items are evicted).
         assert cache_payload == {
             "hogql_modifiers": {
-                "inCohortVia": "auto",
-                "materializationMode": "legacy_null_as_null",
-                "personsArgMaxVersion": "auto",
-                "optimizeJoinedFilters": False,
-                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                "bounceRatePageViewMode": "count_pageviews",
+                "bounceRatePageViewMode": BounceRatePageViewMode.COUNT_PAGEVIEWS,
                 "convertToProjectTimezone": True,
-                "sessionTableVersion": "auto",
+                "inCohortVia": InCohortVia.AUTO,
+                "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
+                "optimizeJoinedFilters": False,
+                "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
+                "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinModeModifier.ID,
+                "sessionTableVersion": SessionTableVersion.AUTO,
+                "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
                 "useMaterializedViews": True,
-                "sessionsV2JoinMode": "string",
                 "usePresortedEventsTable": False,
             },
-            "limit_context": "query",
+            "limit_context": LimitContext.QUERY,
             "query": {"kind": "TestQuery", "some_attr": "bla"},
             "query_runner": "TestQueryRunner",
             "team_id": 42,
             "timezone": "UTC",
+            "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
         }
+
+    def test_cache_payload_week_interval(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
+        runner.query_date_range = QueryDateRange(
+            team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
+        )
+
+        cache_payload = runner.get_cache_payload()
+        assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -121,7 +144,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_81cddfbbf27c8656cc0c71e17917c8bd"
+        assert cache_key == "cache_67429a7b0c61b8501e8a94ce1ff98263"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -135,7 +158,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_ac85f6f0bfcc738665881287b9d86890"
+        assert cache_key == "cache_b1f3e920d3349bb9cd9debe535b38e61"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -146,7 +169,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_2c629e23e4015d311ade6565dcdf0387"
+        assert cache_key == "cache_4c137679d6e1f4c56dbe8fafd11ed075"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

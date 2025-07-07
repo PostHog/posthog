@@ -1,4 +1,4 @@
-import { IconCheck, IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -41,8 +41,11 @@ export function ProjectDropdownMenu(): JSX.Element | null {
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
             <PopoverPrimitiveTrigger asChild>
-                <ButtonPrimitive data-attr="tree-navbar-project-dropdown-button" className="flex-1 min-w-0 max-w-fit">
-                    <IconFolderOpen className="text-tertiary" />
+                <ButtonPrimitive
+                    data-attr="tree-navbar-project-dropdown-button"
+                    className="flex-1 min-w-0 max-w-fit"
+                    size="sm"
+                >
                     <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
                     <IconChevronRight
                         className={`
@@ -59,11 +62,11 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
                 align="start"
-                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)] max-h-[calc(90vh)]"
+                className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
             >
                 <Combobox>
-                    <Combobox.Search placeholder="Search projects..." />
-                    <Combobox.Content>
+                    <Combobox.Search placeholder="Filter projects..." />
+                    <Combobox.Content className="max-h-[calc(90vh-100px)]">
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>
