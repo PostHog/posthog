@@ -35,7 +35,6 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
                 ),
                 AssistantMessage(content=message.content, id=str(uuid4())),
             ],
-            # Resetting values to empty strings because Nones are not supported by LangGraph.
             root_tool_call_id=None,
         )
 
