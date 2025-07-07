@@ -150,7 +150,6 @@ class QueryPlannerNode(AssistantNode):
             use_responses_api=True,
             streaming=False,
             model_kwargs={
-                "reasoning": {"summary": "auto"},
                 "previous_response_id": state.query_planner_previous_response_id or None,  # Must alias "" to None
             },
         ).bind_tools(
