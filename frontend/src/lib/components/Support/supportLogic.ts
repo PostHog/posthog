@@ -314,6 +314,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     source: 'data_warehouse',
     sources: 'data_warehouse',
     messaging: 'messaging',
+    billing: 'billing',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
