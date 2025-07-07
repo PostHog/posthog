@@ -1,13 +1,13 @@
 from typing import Any
 from datetime import datetime, UTC
 from unittest.mock import patch, MagicMock
+from uuid import uuid4
 
-from posthog.api.capture import new_capture_internal, CaptureInternalError
+from posthog.api.capture import new_capture_internal, new_capture_batch_internal, CaptureInternalError
 from posthog.test.base import BaseTest
 from posthog.settings.ingestion import (
-    NEW_CAPTURE_RUST_BASE_URL,
-    NEW_ANALYTICS_CAPTURE_ENDPOINT,
-    REPLAY_CAPTURE_ENDPOINT,
+    CAPTURE_INTERNAL_URL,
+    CAPTURE_REPLAY_INTERNAL_URL,
 )
 
 
@@ -71,8 +71,7 @@ class TestCaptureInternal(BaseTest):
 
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 1
-        assert NEW_CAPTURE_RUST_BASE_URL in spied_calls[0]["url"]
-        assert NEW_ANALYTICS_CAPTURE_ENDPOINT in spied_calls[0]["url"]
+        assert CAPTURE_INTERNAL_URL in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
@@ -174,8 +173,7 @@ class TestCaptureInternal(BaseTest):
 
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 1
-        assert NEW_CAPTURE_RUST_BASE_URL in spied_calls[0]["url"]
-        assert REPLAY_CAPTURE_ENDPOINT in spied_calls[0]["url"]
+        assert CAPTURE_REPLAY_INTERNAL_URL in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
@@ -257,3 +255,47 @@ class TestCaptureInternal(BaseTest):
         with self.assertRaises(CaptureInternalError) as e:
             new_capture_internal(token, distinct_id, test_event)
         assert str(e.exception) == "capture_internal: event name is required"
+
+    @patch("posthog.api.capture.Session")
+    def test_new_capture_batch_internal(self, mock_session_class):
+        token = "abc123"
+        base_event_name = "test_event"
+        timestamp = datetime.now(UTC).isoformat()
+
+        test_events = []
+        for i in range(1, 11):
+            test_events.append(
+                {
+                    "event": f"{base_event_name}_{i}",
+                    "distinct_id": str(uuid4()),
+                    "api_key": token,
+                    "timestamp": timestamp,
+                    "properties": {
+                        "$current_url": "https://example.com",
+                        "$ip": "127.0.0.1",
+                        "$lib": "python",
+                        "$lib_version": "1.0.0",
+                        "$screen_width": 1920,
+                        "$screen_height": 1080,
+                        "some_custom_property": True,
+                    },
+                }
+            )
+
+        spy = InstallCapturePostSpy(mock_session_class)
+        resp_futures = new_capture_batch_internal(token, None, test_events)
+
+        for future in resp_futures:
+            resp = future.result()
+            assert resp.status_code == 200
+
+        spied_calls = spy.get_calls()
+        assert len(spied_calls) == 10
+
+        for i in range(1, 11):
+            assert CAPTURE_INTERNAL_URL in spied_calls[i]["url"]
+            assert spied_calls[i]["event_payload"]["event"] == "f{base_event_name}_{i}"
+            assert spied_calls[i]["event_payload"]["distinct_id"] == test_events[i]["distinct_id"]
+            assert spied_calls[i]["event_payload"]["api_key"] == token
+            assert spied_calls[i]["event_payload"]["timestamp"] == timestamp
+            assert len(spied_calls[i]["event_payload"]["properties"]) == len(test_events[i]["properties"])
