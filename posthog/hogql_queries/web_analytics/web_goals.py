@@ -3,6 +3,7 @@ from typing import TypeVar
 from collections.abc import Iterator
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -203,7 +204,11 @@ WHERE {periods_expression}
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            context=self.hogql_context,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                database=self.database,
+                enable_select_queries=True,
+            ),
         )
         assert response.results
 

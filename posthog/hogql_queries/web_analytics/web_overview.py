@@ -2,6 +2,7 @@ from typing import Optional, Union
 import math
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -62,7 +63,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
-                context=self.hogql_context,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    database=self.database,
+                    enable_select_queries=True,
+                ),
             )
 
             # We could have a empty result in normal conditions but also when we're recreating the tables.
@@ -86,7 +91,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                context=self.hogql_context,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    database=self.database,
+                    enable_select_queries=True,
+                ),
             )
             if not pre_aggregated_response
             else pre_aggregated_response

@@ -2,6 +2,7 @@ from typing import cast, Literal, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.property import (
     property_to_expr,
@@ -567,7 +568,12 @@ GROUP BY session_id, breakdown_value
             team=self.team,
             timings=self.timings,
             modifiers=modifiers,
-            context=self.hogql_context,
+            limit_context=self.limit_context,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                database=self.database,
+                enable_select_queries=True,
+            ),
         )
         results = self.paginator.results
 
