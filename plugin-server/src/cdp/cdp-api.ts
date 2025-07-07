@@ -15,12 +15,21 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isHogFunction,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+} from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
+    private nativeDestinationExecutorService: NativeDestinationExecutorService
+    private segmentDestinationExecutorService: SegmentDestinationExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hogFlowManager: HogFlowManagerService
     private hogFlowExecutor: HogFlowExecutorService
@@ -34,6 +43,8 @@ export class CdpApi {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
+        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -248,7 +259,16 @@ export class CdpApi {
                             : undefined,
                     }
 
-                    const response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    let response: any = null
+                    if (isHogFunction(compoundConfiguration)) {
+                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    } else if (isNativeHogFunction(compoundConfiguration)) {
+                        response = await this.nativeDestinationExecutorService.execute(invocation)
+                    } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
+                        response = await this.segmentDestinationExecutorService.execute(invocation)
+                    } else {
+                        throw new Error('Invalid function type')
+                    }
 
                     logs = logs.concat(response.logs)
                     if (response.error) {
