@@ -69,6 +69,7 @@ describe('HogFunctionTemplateManager', () => {
                   "type": "string",
                 },
               ],
+              "name": "Test Hog Function team 1",
               "sha": "sha",
               "template_id": "template-testing-1",
               "type": "destination",
