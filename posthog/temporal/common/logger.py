@@ -41,7 +41,7 @@ def bind_contextvars(**kwargs):
     structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
 
-def get_external_logger(**kwargs) -> FilteringBoundLogger:
+def get_external_logger(**kwargs) -> logging.Logger:
     """Return a bound logger to log user-facing logs."""
     return EXTERNAL_LOGGER.bind(**kwargs)
 
