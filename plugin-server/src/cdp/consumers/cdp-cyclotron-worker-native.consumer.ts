@@ -8,7 +8,7 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
  * NOTE: This is a consumer to take care of native plugins.
  */
 export class CdpCyclotronWorkerNative extends CdpCyclotronWorker {
-    protected name = 'CdpCyclotronWorkerSegment'
+    protected name = 'CdpCyclotronWorkerNative'
     private nativePluginExecutor: NativeDestinationExecutorService
 
     constructor(hub: Hub) {
