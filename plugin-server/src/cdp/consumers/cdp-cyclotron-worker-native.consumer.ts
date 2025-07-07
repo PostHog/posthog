@@ -23,7 +23,7 @@ export class CdpCyclotronWorkerNative extends CdpCyclotronWorker {
         return await Promise.all(
             loadedInvocations.map((item) =>
                 this.runInstrumented(
-                    'handleEachBatch.executePluginInvocation',
+                    'handleEachBatch.executeNativeInvocation',
                     async () => await this.nativePluginExecutor.execute(item)
                 )
             )
