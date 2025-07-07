@@ -1111,6 +1111,15 @@ class QueryRunnerWithHogQLContext(QueryRunner):
         self.database = create_hogql_database(team=self.team, skip_dw_tables=self.skip_data_warehouse_tables)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
+    def to_hogql(self, **kwargs) -> str:
+        with self.timings.measure("to_hogql"):
+            return print_ast(
+                self.to_query(),
+                self.hogql_context,
+                "hogql",
+                **kwargs,
+            )
+
 
 ### START OF BACKWARDS COMPATIBILITY CODE
 

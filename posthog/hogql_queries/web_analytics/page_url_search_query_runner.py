@@ -1,5 +1,4 @@
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -81,11 +80,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
             query=query,
             team=self.team,
             query_type="WebAnalyticsPageURLSearch",
-            context=HogQLContext(
-                team_id=self.team.pk,
-                timings=self.timings,
-                modifiers=self.modifiers,
-            ),
+            context=self.hogql_context,
             limit_context=self.limit_context,
         )
 

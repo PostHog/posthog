@@ -122,6 +122,7 @@ GROUP BY "context.columns.url"
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            context=self.hogql_context,
         )
         results = self.paginator.results
 

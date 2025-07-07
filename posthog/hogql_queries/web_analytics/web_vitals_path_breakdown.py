@@ -93,6 +93,7 @@ HAVING value >= 0
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self.hogql_context,
         )
         assert response.results is not None
 

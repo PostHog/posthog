@@ -567,6 +567,7 @@ GROUP BY session_id, breakdown_value
             team=self.team,
             timings=self.timings,
             modifiers=modifiers,
+            context=self.hogql_context,
         )
         results = self.paginator.results
 

@@ -487,18 +487,16 @@ def create_hogql_database(
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
+    with timings.measure("can_skip_dw_tables"):
+        if skip_dw_tables:
+            # Skip data warehouse tables loading
+            # This is used internally for QueryRunners that know ahead of time that they will not be using the data warehouse tables
+            return database
+
     warehouse_tables: TableStore = {}
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
     self_managed_warehouse_tables: TableStore = {}
     views: TableStore = {}
-
-    if skip_dw_tables:
-        # Skip data warehouse table loading and proceed directly to adding empty tables
-        # This is used internally for QueryRunners that know ahead of time that they will not be using the data warehouse tables
-        database.add_warehouse_tables(**warehouse_tables)
-        database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
-        database.add_views(**views)
-        return database
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):

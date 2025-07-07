@@ -203,6 +203,7 @@ WHERE {periods_expression}
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self.hogql_context,
         )
         assert response.results
 

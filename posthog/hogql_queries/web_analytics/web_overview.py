@@ -62,6 +62,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
+                context=self.hogql_context,
             )
 
             # We could have a empty result in normal conditions but also when we're recreating the tables.
@@ -85,6 +86,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                context=self.hogql_context,
             )
             if not pre_aggregated_response
             else pre_aggregated_response
