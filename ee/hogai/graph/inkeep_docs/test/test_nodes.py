@@ -78,11 +78,12 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         messages = node._construct_messages(state)
 
         # Should not include "Let me check the docs...", because Inkeep would fail with the last message being an AI one
-        self.assertEqual(len(messages), 4)
+        self.assertEqual(len(messages), 5)
         self.assertIsInstance(messages[0], LangchainSystemMessage)
-        self.assertIsInstance(messages[1], LangchainHumanMessage)
-        self.assertIsInstance(messages[2], LangchainAIMessage)
-        self.assertIsInstance(messages[3], LangchainHumanMessage)
+        self.assertIsInstance(messages[1], LangchainSystemMessage)
+        self.assertIsInstance(messages[2], LangchainHumanMessage)
+        self.assertIsInstance(messages[3], LangchainAIMessage)
+        self.assertIsInstance(messages[4], LangchainHumanMessage)
 
     def test_router_with_data_continuation(self):
         node = InkeepDocsNode(self.team, self.user)
@@ -117,11 +118,12 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         )
         messages = node._construct_messages(state)
 
-        # Should only include system message, "Hi!", and "How do I use PostHog?"
-        self.assertEqual(len(messages), 3)
+        # Should only include system messages, "Hi!", and "How do I use PostHog?"
+        self.assertEqual(len(messages), 4)
         self.assertIsInstance(messages[0], LangchainSystemMessage)
-        self.assertEqual(messages[1].content, "Hi!")
-        self.assertEqual(messages[2].content, "How do I use PostHog?")
+        self.assertIsInstance(messages[1], LangchainSystemMessage)
+        self.assertEqual(messages[2].content, "Hi!")
+        self.assertEqual(messages[3].content, "How do I use PostHog?")
 
     def test_tool_call_id_handling(self):
         """Test that tool_call_id is properly handled in both input and output states."""

@@ -657,10 +657,11 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
                 messages = prompt.to_messages()
 
                 # Verify the structure of messages
-                self.assertEqual(len(messages), 3)
+                self.assertEqual(len(messages), 4)
                 self.assertEqual(messages[0].type, "system")
-                self.assertEqual(messages[1].type, "human")
-                self.assertEqual(messages[2].type, "ai")
+                self.assertEqual(messages[1].type, "system")
+                self.assertEqual(messages[2].type, "human")
+                self.assertEqual(messages[3].type, "ai")
 
                 # Verify system message content
                 system_message = messages[0].content
@@ -668,8 +669,8 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
                 self.assertIn("2024-01-01", system_message)
 
                 # Verify conversation messages
-                self.assertEqual(messages[1].content, "We use a subscription model")
-                self.assertEqual(messages[2].content, "Memory message")
+                self.assertEqual(messages[2].content, "We use a subscription model")
+                self.assertEqual(messages[3].content, "Memory message")
                 return LangchainAIMessage(content="[Done]")
 
             model_mock.return_value = RunnableLambda(assert_prompt)
