@@ -1,4 +1,5 @@
-import { IntegrationError, NativeTemplate } from '~/cdp/services/native-destination-executor.service'
+import { NativeTemplate } from '~/cdp/services/native-destination-executor.service'
+import { IntegrationError } from '~/cdp/templates/types'
 
 export const template: NativeTemplate = {
     free: false,

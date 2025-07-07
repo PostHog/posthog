@@ -1,3 +1,5 @@
+import { CustomError } from 'ts-custom-error'
+
 import {
     HogBytecode,
     HogFunctionFilters,
@@ -31,4 +33,23 @@ export type HogFunctionTemplate = {
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
     bytecode: HogBytecode
+}
+
+export class IntegrationError extends CustomError {
+    code: string | undefined
+    status: number | undefined
+    retry?: boolean
+
+    /**
+     * @param message - a human-friendly message to display to users
+     * @param code - error code/reason
+     * @param status - http status code (e.g. 400)
+     *    - 4xx errors are not automatically retried, except for 408, 423, 429
+     *    - 5xx are automatically retried, except for 501
+     */
+    constructor(message: string, code: string, status: number) {
+        super(message)
+        this.status = status
+        this.code = code
+    }
 }

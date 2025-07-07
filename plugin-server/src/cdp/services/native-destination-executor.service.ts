@@ -2,56 +2,39 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { PluginsServerConfig } from '~/types'
+import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
+import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
+import { HogFunctionTemplate } from '../templates/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 import { sanitizeLogMessage } from './hog-executor.service'
-import { HogFunctionTemplate } from '../templates/types'
-import { parseJSON } from '~/utils/json-parse'
-import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
-import { CustomError } from 'ts-custom-error'
 
 export type Response = {
-    status: number,
-    data: string,
-    content: string,
-    headers: Record<string, any>,
+    status: number
+    data: string
+    content: string
+    headers: Record<string, any>
 }
-
-export class IntegrationError extends CustomError {
-    code: string | undefined
-    status: number | undefined
-    retry?: boolean
-  
-    /**
-     * @param message - a human-friendly message to display to users
-     * @param code - error code/reason
-     * @param status - http status code (e.g. 400)
-     *    - 4xx errors are not automatically retried, except for 408, 423, 429
-     *    - 5xx are automatically retried, except for 501
-     */
-    constructor(message: string, code: string, status: number) {
-      super(message)
-      this.status = status
-      this.code = code
-    }
-  }
 
 export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
     perform: (
-        request: (url: string, options: {
-            method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
-            headers: Record<string, any>
-            json?: any
-            body?: string | URLSearchParams
-            throwHttpErrors?: boolean
-            searchParams?: Record<string, any>
-        }) => Promise<Response>, 
+        request: (
+            url: string,
+            options: {
+                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                headers: Record<string, any>
+                json?: any
+                body?: string | URLSearchParams
+                throwHttpErrors?: boolean
+                searchParams?: Record<string, any>
+            }
+        ) => Promise<Response>,
         inputs: Record<string, any>
     ) => Promise<Response> | void
 }
@@ -141,7 +124,6 @@ export class NativeDestinationExecutorService {
 
             await nativeDestination.perform(
                 async (endpoint, options) => {
-
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
                     }
@@ -149,9 +131,9 @@ export class NativeDestinationExecutorService {
                         addLog('debug', 'options', options)
                     }
 
-                    let headers: Record<string, any> = {
+                    const headers: Record<string, any> = {
                         'User-Agent': 'PostHog.com/1.0',
-                        ...options.headers
+                        ...options.headers,
                     }
 
                     let body: string | undefined = undefined
@@ -271,7 +253,7 @@ export class NativeDestinationExecutorService {
                     return convertedResponse
                 },
                 {
-                    payload: config
+                    payload: config,
                 }
             )
 
