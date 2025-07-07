@@ -523,21 +523,15 @@ describe('sessionRecordingPlayerLogic', () => {
                     'recording viewed summary',
                     expect.objectContaining({
                         viewed_time_ms: expect.any(Number),
-                        play_time_ms: expect.any(Number),
-                        buffer_time_ms: expect.any(Number),
+                        play_time_ms: 1000,
+                        buffer_time_ms: 0,
                         rrweb_warning_count: 2,
                         error_count_during_recording_playback: 1,
                         engagement_score: 1,
+                        recording_duration_ms: 0,
+                        recording_age_ms: undefined,
                     })
                 )
-
-                // Verify play_time_ms is greater than 0
-                const capturedArgs = mockCapture.mock.calls[0][1]
-                expect(capturedArgs.play_time_ms).toBeGreaterThan(0)
-                expect(capturedArgs).toHaveProperty('recording_duration_ms')
-                expect(capturedArgs).toHaveProperty('recording_age_ms')
-
-                jest.useRealTimers()
             })
 
             it('captures "no playtime summary" event when play_time_ms is 0', async () => {
