@@ -9,7 +9,6 @@ from temporalio.client import Client, TLSConfig
 from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
-from posthog.otel_instrumentation import initialize_otel
 
 
 async def connect(
@@ -30,7 +29,6 @@ async def connect(
             client_private_key=bytes(client_key, "utf-8"),
         )
 
-    initialize_otel()
     client = await Client.connect(
         f"{host}:{port}",
         namespace=namespace,
