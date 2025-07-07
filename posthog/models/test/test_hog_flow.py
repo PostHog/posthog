@@ -27,6 +27,12 @@ class TestHogFlow(TestCase):
         )
         self.assertIn("bytecode", hog_flow.actions["action_1"]["config"]["inputs"])
 
+        # Test that the bytecode is generated correctly
+        self.assertListEqual(
+            hog_flow.actions["action_1"]["config"]["inputs"]["bytecode"]["key"],
+            ["_H", 1, 32, "value"],
+        )
+
     @patch("posthog.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_hog_flow_saved_receiver(self, mock_reload):
         hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
