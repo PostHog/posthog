@@ -36,7 +36,7 @@ import { parseDraftQueryFromLocalStorage, parseDraftQueryFromURL } from './utils
 import api from 'lib/api'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 
-import { MaxContextSelector, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { MaxContextItem, createMaxContextHelpers } from 'scenes/max/maxTypes'
 
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
@@ -237,12 +237,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.insightLogicRef],
-            (insight: Partial<QueryBasedInsightModel>, insightLogicRef: any): MaxContextSelector => {
-                // Only provide insight context when in view mode
-                // In edit mode, MaxAI has the `create_and_query_insight` tool available
-                const isInViewMode = insightLogicRef?.logic.values.isInViewMode
-                if (!insight || !insight.short_id || !insight.query || !isInViewMode) {
+            (s) => [s.insight],
+            (insight: Partial<QueryBasedInsightModel>): MaxContextItem[] => {
+                if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
                 return [createMaxContextHelpers.insight(insight)]

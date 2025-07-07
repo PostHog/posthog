@@ -6,16 +6,16 @@ To do so:
 1.  Import the necessary types and helpers:
 
     ```typescript
-    import { MaxContextSelector, createMaxContextHelpers } from 'scenes/max/maxTypes'
+    import { MaxContextItem, createMaxContextHelpers } from 'scenes/max/maxTypes'
     ```
 
-2.  Add a `maxContext` selector that returns MaxContextSelector:
+2.  Add a `maxContext` selector that returns MaxContextItem[]:
 
     ```typescript
     selectors({
         maxContext: [
             (s) => [s.dashboard],
-            (dashboard): MaxContextSelector => {
+            (dashboard): MaxContextItem[] => {
                 if (!dashboard) {
                     return []
                 }
@@ -29,7 +29,7 @@ To do so:
     ```typescript
     maxContext: [
         (s) => [s.insight, s.events],
-        (insight, events): MaxContextSelector => {
+        (insight, events): MaxContextItem[] => {
             const context = []
             if (insight) context.push(createMaxContextHelpers.insight(insight))
             if (events?.length) context.push(...events.map(createMaxContextHelpers.event))

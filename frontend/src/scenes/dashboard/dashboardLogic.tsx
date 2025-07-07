@@ -16,7 +16,7 @@ import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { MaxContextSelector, createMaxContextHelpers } from 'scenes/max/maxTypes'
+import { createMaxContextHelpers, MaxContextItem } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1167,7 +1167,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         noCache: [(s) => [s.urlVariables], (urlVariables) => Object.keys(urlVariables).length > 0],
         maxContext: [
             (s) => [s.dashboard],
-            (dashboard): MaxContextSelector => {
+            (dashboard): MaxContextItem[] => {
                 if (!dashboard) {
                     return []
                 }

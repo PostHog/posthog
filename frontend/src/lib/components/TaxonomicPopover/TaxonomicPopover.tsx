@@ -9,7 +9,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
@@ -34,7 +34,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
-    maxContextOptions?: MaxContextOption[]
+    maxContextOptions?: MaxContextTaxonomicFilterOption[]
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */

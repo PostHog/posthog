@@ -21,7 +21,13 @@ import {
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    MaxActionContextPayload,
+    MaxContextType,
+    MaxDashboardContextPayload,
+    MaxEventContextPayload,
+    MaxInsightContextPayload,
+} from './maxTypes'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -169,7 +175,7 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
 }
 
 // Utility functions for transforming data to max context
-export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
+export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContextPayload => {
     const source = (insight.query as any)?.source
     return {
         type: MaxContextType.INSIGHT,
@@ -180,7 +186,7 @@ export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): M
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextPayload => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
@@ -191,7 +197,7 @@ export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsight
     }
 }
 
-export const eventToMaxContext = (event: EventDefinition): MaxEventContext => {
+export const eventToMaxContextPayload = (event: EventDefinition): MaxEventContextPayload => {
     return {
         type: MaxContextType.EVENT,
         id: event.id,
@@ -200,7 +206,7 @@ export const eventToMaxContext = (event: EventDefinition): MaxEventContext => {
     }
 }
 
-export const actionToMaxContext = (action: ActionType): MaxActionContext => {
+export const actionToMaxContextPayload = (action: ActionType): MaxActionContextPayload => {
     return {
         type: MaxContextType.ACTION,
         id: action.id,

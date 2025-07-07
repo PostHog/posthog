@@ -11,7 +11,7 @@ export enum MaxContextType {
 
 export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
 
-export interface MaxInsightContext {
+export interface MaxInsightContextPayload {
     type: MaxContextType.INSIGHT
     id: InsightShortId
     name?: string
@@ -19,23 +19,23 @@ export interface MaxInsightContext {
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
 }
 
-export interface MaxDashboardContext {
+export interface MaxDashboardContextPayload {
     type: MaxContextType.DASHBOARD
     id: number
     name?: string
     description?: string
-    insights: MaxInsightContext[]
+    insights: MaxInsightContextPayload[]
     filters: DashboardFilter
 }
 
-export interface MaxEventContext {
+export interface MaxEventContextPayload {
     type: MaxContextType.EVENT
     id: string
     name?: string
     description?: string
 }
 
-export interface MaxActionContext {
+export interface MaxActionContextPayload {
     type: MaxContextType.ACTION
     id: number
     name: string
@@ -43,17 +43,17 @@ export interface MaxActionContext {
 }
 
 // The main shape for the UI context sent to the backend
-export interface MaxContextShape {
-    dashboards?: MaxDashboardContext[]
-    insights?: MaxInsightContext[]
-    events?: MaxEventContext[]
-    actions?: MaxActionContext[]
+export interface MaxUIContext {
+    dashboards?: MaxDashboardContextPayload[]
+    insights?: MaxInsightContextPayload[]
+    events?: MaxEventContextPayload[]
+    actions?: MaxActionContextPayload[]
     filters_override?: DashboardFilter
     variables_override?: Record<string, HogQLVariable>
 }
 
 // Taxonomic filter options
-export interface MaxContextOption {
+export interface MaxContextTaxonomicFilterOption {
     id: string
     value: string | integer
     name: string
@@ -61,55 +61,52 @@ export interface MaxContextOption {
     type?: MaxContextType
 }
 
-// Union type for all possible context items that can be exposed by scene logics
-export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
+// Union type for all possible context payloads that can be exposed by scene logics
+export type MaxContextPayload =
+    | MaxInsightContextPayload
+    | MaxDashboardContextPayload
+    | MaxEventContextPayload
+    | MaxActionContextPayload
 
-type RawInsightContextItem = {
+type MaxInsightContext = {
     type: MaxContextType.INSIGHT
     data: InsightWithQuery
 }
-type RawDashboardContextItem = {
+type MaxDashboardContext = {
     type: MaxContextType.DASHBOARD
     data: DashboardType<QueryBasedInsightModel>
 }
-type RawEventContextItem = {
+type MaxEventContext = {
     type: MaxContextType.EVENT
     data: EventDefinition
 }
-type RawActionContextItem = {
+type MaxActionContext = {
     type: MaxContextType.ACTION
     data: ActionType
 }
-export type RawMaxContextItem =
-    | RawInsightContextItem
-    | RawDashboardContextItem
-    | RawEventContextItem
-    | RawActionContextItem
-
-// Helper type for maxContext selectors - ensures all scene logics return the same type
-export type MaxContextSelector = RawMaxContextItem[]
+export type MaxContextItem = MaxInsightContext | MaxDashboardContext | MaxEventContext | MaxActionContext
 
 /**
  * Helper functions to create maxContext items safely
  * These ensure proper typing and consistent patterns across scene logics
  */
 export const createMaxContextHelpers = {
-    dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): RawDashboardContextItem => ({
+    dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => ({
         type: MaxContextType.DASHBOARD,
         data: dashboard,
     }),
 
-    insight: (insight: InsightWithQuery): RawInsightContextItem => ({
+    insight: (insight: InsightWithQuery): MaxInsightContext => ({
         type: MaxContextType.INSIGHT,
         data: insight,
     }),
 
-    event: (event: EventDefinition): RawEventContextItem => ({
+    event: (event: EventDefinition): MaxEventContext => ({
         type: MaxContextType.EVENT,
         data: event,
     }),
 
-    action: (action: ActionType): RawActionContextItem => ({
+    action: (action: ActionType): MaxActionContext => ({
         type: MaxContextType.ACTION,
         data: action,
     }),
