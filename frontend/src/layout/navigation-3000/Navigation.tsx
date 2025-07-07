@@ -16,9 +16,11 @@ import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { cn } from 'lib/utils/css-classes'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export function Navigation({
     children,
@@ -31,7 +33,8 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     if (mode !== 'full') {
         return (
@@ -66,7 +69,33 @@ export function Navigation({
             <PanelLayout mainRef={mainRef} />
 
             <main ref={mainRef} role="main" tabIndex={0} id="main-content">
-                {newSceneLayout ? (
+                <FlaggedFeature
+                    match={true}
+                    flag={FEATURE_FLAGS.NEW_SCENE_LAYOUT}
+                    fallback={
+                        <>
+                            {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
+                            <div
+                                className={cn(
+                                    'Navigation3000__scene',
+                                    // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
+                                    sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
+                                    sceneConfig?.layout === 'app-raw-no-header' &&
+                                        'Navigation3000__scene--raw-no-header'
+                                )}
+                            >
+                                {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                    <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                                        {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                                        {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                                    </div>
+                                )}
+
+                                {children}
+                            </div>
+                        </>
+                    }
+                >
                     <SceneLayout layoutConfig={sceneConfig}>
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
                             <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
@@ -77,28 +106,7 @@ export function Navigation({
 
                         {children}
                     </SceneLayout>
-                ) : (
-                    <>
-                        {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
-                        <div
-                            className={cn(
-                                'Navigation3000__scene',
-                                // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
-                                sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
-                                sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
-                            )}
-                        >
-                            {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                                <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                                    {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                                </div>
-                            )}
-
-                            {children}
-                        </div>
-                    </>
-                )}
+                </FlaggedFeature>
             </main>
             <SidePanel />
             <CommandBar />
