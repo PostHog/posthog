@@ -9864,6 +9864,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useRecentEventsTable": {
+                    "description": "Use recent_events table (last 7 days) for better performance when querying recent data",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
