@@ -30,7 +30,8 @@ class OpenAIConfig:
         "o4-mini",
         "o3-mini",
         "o3",
-        "o3-pro" "o4-mini",
+        "o3-pro",
+        "o4-mini",
         "gpt-4o",
         "gpt-4o-mini",
     ]
@@ -155,5 +156,5 @@ class OpenAIProvider:
 
         except Exception as e:
             logger.exception(f"OpenAI API error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': f'OpenAI API error'})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'error': f'{e}'})}\n\n"
             return
