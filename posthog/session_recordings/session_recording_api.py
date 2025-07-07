@@ -714,6 +714,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         try:
             result = AsyncResult(task_id)
 
+            # Verify task belongs to current team for security
+            if result.kwargs and result.kwargs.get("team_id") != self.team.id:
+                return Response({"error": "Task not found"}, status=404)
+
+            # Handle case where task doesn't exist or has no kwargs yet
+            if not result.kwargs:
+                return Response({"error": "Task not found"}, status=404)
+
             if result.state == "PENDING":
                 response = {"state": "PENDING", "status": "Task is waiting to be processed"}
             elif result.state == "PROGRESS":
