@@ -272,23 +272,12 @@ class EventsQueryRunner(QueryRunner):
                 return stmt
 
     def calculate(self) -> EventsQueryResponse:
-        # Use custom modifiers for recent_events table to avoid timezone conversion on inserted_at
-        modifiers = self.modifiers
-        if (
-            self.query.useRecentEventsTable
-            and self.query.orderBy
-            and any("inserted_at" in order for order in self.query.orderBy)
-        ):
-            # Temporarily disable timezone conversion for better performance
-            modifiers = self.modifiers.model_copy()
-            modifiers.convertToProjectTimezone = False
-
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
-            modifiers=modifiers,
+            modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
 
