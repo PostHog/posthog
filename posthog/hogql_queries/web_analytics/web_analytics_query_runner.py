@@ -65,7 +65,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             team=self.team,
             timezone_info=timezone_info,
             interval=None,
-            now=datetime.now(),
+            now=datetime.now(timezone_info),
         )
 
     @cached_property
