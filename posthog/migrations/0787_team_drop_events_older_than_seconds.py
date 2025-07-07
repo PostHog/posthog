@@ -7,7 +7,7 @@ from datetime import timedelta
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0784_fix_null_event_triggers"),
+        ("posthog", "0786_add_is_emoji_to_annotation"),
     ]
 
     operations = [
