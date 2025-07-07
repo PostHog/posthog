@@ -272,7 +272,11 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 
     // Add lazy getters for person and filter globals
     // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
-    // getPerson: () => Promise<Person>
+    getPerson: () => Promise<{
+        // Person ID from PG
+        id: string
+        properties: Record<string, any>
+    }>
 }
 
 export type HogFlowInvocationContext = {

@@ -32,10 +32,17 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return null
                 }
 
+                const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
+
                 loadedInvocations.push({
                     ...item,
-                    state: item.state as CyclotronJobInvocationHogFlow['state'],
+                    state: hogFlowInvocationState,
                     hogFlow,
+                    getPersonProperties: () =>
+                        this.personsManager.getPersonProperties(
+                            hogFlow.team_id,
+                            hogFlowInvocationState.event.distinct_id
+                        ),
                 })
             })
         )

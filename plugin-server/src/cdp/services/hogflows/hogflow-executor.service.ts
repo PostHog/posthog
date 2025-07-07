@@ -19,6 +19,7 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { buildGlobalsWithInputs, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { PersonsManagerService } from '../managers/persons-manager.service'
 import { checkConditions } from './actions/conditional_branch'
 import { calculatedScheduledAt } from './actions/delay'
 import { getRandomCohort } from './actions/random_cohort_branch'
@@ -28,31 +29,30 @@ import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
-export function createHogFlowInvocation(
-    globals: HogFunctionInvocationGlobals,
-    hogFlow: HogFlow
-): CyclotronJobInvocationHogFlow {
-    return {
-        id: new UUIDT().toString(),
-        state: {
-            personId: globals.person?.id ?? '',
-            event: globals.event,
-            actionStepCount: 0,
-        },
-        teamId: hogFlow.team_id,
-        functionId: hogFlow.id, // TODO: Include version?
-        hogFlow,
-        queue: 'hogflow',
-        queuePriority: 1,
-    }
-}
-
 export class HogFlowExecutorService {
     constructor(
         private hub: Hub,
+        private personsManager: PersonsManagerService,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {}
+
+    createHogFlowInvocation(globals: HogFunctionInvocationGlobals, hogFlow: HogFlow): CyclotronJobInvocationHogFlow {
+        return {
+            id: new UUIDT().toString(),
+            state: {
+                personId: globals.person?.id ?? '',
+                event: globals.event,
+                actionStepCount: 0,
+            },
+            teamId: hogFlow.team_id,
+            functionId: hogFlow.id, // TODO: Include version?
+            hogFlow,
+            queue: 'hogflow',
+            queuePriority: 1,
+            getPerson: () => this.personsManager.getPerson(hogFlow.team_id, globals.event.distinct_id),
+        }
+    }
 
     async buildHogFlowInvocations(
         hogFlows: HogFlow[],
@@ -88,7 +88,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow)
+            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow)
             invocations.push(invocation)
         }
 
