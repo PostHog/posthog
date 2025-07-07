@@ -10,7 +10,6 @@ import { logger } from '~/utils/logger'
 
 import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
-import { HogFlowActionResult } from './types'
 
 type Action = Extract<HogFlowAction, { type: 'function' }>
 
@@ -21,7 +20,7 @@ export class HogFlowActionRunnerFunction {
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {}
 
-    async run(invocation: CyclotronJobInvocationHogFlow, action: Action): Promise<HogFlowActionResult> {
+    async run(invocation: CyclotronJobInvocationHogFlow, action: Action): Promise<{ done: boolean }> {
         // Convert to hog function invocation
         // This mostly involves building a fake hog function
 
