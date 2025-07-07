@@ -349,7 +349,7 @@ class TestInsightSearchNode(BaseTest):
         for result in results:
             insight_id = result.get("insight_id") or result.get("id")
             if insight_id:
-                insight = Insight.objects.get(id=insight_id)
+                insight = Insight.objects.filter(id=insight_id).first()
                 self.assertEqual(insight.team, self.team)
 
     def test_semantic_filter_with_empty_results(self):

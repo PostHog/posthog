@@ -471,7 +471,6 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_conditional_edges(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node.router, path_map=path_map)
         return self
 
-    # TODO: Add here a new step for insight search
     def compile_full_graph(self):
         return (
             self.add_title_generator()

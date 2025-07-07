@@ -41,7 +41,7 @@ class search_insights(BaseModel):
     This tool will return an insight if the insight query has found a match
     """
 
-    search_query: str = Field(description="Describe insights that the you are looking for")
+    search_query: str = Field(description="Describe insights that you are looking for")
 
 
 class search_documentation(BaseModel):
