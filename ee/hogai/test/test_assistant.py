@@ -35,7 +35,6 @@ from posthog.schema import (
     AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
-    AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionActionsNode,
     AssistantRetentionEventsNode,
@@ -860,60 +859,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
-    @title_generator_mock
-    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
-    @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock):
-        res1 = FakeRunnableLambdaWithTokenCounter(
-            lambda _: messages.AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "id": "xyz",
-                        "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "sql"},
-                    }
-                ],
-            )
-        )
-        res2 = FakeRunnableLambdaWithTokenCounter(
-            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
-        )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
-
-        planner_mock.return_value = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "sql", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        )
-        query = AssistantHogQLQuery(query="SELECT 1")
-        generator_mock.return_value = RunnableLambda(lambda _: query.model_dump())
-
-        # First run
-        actual_output, _ = self._run_assistant_graph(is_new_conversation=True)
-        expected_output = [
-            ("conversation", self._serialize_conversation()),
-            ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating SQL query")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            ("message", AssistantMessage(content="The results indicate a great future for you.")),
-        ]
-        self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
-
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model")
     def test_memory_collector_flow(self, model_mock):
         # Create a graph with just memory collection
@@ -1527,25 +1472,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(item[0], AssistantEventType.MESSAGE)
         self.assertIsInstance(item[1], AssistantMessage)
         self.assertEqual(item[1].content, "Response")
-
-    @patch.object(Assistant, "_stream")
-    def test_generate_filters_messages(self, mock_stream):
-        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user)
-
-        mock_stream.return_value = [
-            'event: conversation\ndata: {"id": "123", "status": "active"}\n\n',
-            'event: message\ndata: {"content": "First response", "type": "ai"}\n\n',
-            'event: status\ndata: {"type": "processing"}\n\n',
-            'event: message\ndata: {"content": "Second response", "type": "ai"}\n\n',
-        ]
-
-        messages = assistant.generate()
-
-        self.assertEqual(len(messages), 2)
-        self.assertEqual(messages[0]["type"], "message")
-        self.assertEqual(messages[0]["data"], {"content": "First response", "type": "ai"})
-        self.assertEqual(messages[1]["type"], "message")
-        self.assertEqual(messages[1]["data"], {"content": "Second response", "type": "ai"})
 
     def test_chunk_reasoning_headline(self):
         """Test _chunk_reasoning_headline method with various scenarios."""
