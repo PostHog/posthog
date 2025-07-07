@@ -76,7 +76,7 @@ class HogFlow(UUIDModel):
                     compiled_inputs = generate_template_bytecode(inputs, input_collector)
                     action["config"]["inputs"]["bytecode"] = compiled_inputs
                 except Exception as e:
-                    logger.error("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
+                    logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
                     raise
         super().save(*args, **kwargs)
 
