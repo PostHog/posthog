@@ -249,9 +249,12 @@ Your response:""")
         insights_text = ""
         for i, insight in enumerate(insights, 1):
             name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
-            description = insight.get("insight__description", "No description")
+            description = insight.get("insight__description")
             insight_names.append(name)
-            insights_text += f"{i}. {name} - {description}\n"
+            if description:
+                insights_text += f"{i}. {name} - {description}\n"
+            else:
+                insights_text += f"{i}. {name}\n"
 
         # Check cache first
         cache_key = self._get_cache_key(query, insight_names)
@@ -380,15 +383,22 @@ Your response:""")
         insights_text = ""
         for i, insight in enumerate(insights, 1):
             name = insight.get("name") or insight.get("derived_name", "Unnamed")
-            description = insight.get("description", "No description")
+            description = insight.get("description")
             query_data = insight.get("query", {})
             filters_data = insight.get("filters", {})
 
             query_summary = self._summarize_query_data(query_data, filters_data)
 
-            insights_text += f"""
+            if description:
+                insights_text += f"""
 {i}. "{name}"
    Description: {description}
+   Query: {query_summary}
+   Relevance Score: {insight.get('relevance_score', 'N/A')}
+"""
+            else:
+                insights_text += f"""
+{i}. "{name}"
    Query: {query_summary}
    Relevance Score: {insight.get('relevance_score', 'N/A')}
 """
@@ -455,12 +465,16 @@ Most relevant insight number:"""
         formatted_results = []
         for i, insight in enumerate(results, 1):
             name = insight.get("name") or insight.get("derived_name", "Unnamed Insight")
-            description = insight.get("description", "No description available")
+            description = insight.get("description")
             insight_short_id = insight.get("short_id")
             insight_url = f"/insights/{insight_short_id}"
 
-            result_block = f"""**{i}. {name}**
+            if description:
+                result_block = f"""**{i}. {name}**
 Description: {description}
+[View Insight →]({insight_url})"""
+            else:
+                result_block = f"""**{i}. {name}**
 [View Insight →]({insight_url})"""
 
             if query_data := insight.get("query", {}):

@@ -38,10 +38,13 @@ class create_and_query_insight(BaseModel):
 
 class search_insights(BaseModel):
     """
-    This tool will return an insight if the insight query has found a match
+    Search through existing insights to find matches based on the user's query.
+    Use this tool when users ask to find, search for, or look up existing insights.
     """
 
-    search_query: str = Field(description="Describe insights that you are looking for")
+    search_query: str = Field(
+        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+    )
 
 
 class search_documentation(BaseModel):
