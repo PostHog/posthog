@@ -71,7 +71,6 @@ const LOADER_SELECTORS = [
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
-console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
@@ -96,10 +95,7 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
 
-        await page.evaluate(
-            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
-            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
-        )
+        await page.evaluate(([retry, id]) => {}, [ATTEMPT_COUNT_PER_ID[context.id], context.id])
 
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
@@ -159,7 +155,7 @@ async function takeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
     // Set the right theme
@@ -183,7 +179,7 @@ async function doTakeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters
@@ -260,7 +256,8 @@ async function expectStoryToMatchComponentSnapshot(
         })
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    // For full page screenshots, use page.screenshot() instead of locator.screenshot()
+    await expectLocatorToMatchStorySnapshot(targetSelector, context, browser, theme, {
         omitBackground: true,
     })
 }
@@ -272,7 +269,10 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await locator.screenshot({
+        ...options,
+        fullPage: true, // This captures the full page including content below the viewport
+    })
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
