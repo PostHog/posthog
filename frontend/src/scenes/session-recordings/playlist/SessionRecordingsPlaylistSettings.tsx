@@ -9,7 +9,6 @@ import { RecordingUniversalFilters } from '~/types'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -111,14 +110,15 @@ function BulkDeleteRecordingsDialog(): JSX.Element {
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
+    onDelete,
 }: {
     filters?: RecordingUniversalFilters
     setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
+    onDelete?: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { bulkDeleteRecordings } = useActions(sessionRecordingsPlaylistLogic)
 
     const handleBulkDeleteRecordings = (): void =>
         LemonDialog.open({
@@ -130,7 +130,7 @@ export function SessionRecordingsPlaylistTopSettings({
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
-                onClick: () => bulkDeleteRecordings(filters || {}),
+                onClick: () => onDelete?.(filters || {}),
             },
         })
 

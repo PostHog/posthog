@@ -2613,6 +2613,19 @@ const api = {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).delete(true)
         },
 
+        async bulkDeleteStatus(taskId: string): Promise<{
+            state: 'PENDING' | 'PROGRESS' | 'SUCCESS' | 'FAILURE'
+            status?: string
+            current?: number
+            total?: number
+            playlist_items_deleted?: number
+            deleted_count?: number
+            playlist_items_deleted_count?: number
+            error?: string
+        }> {
+            return await new ApiRequest().recordings().withAction('tasks/bulk_delete_status').withAction(taskId).get()
+        },
+
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}

@@ -54,7 +54,8 @@ export function SessionRecordingsPlaylist({
         allowReplayGroupsFilters,
         totalFiltersCount,
     } = useValues(playlistLogic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters, bulkDeleteRecordings } =
+        useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
 
@@ -115,7 +116,13 @@ export function SessionRecordingsPlaylist({
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     embedded={!!notebookNode}
                     sections={sections}
-                    headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
+                    headerActions={
+                        <SessionRecordingsPlaylistTopSettings
+                            filters={filters}
+                            setFilters={setFilters}
+                            onDelete={bulkDeleteRecordings}
+                        />
+                    }
                     filterActions={
                         notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
                             <RecordingsUniversalFiltersEmbedButton
