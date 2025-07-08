@@ -6,7 +6,6 @@ import typing
 
 import psycopg
 import pyarrow as pa
-import structlog
 from django.conf import settings
 from psycopg import sql
 from temporalio import activity, workflow
@@ -53,9 +52,9 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_external_logger
+from posthog.temporal.common.logger import bind_contextvars, get_external_logger, get_logger
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 class RedshiftClient(PostgreSQLClient):

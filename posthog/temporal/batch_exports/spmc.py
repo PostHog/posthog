@@ -8,7 +8,6 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 import temporalio.common
 from django.conf import settings
 
@@ -59,10 +58,10 @@ from posthog.temporal.batch_exports.utils import (
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_external_logger
+from posthog.temporal.common.logger import get_external_logger, get_logger
 from posthog.warehouse.util import database_sync_to_async
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 class RecordBatchQueue(asyncio.Queue):

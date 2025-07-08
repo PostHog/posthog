@@ -6,7 +6,6 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -41,10 +40,11 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import (
     bind_contextvars,
+    get_logger,
 )
 from posthog.warehouse.util import database_sync_to_async
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]

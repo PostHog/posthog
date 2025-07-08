@@ -12,7 +12,6 @@ import typing
 import aioboto3
 import botocore.exceptions
 import pyarrow as pa
-import structlog
 from aiobotocore.config import AioConfig
 from aiobotocore.session import ClientCreatorContext
 
@@ -73,6 +72,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
     get_external_logger,
+    get_logger,
 )
 
 NON_RETRYABLE_ERROR_TYPES = [
@@ -112,7 +112,7 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 @dataclasses.dataclass(kw_only=True)

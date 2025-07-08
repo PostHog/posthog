@@ -7,7 +7,6 @@ import json
 import typing
 
 import pyarrow as pa
-import structlog
 from django.conf import settings
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
@@ -54,6 +53,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
     get_external_logger,
+    get_logger,
 )
 
 NON_RETRYABLE_ERROR_TYPES = [
@@ -73,7 +73,7 @@ NON_RETRYABLE_ERROR_TYPES = [
     "MissingRequiredPermissionsError",
 ]
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 class MissingRequiredPermissionsError(Exception):

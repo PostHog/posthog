@@ -35,6 +35,19 @@ def get_internal_logger():
     return logger.new(**temporal_context)
 
 
+def get_logger(name: str | None = None):
+    logger = logging.getLogger(name)
+    logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
+
+    handler = logging.StreamHandler()
+    handler.setLevel(settings.TEMPORAL_LOG_LEVEL)
+
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+
+    return structlog.get_logger(name or __name__)
+
+
 def bind_contextvars(**kwargs):
     """Bind any variables to the context, including base Temporal variables."""
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.TEMPORAL_LOG_LEVEL)
