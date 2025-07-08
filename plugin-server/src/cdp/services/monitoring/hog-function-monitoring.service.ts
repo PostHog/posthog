@@ -145,7 +145,7 @@ export class HogFunctionMonitoringService {
                                 continue
                             }
                             this.messagesToProduce.push({
-                                topic: this.hub.HOG_FUNCTION_MONITORING_CAPTURED_EVENTS_TOPIC,
+                                topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
                                 value: convertToCaptureEvent(event, team),
                                 key: `${team.api_token}:${event.distinct_id}`,
                             })
