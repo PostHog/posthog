@@ -173,7 +173,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                     <LemonSwitch
                         checked={isPubliclyShareable}
                         onChange={(checked) => updateSurvey({ is_publicly_shareable: checked })}
-                        label="Allow responses via external link"
+                        label="Collect responses via external link"
                     />
                     {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
                         <LemonSwitch
