@@ -3,7 +3,6 @@ from uuid import uuid4
 import hashlib
 import time
 
-from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
@@ -15,52 +14,13 @@ from posthog.schema import (
     AssistantMessage,
 )
 from ee.hogai.graph.base import AssistantNode
+from .prompts import IMPROVED_SEMANTIC_FILTER_PROMPT
 
 from posthog.models import InsightViewed, Insight
 
 
 class InsightSearchNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-
-    _SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
-Rate the relevance of each insight to the search query.
-
-Search Query: "{query}"
-
-Insights to rate:
-{insights_list}
-
-For each insight, respond with ONLY the number followed by relevance rating:
-Format: "1: high, 2: medium, 3: low, 4: none"
-
-Ratings:
-- high: Directly matches or strongly relates to the query
-- medium: Somewhat related or partially matches
-- low: Barely related or generic connection
-- none: No meaningful connection
-
-Your response:""")
-
-    _IMPROVED_SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
-Rate the relevance of each insight to the search query. Pay special attention to exact keyword matches in insight names (marked with ⭐ EXACT MATCH).
-
-Search Query: "{query}"
-
-Insights to rate:
-{insights_list}
-
-For each insight, respond with ONLY the number followed by relevance rating:
-Format: "1: high, 2: medium, 3: low, 4: none"
-
-Ratings:
-- high: Exact keyword match in name OR directly matches query intent
-- medium: Partial keyword match OR somewhat related to query
-- low: Generic connection to query topics
-- none: No meaningful connection
-
-IMPORTANT: Insights marked with ⭐ EXACT MATCH should generally be rated 'high' unless completely unrelated to the query context.
-
-Your response:""")
 
     # In-memory cache for semantic filtering results (TTL: 5 minutes)
     _semantic_cache = {}
@@ -334,9 +294,7 @@ Your response:""")
         else:
             self._current_cache_misses += 1
             # Single LLM call for all insights with improved prompt
-            formatted_prompt = self._IMPROVED_SEMANTIC_FILTER_PROMPT.format(
-                query=query, insights_list=insights_text.strip()
-            )
+            formatted_prompt = IMPROVED_SEMANTIC_FILTER_PROMPT.format(query=query, insights_list=insights_text.strip())
 
             model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=50)
 
