@@ -1,5 +1,4 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
@@ -13,10 +12,12 @@ import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Insights/Error & Empty States',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        pageUrl: `/insights/${insight.short_id}`,
         testOptions: {
             waitForSelector: '[data-attr="insight-empty-state"]',
         },
@@ -34,9 +35,7 @@ export const Empty: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
-        router.actions.push(`/insights/${insight.short_id}`)
-    }, [])
+
     return <App />
 }
 
@@ -58,9 +57,7 @@ export const ServerError: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
-        router.actions.push(`/insights/${insight.short_id}`)
-    }, [])
+
     return <App />
 }
 
@@ -84,9 +81,7 @@ export const ValidationError: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
-        router.actions.push(`/insights/${insight.short_id}`)
-    }, [])
+
     return <App />
 }
 
@@ -109,9 +104,7 @@ export const EstimatedQueryExecutionTimeTooLong: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
-        router.actions.push(`/insights/${insight.short_id}`)
-    }, [])
+
     return <App />
 }
 EstimatedQueryExecutionTimeTooLong.parameters = {
@@ -133,11 +126,12 @@ export const LongLoading: StoryFn = () => {
             '/api/environments/:team_id/query/': (_, __, ctx) => [ctx.delay('infinite')],
         },
     })
+
     useEffect(() => {
-        router.actions.push(`/insights/${insight.short_id}`)
         const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
         logic?.actions.setTimedOutQueryId('a-uuid-query-id') // Show the suggestions immediately
     }, [])
+
     return <App />
 }
 LongLoading.parameters = {
