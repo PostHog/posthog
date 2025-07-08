@@ -203,7 +203,7 @@ function InsightCardInternal(
                             refresh={refresh}
                             refreshEnabled={refreshEnabled}
                             loadingQueued={loadingQueued}
-                            loading={loadingQueued}
+                            loading={loading}
                             hasResults={hasResults}
                             rename={rename}
                             duplicate={duplicate}
