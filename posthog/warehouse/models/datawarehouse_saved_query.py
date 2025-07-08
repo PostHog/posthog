@@ -20,7 +20,7 @@ from posthog.warehouse.models.util import (
     remove_named_tuples,
 )
 from posthog.hogql.database.s3_table import S3Table
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 

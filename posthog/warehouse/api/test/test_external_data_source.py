@@ -1303,3 +1303,9 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.using_temporary_dataset is False
         assert bq_config.using_custom_dataset_project is True
         assert bq_config.dataset_project_id == "other_project_id"
+
+    def test_get_wizard_sources(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard")
+        payload = response.json()
+        assert response.status_code == 200
+        assert payload is not None

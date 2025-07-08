@@ -329,6 +329,8 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
+    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinModeModifier
+    revenueAnalyticsPersonsJoinModeCustom?: string | null
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
@@ -345,6 +347,12 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
+}
+
+export enum RevenueAnalyticsPersonsJoinModeModifier {
+    ID = 'id',
+    EMAIL = 'email',
+    CUSTOM = 'custom',
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
@@ -714,6 +722,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Use recent_events table (last 7 days) for better performance when querying recent data */
+    useRecentEventsTable?: boolean
 }
 
 /**
@@ -3382,3 +3392,89 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+    kind: string
+}
+
+export interface SourceFieldInputConfig {
+    type: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'number' | 'textarea'
+    name: string
+    label: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceFieldSelectConfig {
+    type: 'select'
+    name: string
+    label: string
+    required: boolean
+    defaultValue: string
+    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+}
+
+export interface SourceFieldSwitchGroupConfig {
+    type: 'switch-group'
+    name: string
+    label: string
+    default: string | number | boolean
+    fields: SourceFieldConfig[]
+    caption?: string
+}
+
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    label?: string
+    caption: string | any
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
+    existingSource?: boolean
+    unreleasedSource?: boolean
+    betaSource?: boolean
+}
+
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'MSSQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+    'Vitally',
+    'BigQuery',
+    'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'MongoDB',
+    'TemporalIO',
+    'DoIt',
+] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]
