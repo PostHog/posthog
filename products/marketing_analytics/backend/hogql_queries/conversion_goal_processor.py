@@ -3,7 +3,6 @@ from typing import Union
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.models import Action, Team
 from posthog.schema import (
@@ -11,7 +10,6 @@ from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
-    DateRange,
     MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
@@ -180,17 +178,15 @@ class ConversionGoalProcessor:
 
         if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
             # For Events/Actions: Use hybrid event/person-level UTM attribution
-            return self.generate_person_level_cte_query(additional_conditions, self.use_temporal_attribution)
+            return self.generate_person_level_cte_query(additional_conditions)
         else:
             # For DataWarehouse: Use direct field access (existing behavior)
             return self.generate_direct_cte_query(additional_conditions)
 
-    def generate_person_level_cte_query(
-        self, additional_conditions: list[ast.Expr], use_temporal_attribution: bool = False
-    ) -> ast.SelectQuery:
+    def generate_person_level_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """
         Generate main CTE query - using funnel-based approach for proper attribution window support
-        
+
         Uses aggregate_funnel_array to create a funnel:
         - Step 0: UTM pageview (with complete UTM data)
         - Step 1: Conversion event
@@ -205,43 +201,43 @@ class ConversionGoalProcessor:
     def generate_funnel_based_cte_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """
         Generate CTE query using array-based approach with AST expressions
-        
+
         This maintains the sophisticated array-based attribution logic but uses AST
         nodes instead of SQL strings, which automatically integrates with property filters.
         """
-        # Get UTM expressions for schema mapping
-        utm_campaign_expr, utm_source_expr = self.get_utm_expressions()
-        
+
         # Get conversion event name
         conversion_event = self.goal.event if self.goal.kind == "EventsNode" else "purchase"
-        
+
         # Build WHERE conditions (includes property filters automatically via AST)
         where_conditions = self.get_base_where_conditions()
         where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
         where_conditions.extend(additional_conditions)
-        
+
         # Convert attribution window days to seconds
         attribution_window_seconds = self.attribution_window_days * 24 * 60 * 60
-        
+
         # Build the complex nested query structure using AST
         innermost_query = self.build_array_collection_subquery(conversion_event, where_conditions)
         array_join_query = self.build_array_join_subquery(innermost_query, attribution_window_seconds)
         attribution_query = self.build_attribution_logic_subquery(array_join_query)
-        
+
         # Build final aggregation query
         return self.build_final_aggregation_query(attribution_query)
-    
-    def build_array_collection_subquery(self, conversion_event: str, where_conditions: list[ast.Expr]) -> ast.SelectQuery:
+
+    def build_array_collection_subquery(
+        self, conversion_event: str, where_conditions: list[ast.Expr]
+    ) -> ast.SelectQuery:
         """Build the innermost subquery that collects arrays of conversion and UTM data per person"""
-        
+
         # Get UTM field names from schema mapping
         utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
         utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
-        
+
         # Extract date conditions from additional conditions for the temporal attribution logic
         date_conditions = []
         non_date_conditions = []
-        
+
         for condition in where_conditions:
             if self._is_date_condition(condition):
                 date_conditions.append(condition)
@@ -250,7 +246,7 @@ class ConversionGoalProcessor:
                 continue
             else:
                 non_date_conditions.append(condition)
-        
+
         # Build the WHERE clause following the exact original working pattern:
         # AND(
         #   OR(events.event = '$pageview', events.event = 'conversion'),
@@ -259,46 +255,50 @@ class ConversionGoalProcessor:
         #     AND(events.event = '$pageview', [UTM conditions], [extended date conditions])
         #   )
         # )
-        
+
         # Handle empty event name - should match all events
         if not conversion_event:
             # When conversion event is empty, don't filter by event type in base filter
             base_event_filter = ast.Constant(value=True)  # Always true - match all events
         else:
             # Base event filter for specific conversion event
-            base_event_filter = ast.Or(exprs=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=["events", "event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value="$pageview")
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["events", "event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=conversion_event)
-                )
-            ])
-        
+            base_event_filter = ast.Or(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["events", "event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value="$pageview"),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["events", "event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=conversion_event),
+                    ),
+                ]
+            )
+
         # Build event-specific conditions
         event_specific_conditions = []
-        
+
         if not conversion_event:
             # When conversion event is empty, treat all events as conversion events
             conversion_conditions = []
             # Add all date conditions to conversions (with proper toDateTime calls)
             for condition in date_conditions:
                 if isinstance(condition, ast.CompareOperation):
-                    conversion_conditions.append(ast.CompareOperation(
-                        left=ast.Field(chain=["events", "timestamp"]),
-                        op=condition.op,
-                        right=self._ensure_datetime_call(condition.right)
-                    ))
-            
+                    conversion_conditions.append(
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["events", "timestamp"]),
+                            op=condition.op,
+                            right=self._ensure_datetime_call(condition.right),
+                        )
+                    )
+
             if conversion_conditions:
                 event_specific_conditions.append(ast.And(exprs=conversion_conditions))
             else:
                 event_specific_conditions.append(ast.Constant(value=True))  # Always true if no date conditions
-                
+
             # No pageview conditions needed when matching all events
         else:
             # Conversion event conditions: event = conversion + all original date conditions
@@ -306,476 +306,515 @@ class ConversionGoalProcessor:
                 ast.CompareOperation(
                     left=ast.Field(chain=["events", "event"]),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=conversion_event)
+                    right=ast.Constant(value=conversion_event),
                 )
             ]
-            
+
             # Add all date conditions to conversions (with proper toDateTime calls)
             for condition in date_conditions:
                 if isinstance(condition, ast.CompareOperation):
-                    conversion_conditions.append(ast.CompareOperation(
-                        left=ast.Field(chain=["events", "timestamp"]),
-                        op=condition.op,
-                        right=self._ensure_datetime_call(condition.right)
-                    ))
-            
+                    conversion_conditions.append(
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["events", "timestamp"]),
+                            op=condition.op,
+                            right=self._ensure_datetime_call(condition.right),
+                        )
+                    )
+
             event_specific_conditions.append(ast.And(exprs=conversion_conditions))
-            
+
             # Pageview event conditions: event = pageview + UTM requirements + extended date conditions
             pageview_conditions = [
                 ast.CompareOperation(
                     left=ast.Field(chain=["events", "event"]),
                     op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value="$pageview")
+                    right=ast.Constant(value="$pageview"),
                 ),
                 # Must have utm_campaign
-                ast.Call(name="notEmpty", args=[
-                    ast.Call(name="toString", args=[
-                        ast.Call(name="ifNull", args=[
-                            ast.Field(chain=["events", "properties", utm_campaign_field]),
-                            ast.Constant(value="")
-                        ])
-                    ])
-                ]),
-                # Must have utm_source  
-                ast.Call(name="notEmpty", args=[
-                    ast.Call(name="toString", args=[
-                        ast.Call(name="ifNull", args=[
-                            ast.Field(chain=["events", "properties", utm_source_field]),
-                            ast.Constant(value="")
-                        ])
-                    ])
-                ])
+                ast.Call(
+                    name="notEmpty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["events", "properties", utm_campaign_field]),
+                                        ast.Constant(value=""),
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                ),
+                # Must have utm_source
+                ast.Call(
+                    name="notEmpty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["events", "properties", utm_source_field]),
+                                        ast.Constant(value=""),
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                ),
             ]
-            
+
             # Add extended date conditions for pageviews (with attribution window)
             attribution_window_seconds = self.attribution_window_days * 24 * 60 * 60
-            
+
             for condition in date_conditions:
                 if isinstance(condition, ast.CompareOperation):
                     if condition.op == ast.CompareOperationOp.GtEq:
                         # Extend start date backwards by attribution window
-                        pageview_conditions.append(ast.CompareOperation(
-                            left=ast.Field(chain=["events", "timestamp"]),
-                            op=ast.CompareOperationOp.GtEq,
-                            right=ast.ArithmeticOperation(
-                                left=self._ensure_datetime_call(condition.right),
-                                op=ast.ArithmeticOperationOp.Sub,
-                                right=ast.Call(name="toIntervalSecond", args=[ast.Constant(value=attribution_window_seconds)])
+                        pageview_conditions.append(
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["events", "timestamp"]),
+                                op=ast.CompareOperationOp.GtEq,
+                                right=ast.ArithmeticOperation(
+                                    left=self._ensure_datetime_call(condition.right),
+                                    op=ast.ArithmeticOperationOp.Sub,
+                                    right=ast.Call(
+                                        name="toIntervalSecond", args=[ast.Constant(value=attribution_window_seconds)]
+                                    ),
+                                ),
                             )
-                        ))
+                        )
                     elif condition.op == ast.CompareOperationOp.LtEq:
                         # Keep end date as-is for pageviews
-                        pageview_conditions.append(ast.CompareOperation(
-                            left=ast.Field(chain=["events", "timestamp"]),
-                            op=ast.CompareOperationOp.LtEq,
-                            right=self._ensure_datetime_call(condition.right)
-                        ))
-            
+                        pageview_conditions.append(
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["events", "timestamp"]),
+                                op=ast.CompareOperationOp.LtEq,
+                                right=self._ensure_datetime_call(condition.right),
+                            )
+                        )
+
             event_specific_conditions.append(ast.And(exprs=pageview_conditions))
-        
+
         # Build final WHERE clause: base_event_filter AND event_specific_conditions AND non_date_conditions
         where_parts = [base_event_filter]
-        
+
         if event_specific_conditions:
             if len(event_specific_conditions) == 1:
                 where_parts.append(event_specific_conditions[0])
             else:
                 where_parts.append(ast.Or(exprs=event_specific_conditions))
-        
+
         where_parts.extend(non_date_conditions)
-        
+
         final_where = ast.And(exprs=where_parts) if len(where_parts) > 1 else where_parts[0]
-        
+
         # Build SELECT columns with array collection logic (keep existing)
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["events", "person_id"]),
-            
             # Conversion timestamps array
             ast.Alias(
                 alias="conversion_timestamps",
-                expr=ast.Call(name="arrayFilter", args=[
-                    ast.Lambda(args=["x"], expr=ast.CompareOperation(
-                        left=ast.Field(chain=["x"]),
-                        op=ast.CompareOperationOp.Gt,
-                        right=ast.Constant(value=0)
-                    )),
-                    ast.Call(name="groupArray", args=[
-                        ast.Call(name="if", args=[
-                            # Handle empty conversion event - match all events
-                            ast.Constant(value=True) if not conversion_event else ast.CompareOperation(
-                                left=ast.Field(chain=["events", "event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value=conversion_event)
+                expr=ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["x"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
                             ),
-                            ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
-                            ast.Constant(value=0)
-                        ])
-                    ])
-                ])
+                        ),
+                        ast.Call(
+                            name="groupArray",
+                            args=[
+                                ast.Call(
+                                    name="if",
+                                    args=[
+                                        # Handle empty conversion event - match all events
+                                        ast.Constant(value=True)
+                                        if not conversion_event
+                                        else ast.CompareOperation(
+                                            left=ast.Field(chain=["events", "event"]),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Constant(value=conversion_event),
+                                        ),
+                                        ast.Call(
+                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                        ),
+                                        ast.Constant(value=0),
+                                    ],
+                                )
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            
             # Conversion math values array
             ast.Alias(
                 alias="conversion_math_values",
-                expr=ast.Call(name="arrayFilter", args=[
-                    ast.Lambda(args=["x"], expr=ast.CompareOperation(
-                        left=ast.Field(chain=["x"]),
-                        op=ast.CompareOperationOp.NotEq,
-                        right=ast.Constant(value=None)
-                    )),
-                    ast.Call(name="groupArray", args=[
-                        ast.Call(name="if", args=[
-                            # Handle empty conversion event - match all events
-                            ast.Constant(value=True) if not conversion_event else ast.CompareOperation(
-                                left=ast.Field(chain=["events", "event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value=conversion_event)
+                expr=ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.NotEq,
+                                right=ast.Constant(value=None),
                             ),
-                            self.get_conversion_value_ast_expr(),
-                            ast.Constant(value=None)
-                        ])
-                    ])
-                ])
+                        ),
+                        ast.Call(
+                            name="groupArray",
+                            args=[
+                                ast.Call(
+                                    name="if",
+                                    args=[
+                                        # Handle empty conversion event - match all events
+                                        ast.Constant(value=True)
+                                        if not conversion_event
+                                        else ast.CompareOperation(
+                                            left=ast.Field(chain=["events", "event"]),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Constant(value=conversion_event),
+                                        ),
+                                        self.get_conversion_value_ast_expr(),
+                                        ast.Constant(value=None),
+                                    ],
+                                )
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            
             # Conversion campaigns array
             self.build_conversion_utm_array("conversion_campaigns", conversion_event, utm_campaign_field),
-            
-            # Conversion sources array  
+            # Conversion sources array
             self.build_conversion_utm_array("conversion_sources", conversion_event, utm_source_field),
-            
             # UTM pageview arrays
             self.build_utm_pageview_array("utm_timestamps", utm_campaign_field, utm_source_field, "timestamp"),
             self.build_utm_pageview_array("utm_campaigns", utm_campaign_field, utm_source_field, utm_campaign_field),
             self.build_utm_pageview_array("utm_sources", utm_campaign_field, utm_source_field, utm_source_field),
         ]
-        
+
         # Build FROM and WHERE
         from_expr = ast.JoinExpr(table=ast.Field(chain=["events"]))
-        
+
         # Build GROUP BY
         group_by_exprs = [ast.Field(chain=["events", "person_id"])]
-        
+
         # Build HAVING: only people who converted
         having_expr = ast.CompareOperation(
             left=ast.Call(name="length", args=[ast.Field(chain=["conversion_timestamps"])]),
             op=ast.CompareOperationOp.Gt,
-            right=ast.Constant(value=0)
+            right=ast.Constant(value=0),
         )
-        
+
         return ast.SelectQuery(
-            select=select_columns,
-            select_from=from_expr,
-            where=final_where,
-            group_by=group_by_exprs,
-            having=having_expr
+            select=select_columns, select_from=from_expr, where=final_where, group_by=group_by_exprs, having=having_expr
         )
-    
-    def _get_pageview_date_conditions(self, condition: ast.Expr) -> list[ast.Expr]:
-        """Get both upper and lower bound date conditions for pageviews"""
-        if not isinstance(condition, ast.CompareOperation):
-            return []
-            
-        conditions = []
-        
-        # Convert attribution window days to seconds
-        attribution_window_seconds = self.attribution_window_days * 24 * 60 * 60
-        
-        # Handle >= start_date: extend backwards by attribution window
-        if (condition.op == ast.CompareOperationOp.GtEq and 
-            isinstance(condition.left, ast.Field) and 
-            'timestamp' in condition.left.chain):
-            
-            # Create: greaterOrEquals(events.timestamp, minus(toDateTime(start_date), toIntervalSecond(attribution_window)))
-            extended_start = ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.ArithmeticOperation(
-                    left=self._ensure_datetime_call(condition.right),
-                    op=ast.ArithmeticOperationOp.Sub,
-                    right=ast.Call(name="toIntervalSecond", args=[ast.Constant(value=attribution_window_seconds)])
-                )
-            )
-            conditions.append(extended_start)
-            
-        # Handle <= end_date: keep as upper bound for pageviews  
-        elif (condition.op == ast.CompareOperationOp.LtEq and 
-              isinstance(condition.left, ast.Field) and 
-              'timestamp' in condition.left.chain):
-            
-            # Create: lessOrEquals(events.timestamp, toDateTime(end_date))
-            upper_bound = ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.LtEq,
-                right=self._ensure_datetime_call(condition.right)
-            )
-            conditions.append(upper_bound)
-        
-        return conditions
-    
+
     def _ensure_datetime_call(self, date_expr: ast.Expr) -> ast.Expr:
         """Ensure date expression uses toDateTime instead of toDate"""
         if isinstance(date_expr, ast.Call) and date_expr.name == "toDate":
             # Convert toDate to toDateTime
             return ast.Call(name="toDateTime", args=date_expr.args)
         return date_expr
-    
-    def _extend_date_condition_for_attribution_window(self, condition: ast.Expr) -> ast.Expr | None:
-        """Extend a date condition to include attribution window for pageviews"""
-        if not isinstance(condition, ast.CompareOperation):
-            return None
-            
-        # Convert attribution window days to seconds
-        attribution_window_seconds = self.attribution_window_days * 24 * 60 * 60
-        
-        # Look for >= start_date conditions and extend them backwards
-        if (condition.op == ast.CompareOperationOp.GtEq and 
-            isinstance(condition.left, ast.Field) and 
-            'timestamp' in condition.left.chain):
-            
-            # Create: greaterOrEquals(events.timestamp, minus(start_date, attribution_window))
-            extended_start = ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.ArithmeticOperation(
-                    left=condition.right,  # Original start date
-                    op=ast.ArithmeticOperationOp.Sub,
-                    right=ast.Call(name="toIntervalSecond", args=[ast.Constant(value=attribution_window_seconds)])
-                )
-            )
-            return extended_start
-            
-        # For <= end_date conditions, keep them as-is for pageviews
-        elif (condition.op == ast.CompareOperationOp.LtEq and 
-              isinstance(condition.left, ast.Field) and 
-              'timestamp' in condition.left.chain):
-            return condition
-            
-        return None
-    
+
     def _is_date_condition(self, condition: ast.Expr) -> bool:
         """Check if a condition is related to date/timestamp filtering"""
+
         def _check_field_for_timestamp(expr: ast.Expr) -> bool:
             if isinstance(expr, ast.Field):
                 # Check if field chain contains 'timestamp'
-                return 'timestamp' in expr.chain
+                return "timestamp" in expr.chain
             elif isinstance(expr, ast.CompareOperation):
                 return _check_field_for_timestamp(expr.left) or _check_field_for_timestamp(expr.right)
             elif isinstance(expr, ast.Call):
                 return any(_check_field_for_timestamp(arg) for arg in expr.args)
             return False
-        
+
         return _check_field_for_timestamp(condition)
-    
+
     def _is_event_condition(self, condition: ast.Expr, conversion_event: str) -> bool:
         """Check if a condition is related to event filtering"""
         if isinstance(condition, ast.CompareOperation):
             # Check if it's filtering events.event
-            if (isinstance(condition.left, ast.Field) and 
-                condition.left.chain == ["events", "event"] and
-                condition.op == ast.CompareOperationOp.Eq and
-                isinstance(condition.right, ast.Constant)):
-                
+            if (
+                isinstance(condition.left, ast.Field)
+                and condition.left.chain == ["events", "event"]
+                and condition.op == ast.CompareOperationOp.Eq
+                and isinstance(condition.right, ast.Constant)
+            ):
                 # Skip if it's filtering for our conversion event or pageview
                 event_value = condition.right.value
                 return event_value == conversion_event or event_value == "$pageview"
         return False
-    
+
     def build_conversion_utm_array(self, alias: str, conversion_event: str, utm_field: str) -> ast.Alias:
         """Build array for conversion event UTM data (campaign or source)"""
         return ast.Alias(
             alias=alias,
-            expr=ast.Call(name="arrayFilter", args=[
-                ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[ast.Field(chain=["x"])])])),
-                ast.Call(name="groupArray", args=[
-                    ast.Call(name="if", args=[
-                        # Handle empty conversion event - match all events
-                        ast.Constant(value=True) if not conversion_event else ast.CompareOperation(
-                            left=ast.Field(chain=["events", "event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value=conversion_event)
-                        ),
-                        ast.Call(name="toString", args=[
-                            ast.Call(name="ifNull", args=[
-                                ast.Field(chain=["events", "properties", utm_field]),
-                                ast.Constant(value="")
-                            ])
-                        ]),
-                        ast.Constant(value="")
-                    ])
-                ])
-            ])
-        )
-    
-    def build_utm_pageview_array(self, alias: str, utm_campaign_field: str, utm_source_field: str, return_field: str) -> ast.Alias:
-        """Build array for UTM pageview data"""
-        
-        # Build condition for pageviews with complete UTM data
-        pageview_with_utm = ast.And(exprs=[
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="$pageview")
+            expr=ast.Call(
+                name="arrayFilter",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[ast.Field(chain=["x"])])]),
+                    ),
+                    ast.Call(
+                        name="groupArray",
+                        args=[
+                            ast.Call(
+                                name="if",
+                                args=[
+                                    # Handle empty conversion event - match all events
+                                    ast.Constant(value=True)
+                                    if not conversion_event
+                                    else ast.CompareOperation(
+                                        left=ast.Field(chain=["events", "event"]),
+                                        op=ast.CompareOperationOp.Eq,
+                                        right=ast.Constant(value=conversion_event),
+                                    ),
+                                    ast.Call(
+                                        name="toString",
+                                        args=[
+                                            ast.Call(
+                                                name="ifNull",
+                                                args=[
+                                                    ast.Field(chain=["events", "properties", utm_field]),
+                                                    ast.Constant(value=""),
+                                                ],
+                                            )
+                                        ],
+                                    ),
+                                    ast.Constant(value=""),
+                                ],
+                            )
+                        ],
+                    ),
+                ],
             ),
-            ast.Call(name="notEmpty", args=[
-                ast.Call(name="toString", args=[
-                    ast.Call(name="ifNull", args=[
-                        ast.Field(chain=["events", "properties", utm_campaign_field]),
-                        ast.Constant(value="")
-                    ])
-                ])
-            ]),
-            ast.Call(name="notEmpty", args=[
-                ast.Call(name="toString", args=[
-                    ast.Call(name="ifNull", args=[
-                        ast.Field(chain=["events", "properties", utm_source_field]),
-                        ast.Constant(value="")
-                    ])
-                ])
-            ])
-        ])
-        
+        )
+
+    def build_utm_pageview_array(
+        self, alias: str, utm_campaign_field: str, utm_source_field: str, return_field: str
+    ) -> ast.Alias:
+        """Build array for UTM pageview data"""
+
+        # Build condition for pageviews with complete UTM data
+        pageview_with_utm = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value="$pageview"),
+                ),
+                ast.Call(
+                    name="notEmpty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["events", "properties", utm_campaign_field]),
+                                        ast.Constant(value=""),
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                ),
+                ast.Call(
+                    name="notEmpty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Call(
+                                    name="ifNull",
+                                    args=[
+                                        ast.Field(chain=["events", "properties", utm_source_field]),
+                                        ast.Constant(value=""),
+                                    ],
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            ]
+        )
+
         # Determine what to return and how to filter based on field type
         if return_field == "timestamp":
             return_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
             false_value = ast.Constant(value=0)  # Use 0 for integer timestamps
             # For integers, filter using x > 0
             filter_expr = ast.CompareOperation(
-                left=ast.Field(chain=["x"]),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0)
+                left=ast.Field(chain=["x"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
             )
         else:
-            return_expr = ast.Call(name="toString", args=[
-                ast.Call(name="ifNull", args=[
-                    ast.Field(chain=["events", "properties", return_field]),
-                    ast.Constant(value="")
-                ])
-            ])
+            return_expr = ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[ast.Field(chain=["events", "properties", return_field]), ast.Constant(value="")],
+                    )
+                ],
+            )
             false_value = ast.Constant(value="")  # Use '' for string fields
             # For strings, filter using notEmpty(x)
             filter_expr = ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])
-        
+
         return ast.Alias(
             alias=alias,
-            expr=ast.Call(name="arrayFilter", args=[
-                ast.Lambda(args=["x"], expr=filter_expr),
-                ast.Call(name="groupArray", args=[
-                    ast.Call(name="if", args=[
-                        pageview_with_utm,
-                        return_expr,
-                        false_value
-                    ])
-                ])
-            ])
+            expr=ast.Call(
+                name="arrayFilter",
+                args=[
+                    ast.Lambda(args=["x"], expr=filter_expr),
+                    ast.Call(
+                        name="groupArray",
+                        args=[ast.Call(name="if", args=[pageview_with_utm, return_expr, false_value])],
+                    ),
+                ],
+            ),
         )
-    
-    def build_array_join_subquery(self, inner_query: ast.SelectQuery, attribution_window_seconds: int) -> ast.SelectQuery:
+
+    def build_array_join_subquery(
+        self, inner_query: ast.SelectQuery, attribution_window_seconds: int
+    ) -> ast.SelectQuery:
         """Build the middle subquery that does ARRAY JOIN and attribution window logic"""
-        
+
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Alias(alias="conversion_time", expr=ast.ArrayAccess(
-                array=ast.Field(chain=["conversion_timestamps"]),
-                property=ast.Field(chain=["i"])
-            )),
-            ast.Alias(alias="conversion_math_value", expr=ast.ArrayAccess(
-                array=ast.Field(chain=["conversion_math_values"]),
-                property=ast.Field(chain=["i"])
-            )),
-            ast.Alias(alias="conversion_campaign", expr=ast.ArrayAccess(
-                array=ast.Field(chain=["conversion_campaigns"]),
-                property=ast.Field(chain=["i"])
-            )),
-            ast.Alias(alias="conversion_source", expr=ast.ArrayAccess(
-                array=ast.Field(chain=["conversion_sources"]),
-                property=ast.Field(chain=["i"])
-            )),
-            
+            ast.Alias(
+                alias="conversion_time",
+                expr=ast.ArrayAccess(array=ast.Field(chain=["conversion_timestamps"]), property=ast.Field(chain=["i"])),
+            ),
+            ast.Alias(
+                alias="conversion_math_value",
+                expr=ast.ArrayAccess(
+                    array=ast.Field(chain=["conversion_math_values"]), property=ast.Field(chain=["i"])
+                ),
+            ),
+            ast.Alias(
+                alias="conversion_campaign",
+                expr=ast.ArrayAccess(array=ast.Field(chain=["conversion_campaigns"]), property=ast.Field(chain=["i"])),
+            ),
+            ast.Alias(
+                alias="conversion_source",
+                expr=ast.ArrayAccess(array=ast.Field(chain=["conversion_sources"]), property=ast.Field(chain=["i"])),
+            ),
             # Find most recent UTM pageview within attribution window
             ast.Alias(
                 alias="last_utm_timestamp",
-                expr=ast.Call(name="arrayElement", args=[
-                    ast.Call(name="arraySort", args=[
-                        ast.Lambda(args=["x"], expr=ast.ArithmeticOperation(
-                            left=ast.Constant(value=0),
-                            op=ast.ArithmeticOperationOp.Sub,
-                            right=ast.Field(chain=["x"])
-                        )),  # Sort DESC (most recent first)
-                        ast.Call(name="arrayFilter", args=[
-                            ast.Lambda(args=["x"], expr=ast.And(exprs=[
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["x"]),
-                                    op=ast.CompareOperationOp.LtEq,
-                                    right=ast.ArrayAccess(
-                                        array=ast.Field(chain=["conversion_timestamps"]),
-                                        property=ast.Field(chain=["i"])
-                                    )
-                                ),
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["x"]),
-                                    op=ast.CompareOperationOp.GtEq,
-                                    right=ast.ArithmeticOperation(
-                                        left=ast.ArrayAccess(
-                                            array=ast.Field(chain=["conversion_timestamps"]),
-                                            property=ast.Field(chain=["i"])
-                                        ),
+                expr=ast.Call(
+                    name="arrayElement",
+                    args=[
+                        ast.Call(
+                            name="arraySort",
+                            args=[
+                                ast.Lambda(
+                                    args=["x"],
+                                    expr=ast.ArithmeticOperation(
+                                        left=ast.Constant(value=0),
                                         op=ast.ArithmeticOperationOp.Sub,
-                                        right=ast.Constant(value=attribution_window_seconds)
-                                    )
-                                )
-                            ])),
-                            ast.Field(chain=["utm_timestamps"])
-                        ])
-                    ]),
-                    ast.Constant(value=1)
-                ])
+                                        right=ast.Field(chain=["x"]),
+                                    ),
+                                ),  # Sort DESC (most recent first)
+                                ast.Call(
+                                    name="arrayFilter",
+                                    args=[
+                                        ast.Lambda(
+                                            args=["x"],
+                                            expr=ast.And(
+                                                exprs=[
+                                                    ast.CompareOperation(
+                                                        left=ast.Field(chain=["x"]),
+                                                        op=ast.CompareOperationOp.LtEq,
+                                                        right=ast.ArrayAccess(
+                                                            array=ast.Field(chain=["conversion_timestamps"]),
+                                                            property=ast.Field(chain=["i"]),
+                                                        ),
+                                                    ),
+                                                    ast.CompareOperation(
+                                                        left=ast.Field(chain=["x"]),
+                                                        op=ast.CompareOperationOp.GtEq,
+                                                        right=ast.ArithmeticOperation(
+                                                            left=ast.ArrayAccess(
+                                                                array=ast.Field(chain=["conversion_timestamps"]),
+                                                                property=ast.Field(chain=["i"]),
+                                                            ),
+                                                            op=ast.ArithmeticOperationOp.Sub,
+                                                            right=ast.Constant(value=attribution_window_seconds),
+                                                        ),
+                                                    ),
+                                                ]
+                                            ),
+                                        ),
+                                        ast.Field(chain=["utm_timestamps"]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        ast.Constant(value=1),
+                    ],
+                ),
             ),
-            
             # Get campaign/source for that timestamp
             ast.Alias(
                 alias="fallback_campaign",
-                expr=ast.Call(name="if", args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["last_utm_timestamp"]),
-                        op=ast.CompareOperationOp.NotEq,
-                        right=ast.Constant(value=None)
-                    ),
-                    ast.ArrayAccess(
-                        array=ast.Field(chain=["utm_campaigns"]),
-                        property=ast.Call(name="indexOf", args=[
-                            ast.Field(chain=["utm_timestamps"]),
-                            ast.Field(chain=["last_utm_timestamp"])
-                        ])
-                    ),
-                    ast.Constant(value="")
-                ])
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["last_utm_timestamp"]),
+                            op=ast.CompareOperationOp.NotEq,
+                            right=ast.Constant(value=None),
+                        ),
+                        ast.ArrayAccess(
+                            array=ast.Field(chain=["utm_campaigns"]),
+                            property=ast.Call(
+                                name="indexOf",
+                                args=[ast.Field(chain=["utm_timestamps"]), ast.Field(chain=["last_utm_timestamp"])],
+                            ),
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
             ),
-            
             ast.Alias(
                 alias="fallback_source",
-                expr=ast.Call(name="if", args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["last_utm_timestamp"]),
-                        op=ast.CompareOperationOp.NotEq,
-                        right=ast.Constant(value=None)
-                    ),
-                    ast.ArrayAccess(
-                        array=ast.Field(chain=["utm_sources"]),
-                        property=ast.Call(name="indexOf", args=[
-                            ast.Field(chain=["utm_timestamps"]),
-                            ast.Field(chain=["last_utm_timestamp"])
-                        ])
-                    ),
-                    ast.Constant(value="")
-                ])
-            )
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["last_utm_timestamp"]),
+                            op=ast.CompareOperationOp.NotEq,
+                            right=ast.Constant(value=None),
+                        ),
+                        ast.ArrayAccess(
+                            array=ast.Field(chain=["utm_sources"]),
+                            property=ast.Call(
+                                name="indexOf",
+                                args=[ast.Field(chain=["utm_timestamps"]), ast.Field(chain=["last_utm_timestamp"])],
+                            ),
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
+            ),
         ]
-        
+
         # Build FROM with subquery
         from_expr = ast.JoinExpr(table=inner_query)
-        
+
         # Build the query with ARRAY JOIN
         query = ast.SelectQuery(
             select=select_columns,
@@ -783,90 +822,104 @@ class ConversionGoalProcessor:
             array_join_op="ARRAY JOIN",
             array_join_list=[
                 ast.Alias(
-                    expr=ast.Call(name="arrayEnumerate", args=[ast.Field(chain=["conversion_timestamps"])]),
-                    alias="i"
+                    expr=ast.Call(name="arrayEnumerate", args=[ast.Field(chain=["conversion_timestamps"])]), alias="i"
                 )
-            ]
+            ],
         )
-        
+
         return query
-    
+
     def build_attribution_logic_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build the subquery that applies attribution logic (campaign and source independently)"""
-        
+
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            
             # Campaign attribution (independent)
             ast.Alias(
                 alias="campaign_name",
-                expr=ast.Call(name="if", args=[
-                    ast.Call(name="notEmpty", args=[ast.Field(chain=["conversion_campaign"])]),
-                    ast.Field(chain=["conversion_campaign"]),  # Direct attribution
-                    ast.Call(name="if", args=[
-                        ast.Call(name="notEmpty", args=[ast.Field(chain=["fallback_campaign"])]),
-                        ast.Field(chain=["fallback_campaign"]),  # Fallback attribution
-                        ast.Constant(value="")
-                    ])
-                ])
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(name="notEmpty", args=[ast.Field(chain=["conversion_campaign"])]),
+                        ast.Field(chain=["conversion_campaign"]),  # Direct attribution
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.Call(name="notEmpty", args=[ast.Field(chain=["fallback_campaign"])]),
+                                ast.Field(chain=["fallback_campaign"]),  # Fallback attribution
+                                ast.Constant(value=""),
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            
             # Source attribution (independent)
             ast.Alias(
                 alias="source_name",
-                expr=ast.Call(name="if", args=[
-                    ast.Call(name="notEmpty", args=[ast.Field(chain=["conversion_source"])]),
-                    ast.Field(chain=["conversion_source"]),  # Direct attribution
-                    ast.Call(name="if", args=[
-                        ast.Call(name="notEmpty", args=[ast.Field(chain=["fallback_source"])]),
-                        ast.Field(chain=["fallback_source"]),  # Fallback attribution
-                        ast.Constant(value="")
-                    ])
-                ])
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(name="notEmpty", args=[ast.Field(chain=["conversion_source"])]),
+                        ast.Field(chain=["conversion_source"]),  # Direct attribution
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.Call(name="notEmpty", args=[ast.Field(chain=["fallback_source"])]),
+                                ast.Field(chain=["fallback_source"]),  # Fallback attribution
+                                ast.Constant(value=""),
+                            ],
+                        ),
+                    ],
+                ),
             ),
-            
             # Conversion value
-            ast.Alias(alias="conversion_value", expr=self.get_final_conversion_value_expr())
+            ast.Alias(alias="conversion_value", expr=self.get_final_conversion_value_expr()),
         ]
-        
+
         from_expr = ast.JoinExpr(table=array_join_query)
-        
+
         return ast.SelectQuery(select=select_columns, select_from=from_expr)
-    
+
     def build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build the final aggregation query"""
-        
+
         # Build coalesce expressions for organic defaults
-        campaign_coalesce = ast.Call(name="if", args=[
-            ast.Call(name="notEmpty", args=[ast.Field(chain=["campaign_name"])]),
-            ast.Field(chain=["campaign_name"]),
-            ast.Constant(value=ORGANIC_CAMPAIGN)
-        ])
-        
-        source_coalesce = ast.Call(name="if", args=[
-            ast.Call(name="notEmpty", args=[ast.Field(chain=["source_name"])]),
-            ast.Field(chain=["source_name"]),
-            ast.Constant(value=ORGANIC_SOURCE)
-        ])
-        
+        campaign_coalesce = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="notEmpty", args=[ast.Field(chain=["campaign_name"])]),
+                ast.Field(chain=["campaign_name"]),
+                ast.Constant(value=ORGANIC_CAMPAIGN),
+            ],
+        )
+
+        source_coalesce = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="notEmpty", args=[ast.Field(chain=["source_name"])]),
+                ast.Field(chain=["source_name"]),
+                ast.Constant(value=ORGANIC_SOURCE),
+            ],
+        )
+
         # Get aggregation expression
         aggregation_expr = self.get_array_based_aggregation_ast()
-        
+
         select_columns = [
             ast.Alias(alias=MarketingSourceAdapter.campaign_name_field, expr=campaign_coalesce),
             ast.Alias(alias=MarketingSourceAdapter.source_name_field, expr=source_coalesce),
             ast.Alias(alias=CONVERSION_GOAL_PREFIX + str(self.index), expr=aggregation_expr),
         ]
-        
+
         from_expr = ast.JoinExpr(table=attribution_query, alias="attributed_conversions")
-        
+
         group_by_exprs = [
             ast.Field(chain=[MarketingSourceAdapter.campaign_name_field]),
             ast.Field(chain=[MarketingSourceAdapter.source_name_field]),
         ]
-        
+
         return ast.SelectQuery(select=select_columns, select_from=from_expr, group_by=group_by_exprs)
-    
+
     def get_final_conversion_value_expr(self) -> ast.Expr:
         """Get the final conversion value expression for the attribution logic"""
         math_type = self.goal.math
@@ -985,8 +1038,8 @@ class ConversionGoalProcessor:
     def get_conversion_value_ast_expr(self) -> ast.Expr:
         """Get conversion value expression as AST based on math type for array collection"""
         math_type = self.goal.math
-        math_property = getattr(self.goal, 'math_property', None)
-        
+        math_property = getattr(self.goal, "math_property", None)
+
         if math_type in [BaseMathType.DAU, "dau"]:
             return ast.Field(chain=["events", "person_id"])
         elif (math_type == "sum" or str(math_type).endswith("_sum")) and math_property:
@@ -996,7 +1049,7 @@ class ConversionGoalProcessor:
             return ast.Call(name="toFloat", args=[ifnull_expr])
         else:
             return ast.Constant(value=1)
-    
+
     def get_array_based_aggregation_ast(self) -> ast.Expr:
         """Get the aggregation expression as AST based on math type"""
         math_type = self.goal.math
@@ -1006,8 +1059,6 @@ class ConversionGoalProcessor:
             return ast.Call(name="sum", args=[ast.Field(chain=["conversion_value"])])
         else:
             return ast.Call(name="count", args=[])
-
-
 
 
 def add_conversion_goal_property_filters(
