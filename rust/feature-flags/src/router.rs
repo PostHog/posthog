@@ -7,7 +7,7 @@ use axum::{
     Router,
 };
 use common_cookieless::CookielessManager;
-use common_database::Client as DatabaseClient;
+use common_database::{Client as DatabaseClient, PostgresReader, PostgresWriter};
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
@@ -29,8 +29,8 @@ use crate::{
 pub struct State {
     pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
     pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub reader: PostgresReader,
+    pub writer: PostgresWriter,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,

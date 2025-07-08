@@ -1,14 +1,14 @@
-import json
-from abc import abstractmethod
 import importlib
+import json
 import pkgutil
-import products
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+import products
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
@@ -88,10 +88,14 @@ class MaxTool(BaseTool):
     _config: RunnableConfig
     _state: AssistantState
 
-    @abstractmethod
+    # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
+        """DEPRECATED. Use `_arun_impl` instead."""
+        raise NotImplementedError
+
+    async def _arun_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
-        pass
+        raise NotImplementedError
 
     def __init__(self, state: AssistantState | None = None):
         super().__init__()
@@ -112,6 +116,20 @@ class MaxTool(BaseTool):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return self._run_impl(*args, **kwargs)
+        except NotImplementedError:
+            return async_to_sync(self._arun_impl)(*args, **kwargs)
+
+    async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        self._init_run(config)
+        try:
+            return await self._arun_impl(*args, **kwargs)
+        except NotImplementedError:
+            return await super()._arun(*args, config=config, **kwargs)
+
+    def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
         self._team = config["configurable"]["team"]
         self._user = config["configurable"]["user"]
@@ -126,7 +144,6 @@ class MaxTool(BaseTool):
                 "user": self._user,
             },
         }
-        return self._run_impl(*args, **kwargs)
 
     @property
     def context(self) -> dict:

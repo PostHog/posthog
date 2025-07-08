@@ -1,4 +1,4 @@
-import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
@@ -46,6 +46,7 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    ExternalDataSourceType,
     FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -2327,6 +2328,8 @@ export interface RawAnnotationType {
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
     recording_id?: string | null
+    // convenience flag that indicates the content _should_ be a single emoji
+    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -4550,33 +4553,6 @@ export enum DataWarehouseSettingsTab {
     Managed = 'managed',
     SelfManaged = 'self-managed',
 }
-
-export const externalDataSources = [
-    'Stripe',
-    'Hubspot',
-    'Postgres',
-    'MySQL',
-    'MSSQL',
-    'Zendesk',
-    'Snowflake',
-    'Salesforce',
-    'Vitally',
-    'BigQuery',
-    'Chargebee',
-    'GoogleAds',
-    'MetaAds',
-    'Klaviyo',
-    'Mailchimp',
-    'Braze',
-    'Mailjet',
-    'Redshift',
-    'GoogleSheets',
-    'MongoDB',
-    'TemporalIO',
-    'DoIt',
-] as const
-
-export type ExternalDataSourceType = (typeof externalDataSources)[number]
 
 export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure'] as const
 

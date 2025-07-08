@@ -53,7 +53,9 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import configure_temporal_worker_logger
+from posthog.temporal.common.logger import bind_contextvars, get_external_logger
+
+LOGGER = structlog.get_logger()
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -302,8 +304,8 @@ class RedshiftConsumer(Consumer):
         is_last: bool,
         error: Exception | None,
     ):
-        await self.logger.adebug(
-            "Loading %s records in query of size %s bytes to Redshift table '%s'",
+        self.external_logger.info(
+            "Loading %d records of size %d bytes to Redshift table '%s'",
             records_since_last_flush,
             bytes_since_last_flush,
             self.redshift_table,
@@ -313,7 +315,9 @@ class RedshiftConsumer(Consumer):
             async with self.redshift_client.connection.transaction():
                 await cursor.execute(batch_export_file.read())
 
-        await self.logger.adebug("Loaded %s to Redshift table '%s'", records_since_last_flush, self.redshift_table)
+        self.external_logger.info(
+            "Loaded %d records to Redshift table '%s'", records_since_last_flush, self.redshift_table
+        )
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
@@ -349,10 +353,15 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             the Redshift-specific properties_data_type to indicate the type of JSON-like
             fields.
     """
-    logger = await configure_temporal_worker_logger(
-        logger=structlog.get_logger(), team_id=inputs.team_id, destination="Redshift"
+    bind_contextvars(
+        team_id=inputs.team_id,
+        destination="Redshift",
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
     )
-    await logger.ainfo(
+    external_logger = get_external_logger()
+
+    external_logger.info(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -363,7 +372,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
     async with (
         Heartbeater() as heartbeater,
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails)
         if details is None:
@@ -402,6 +411,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
+            external_logger.info(
+                "Batch export finished as there is no data in range %s - %s matching specified filters",
+                inputs.data_interval_start or "START",
+                inputs.data_interval_end or "END",
+            )
+
             return details.records_completed
 
         record_batch_schema = pa.schema(
@@ -527,6 +542,13 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                             merge_key=merge_key,
                             update_key=update_key,
                         )
+
+                external_logger.info(
+                    "Batch export for range %s - %s finished with %d records exported",
+                    inputs.data_interval_start or "START",
+                    inputs.data_interval_end or "END",
+                    details.records_completed,
+                )
 
                 return details.records_completed
 

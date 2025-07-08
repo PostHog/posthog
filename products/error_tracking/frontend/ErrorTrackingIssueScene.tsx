@@ -49,6 +49,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const tagRenderer = useErrorTagRenderer()
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
     const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
@@ -62,13 +63,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-x-2">
                         {hasIntegrations ? <ConnectIssueButton /> : null}
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                            icon={<SidePanelDiscussionIcon />}
-                        >
-                            Comment
-                        </LemonButton>
+                        {hasDiscussions && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                icon={<SidePanelDiscussionIcon />}
+                            >
+                                Comment
+                            </LemonButton>
+                        )}
                         {!issueLoading && issue?.status === 'active' && (
                             <AssigneeSelect
                                 assignee={issue?.assignee}

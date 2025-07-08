@@ -4,6 +4,8 @@ from typing import Optional
 from unittest import mock
 import uuid
 from zoneinfo import ZoneInfo
+
+from django.test import override_settings
 from posthog.models import Team
 from posthog.tasks.usage_report import ExternalDataJob
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -43,15 +45,16 @@ class TestRowTracking(BaseTest):
 
     @contextlib.contextmanager
     def _setup_redis_rows(self, rows: int, team_id: Optional[int] = None):
-        t_id = team_id or self.team.pk
+        with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
+            t_id = team_id or self.team.pk
 
-        schema_id = str(uuid.uuid4())
-        setup_row_tracking(t_id, schema_id)
-        increment_rows(t_id, schema_id, rows)
+            schema_id = str(uuid.uuid4())
+            setup_row_tracking(t_id, schema_id)
+            increment_rows(t_id, schema_id, rows)
 
-        yield
+            yield
 
-        finish_row_tracking(t_id, schema_id)
+            finish_row_tracking(t_id, schema_id)
 
     def _run(self, limit: int) -> bool:
         from ee.models.license import License
@@ -62,7 +65,10 @@ class TestRowTracking(BaseTest):
             valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
         )
 
-        with self._setup_limits(limit):
+        with (
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+            self._setup_limits(limit),
+        ):
             return will_hit_billing_limit(self.team.pk, self._logger())
 
     def test_row_tracking(self):
