@@ -8,7 +8,7 @@ use crate::{
     },
     team::team_models::Team,
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
@@ -17,14 +17,14 @@ use std::sync::Arc;
 pub struct FlagService {
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+    pg_client: PostgresReader,
 }
 
 impl FlagService {
     pub fn new(
         redis_reader: Arc<dyn RedisClient + Send + Sync>,
         redis_writer: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+        pg_client: PostgresReader,
     ) -> Self {
         Self {
             redis_reader,

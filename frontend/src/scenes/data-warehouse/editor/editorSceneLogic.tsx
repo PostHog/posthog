@@ -523,7 +523,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     })),
     urlToAction(({ values, actions }) => ({
         [urls.sqlEditor()]: () => {
-            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && values.previousUrl !== urls.sqlEditor()) {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
+                values.previousUrl && // otherwise it means we're on the first page load
+                values.previousUrl !== urls.sqlEditor()
+            ) {
                 if (panelLayoutLogic.values.activePanelIdentifier === 'Database') {
                     actions.setWasPanelActive(true)
                 } else {
@@ -541,6 +545,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 router.values.location.pathname !== urls.sqlEditor()
             ) {
                 if (!values.wasPanelActive) {
+                    panelLayoutLogic.actions.clearActivePanelIdentifier()
                     panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
                     panelLayoutLogic.actions.showLayoutPanel(false)
                 }
