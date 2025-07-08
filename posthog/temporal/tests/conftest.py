@@ -10,6 +10,7 @@ from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
+from posthog.otel_instrumentation import initialize_otel
 from posthog.models import Organization, Team
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -129,6 +130,8 @@ async def activities(request):
 
 @pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
+    initialize_otel()
+
     worker = temporalio.worker.Worker(
         temporal_client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,

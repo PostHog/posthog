@@ -507,22 +507,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
-            serializer = TeamRevenueAnalyticsConfigSerializer(
-                instance.revenue_analytics_config, data=config_data, partial=True
-            )
-            if not serializer.is_valid():
-                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
-
-            serializer.save()
+            self._update_revenue_analytics_config(instance, config_data)
 
         if config_data := validated_data.pop("marketing_analytics_config", None):
-            marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
-                instance.marketing_analytics_config, data=config_data, partial=True
-            )
-            if not marketing_serializer.is_valid():
-                raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
-
-            marketing_serializer.save()
+            self._update_marketing_analytics_config(instance, config_data)
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
@@ -602,6 +590,82 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return updated_team
 
+    def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        # Capture old config before saving
+        old_config = {
+            "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
+            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
+            "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
+        }
+
+        serializer = TeamRevenueAnalyticsConfigSerializer(
+            instance.revenue_analytics_config, data=validated_data, partial=True
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        # Log activity for revenue analytics config changes
+        new_config = {
+            "events": validated_data.get("events", []),
+            "goals": validated_data.get("goals", []),
+            "filter_test_accounts": validated_data.get("filter_test_accounts", False),
+        }
+
+        self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_marketing_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        # Capture the old config before saving
+        old_config = {
+            "sources_map": (
+                instance.marketing_analytics_config.sources_map.copy()
+                if instance.marketing_analytics_config.sources_map
+                else {}
+            ),
+            # Add other fields as they're added to the model
+            # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
+        }
+
+        marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
+            instance.marketing_analytics_config, data=validated_data, partial=True
+        )
+        if not marketing_serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
+
+        marketing_serializer.save()
+
+        # Log activity for marketing analytics config changes
+        new_config = {
+            "sources_map": validated_data.get("sources_map", {}),
+            # Add other fields as they're added to the model
+            # "conversion_goals": validated_data.get("conversion_goals", []),
+        }
+
+        self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
+        return instance
+
+    def _capture_diff(self, instance: Team, key: str, before: dict, after: dict):
+        changes = dict_changes_between(
+            "Team",
+            {key: before},
+            {key: after},
+            use_field_exclusions=True,
+        )
+
+        if changes:
+            log_activity(
+                organization_id=cast(UUIDT, instance.organization_id),
+                team_id=instance.pk,
+                user=cast(User, self.context["request"].user),
+                was_impersonated=is_impersonated_session(request),
+                scope="Team",
+                item_id=instance.pk,
+                activity="updated",
+                detail=Detail(name=str(instance.name), changes=changes),
+            )
+
 
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -632,6 +696,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return super().get_serializer_class()
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # Used for the AccessControlViewSetMixin
+        mixin_result = super().dangerously_get_required_scopes(request, view)
+        if mixin_result is not None:
+            return mixin_result
+
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
