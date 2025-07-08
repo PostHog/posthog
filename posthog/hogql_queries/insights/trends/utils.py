@@ -36,3 +36,10 @@ def get_properties_chain(
         return ["person", *breakdown_field.split(".")]
 
     return ["properties", breakdown_field]
+
+
+def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> bool:
+    return (
+        series.math in {"unique_group", "weekly_active", "monthly_active", "dau"}
+        and series.math_group_type_index is not None
+    )
