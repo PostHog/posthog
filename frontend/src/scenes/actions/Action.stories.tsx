@@ -1,7 +1,5 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
+import { Meta, StoryObj } from '@storybook/react'
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -65,11 +63,13 @@ const MOCK_ACTION: ActionType = {
 }
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Data Management/Actions',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
+        pageUrl: urls.actions(),
     },
     decorators: [
         mswDecorator({
@@ -81,16 +81,12 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const ActionsList: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.actions())
-    }, [])
-    return <App />
-}
 
-export const Action: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.action(MOCK_ACTION.id))
-    }, [])
-    return <App />
+type Story = StoryObj<typeof meta>
+export const ActionsList: Story = {}
+
+export const Action: Story = {
+    parameters: {
+        pageUrl: urls.action(MOCK_ACTION.id),
+    },
 }

@@ -7,7 +7,6 @@ import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
-import { EmojiCommentRow } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 
 const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const {
@@ -29,9 +28,9 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                     formKey="recordingAnnotation"
                     id="recording-annotation-form"
                     enableFormOnSubmit
-                    className="gap-y-2"
+                    className="flex flex-col gap-y-1"
                 >
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-y-1">
                         <LemonField name="annotationId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
@@ -39,7 +38,6 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             <LemonInput disabled={true} />
                         </LemonField>
                     </div>
-                    <EmojiCommentRow onSelectEmoji={() => setIsCommenting(false)} />
                     <div>
                         <LemonField name="content">
                             <LemonTextArea
