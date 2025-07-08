@@ -341,8 +341,6 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
 
     async def _ahandle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
         """Async version of _handle_tool that wraps toolkit methods in database_sync_to_async"""
-        from posthog.warehouse.util import database_sync_to_async
-
         if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
             output = await toolkit.retrieve_event_or_action_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
