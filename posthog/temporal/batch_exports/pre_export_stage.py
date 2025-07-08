@@ -67,7 +67,7 @@ from posthog.temporal.common.logger import (
     bind_contextvars,
     get_logger,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 LOGGER = get_logger()
 
