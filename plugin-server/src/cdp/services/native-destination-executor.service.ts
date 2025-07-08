@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { PluginsServerConfig } from '~/types'
@@ -10,10 +9,9 @@ import { tryCatch } from '../../utils/try-catch'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { HogFunctionTemplate } from '../templates/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { CDP_TEST_ID, isNativeHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
-import { sanitizeLogMessage } from './hog-executor.service'
 
 export type Response = {
     status: number
@@ -84,6 +82,7 @@ export class NativeDestinationExecutorService {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -92,14 +91,6 @@ export class NativeDestinationExecutorService {
 
         // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
         let retriesPossible = true
-
-        const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
-            result.logs.push({
-                level,
-                timestamp: DateTime.now(),
-                message: sanitizeLogMessage(args),
-            })
-        }
 
         const nativeDestinationId = isNativeHogFunction(invocation.hogFunction)
             ? invocation.hogFunction.template_id
