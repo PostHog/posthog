@@ -12,7 +12,6 @@ import typing
 import aioboto3
 import botocore.exceptions
 import pyarrow as pa
-import structlog
 from aiobotocore.config import AioConfig
 from aiobotocore.session import ClientCreatorContext
 
@@ -73,6 +72,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
     get_external_logger,
+    get_logger,
 )
 
 NON_RETRYABLE_ERROR_TYPES = [
@@ -112,7 +112,8 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -745,7 +746,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to S3: %s",
@@ -971,7 +972,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to S3: %s",
@@ -1291,7 +1292,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        self.external_logger.info("Starting multipart upload for file number %s", self._get_current_key())
+        self.external_logger.info(
+            "Starting multipart upload to '%s' for file number %d", self._get_current_key(), self.current_file_index
+        )
 
     async def _finalize_current_file(self):
         """Finalize the current file before starting a new one"""
@@ -1317,9 +1320,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._complete_multipart_upload()
 
             self.files_uploaded.append(self._get_current_key())
-            self.external_logger.info(
-                "Completed multipart upload for file number %s", self.upload_id, self.current_file_index
-            )
+            self.external_logger.info("Completed multipart upload for file number %d", self.current_file_index)
 
         except Exception:
             # Cleanup on error
@@ -1388,7 +1389,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             manifest_key = get_manifest_key(self.s3_inputs)
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
-            self.external_logger.info("All uploads completed. Number of files uploaded = %d", len(self.files_uploaded))
+            self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
