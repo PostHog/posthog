@@ -344,7 +344,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
@@ -392,7 +392,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
