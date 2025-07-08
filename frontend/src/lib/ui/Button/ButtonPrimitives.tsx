@@ -9,7 +9,7 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline'
+type ButtonVariant = 'default' | 'outline' | 'danger'
 
 export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
@@ -120,6 +120,8 @@ export const buttonPrimitiveVariants = cva({
         variant: {
             // Bordereless variant (aka posthog tertiary button)
             default: 'button-primitive--variant-default',
+            // Bordereless variant (aka posthog tertiary button)
+            danger: 'button-primitive--variant-danger',
             // Outline variant (aka posthog secondary button)
             outline: 'button-primitive--variant-outline',
         },
