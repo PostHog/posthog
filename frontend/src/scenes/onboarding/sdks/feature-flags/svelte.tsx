@@ -7,7 +7,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 export function FeatureFlagsSvelteInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallSvelteJSInstructions />
+            <SDKInstallSvelteJSInstructions hideWizard />
             <h3>Client-side rendering</h3>
             <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
             <h3>Server-side rendering</h3>

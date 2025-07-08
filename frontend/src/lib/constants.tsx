@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_MRR: 'revenue-analytics-mrr', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
-    AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
