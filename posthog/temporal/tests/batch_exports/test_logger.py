@@ -3,7 +3,6 @@ import dataclasses
 import datetime as dt
 import json
 import random
-import time
 import uuid
 
 import aiokafka
@@ -14,6 +13,7 @@ import structlog
 import temporalio.activity
 import temporalio.testing
 from django.conf import settings
+from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import (
@@ -25,8 +25,9 @@ from posthog.clickhouse.log_entries import (
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
-    bind_temporal_worker_logger,
+    bind_contextvars,
     configure_logger_async,
+    get_external_logger,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -134,7 +135,7 @@ async def producer(event_loop):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def configure(log_capture, queue, producer):
+async def configure(configure_logger, log_capture, queue, producer):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
@@ -142,9 +143,12 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    configure_logger_async(
-        extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
-    )
+    with override_settings(TEST=False, DEBUG=False):
+        # We override settings as otherwise we'll get console logs which
+        # are not JSON
+        configure_logger_async(
+            extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
+        )
 
     yield
 
@@ -157,7 +161,9 @@ async def configure(log_capture, queue, producer):
 
 async def test_batch_exports_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
-    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
+    bind_contextvars(team_id=1, destination="Somewhere")
+    logger = structlog.get_logger()
+    logger.setLevel("INFO")
 
     logger.info("Hi! This is an info log")
     logger.error("Hi! This is an erro log")
@@ -175,7 +181,9 @@ async def test_batch_exports_logger_binds_context(log_capture):
 
 async def test_batch_exports_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
-    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
+    bind_contextvars(team_id=1, destination="Somewhere")
+    logger = structlog.get_logger()
+    logger.setLevel("INFO")
 
     logger.info("Hi! This is an %s log", "info")
     logger.error("Hi! This is an %s log", "error")
@@ -236,8 +244,9 @@ async def test_batch_exports_logger_binds_activity_context(
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
-
+        bind_contextvars(team_id=1, destination="Somewhere")
+        logger = structlog.get_logger()
+        logger.setLevel("INFO")
         logger.info("Hi! This is an %s log from an activity", "info")
 
     await activity_environment.run(log_activity)
@@ -284,11 +293,17 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=2, destination="Somewhere")
+        bind_contextvars(team_id=2, destination="Somewhere")
+        logger = structlog.get_logger("test")
+        logger.setLevel("INFO")
+        external_logger = get_external_logger()
+        external_logger.setLevel("INFO")
 
-        logger.info("Hi! This is an %s log from an activity", "info")
+        external_logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    await activity_environment.run(log_activity)
+    with override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
+        await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1
     message_dict = json.loads(queue.entries[0].decode("utf-8"))
@@ -302,7 +317,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
         assert message_dict["log_source"] == "batch_exports"
 
     assert message_dict["log_source_id"] == BATCH_EXPORT_ID
-    assert message_dict["message"] == "Hi! This is an info log from an activity"
+    assert message_dict["message"] == "Hi! This is an external info log from an activity"
     assert message_dict["team_id"] == 2
     assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
 
@@ -341,7 +356,7 @@ def log_entries_table():
     indirect=True,
 )
 async def test_batch_exports_logger_produces_to_kafka(activity_environment, producer, queue, log_entries_table):
-    """Test whether our logger produces messages to Kafka.
+    """Test whether our external logger produces messages to Kafka.
 
     We also check if those messages are ingested into ClickHouse.
     """
@@ -349,11 +364,16 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_temporal_worker_logger(team_id=3, destination="Somewhere")
+        bind_contextvars(team_id=3)
+        logger = structlog.get_logger("test")
+        logger.setLevel("INFO")
+        external_logger = get_external_logger()
+        external_logger.setLevel("INFO")
 
-        logger.info("Hi! This is an %s log from an activity", "info")
+        external_logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Hi! This is an internal %s log from an activity", "info")
 
-    with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+    with freezegun.freeze_time("2023-11-03 10:00:00.123123"), override_settings(TEMPORAL_USE_EXTERNAL_LOGGER=True):
         await activity_environment.run(log_activity)
 
     assert len(queue.entries) == 1
@@ -370,7 +390,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         "level": "info",
         "log_source": expected_log_source,
         "log_source_id": BATCH_EXPORT_ID,
-        "message": "Hi! This is an info log from an activity",
+        "message": "Hi! This is an external info log from an activity",
         "team_id": 3,
         "timestamp": "2023-11-03 10:00:00.123123",
     }
@@ -385,16 +405,18 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         "headers": None,
     }
 
+    await producer.flush()
+
     results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
     )
 
     iterations = 0
     while not results:
         # It may take a bit for CH to ingest.
-        time.sleep(1)
+        await asyncio.sleep(1)
         results = sync_execute(
-            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
+            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}'"
         )
 
         iterations += 1
@@ -408,6 +430,6 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     assert row[1] == "info"
     assert row[2] == expected_log_source
     assert row[3] == BATCH_EXPORT_ID
-    assert row[4] == "Hi! This is an info log from an activity"
+    assert row[4] == "Hi! This is an external info log from an activity"
     assert row[5] == 3
     assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"

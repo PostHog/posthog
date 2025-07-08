@@ -3,6 +3,7 @@ import json
 import logging
 import queue as sync_queue
 import ssl
+import sys
 import threading
 import uuid
 from contextvars import copy_context
@@ -18,6 +19,8 @@ from structlog.typing import FilteringBoundLogger
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
+EXTERNAL_LOGGER_NAME = "EXTERNAL"
+EXTERNAL_LOGGER = structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
 
 def get_internal_logger():
@@ -26,25 +29,21 @@ def get_internal_logger():
     We attach the temporal context to the logger for easier debugging (for
     example, we can track things like the workflow id across log entries).
     """
-    if not structlog.is_configured():
-        base_processors: list[structlog.types.Processor] = [
-            structlog.processors.add_log_level,
-            structlog.processors.format_exc_info,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            EventRenamer("msg"),
-            structlog.processors.JSONRenderer(),
-        ]
-        structlog.configure(
-            processors=base_processors,
-            logger_factory=structlog.PrintLoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
-
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
 
     return logger.new(**temporal_context)
+
+
+def bind_contextvars(**kwargs):
+    """Bind any variables to the context, including base Temporal variables."""
+    temporal_context = get_temporal_context()
+    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
+
+
+def get_external_logger(**kwargs) -> logging.Logger:
+    """Return a bound logger to log user-facing logs."""
+    return EXTERNAL_LOGGER.bind(**kwargs)
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -175,7 +174,7 @@ def configure_logger_sync(
 
 
 def configure_logger_async(
-    logger_factory=structlog.PrintLoggerFactory,
+    logger_factory=structlog.stdlib.LoggerFactory,
     extra_processors: list[structlog.types.Processor] | None = None,
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
@@ -199,10 +198,20 @@ def configure_logger_async(
             Should always be True except in tests.
     """
     base_processors: list[structlog.types.Processor] = [
-        structlog.processors.add_log_level,
-        structlog.processors.format_exc_info,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.format_exc_info,
+        structlog.processors.CallsiteParameterAdder(
+            {
+                structlog.processors.CallsiteParameter.FILENAME,
+                structlog.processors.CallsiteParameter.FUNC_NAME,
+                structlog.processors.CallsiteParameter.LINENO,
+            }
+        ),
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
     ]
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
@@ -219,15 +228,24 @@ def configure_logger_async(
         put_in_queue = PutInLogQueueProcessor(log_queue)
         base_processors.append(put_in_queue)
 
-    base_processors += [
-        EventRenamer("msg"),
-        structlog.processors.JSONRenderer(),
-    ]
+    if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
+        base_processors += [
+            EventRenamer("msg"),
+            structlog.dev.ConsoleRenderer(event_key="msg"),
+        ]
+    else:
+        base_processors += [
+            structlog.processors.dict_tracebacks,
+            EventRenamer("msg"),
+            structlog.processors.JSONRenderer(),
+        ]
+
     extra_processors_to_add = extra_processors if extra_processors is not None else []
 
     structlog.configure(
         processors=base_processors + extra_processors_to_add,
         logger_factory=logger_factory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=cache_logger_on_first_use,
     )
 
@@ -284,6 +302,9 @@ class PutInLogQueueProcessor:
         Always return event_dict so that processors that come later in the chain can do
         their own thing.
         """
+        if getattr(logger, "name", None) != EXTERNAL_LOGGER_NAME and settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+            return event_dict
+
         try:
             message_dict = {
                 "instance_id": event_dict["workflow_run_id"],
