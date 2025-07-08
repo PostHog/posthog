@@ -170,7 +170,7 @@ export class NativeDestinationExecutorService {
                             options: fetchOptions,
                         })
 
-                        result.metrics!.push({
+                        result.metrics.push({
                             team_id: invocation.hogFunction.team_id,
                             app_source_id: invocation.hogFunction.id,
                             metric_kind: 'other',
