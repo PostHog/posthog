@@ -279,6 +279,7 @@ export async function createUserTeamAndOrganization(
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
+        members_can_use_personal_api_keys: false,
         slug: new UUIDT().toString(),
     } as RawOrganization)
     await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
@@ -402,6 +403,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
+        members_can_use_personal_api_keys: false,
         slug: new UUIDT().toString(),
     })
     return organizationId
