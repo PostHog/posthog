@@ -45,7 +45,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -509,7 +509,7 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
-        elif "TableNotFoundError" in error_message:
+        elif "no log files" in error_message:
             error_message = f"Query did not return rows. Try changing your time range or query."
             saved_query.latest_error = error_message
             await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)

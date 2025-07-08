@@ -47,6 +47,10 @@ DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
+class BillingLimitsWillBeReachedException(Exception):
+    pass
+
+
 class DuplicatePrimaryKeysException(Exception):
     pass
 
@@ -572,7 +576,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
-    if schema is None:
+    if schema is None or len(schema.names) == 0:
         try:
             # Gather all unique keys from all items, not just the first
             all_keys = set().union(*(d.keys() for d in table_data))

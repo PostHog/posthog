@@ -4460,3 +4460,452 @@ async fn test_group_key_property_matching() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test.user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the target email that should match the cohort
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({"email": "test.user@example.com"})),
+    )
+    .await
+    .unwrap();
+
+    // Create the cohort with the specified filters:
+    // OR condition with AND group that checks:
+    // - email matches regex ^.*@example.com$ (ends with @example.com)
+    // - email does NOT contain "excluded.user@example.com" (negation: true)
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "^.*@example.com$",
+                        "negation": false,
+                        "operator": "regex"
+                    },
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "excluded.user@example.com",
+                        "negation": true,
+                        "operator": "icontains"
+                    }
+                ]
+            }]
+        }
+    });
+
+    // Create the cohort in the database
+    let mut conn = pg_client.get_connection().await.unwrap();
+    let cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Example Domain (excluding specific user)")
+    .bind("Test cohort for regex and negation conditions")
+    .bind(team.id)
+    .bind(cohort_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create flag with cohort filter exactly as specified
+    let flag_json = json!([{
+        "id": 1,
+        "key": "example-cohort-flag",
+        "name": "Example Cohort Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort_id,
+                    "operator": "in",
+                    "cohort_name": "Example Domain (excluding specific user)"
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with test.user@example.com - should match cohort and return true
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with excluded.user@example.com - should NOT match cohort due to negation condition
+    let excluded_distinct_id = "excluded.user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        excluded_distinct_id.clone(),
+        Some(json!({"email": "excluded.user@example.com"})),
+    )
+    .await
+    .unwrap();
+
+    let payload_excluded = json!({
+        "token": token,
+        "distinct_id": excluded_distinct_id,
+    });
+
+    let res_excluded = server
+        .send_flags_request(payload_excluded.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res_excluded.status());
+
+    let json_excluded = res_excluded.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_excluded,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with non-example.com email - should NOT match cohort due to regex condition
+    let non_example_distinct_id = "other.user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        non_example_distinct_id.clone(),
+        Some(json!({"email": "other.user@other.com"})),
+    )
+    .await
+    .unwrap();
+
+    let payload_non_example = json!({
+        "token": token,
+        "distinct_id": non_example_distinct_id,
+    });
+
+    let res_non_example = server
+        .send_flags_request(payload_non_example.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res_non_example.status());
+
+    let json_non_example = res_non_example.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_non_example,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
+    // This test is to ensure that when flag_keys is specified, the dependency graph is included in the response
+    // For example, if parent_flag -> intermediate_flag -> leaf_flag, and we only request parent_flag,
+    // we should get the response for parent_flag, intermediate_flag, and leaf_flag otherwise parent_flag can't be evaluated.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    const LEAF_FLAG_ID: i32 = 1;
+    const INTERMEDIATE_FLAG_ID: i32 = 2;
+    const PARENT_FLAG_ID: i32 = 3;
+    const INDEPENDENT_FLAG_ID: i32 = 4;
+
+    // Create a dependency chain: parent_flag -> intermediate_flag -> leaf_flag
+    // parent_flag depends on intermediate_flag being true
+    // intermediate_flag depends on leaf_flag being true
+    let flag_json = json!([
+        {
+            "id": LEAF_FLAG_ID,
+            "key": "leaf_flag",
+            "name": "Leaf Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INTERMEDIATE_FLAG_ID,
+            "key": "intermediate_flag",
+            "name": "Intermediate Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": LEAF_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": PARENT_FLAG_ID,
+            "key": "parent_flag",
+            "name": "Parent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": INTERMEDIATE_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INDEPENDENT_FLAG_ID,
+            "key": "independent_flag",
+            "name": "Independent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Request only parent_flag with flag_keys where the whole chain evaluates to true because the leaf_flag is true
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 1 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    // Test 2: Request only parent_flag with flag_keys where the whole chain evaluates to false because the leaf_flag is false
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "not-test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 2 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    Ok(())
+}

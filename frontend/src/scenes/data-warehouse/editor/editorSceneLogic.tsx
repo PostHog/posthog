@@ -107,6 +107,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
+        setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -114,6 +115,12 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             {
                 setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
                 selectSchema: (_, { schema }) => schema !== null,
+            },
+        ],
+        wasPanelActive: [
+            false,
+            {
+                setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
     }),
@@ -513,6 +520,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 panelLayoutLogic.actions.showLayoutPanel(true)
                 panelLayoutLogic.actions.setActivePanelIdentifier('Database')
                 panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            }
+        },
+        '*': () => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
+                router.values.location.pathname !== urls.sqlEditor()
+            ) {
+                panelLayoutLogic.actions.clearActivePanelIdentifier()
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                panelLayoutLogic.actions.showLayoutPanel(false)
             }
         },
     })),

@@ -177,9 +177,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_1.json(),
             )
             mock_capture.assert_called_once_with(
-                self.user.distinct_id,
                 "insight created",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
@@ -211,9 +211,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             insight_short_id = response_2.json()["short_id"]
             mock_capture.assert_called_once_with(
-                self.user.distinct_id,
                 "insight updated",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
