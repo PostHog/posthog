@@ -11,7 +11,6 @@ import typing
 
 import pyarrow as pa
 import snowflake.connector
-import structlog
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from django.conf import settings
@@ -57,9 +56,10 @@ from posthog.temporal.batch_exports.temporary_file import (
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_external_logger
+from posthog.temporal.common.logger import bind_contextvars, get_external_logger, get_logger
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
@@ -789,7 +789,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",

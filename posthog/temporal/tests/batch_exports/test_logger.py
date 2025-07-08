@@ -28,6 +28,7 @@ from posthog.temporal.common.logger import (
     bind_contextvars,
     configure_logger_async,
     get_external_logger,
+    get_logger,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -289,15 +290,15 @@ async def test_batch_exports_logger_binds_activity_context(
 )
 async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     """Test whether our logger puts entries into a queue for async processing."""
+    LOGGER = get_logger("test")
+    EXTERNAL_LOGGER = get_external_logger()
 
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
         bind_contextvars(team_id=2, destination="Somewhere")
-        logger = structlog.get_logger("test")
-        logger.setLevel("INFO")
-        external_logger = get_external_logger()
-        external_logger.setLevel("INFO")
+        logger = LOGGER.bind()
+        external_logger = EXTERNAL_LOGGER.bind()
 
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
@@ -360,15 +361,15 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
 
     We also check if those messages are ingested into ClickHouse.
     """
+    LOGGER = get_logger("test")
+    EXTERNAL_LOGGER = get_external_logger()
 
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
         bind_contextvars(team_id=3)
-        logger = structlog.get_logger("test")
-        logger.setLevel("INFO")
-        external_logger = get_external_logger()
-        external_logger.setLevel("INFO")
+        logger = LOGGER.bind()
+        external_logger = EXTERNAL_LOGGER.bind()
 
         external_logger.info("Hi! This is an external %s log from an activity", "info")
         logger.info("Hi! This is an internal %s log from an activity", "info")
