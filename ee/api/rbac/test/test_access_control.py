@@ -667,3 +667,62 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_notebook_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to notebook access_controls endpoint require access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_notebook_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to notebook access_controls endpoint succeed with access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_notebook_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to notebook access_controls endpoint fail with only access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
