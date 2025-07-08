@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from pydantic import BaseModel, Field, ValidationError, field_serializer
+from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from enum import Enum
 
 import yaml
@@ -123,6 +123,17 @@ class RawSessionGroupPatternAssignment(BaseModel):
 
     pattern_id: int = Field(..., description="Unique identifier for the pattern", ge=1)
     event_ids: list[str] = Field(..., description="List of event IDs assigned to this pattern", min_length=0)
+
+    @field_validator("event_ids", mode="before")
+    @classmethod
+    def stringify_event_ids(cls, v: list[str | int]) -> list[str]:
+        """If event ids are valid ints, LLM sometimes returns them as ints, so we need to convert them to strings"""
+        try:
+            return [str(item) for item in v]
+        except Exception as err:
+            raise SummaryValidationError(
+                f"Error converting event ids to strings when validating pattern assignments ({v}): {err}"
+            ) from err
 
 
 class RawSessionGroupPatternAssignmentsList(BaseModel):
