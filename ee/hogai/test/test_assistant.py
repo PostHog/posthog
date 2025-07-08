@@ -4,7 +4,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from asgiref.sync import async_to_sync
-from azure.ai.inference import EmbeddingsClient
+from azure.ai.inference.aio import EmbeddingsClient as EmbeddingsClientAsync
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
@@ -78,13 +78,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Azure embeddings mocks
         self.azure_client_mock = patch(
-            "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
-            return_value=EmbeddingsClient(
+            "ee.hogai.graph.rag.nodes.get_async_azure_embeddings_client",
+            return_value=EmbeddingsClientAsync(
                 endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
             ),
         ).start()
         self.embed_query_mock = patch(
-            "azure.ai.inference.EmbeddingsClient.embed",
+            "azure.ai.inference.aio.EmbeddingsClient.embed",
             return_value=EmbeddingsResult(
                 id="test",
                 model="test",

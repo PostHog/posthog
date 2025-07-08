@@ -51,12 +51,6 @@ class AssistantNode(ABC):
         except Conversation.DoesNotExist:
             return None
 
-    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return Conversation.objects.get(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
-
     async def _aget_core_memory(self) -> CoreMemory | None:
         try:
             return await CoreMemory.objects.aget(team=self._team)

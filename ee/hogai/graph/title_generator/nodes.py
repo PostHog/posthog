@@ -16,7 +16,7 @@ class TitleGeneratorNode(AssistantNode):
         if not human_message:
             return None
 
-        conversation = self._get_conversation(config["configurable"]["thread_id"])
+        conversation = await self._aget_conversation(config["configurable"]["thread_id"])
         if not conversation or conversation.title:
             return None
 
@@ -26,10 +26,8 @@ class TitleGeneratorNode(AssistantNode):
             | StrOutputParser()
         )
 
-        title = runnable.invoke({}, config=config)
-
-        conversation.title = title
-        conversation.save()
+        conversation.title = await runnable.ainvoke({}, config=config)
+        await conversation.asave()
 
         return None
 
