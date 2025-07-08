@@ -18,6 +18,9 @@ def _get_hash_key(team_id: int) -> str:
 
 @contextmanager
 def _get_redis():
+    if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+        raise Exception("Missing env vars: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT")
+
     try:
         # Ensure redis is up and alive
         redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
