@@ -30,7 +30,7 @@ export const wizardLogic = kea<wizardLogicType>([
         setView: (view: 'project' | 'pending' | 'success' | 'invalid') => ({ view }),
         setSelectedProject: (projectId: number | null) => ({ projectId }),
         authenticateWizard: (wizardHash: string, projectId: number) => ({ wizardHash, projectId }),
-        continueToAuthentication: true,
+        continueToAuthentication: () => ({}),
     }),
     loaders(({ actions }) => ({
         wizardToken: [
