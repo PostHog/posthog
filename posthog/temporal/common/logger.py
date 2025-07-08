@@ -26,6 +26,21 @@ def get_internal_logger():
     We attach the temporal context to the logger for easier debugging (for
     example, we can track things like the workflow id across log entries).
     """
+    if not structlog.is_configured():
+        base_processors: list[structlog.types.Processor] = [
+            structlog.processors.add_log_level,
+            structlog.processors.format_exc_info,
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            EventRenamer("msg"),
+            structlog.processors.JSONRenderer(),
+        ]
+        structlog.configure(
+            processors=base_processors,
+            logger_factory=structlog.PrintLoggerFactory(),
+            cache_logger_on_first_use=True,
+        )
+
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
 

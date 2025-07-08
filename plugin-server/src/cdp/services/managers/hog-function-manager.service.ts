@@ -92,7 +92,7 @@ export class HogFunctionManagerService {
                 const { integrationIds } = parseJSON(message) as {
                     integrationIds: IntegrationType['id'][]
                 }
-                logger.info('⚡', '[PubSub] Reloading integrations!', { integrationIds })
+                logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
                 this.onIntegrationsReloaded(integrationIds)
             },
             'reload-hog-functions': (message) => {
@@ -100,7 +100,7 @@ export class HogFunctionManagerService {
                     teamId: Team['id']
                     hogFunctionIds: HogFunctionType['id'][]
                 }
-                logger.info('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
+                logger.debug('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
                 this.onHogFunctionsReloaded(teamId, hogFunctionIds)
             },
         })
@@ -234,7 +234,7 @@ export class HogFunctionManagerService {
     }
 
     private async fetchTeamHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionTeamInfo[]>> {
-        logger.info('[HogFunctionManager]', 'Fetching team hog functions', { teamIds })
+        logger.debug('[HogFunctionManager]', 'Fetching team hog functions', { teamIds })
         const response = await this.hub.postgres.query<Pick<HogFunctionType, 'id' | 'team_id' | 'type'>>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, type FROM posthog_hogfunction WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
@@ -256,7 +256,7 @@ export class HogFunctionManagerService {
     }
 
     private async fetchHogFunctions(ids: string[]): Promise<Record<string, HogFunctionType | undefined>> {
-        logger.info('[HogFunctionManager]', 'Fetching hog functions', { ids })
+        logger.debug('[HogFunctionManager]', 'Fetching hog functions', { ids })
 
         const response = await this.hub.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
@@ -318,7 +318,7 @@ export class HogFunctionManagerService {
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
-        logger.info('[HogFunctionManager]', 'Enriching with integrations', { functionCount: items.length })
+        logger.debug('[HogFunctionManager]', 'Enriching with integrations', { functionCount: items.length })
         const integrationIds: number[] = []
 
         items.forEach((item) => {
@@ -336,11 +336,11 @@ export class HogFunctionManagerService {
         })
 
         if (!integrationIds.length) {
-            logger.info('[HogFunctionManager]', 'No integrations to enrich with')
+            logger.debug('[HogFunctionManager]', 'No integrations to enrich with')
             return
         }
 
-        logger.info('[HogFunctionManager]', 'Fetching integrations', { ids: integrationIds })
+        logger.debug('[HogFunctionManager]', 'Fetching integrations', { ids: integrationIds })
 
         const integrations: IntegrationType[] = (
             await this.hub.postgres.query(
@@ -353,7 +353,7 @@ export class HogFunctionManagerService {
             )
         ).rows
 
-        logger.info('[HogFunctionManager]', 'Decrypting integrations', { integrationCount: integrations.length })
+        logger.debug('[HogFunctionManager]', 'Decrypting integrations', { integrationCount: integrations.length })
 
         const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
             (acc, integration) => {
@@ -368,7 +368,7 @@ export class HogFunctionManagerService {
             },
             {} as Record<string, Record<string, any>>
         )
-        logger.info('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
+        logger.debug('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
 
         let updatedValuesCount = 0
         items.forEach((item) => {
@@ -387,7 +387,7 @@ export class HogFunctionManagerService {
                 }
             })
         })
-        logger.info('[HogFunctionManager]', 'Enriched hog functions', {
+        logger.debug('[HogFunctionManager]', 'Enriched hog functions', {
             functionCount: items.length,
             updatedValuesCount,
         })

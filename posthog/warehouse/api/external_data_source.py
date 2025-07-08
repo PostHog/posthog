@@ -628,8 +628,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_vitally_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         secret_token = payload.get("secret_token")
-        region = payload.get("region")
-        subdomain = payload.get("subdomain", None)
+
+        region_obj = payload.get("region", {})
+        region = region_obj.get("selection")
+        subdomain = region_obj.get("subdomain", None)
+
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -1140,8 +1143,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
         elif source_type == ExternalDataSource.Type.VITALLY:
             secret_token = request.data.get("secret_token", "")
-            region = request.data.get("region", "")
-            subdomain = request.data.get("subdomain", "")
+            region_obj = request.data.get("region", {})
+            region = region_obj.get("selection", "")
+            subdomain = region_obj.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
             if region == "US" and not subdomain_regex.match(subdomain):

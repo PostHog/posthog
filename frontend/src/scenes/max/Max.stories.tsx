@@ -25,6 +25,9 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
     decorators: [
@@ -567,7 +570,7 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
     }, [messagesSet, askMax])
 
     return (
-        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+        <div className="h-fit max-h-screen overflow-y-auto SidePanel3000__content">
             <Template />
         </div>
     )
@@ -579,6 +582,13 @@ ThreadScrollsToBottomOnNewMessages.parameters = {
 }
 
 export const FloatingInput: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        closeSidePanel()
+        setIsFloatingMaxExpanded(false)
+    }, [])
+
     return <MaxFloatingInput />
 }
 
@@ -586,7 +596,56 @@ export const ExpandedFloatingInput: StoryFn = () => {
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     useEffect(() => {
         setIsFloatingMaxExpanded(true)
-    }, [setIsFloatingMaxExpanded])
+    }, [])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register sample contextual tools
+        registerTool({
+            name: 'create_insight' as AssistantContextualTool,
+            displayName: 'Create insight',
+            description: 'Max can create a new insight',
+            context: {
+                dashboard_id: 'test-dashboard',
+                available_events: ['$pageview', '$identify', 'button_clicked'],
+                current_filters: { date_range: 'last_7_days' },
+            },
+            callback: (toolOutput) => {
+                console.info('Creating insight:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'analyze_funnel' as AssistantContextualTool,
+            displayName: 'Analyze funnel',
+            description: 'Max can analyze a funnel',
+            context: {
+                existing_funnels: ['signup_funnel', 'checkout_funnel'],
+                conversion_metrics: { signup_rate: 0.15, checkout_rate: 0.08 },
+            },
+            callback: (toolOutput) => {
+                console.info('Analyzing funnel:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'export_data' as AssistantContextualTool,
+            displayName: 'Export data',
+            description: 'Max can export data in various formats',
+            context: {
+                available_formats: ['csv', 'json', 'parquet'],
+                current_query: { event: '$pageview', breakdown: 'browser' },
+            },
+            callback: (toolOutput) => {
+                console.info('Exporting data:', toolOutput)
+            },
+        })
+    }, [registerTool])
 
     return <MaxFloatingInput />
 }
@@ -601,7 +660,7 @@ export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
     return <MaxFloatingInput />
 }
 
-export const FloatingInputMobileView: StoryFn = () => {
+export const ExpandedFloatingInputMobileView: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/api/organizations/@current/': () => [
@@ -616,8 +675,98 @@ export const FloatingInputMobileView: StoryFn = () => {
 
     return <MaxFloatingInput />
 }
-FloatingInputMobileView.parameters = {
+ExpandedFloatingInputMobileView.parameters = {
     viewport: {
         defaultViewport: 'mobile2',
+    },
+}
+
+export const ExpandedFloatingInputThread: StoryFn = () => {
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [setIsFloatingMaxExpanded])
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <MaxFloatingInput />
+}
+ExpandedFloatingInputThread.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MaxInstanceWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register various contextual tools for MaxInstance
+        registerTool({
+            name: 'query_insights' as AssistantContextualTool,
+            displayName: 'Query insights',
+            description: 'Max can query insights and their properties',
+            context: {
+                available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
+                active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
+                user_permissions: ['read_insights', 'create_insights'],
+            },
+            callback: (toolOutput) => {
+                console.info('Querying insights:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'manage_cohorts' as AssistantContextualTool,
+            displayName: 'Manage cohorts',
+            description: 'Max can manage cohorts and their properties',
+            context: {
+                existing_cohorts: [
+                    { id: 1, name: 'Power Users', size: 1250 },
+                    { id: 2, name: 'New Signups', size: 3400 },
+                ],
+                cohort_types: ['behavioral', 'demographic', 'custom'],
+            },
+            callback: (toolOutput) => {
+                console.info('Managing cohorts:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'feature_flags' as AssistantContextualTool,
+            displayName: 'Feature flags',
+            description: 'Max can manage feature flags and their properties',
+            context: {
+                active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
+                flag_stats: { total: 15, active: 8, inactive: 7 },
+                rollout_percentages: { 'new-dashboard': 25, 'beta-feature': 50 },
+            },
+            callback: (toolOutput) => {
+                console.info('Feature flag action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <Template />
+}
+MaxInstanceWithContextualTools.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
     },
 }
