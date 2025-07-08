@@ -77,10 +77,8 @@ export function VariantRow({
 
             {/* Variant column - show variant key or "Baseline" */}
             <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
-                {isBaseline ? (
-                    <div className="text-sm font-semibold text-text-primary">Baseline</div>
-                ) : testVariantResult ? (
-                    <div className="text-sm font-semibold text-text-primary">{testVariantResult.key}</div>
+                {variantResult ? (
+                    <div className="text-sm text-text-primary">{variantResult.key}</div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
                 )}
@@ -90,7 +88,7 @@ export function VariantRow({
             <td className="w-24 border-b border-r border-border bg-bg-light p-3 align-top text-left">
                 {isBaseline ? (
                     <div className="text-sm">
-                        <div className="font-semibold text-text-primary">
+                        <div className="text-text-primary">
                             {formatVariantData(variantResult as ExperimentStatsBase).formattedValue}
                         </div>
                         <div className="text-xs text-muted">
@@ -99,9 +97,7 @@ export function VariantRow({
                     </div>
                 ) : testVariantResult ? (
                     <div className="text-sm">
-                        <div className="font-semibold text-text-primary">
-                            {formatVariantData(testVariantResult).formattedValue}
-                        </div>
+                        <div className="text-text-primary">{formatVariantData(testVariantResult).formattedValue}</div>
                         <div className="text-xs text-muted">
                             {testVariantResult.sum} / {humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
                         </div>
@@ -114,9 +110,9 @@ export function VariantRow({
             {/* P-value column - show statistical significance (empty for baseline) */}
             <td className="w-20 border-b border-r border-border bg-bg-light p-3 align-top text-left">
                 {isBaseline ? (
-                    <div className="text-xs text-muted">—</div>
+                    <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
-                    <div className="text-sm font-medium text-text-primary">
+                    <div className="text-sm text-text-primary">
                         {isBayesianResult(testVariantResult)
                             ? formatChanceToWin(testVariantResult.chance_to_win)
                             : testVariantResult.p_value !== undefined
