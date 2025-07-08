@@ -21,6 +21,7 @@ import {
     pipelineStepDLQCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
+    pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
@@ -86,6 +87,25 @@ export class EventPipelineRunner {
         }
         const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
+    }
+
+    validateEvent(event: PluginEvent): true | { warning: string; data: any } {
+        if (event.event === '$groupidentify') {
+            const groupKey = event.properties?.$group_key
+            if (groupKey && groupKey.toString().length > 400) {
+                return {
+                    warning: 'group_key_too_long',
+                    data: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                        groupKeyLength: groupKey.toString().length,
+                        maxLength: 400,
+                    },
+                }
+            }
+        }
+        return true
     }
 
     /**
@@ -163,6 +183,21 @@ export class EventPipelineRunner {
 
     async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
+
+        // Validate event properties
+        const validationResult = this.validateEvent(event)
+        if (validationResult !== true) {
+            kafkaAcks.push(
+                captureIngestionWarning(
+                    this.hub.db.kafkaProducer,
+                    event.team_id,
+                    validationResult.warning,
+                    validationResult.data,
+                    { alwaysSend: false }
+                )
+            )
+            return this.registerLastStep('validateEventStep', [event], kafkaAcks)
+        }
 
         let processPerson = true // The default.
 
@@ -317,6 +352,10 @@ export class EventPipelineRunner {
         }
     }
 
+    private reportStalled(stepName: string) {
+        pipelineStepStalledCounter.labels(stepName).inc()
+    }
+
     protected async runStep<Step extends (...args: any[]) => any>(
         step: Step,
         args: Parameters<Step>,
@@ -329,12 +368,13 @@ export class EventPipelineRunner {
             `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
-                event: JSON.stringify(this.originalEvent),
                 teamId: teamId,
+                event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
             this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException
+            sendException,
+            this.reportStalled.bind(this, step.name)
         )
         try {
             const result = await step(...args)

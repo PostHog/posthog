@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
@@ -77,6 +78,7 @@ import {
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import posthog from 'posthog-js'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -1181,6 +1183,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
+                let errorTrackingQ: DataTableNode | undefined
+
+                try {
+                    errorTrackingQ = errorTrackingQuery({
+                        orderBy: 'users',
+                        dateRange: dateRange,
+                        filterTestAccounts: filterTestAccounts,
+                        filterGroup: replayFilters.filter_group,
+                        columns: ['error', 'users', 'occurrences'],
+                        limit: 4,
+                    })
+                } catch (e) {
+                    posthog.captureException(e, { dateRange, replayFilters, filterTestAccounts })
+                }
+
                 if (productTab === ProductTab.WEB_VITALS) {
                     const createSeries = (name: WebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
@@ -1267,7 +1284,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 colSpanClassName: 'md:col-span-2',
                                 orderWhenLargeClassName: 'xxl:order-1',
                             },
-                            title: 'Marketing Costs',
+                            title: 'Marketing costs',
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 embedded: true,
@@ -1300,7 +1317,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             canOpenInsight: true,
                             canOpenModal: false,
                             docs: {
-                                title: 'Marketing Costs',
+                                title: 'Marketing costs',
                                 description:
                                     createMarketingDataWarehouseNodes.length > 0
                                         ? 'Track costs from your configured marketing data sources.'
@@ -1315,13 +1332,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       colSpanClassName: 'md:col-span-2',
                                       orderWhenLargeClassName: 'xxl:order-2',
                                   },
-                                  title: 'Campaign Costs Breakdown',
+                                  title: 'Campaign costs breakdown',
                                   query: campaignCostsBreakdown,
                                   insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                                   canOpenModal: true,
                                   canOpenInsight: false,
                                   docs: {
-                                      title: 'Campaign Costs Breakdown',
+                                      title: 'Campaign costs breakdown',
                                       description:
                                           'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                                   },
@@ -2176,21 +2193,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal
+                    !conversionGoal && errorTrackingQ
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
                                   colSpanClassName: 'md:col-span-1',
                               },
-                              query: errorTrackingQuery({
-                                  orderBy: 'users',
-                                  dateRange: dateRange,
-                                  filterTestAccounts: filterTestAccounts,
-                                  filterGroup: replayFilters.filter_group,
-                                  columns: ['error', 'users', 'occurrences'],
-                                  limit: 4,
-                              }),
+                              query: errorTrackingQ,
                               docs: {
                                   url: 'https://posthog.com/docs/error-tracking',
                                   title: 'Error Tracking',
@@ -2854,6 +2864,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
+            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
+                const isPreAggregatedEnabled =
+                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
+
+                if (isPreAggregatedEnabled && values.conversionGoal) {
+                    actions.setConversionGoal(null)
+                    lemonToast.info(
+                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
+                    )
+                }
+            },
         }
     }),
     afterMount(({ actions, values }) => {

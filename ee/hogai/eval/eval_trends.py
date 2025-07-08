@@ -19,8 +19,8 @@ from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment,
 
 
 @pytest.mark.django_db
-def eval_trends(call_root_for_insight_generation):
-    MaxEval(
+async def eval_trends(call_root_for_insight_generation):
+    await MaxEval(
         experiment_name="trends",
         task=call_root_for_insight_generation,
         scores=[
