@@ -10,7 +10,7 @@ const SetupWizardBanner = ({ integrationName }: { integrationName: string }): JS
     const { preflight } = useValues(preflightLogic)
 
     const region = preflight?.region || Region.US
-    const wizardCommand = `npx --yes @posthog/wizard@latest${region === Region.EU ? ` --eu` : ''}`
+    const wizardCommand = `npx -y @posthog/wizard@latest${region === Region.EU ? ` --eu` : ''}`
 
     return (
         <LemonBanner type="info" hideIcon={true}>
