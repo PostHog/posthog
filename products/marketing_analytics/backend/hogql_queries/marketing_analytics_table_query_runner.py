@@ -290,9 +290,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            processor = ConversionGoalProcessor(
-                goal=conversion_goal, index=index, team=self.team
-            )
+            processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
             processors.append(processor)
         return processors
 
@@ -368,7 +366,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             else:
                 date_cast: ast.Expr
                 # Build for regular datetime conditions
-                if date_field != "timestamp":
+                if "." in date_field:
                     date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
                 else:
                     date_cast = ast.Field(chain=date_field_chain)

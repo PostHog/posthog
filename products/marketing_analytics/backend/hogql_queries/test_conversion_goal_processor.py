@@ -3335,7 +3335,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Temporal attribution should find historical source outside query range, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    # @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
     def test_attribution_window_30_day_limit(self):
         """
         Test Case: 30-day attribution window enforcement
@@ -3437,7 +3436,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
         assert beyond_source == "organic", f"Expected organic source, got {beyond_source}"
 
-    # @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
     def test_attribution_window_beyond_limits(self):
         """
         Test Case: Attribution beyond reasonable limits - 2 years
@@ -3586,11 +3584,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: Should handle malformed UTM gracefully
         first_result = response.results[0]
-        campaign_name, _source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         # Should handle gracefully - could attribute to last valid campaign or show Unknown
         assert campaign_name is not None, "Should handle malformed UTM without crashing"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
-        assert _source_name == "organic", f"Expected organic source, got {_source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
 
     def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
@@ -3728,11 +3726,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: Duplicate events handling
         # Expected: Should handle duplicates gracefully (dedupe or use deterministic selection)
         first_result = response.results[0]
-        campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         # Should pick first duplicate campaign deterministically
         assert campaign_name == "duplicate1", f"Expected duplicate1 campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_utm_parameters_with_special_characters(self):
         """
@@ -3862,10 +3860,10 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # Validation: Very long UTM values handling
         # Expected: Should handle very long values gracefully (truncate or handle full value)
         first_result = response.results[0]
-        campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name is not None, "Should handle very long UTM values"
         assert source_name is not None, "Should handle very long source values"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_case_sensitivity_utm_parameters(self):
         """
