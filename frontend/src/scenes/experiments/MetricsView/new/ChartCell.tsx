@@ -61,9 +61,9 @@ export function ChartCell({
                             viewBoxWidth={VIEW_BOX_WIDTH}
                             zeroLineColor={colors.ZERO_LINE}
                             gridLineColor={colors.BOUNDARY_LINES}
-                            zeroLineWidth={1.5}
+                            zeroLineWidth={1.25}
                             gridLineWidth={0.75}
-                            opacity={0.5}
+                            opacity={1}
                         />
                     )}
 
