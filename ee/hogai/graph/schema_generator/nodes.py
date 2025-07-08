@@ -37,6 +37,8 @@ from posthog.schema import (
     FailureMessage,
     VisualizationMessage,
 )
+from posthog.warehouse.util import database_sync_to_async
+
 
 Q = TypeVar("Q", bound=BaseModel)
 
@@ -214,7 +216,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @alru_cache(maxsize=1)
     async def _aget_group_mapping_prompt(self) -> str:
         """Async cached version of _group_mapping_prompt"""
-        from posthog.warehouse.util import database_sync_to_async
 
         def get_group_mapping():
             groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")

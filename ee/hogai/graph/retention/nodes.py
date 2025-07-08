@@ -8,6 +8,7 @@ from ..schema_generator.utils import SchemaGeneratorOutput
 from ..taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantRetentionQuery
+from posthog.warehouse.util import database_sync_to_async
 
 
 class RetentionPlannerNode(TaxonomyAgentPlannerNode):
@@ -23,8 +24,6 @@ class RetentionPlannerNode(TaxonomyAgentPlannerNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Create toolkit and force evaluation of lazy properties in sync context
-        from posthog.warehouse.util import database_sync_to_async
-
         def create_and_initialize_toolkit():
             toolkit = RetentionTaxonomyAgentToolkit(self._team)
             # Force evaluation of cached properties that contain database queries

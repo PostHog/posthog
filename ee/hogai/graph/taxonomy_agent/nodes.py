@@ -56,6 +56,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.warehouse.util import database_sync_to_async
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
@@ -315,7 +316,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
     @alru_cache(maxsize=1)
     async def _aget_team_group_types(self) -> list[str]:
         """Async cached version of _team_group_types"""
-        from posthog.warehouse.util import database_sync_to_async
 
         def get_team_group_types():
             return list(

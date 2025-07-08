@@ -8,6 +8,7 @@ from .prompts import REACT_SYSTEM_PROMPT, TRENDS_SYSTEM_PROMPT
 from .toolkit import TRENDS_SCHEMA, TrendsTaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantTrendsQuery
+from posthog.warehouse.util import database_sync_to_async
 
 
 class TrendsPlannerNode(TaxonomyAgentPlannerNode):
@@ -23,8 +24,6 @@ class TrendsPlannerNode(TaxonomyAgentPlannerNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         # Create toolkit and force evaluation of lazy properties in sync context
-        from posthog.warehouse.util import database_sync_to_async
-
         def create_and_initialize_toolkit():
             toolkit = TrendsTaxonomyAgentToolkit(self._team)
             # Force evaluation of cached properties that contain database queries

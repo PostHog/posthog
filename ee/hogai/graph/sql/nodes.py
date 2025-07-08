@@ -131,8 +131,8 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         )
         return await super()._arun_with_prompt(state, prompt, config=config)
 
-    def _parse_output(self, output):  # type: ignore
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
+    def _parse_output(self, output) -> SQLSchemaGeneratorOutput:
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:
