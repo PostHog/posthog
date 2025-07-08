@@ -17,14 +17,13 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { PersonsManagerService } from '../managers/persons-manager.service'
-import { ActionHandler } from './action-handlers/action-handler.interface'
-import { ConditionalBranchHandler } from './action-handlers/conditional-branch.handler'
-import { DelayHandler } from './action-handlers/delay.handler'
-import { ExitHandler } from './action-handlers/exit.handler'
-import { FunctionHandler } from './action-handlers/function.handler'
-import { RandomCohortBranchHandler } from './action-handlers/random-cohort-branch.handler'
-import { WaitUntilTimeWindowHandler } from './action-handlers/wait-until-time-window.handler'
+import { ActionHandler } from './actions/action.interface'
+import { ConditionalBranchHandler } from './actions/conditional_branch'
+import { DelayHandler } from './actions/delay'
+import { ExitHandler } from './actions/exit.handler'
+import { HogFunctionHandler } from './actions/hog_function'
+import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
+import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { HogFlowMetricsService } from './hogflow-metrics.service'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
@@ -54,7 +53,7 @@ export class HogFlowExecutorService {
         handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
         handlers.set(
             'function',
-            new FunctionHandler(this.hub, this.hogFunctionExecutor, this.hogFunctionTemplateManager)
+            new HogFunctionHandler(this.hub, this.hogFunctionExecutor, this.hogFunctionTemplateManager)
         )
         handlers.set('exit', new ExitHandler())
         return handlers

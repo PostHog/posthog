@@ -1,4 +1,4 @@
-import { ActionHandler, ActionHandlerResult } from './action-handler.interface'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
 
 export class ExitHandler implements ActionHandler {
     execute(): ActionHandlerResult {

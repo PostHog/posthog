@@ -13,9 +13,9 @@ import {
 import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action-handler.interface'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
 
-export class FunctionHandler implements ActionHandler {
+export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
@@ -91,6 +91,12 @@ export class FunctionHandler implements ActionHandler {
                 url: '',
             },
             event: invocation.state.event,
+            person: {
+                name: '',
+                properties: {},
+                id: invocation.state.event.distinct_id,
+                url: `${projectUrl}/person/${encodeURIComponent(invocation.state.event.distinct_id)}`,
+            },
         }
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
@@ -103,6 +109,9 @@ export class FunctionHandler implements ActionHandler {
             },
         }
 
-        return await this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
+        // TODO: Swap to `executeWithAsync` or something
+        // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID
+
+        return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
     }
 }
