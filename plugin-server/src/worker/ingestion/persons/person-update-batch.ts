@@ -9,6 +9,8 @@ export interface PersonUpdate {
     uuid: string
     distinct_id: string
     properties: Properties // Original properties from database
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
     created_at: DateTime
     version: number
     is_identified: boolean
@@ -22,6 +24,8 @@ export interface PersonUpdate {
 export interface PersonPropertyUpdate {
     updated: boolean
     properties: Properties
+    properties_last_updated_at: PropertiesLastUpdatedAt
+    properties_last_operation: PropertiesLastOperation
 }
 
 export function fromInternalPerson(person: InternalPerson, distinctId: string): PersonUpdate {
@@ -31,6 +35,8 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         uuid: person.uuid,
         distinct_id: distinctId,
         properties: person.properties, // Original properties from database
+        properties_last_updated_at: person.properties_last_updated_at,
+        properties_last_operation: person.properties_last_operation || {},
         created_at: person.created_at,
         version: person.version,
         is_identified: person.is_identified,
@@ -60,6 +66,8 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         uuid: personUpdate.uuid,
         team_id: personUpdate.team_id,
         properties: finalProperties,
+        properties_last_updated_at: personUpdate.properties_last_updated_at,
+        properties_last_operation: personUpdate.properties_last_operation,
         created_at: personUpdate.created_at,
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
@@ -78,6 +86,8 @@ export function calculatePersonPropertyUpdate(
     const result: PersonPropertyUpdate = {
         updated: false,
         properties: { ...currentProperties },
+        properties_last_updated_at: { ...currentPropertiesLastUpdatedAt },
+        properties_last_operation: { ...currentPropertiesLastOperation },
     }
 
     // Set new properties
