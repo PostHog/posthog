@@ -97,7 +97,6 @@ export function ProjectDropdownMenu({ buttonProps }: { buttonProps?: ButtonPrimi
                                         buttonProps={{
                                             iconOnly: true,
                                             isSideActionRight: true,
-                                            menuItem: true,
                                         }}
                                         tooltip={`View settings for project: ${currentTeam.name}`}
                                         tooltipPlacement="right"
