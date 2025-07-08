@@ -17,6 +17,7 @@ from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.models.organization_setting_definitions import OrganizationSettingKey
 from posthog.models.utils import (
     LowercaseSlugField,
     UUIDModel,
@@ -191,6 +192,25 @@ class Organization(UUIDModel):
         return self.name
 
     __repr__ = sane_repr("name")
+
+    @property
+    def settings_service(self):
+        """Get settings service for this organization"""
+        from posthog.services.organization_settings import OrganizationSettingsService
+
+        return OrganizationSettingsService(self)
+
+    def get_setting(self, setting_key: Union[str, "OrganizationSettingKey"]) -> Any:
+        """Get a setting value (backward compatibility)"""
+        return self.settings_service.get_setting(setting_key)
+
+    def set_setting(self, setting_key: Union[str, "OrganizationSettingKey"], value: Any, user=None) -> None:
+        """Set a setting value (backward compatibility)"""
+        self.settings_service.set_setting(setting_key, value, user)
+
+    def is_setting_enabled(self, setting_key: str) -> bool:
+        """Check if a setting is enabled (backward compatibility)"""
+        return self.settings_service.is_setting_enabled(setting_key)
 
     @property
     def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:

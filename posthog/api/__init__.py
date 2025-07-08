@@ -8,7 +8,7 @@ from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
+from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard, organization_settings
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -428,6 +428,13 @@ organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
+    ["organization_id"],
+)
+
+organizations_router.register(
+    r"settings",
+    organization_settings.OrganizationSettingsViewSet,
+    "organization_settings",
     ["organization_id"],
 )
 
