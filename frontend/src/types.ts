@@ -4269,6 +4269,7 @@ export interface RoleMemberType {
 
 export type APIScopeObject =
     | 'action'
+    | 'access_control'
     | 'activity_log'
     | 'annotation'
     | 'batch_export'
