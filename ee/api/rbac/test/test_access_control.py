@@ -10,6 +10,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models import PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.utils import render_template
 
 
@@ -602,3 +605,65 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
 
 
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
+
+
+class TestAccessControlScopeRequirements(BaseAccessControlTest):
+    """
+    Test that access control endpoints require the correct scopes
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+    def test_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_global_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to global_access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to access_controls endpoint succeed with access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_global_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to global_access_controls endpoint succeed with access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_200_OK
