@@ -7,6 +7,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.data_warehouse_mixin import (
     DataWarehouseInsightQueryMixin,
 )
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
 from posthog.hogql_queries.insights.utils.aggregations import (
     FirstTimeForUserEventsQueryAlternator,
     QueryAlternator,
@@ -101,10 +102,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         Note: DAU can have math_group_type_index because weekly_active/monthly_active get converted to DAU when
         interval >= their time window.
         """
-        if (
-            self.series.math in {"unique_group", "weekly_active", "monthly_active", "dau"}
-            and self.series.math_group_type_index is not None
-        ):
+        if is_groups_math(series=self.series):
             return f'e."$group_{int(self.series.math_group_type_index)}"'
         return "e.person_id"
 
