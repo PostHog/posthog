@@ -15,6 +15,7 @@ import {
 
 import { UserActivity } from './UserActivity'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data
@@ -88,7 +89,7 @@ function PlayerSeekbarTick({
                         item.data.comment
                     ) : (
                         <div className="flex flex-col px-4 py-2 gap-y-2">
-                            <div>{item.data.content}</div>
+                            <TextContent text={item.data.content ?? ''} data-attr="PlayerSeekbarTicks--text-content" />
                             <ProfilePicture
                                 user={
                                     item.data.creation_type === 'GIT'

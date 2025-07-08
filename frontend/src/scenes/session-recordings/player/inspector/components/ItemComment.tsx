@@ -1,4 +1,4 @@
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -12,6 +12,7 @@ import {
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment
@@ -30,13 +31,24 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
 }
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
+    let renderedContent = <>{item.data.content ?? ''}</>
+    if ((item.data.content || '').trim().length > 30) {
+        renderedContent = (
+            <Tooltip
+                title={
+                    <TextContent
+                        text={item.data.content ?? ''}
+                        data-attr="item-annotation-comment-title-rendered-content"
+                    />
+                }
+            >
+                {item.data.content ?? ''}
+            </Tooltip>
+        )
+    }
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
-            {(item.data.content || '').trim().length > 30 ? (
-                <Tooltip title={item.data.content}>{item.data.content}</Tooltip>
-            ) : (
-                item.data.content
-            )}
+            {renderedContent}
         </div>
     )
 }
@@ -107,12 +119,18 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                         })()
                     }}
                     size="xsmall"
+                    icon={<IconPencil />}
                 >
                     Edit annotation
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t cursor-pointer text-wrap">{item.data.content}</div>
+            <div className="p-2 text-xs border-t cursor-pointer text-wrap">
+                <TextContent
+                    text={item.data.content ?? ''}
+                    data-attr="item-annotation-comment-detail-rendered-content"
+                />
+            </div>
 
             <ProfilePicture
                 user={item.data.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : item.data.created_by}
