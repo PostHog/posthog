@@ -400,7 +400,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues, true)
+            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue)
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
