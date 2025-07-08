@@ -60,13 +60,16 @@ export class PersonStoreManager {
             this.hub.PERSON_BATCH_WRITING_MODE === 'SHADOW' &&
             random < this.hub.PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE
         ) {
+            logger.info('🔁', 'Starting shadow mode person batch writing')
             return new PersonStoreManagerForBatch(
                 this.mainPersonStore.forBatch() as MeasuringPersonsStoreForBatch,
                 this.batchWritingPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
             )
         } else if (this.hub.PERSON_BATCH_WRITING_MODE === 'BATCH') {
+            logger.info('🔁', 'Starting batch mode person batch writing')
             return this.batchWritingPersonStore.forBatch()
         }
+        logger.info('🔁', 'Starting none mode person batch writing')
         return this.mainPersonStore.forBatch()
     }
 }

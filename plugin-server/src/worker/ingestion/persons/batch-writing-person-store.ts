@@ -129,7 +129,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
-                const [_, update] = entry
+                const [key, update] = entry
+                logger.info('🔁', 'Flushing person update', {
+                    cacheKey: key,
+                    update,
+                })
                 return update !== null && update.needs_write
             }
         )
