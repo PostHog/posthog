@@ -83,7 +83,7 @@ class InsightSearchNode(AssistantNode):
         cache_misses = 0
 
         try:
-            results, cache_stats = self._search_insights_with_cache_tracking(root_to_search_insights=search_query)
+            results, cache_stats = self._search_insights(root_to_search_insights=search_query)
             cache_hits = cache_stats.get("hits", 0)
             cache_misses = cache_stats.get("misses", 0)
 
@@ -150,23 +150,11 @@ class InsightSearchNode(AssistantNode):
                 root_to_search_insights="",
             )
 
-    def _search_insights_with_cache_tracking(
-        self, root_to_search_insights: str | None = None, limit: int = 10
-    ) -> tuple[list, dict]:
-        """Wrapper around _search_insights that tracks cache statistics."""
+    def _search_insights(self, root_to_search_insights: str | None = None, limit: int = 10) -> tuple[list, dict]:
+        """Optimized insight search with improved data pipeline and cache tracking."""
+        # Initialize cache tracking
         self._current_cache_hits = 0
         self._current_cache_misses = 0
-
-        # Perform the search
-        results = self._search_insights(root_to_search_insights, limit)
-
-        # Return results and cache stats
-        cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
-
-        return results, cache_stats
-
-    def _search_insights(self, root_to_search_insights: str | None = None, limit: int = 10):
-        """Optimized insight search with improved data pipeline."""
 
         # Step 1: Get basic insight data with optimized query size
         initial_fetch_size = 1500 if self._should_semantic_filter(root_to_search_insights) else 3
@@ -189,7 +177,8 @@ class InsightSearchNode(AssistantNode):
         )
 
         if not raw_results:
-            return []
+            cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+            return [], cache_stats
 
         # Step 2: Apply semantic filtering if needed
         if self._should_semantic_filter(root_to_search_insights):
@@ -202,7 +191,9 @@ class InsightSearchNode(AssistantNode):
                 if enriched_results:
                     # Step 4: Final LLM selection of most relevant insight
                     best_insight = self._select_best_insight(enriched_results, root_to_search_insights)
-                    return [best_insight] if best_insight else enriched_results[:1]
+                    results = [best_insight] if best_insight else enriched_results[:1]
+                    cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+                    return results, cache_stats
 
         # Fallback: get full data for most recent insights without semantic filtering
         fallback_insights = [
@@ -211,7 +202,11 @@ class InsightSearchNode(AssistantNode):
         ]
 
         enriched_fallback = self._get_full_queries_for_insights(fallback_insights)
-        return enriched_fallback[:1] if enriched_fallback else []
+        results = enriched_fallback[:1] if enriched_fallback else []
+
+        # Return results and cache stats
+        cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+        return results, cache_stats
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         return "end"
