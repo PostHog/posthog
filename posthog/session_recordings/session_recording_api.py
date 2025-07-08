@@ -656,8 +656,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.deleted = True
         recording.save()
 
-        # Also need to remove from playlist items if it's in one
-        SessionRecordingPlaylistItem.objects.filter(playlist__team=self.team, recording=recording).update(deleted=True)
+        # Hard delete playlist items since they're just a join table
+        SessionRecordingPlaylistItem.objects.filter(playlist__team=self.team, recording=recording).delete()
 
         return Response({"success": True}, status=204)
 

@@ -68,13 +68,13 @@ def bulk_delete_recordings_task(
             if recordings_to_create:
                 SessionRecording.objects.bulk_create(recordings_to_create)
 
-            # 3. Update associated playlist items
-            playlist_items_updated = SessionRecordingPlaylistItem.objects.filter(
+            # 3. Remove associated playlist items (hard delete)
+            playlist_items_deleted = SessionRecordingPlaylistItem.objects.filter(
                 playlist__team=team, recording__in=session_ids_chunk
-            ).update(deleted=True)
+            ).delete()
 
             deleted_count += len(chunk_recordings)
-            playlist_items_deleted_count += playlist_items_updated
+            playlist_items_deleted_count += playlist_items_deleted[0]  # delete() returns (count, {model: count})
             offset += CHUNK_SIZE
 
             # Update progress
