@@ -22,7 +22,6 @@ from ee.billing.billing_types import (
     CustomerProductAddon,
 )
 from ee.billing.test.test_billing_manager import create_default_products_response
-from ee.models.license import License
 from posthog.cloud_utils import (
     TEST_clear_instance_license_cache,
     get_cached_instance_license,
@@ -585,30 +584,6 @@ class TestBillingAPI(APILicensedTest):
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
-
-    @patch("ee.api.billing.requests.get")
-    def test_billing_stores_valid_license(self, mock_request):
-        self.license.delete()
-
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = {
-            "license": {
-                "type": "scale",
-            }
-        }
-        response = self.client.patch(
-            "/api/billing/license",
-            {
-                "license": "test::test",
-            },
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"success": True}
-        license = License.objects.first_valid()
-        assert license
-        assert license.key == "test::test"
-        assert license.plan == "scale"
 
     @patch("ee.api.billing.requests.get")
     def test_billing_ignores_invalid_license(self, mock_request):

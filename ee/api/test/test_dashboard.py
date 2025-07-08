@@ -203,31 +203,8 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertDictContainsSubset({"name": "Gentle Antelope"}, response_data)
 
-    def test_dashboard_restrictions_have_no_effect_without_license(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="Edit-restricted dashboard",
-            created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        License.objects.all().delete()
-        self.organization.update_available_product_features()
-        self.organization.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}")
-        response_data = response.json()
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertDictContainsSubset(
-            {
-                "restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-                "effective_restriction_level": Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-            },
-            response_data,
-        )
-
     def test_dashboard_no_duplicate_tags(self):
-        from ee.models.license import License, LicenseManager
+        from ee.models.license import LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",

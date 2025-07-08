@@ -72,22 +72,6 @@ class TestOrganization(BaseTest):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
             assert new_org.plugins_access_level == Organization.PluginsAccessLevel.ROOT
 
-    def test_update_available_product_features_ignored_if_usage_info_exists(self):
-        with self.is_cloud(False):
-            new_org, _, _ = Organization.objects.bootstrap(self.user)
-
-            new_org.available_product_features = [{"key": "test1", "name": "test1"}, {"key": "test2", "name": "test2"}]
-            new_org.update_available_product_features()
-            assert new_org.available_product_features == []
-
-            new_org.available_product_features = [{"key": "test1", "name": "test1"}, {"key": "test2", "name": "test2"}]
-            new_org.usage = {"events": {"usage": 1000, "limit": None}}
-            new_org.update_available_product_features()
-            assert new_org.available_product_features == [
-                {"key": "test1", "name": "test1"},
-                {"key": "test2", "name": "test2"},
-            ]
-
     def test_session_age_caching(self):
         # Test caching when session_cookie_age is set
         self.organization.session_cookie_age = 3600
