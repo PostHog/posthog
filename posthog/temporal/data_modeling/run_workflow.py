@@ -891,11 +891,6 @@ class CreateJobModelInputs:
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
-    # First, clean up any existing RUNNING jobs
-    await logger.adebug("Cleaning up any existing RUNNING DataModelingJobs before creating new job")
-    cleanup_inputs = CleanupRunningJobsActivityInputs(team_id=inputs.team_id)
-    await cleanup_running_jobs_activity(cleanup_inputs)
-
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
@@ -1112,6 +1107,13 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        await temporalio.workflow.execute_activity(
+            cleanup_running_jobs_activity,
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
