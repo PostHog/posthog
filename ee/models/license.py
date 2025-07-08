@@ -30,7 +30,7 @@ class LicenseManager(models.Manager):
         valid_licenses = self.filter(Q(valid_until__gte=timezone.now()) | Q(plan="cloud"))
         if not valid_licenses:
             return None
-        return valid_licenses.order_by("-valid_until").first()
+        return valid_licenses.first()
 
 
 class License(models.Model):
