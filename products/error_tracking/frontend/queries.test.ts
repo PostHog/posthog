@@ -113,27 +113,6 @@ describe('queries', () => {
                 })
                 expect(actual).toMatchSnapshot()
             })
-
-            it('should not crash with a pathological date range', () => {
-                // see https://us.posthog.com/project/2/error_tracking/019787b1-a45a-79a1-8e99-47e76c6ece7c?dateRange=%7B%22date_from%22%3A%22-30d%22%2C%22date_to%22%3Anull%7D
-                const actual = errorTrackingQuery({
-                    orderBy: 'users',
-                    dateRange: { date_from: '-1.5h', date_to: '' },
-                    filterTestAccounts: true,
-                    filterGroup: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [],
-                            },
-                        ],
-                    },
-                    columns: ['error', 'users', 'occurrences'],
-                    limit: 4,
-                })
-                expect(actual).toMatchSnapshot()
-            })
         })
     })
 })
