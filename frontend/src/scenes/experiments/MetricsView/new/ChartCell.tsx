@@ -1,13 +1,8 @@
 import { useChartColors } from '../shared/colors'
-import {
-    type ExperimentVariantResult,
-    getVariantInterval,
-    isBayesianResult,
-    valueToXCoordinate,
-    getNiceTickValues,
-} from '../shared/utils'
+import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, getNiceTickValues } from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
 import { SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
+import { GridLines, useAxisScale } from '../shared/axis'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
@@ -25,6 +20,7 @@ export function ChartCell({
     showGridLines = true,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
+    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const interval = getVariantInterval(variantResult)
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
@@ -35,9 +31,9 @@ export function ChartCell({
     const viewBoxHeight = 100 // Use percentage-based viewBox
     const barHeightPercent = 30 // Percentage of cell height for the bar (reduced from 40)
     const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
-    const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x1 = scale(lower)
+    const x2 = scale(upper)
+    const deltaX = scale(delta)
 
     if (!hasEnoughData) {
         return (
@@ -49,83 +45,94 @@ export function ChartCell({
 
     return (
         <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
-            <svg
-                viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
-                preserveAspectRatio="none"
-                className="block w-full h-full absolute inset-0"
-            >
-                {/* Grid lines for all ticks - spans full height */}
-                {showGridLines &&
-                    getNiceTickValues(chartRadius).map((value) => (
-                        <line
-                            key={value}
-                            x1={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                            y1={0}
-                            x2={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                            y2={viewBoxHeight}
-                            stroke={value === 0 ? colors.ZERO_LINE : colors.BOUNDARY_LINES}
-                            strokeWidth={value === 0 ? 1.5 : 0.75}
-                            opacity={value === 0 ? 0.6 : 0.5}
+            <div className="relative">
+                <svg
+                    viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                    preserveAspectRatio="xMidYMid meet"
+                    className="w-full max-w-[1000px]"
+                    style={{ minHeight: '100px' }}
+                >
+                    {/* Grid lines for all ticks - spans full height */}
+                    {showGridLines && (
+                        <GridLines
+                            tickValues={getNiceTickValues(chartRadius)}
+                            scale={scale}
+                            height={viewBoxHeight}
+                            zeroLineColor={colors.ZERO_LINE}
+                            gridLineColor={colors.BOUNDARY_LINES}
+                            zeroLineWidth={1.5}
+                            gridLineWidth={0.75}
+                            opacity={0.5}
                         />
-                    ))}
+                    )}
 
-                {/* Gradient definition */}
-                <defs>
-                    <linearGradient
-                        id={`gradient-${metricIndex}-${variantResult.key}-${isSecondary ? 'secondary' : 'primary'}`}
-                        x1="0"
-                        x2="1"
-                        y1="0"
-                        y2="0"
-                    >
-                        {lower < 0 && upper > 0 ? (
-                            <>
-                                <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_NEGATIVE} />
-                                <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_POSITIVE} />
-                                <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                            </>
-                        ) : (
-                            <stop offset="100%" stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE} />
-                        )}
-                    </linearGradient>
-                </defs>
+                    {/* Gradient definition */}
+                    <defs>
+                        <linearGradient
+                            id={`gradient-${metricIndex}-${variantResult.key}-${isSecondary ? 'secondary' : 'primary'}`}
+                            x1="0"
+                            x2="1"
+                            y1="0"
+                            y2="0"
+                        >
+                            {lower < 0 && upper > 0 ? (
+                                <>
+                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                                    <stop
+                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                        stopColor={colors.BAR_NEGATIVE}
+                                    />
+                                    <stop
+                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                        stopColor={colors.BAR_POSITIVE}
+                                    />
+                                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                                </>
+                            ) : (
+                                <stop
+                                    offset="100%"
+                                    stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
+                                />
+                            )}
+                        </linearGradient>
+                    </defs>
 
-                {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
-                {isBayesianResult(variantResult) ? (
-                    <path
-                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                        fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
-                            isSecondary ? 'secondary' : 'primary'
-                        })`}
-                        opacity={0.7}
+                    {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
+                    {isBayesianResult(variantResult) ? (
+                        <path
+                            d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
+                                isSecondary ? 'secondary' : 'primary'
+                            })`}
+                            opacity={0.7}
+                        />
+                    ) : (
+                        <rect
+                            x={x1}
+                            y={y}
+                            width={x2 - x1}
+                            height={barHeightPercent}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
+                                isSecondary ? 'secondary' : 'primary'
+                            })`}
+                            opacity={0.7}
+                            rx={3}
+                            ry={3}
+                        />
+                    )}
+
+                    {/* Delta marker */}
+                    <line
+                        x1={deltaX}
+                        y1={y}
+                        x2={deltaX}
+                        y2={y + barHeightPercent}
+                        stroke={colors.BAR_MIDDLE_POINT}
+                        strokeWidth={2}
+                        shapeRendering="crispEdges"
                     />
-                ) : (
-                    <rect
-                        x={x1}
-                        y={y}
-                        width={x2 - x1}
-                        height={barHeightPercent}
-                        fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
-                            isSecondary ? 'secondary' : 'primary'
-                        })`}
-                        opacity={0.7}
-                        rx={3}
-                        ry={3}
-                    />
-                )}
-
-                {/* Delta marker */}
-                <line
-                    x1={deltaX}
-                    y1={y}
-                    x2={deltaX}
-                    y2={y + barHeightPercent}
-                    stroke={colors.BAR_MIDDLE_POINT}
-                    strokeWidth={2}
-                    shapeRendering="crispEdges"
-                />
-            </svg>
+                </svg>
+            </div>
         </td>
     )
 }
