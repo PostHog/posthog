@@ -541,6 +541,38 @@ export function OutputPane(): JSX.Element {
                             {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
+                    {activeTab === OutputTab.Results && (
+                        <Tooltip title="Copy results to clipboard">
+                            <LemonButton
+                                disabledReason={!hasColumns ? 'No results to copy' : undefined}
+                                type="secondary"
+                                icon={<IconCopy />}
+                                onClick={() => {
+                                    if (response?.columns && response?.results) {
+                                        // Create CSV format
+                                        const csvHeader = response.columns.join(',')
+                                        const csvRows = response.results.map((row: any[]) => 
+                                            row.map(cell => {
+                                                if (cell === null) return 'null'
+                                                if (typeof cell === 'object') return JSON.stringify(cell)
+                                                // Escape commas and quotes in CSV
+                                                const cellStr = String(cell)
+                                                if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+                                                    return `"${cellStr.replace(/"/g, '""')}"`
+                                                }
+                                                return cellStr
+                                            }).join(',')
+                                        )
+                                        const csvContent = [csvHeader, ...csvRows].join('\n')
+                                        void copyToClipboard(csvContent, 'query results')
+                                    }
+                                }}
+                                id="sql-editor-copy-results"
+                            >
+                                Copy
+                            </LemonButton>
+                        </Tooltip>
+                    )}
                     {activeTab === OutputTab.Results && exportContext && (
                         <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
                             <ExportButton

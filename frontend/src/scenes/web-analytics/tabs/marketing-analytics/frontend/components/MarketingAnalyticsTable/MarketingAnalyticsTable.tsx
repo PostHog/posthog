@@ -1,7 +1,7 @@
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { Query } from '~/queries/Query/Query'
 import {
@@ -18,6 +18,7 @@ import { InsightLogicProps } from '~/types'
 import { webAnalyticsDataTableQueryContext } from '../../../../../tiles/WebAnalyticsTile'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { DynamicConversionGoalControls } from './DynamicConversionGoalControls'
+import { TestEventGenerator } from './TestEventGenerator'
 
 interface MarketingAnalyticsTableProps {
     query: DataTableNode
@@ -148,6 +149,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
     return (
         <div className="bg-surface-primary">
+            <TestEventGenerator />
             <div className="p-4 border-b border-border bg-bg-light">
                 <DynamicConversionGoalControls />
             </div>

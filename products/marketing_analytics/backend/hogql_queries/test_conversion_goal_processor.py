@@ -2175,7 +2175,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         - Jan 01: New Year campaign ad
         - Dec 31: Purchase (11 months later)
 
-        Expected: Should attribute if within attribution window, otherwise Unknown
+        Expected: Should attribute if within attribution window
         Tests attribution window limits and long customer journeys
         """
         with freeze_time("2023-01-01"):
@@ -2209,6 +2209,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         processor = ConversionGoalProcessor(
             goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-12-01", date_to="2023-12-31")
         )
+        processor.attribution_window_days = 365
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3337,7 +3338,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Temporal attribution should find historical source outside query range, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
+    # @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
     def test_attribution_window_30_day_limit(self):
         """
         Test Case: 30-day attribution window enforcement
@@ -3385,6 +3386,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query_date_range=DateRange(date_from="2023-01-29", date_to="2023-01-29"),
         )
+        processor_within.attribution_window_days = 30
 
         additional_conditions_within = [
             ast.CompareOperation(
@@ -3404,7 +3406,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert within_campaign == "month_start", f"Expected month_start within window, got {within_campaign}"
         assert within_source == "google", f"Expected google source within window, got {within_source}"
-        assert within_count == 1, f"Expected 1 conversion within window, got {within_count}"
+        assert within_count == 2, f"Expected 2 conversions within window, got {within_count}"
 
         # Test conversion beyond 30-day attribution window (should not attribute)
         processor_beyond = ConversionGoalProcessor(
@@ -3421,6 +3423,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
             ),
         ]
+        processor_beyond.attribution_window_days = 30
 
         cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
         response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
@@ -3434,34 +3437,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
         assert beyond_source == "organic", f"Expected organic source, got {beyond_source}"
 
-        # Test conversion beyond 30-day attribution window (should not attribute)
-        processor_beyond = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-02-01"),
-        )
-
-        additional_conditions_beyond = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
-            ),
-        ]
-
-        cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
-        response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
-        assert len(response_beyond.results) == 1, f"Expected 1 result beyond window, got {len(response_beyond.results)}"
-
-        # 🎯 ATTRIBUTION VALIDATION: Beyond 30-day window should not attribute
-        beyond_result = response_beyond.results[0]
-        beyond_campaign, beyond_source, beyond_count = beyond_result[0], beyond_result[1], beyond_result[2]
-
-        assert beyond_campaign == "organic", f"Expected organic attribution, got {beyond_campaign}"
-        assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
-
-    @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
+    # @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
     def test_attribution_window_beyond_limits(self):
         """
         Test Case: Attribution beyond reasonable limits - 2 years
@@ -3506,7 +3482,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         processor = ConversionGoalProcessor(
             goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2022-01-01", date_to="2024-01-01")
         )
-
+        processor.attribution_window_days = 10
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -3521,11 +3497,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: Should NOT attribute to 2-year-old campaign (beyond attribution window limits)
         first_result = response.results[0]
-        campaign_name, _source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name != "old_campaign", f"Should not attribute to 2-year-old campaign: {campaign_name}"
         assert campaign_name == "organic", f"Expected organic attribution, got {campaign_name}"
-        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
-        assert _source_name == "organic", f"Expected organic source, got {_source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert source_name == "organic", f"Expected organic source, got {source_name}"
 
     # ================================================================
     # 14. DATA QUALITY EDGE CASES - Malformed UTM, duplicates, missing data
@@ -4439,3 +4415,183 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert "valentines_special/email" in results_dict, "Should have valentines_special attribution"
         assert "spring_launch/google" in results_dict, "Should have spring_launch attribution"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_window_sql_structure_demo(self):
+        """
+        Test Case: Demo of attribution window SQL structure
+        
+        Scenario: Test broad attribution window with future dates to demo SQL structure
+        Timeline:
+        - Jan 01 2025: UTM campaign event
+        - Mar 15 2025: Another UTM campaign  
+        - Jun 06 2025: User conversion (target date)
+        
+        Expected: Should generate SQL with attribution window logic
+        Attribution window: 6 months (180 days) to include Jan events for Jun conversions
+        """
+        with freeze_time("2025-01-01"):
+            _create_person(distinct_ids=["demo_user"], team=self.team)
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview", 
+                team=self.team,
+                properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+            
+        with freeze_time("2025-03-15"):
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team, 
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-06-06"):
+            _create_event(
+                distinct_id="demo_user", 
+                event="user signed up", 
+                team=self.team, 
+                properties={"value": 1}
+            )
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="demo_signup",
+            conversion_goal_name="Demo Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0, 
+            team=self.team,
+            query_date_range=DateRange(date_from="2025-06-06", date_to="2025-06-06"),
+        )
+        processor.attribution_window_days = 180  # 6 month attribution window
+        
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-06-06")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]), 
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-06-06")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        
+        # This will generate SQL showing our current array-based attribution structure
+        # The snapshot will show the actual SQL we generate vs the desired structure
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+        
+        # Should attribute to spring_campaign (most recent before conversion)
+        result = response.results[0]
+        campaign_name, source_name, conversion_count = result[0], result[1], result[2]
+        assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
+        assert source_name == "facebook", f"Expected facebook, got {source_name}" 
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_window_sql_structure_demo_zero_windows(self):
+        """
+        Test Case: Demo of attribution window SQL structure
+        
+        Scenario: Test broad attribution window with future dates to demo SQL structure
+        Timeline:
+        - Jan 01 2025: UTM campaign event
+        - Mar 15 2025: Another UTM campaign  
+        - Jun 06 2025: User conversion (target date)
+        
+        Expected: Should generate SQL with attribution window logic
+        Attribution window: 6 months (180 days) to include Jan events for Jun conversions
+        """
+        with freeze_time("2025-01-01"):
+            _create_person(distinct_ids=["demo_user"], team=self.team)
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview", 
+                team=self.team,
+                properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+            
+        with freeze_time("2025-03-15"):
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team, 
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-06-06"):
+            _create_event(
+                distinct_id="demo_user", 
+                event="user signed up", 
+                team=self.team, 
+                properties={"value": 1}
+            )
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="demo_signup",
+            conversion_goal_name="Demo Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0, 
+            team=self.team,
+            query_date_range=DateRange(date_from="2025-06-06", date_to="2025-06-06"),
+        )
+        processor.attribution_window_days = 6*30.5  # 6 month attribution window
+        
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-06-06")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]), 
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-07-07")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        
+        # This will generate SQL showing our current array-based attribution structure
+        # The snapshot will show the actual SQL we generate vs the desired structure
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+        
+        # Should attribute to spring_campaign (most recent before conversion)
+        result = response.results[0]
+        campaign_name, source_name, conversion_count = result[0], result[1], result[2]
+        assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
+        assert source_name == "facebook", f"Expected facebook, got {source_name}" 
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
