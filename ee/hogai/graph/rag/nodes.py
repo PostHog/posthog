@@ -1,4 +1,3 @@
-from collections.abc import Coroutine
 import json
 import xml.etree.ElementTree as ET
 from typing import Any, Literal, cast
@@ -70,7 +69,7 @@ class InsightRagContextNode(AssistantNode):
         actions_in_context: list[MaxActionContext],
         trace_id: Any | None = None,
         distinct_id: Any | None = None,
-    ) -> Coroutine[Any, Any, str]:
+    ) -> str:
         # action.id in UI context actions is typed as float from schema.py, so we need to convert it to int to match the Action.id field
         ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
 

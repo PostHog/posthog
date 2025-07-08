@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from typing import cast
 
 from azure.ai.inference import EmbeddingsClient
@@ -21,7 +20,7 @@ def get_async_azure_embeddings_client() -> EmbeddingsClientAsync:
     )
 
 
-async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> Generator[list[float], None, None]:
+async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> list[list[float]]:
     """Embed documents for storing in a vector database."""
     response = await client.embed(
         input=texts,

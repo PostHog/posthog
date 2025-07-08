@@ -243,7 +243,7 @@ The newly updated query gave us this error:
         )
 
     def _parse_output(self, output, hogql_context: HogQLContext):
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:
