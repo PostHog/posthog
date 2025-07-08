@@ -6,11 +6,10 @@ import { HogFunctionType } from '../types'
  * As such we have a bunch of prebuilt examples here for usage in tests.
  */
 
-export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode' | 'type' | 'template_id'>> = {
+export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecode' | 'type'>> = {
     simple_fetch: {
         type: 'destination',
         hog: "let res := fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n});\n\nprint('Fetch response:', res)",
-        template_id: 'template-simple-fetch',
         bytecode: [
             '_h',
             32,
@@ -62,7 +61,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     recursive_fetch: {
         type: 'destination',
         hog: "for (let i := 0; i < 10; i := i + 1) {\n  fetch(inputs.url, {\n    'headers': inputs.headers,\n    'body': inputs.body,\n    'method': inputs.method\n  });\n}",
-        template_id: 'template-recursive-fetch',
         bytecode: [
             '_h',
             33,
@@ -125,7 +123,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     malicious_function: {
         type: 'destination',
         hog: "fn fibonacci(number) {\n    print('I AM FIBONACCI')\n    if (number < 2) {\n        return number;\n    } else {\n        return fibonacci(number - 1) + fibonacci(number - 2);\n    }\n}\nprint(f'fib {fibonacci(30)}');",
-        template_id: 'template-malicious-function',
         bytecode: [
             '_h',
             41,
@@ -190,7 +187,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     input_printer: {
         type: 'destination',
         hog: "// I print all of the inputs\n\nprint(inputs.input_1)\nprint({'nested': inputs.secret_input_2})\nprint(inputs.secret_input_2)\nprint(f'substring: {inputs.secret_input_3}')\nprint(inputs)",
-        template_id: 'template-input-printer',
         bytecode: [
             '_h',
             32,
@@ -255,7 +251,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
     posthog_capture: {
         type: 'destination',
         hog: "postHogCapture({\n    'event': f'{event.event} (copy)',\n    'distinct_id': event.distinct_id,\n    'properties': {}\n})",
-        template_id: 'template-posthog-capture',
         bytecode: [
             '_h',
             32,
