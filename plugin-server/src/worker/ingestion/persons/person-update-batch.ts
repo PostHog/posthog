@@ -60,8 +60,6 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         uuid: personUpdate.uuid,
         team_id: personUpdate.team_id,
         properties: finalProperties,
-        properties_last_updated_at: {},
-        properties_last_operation: null,
         created_at: personUpdate.created_at,
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,
