@@ -15,6 +15,7 @@ from dags.common import JobOwners
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_session_based import WebOverviewSessionBasedQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
@@ -281,14 +282,13 @@ def compare_web_overview_metrics(
     # Query without pre-aggregated tables but using session-based filtering to match pre-aggregated logic
     # We have an known issue that the buckets are always in UTC, so we need to query in UTC to make sure we're comparing apples to apples
     # This can be improved if we change to hourly buckets but right now this fits our scope
-    # useSessionBasedFiltering=True makes the regular query use the same filtering logic as pre-aggregated tables
+    # Use WebOverviewSessionBasedQueryRunner to match pre-aggregated table filtering logic
     modifiers_regular = HogQLQueryModifiers(
         useWebAnalyticsPreAggregatedTables=False,
         convertToProjectTimezone=False,
-        useSessionBasedFiltering=True
     )
 
-    runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
+    runner_regular = WebOverviewSessionBasedQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
         response_pre_agg = runner_pre_agg.calculate()

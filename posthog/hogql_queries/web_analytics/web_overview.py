@@ -159,41 +159,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
-        # Use session-based filtering if the modifier is enabled (for asset checks)
-        # This mimics the pre-aggregated table filtering behavior
-        use_session_based_filtering = (
-            self.modifiers
-            and self.modifiers.useSessionBasedFiltering
-        )
-
-        if use_session_based_filtering:
-            # Session-based filtering: only filter by session start timestamp
-            parsed_select = parse_select(
-                """
-SELECT
-    any(events.person_id) as session_person_id,
-    session.session_id as session_id,
-    min(session.$start_timestamp) as start_timestamp
-FROM events
-WHERE and(
-    {events_session_id} IS NOT NULL,
-    {event_type_expr},
-    {all_properties},
-)
-GROUP BY session_id
-HAVING {inside_start_timestamp_period}
-            """,
-                placeholders={
-                    "all_properties": self.all_properties(),
-                    "event_type_expr": self.event_type_expr,
-                    "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
-                    "events_session_id": self.events_session_property,
-                },
-            )
-        else:
-            # Regular filtering: filter by both event timestamp and session start timestamp
-            parsed_select = parse_select(
-                """
+        parsed_select = parse_select(
+            """
 SELECT
     any(events.person_id) as session_person_id,
     session.session_id as session_id,
@@ -208,14 +175,14 @@ WHERE and(
 GROUP BY session_id
 HAVING {inside_start_timestamp_period}
             """,
-                placeholders={
-                    "all_properties": self.all_properties(),
-                    "event_type_expr": self.event_type_expr,
-                    "inside_timestamp_period": self._periods_expression("timestamp"),
-                    "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
-                    "events_session_id": self.events_session_property,
-                },
-            )
+            placeholders={
+                "all_properties": self.all_properties(),
+                "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
+                "events_session_id": self.events_session_property,
+            },
+        )
         assert isinstance(parsed_select, ast.SelectQuery)
 
         if self.conversion_count_expr and self.conversion_person_id_expr:
