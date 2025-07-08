@@ -9,6 +9,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.base import BaseTest, ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _acreate_person
+from asgiref.sync import sync_to_async
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -176,14 +177,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, NonAtomicBaseTest):
         for i in range(7):
             id = f"group{i}"
             with freeze_time(f"2024-01-01T{i}:00:00Z"):
-                create_group(
+                sync_to_async(create_group)(
                     group_type_index=0,
                     group_key=id,
                     properties={"test": i},
                     team_id=self.team.pk,
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
-            create_group(
+            sync_to_async(create_group)(
                 group_type_index=1,
                 group_key="org",
                 properties={"test": "7"},

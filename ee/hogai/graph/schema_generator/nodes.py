@@ -156,9 +156,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         groups_types = [
             groups_type
-            async for groups_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id)
-            .order_by("group_type_index")
-            .aiterator()
+            async for groups_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+                "group_type_index"
+            )
         ]
         if not groups_types:
             return "The user has not defined any groups."

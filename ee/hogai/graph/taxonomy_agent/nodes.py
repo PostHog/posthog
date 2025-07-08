@@ -243,7 +243,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             async for group_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id)
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
-            .aiterator()
         ]
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:

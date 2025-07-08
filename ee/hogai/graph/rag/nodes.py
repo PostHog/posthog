@@ -94,7 +94,7 @@ class InsightRagContextNode(AssistantNode):
         )
 
         root = ET.Element("defined_actions")
-        async for action in actions.aiterator():
+        async for action in actions:
             action_tag = ET.SubElement(root, "action")
             id_tag = ET.SubElement(action_tag, "id")
             id_tag.text = str(action.id)

@@ -314,14 +314,14 @@ class TaxonomyAgentToolkit(ABC):
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in await self._groups()]):
+        if entity not in await self._entity_names():
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = self._enrich_props_with_descriptions("person", [prop_def async for prop_def in qs.aiterator()])
+            props = self._enrich_props_with_descriptions("person", [prop_def async for prop_def in qs])
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -341,7 +341,7 @@ class TaxonomyAgentToolkit(ABC):
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")
-            props = self._enrich_props_with_descriptions(entity, [prop_def async for prop_def in qs.aiterator()])
+            props = self._enrich_props_with_descriptions(entity, [prop_def async for prop_def in qs])
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -387,7 +387,7 @@ class TaxonomyAgentToolkit(ABC):
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
         property_to_type = {
-            property_definition.name: property_definition.property_type async for property_definition in qs.aiterator()
+            property_definition.name: property_definition.property_type async for property_definition in qs
         }
         props = [
             (item.property, property_to_type.get(item.property))
