@@ -92,10 +92,10 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
-    minute: 'DD MMM YYYY HH:mm:00',
-    hour: 'DD MMM YYYY HH:00',
-    day: 'DD MMM YYYY',
-    week: 'DD MMM YYYY',
+    minute: 'D MMM YYYY HH:mm:00',
+    hour: 'D MMM YYYY HH:00',
+    day: 'D MMM YYYY',
+    week: 'D MMM YYYY',
     month: 'MMMM YYYY',
 }
 
@@ -105,16 +105,16 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
 function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
     // Same year and month
     if (startDate.month() === endDate.month() && startDate.year() === endDate.year()) {
-        return `${startDate.format('DD')}-${endDate.format('DD MMM YYYY')}`
+        return `${startDate.format('D')}-${endDate.format('D MMM YYYY')}`
     }
 
     // Same year but different months
     if (startDate.year() === endDate.year()) {
-        return `${startDate.format('DD MMM')} - ${endDate.format('DD MMM YYYY')}`
+        return `${startDate.format('D MMM')} - ${endDate.format('D MMM YYYY')}`
     }
 
     // Different years
-    return `${startDate.format('DD MMM YYYY')} - ${endDate.format('DD MMM YYYY')}`
+    return `${startDate.format('D MMM YYYY')} - ${endDate.format('D MMM YYYY')}`
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
