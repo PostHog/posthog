@@ -164,7 +164,7 @@ export function TaxonomicPropertyFilter({
                 if (filter?.key && filter?.type) {
                     setFilter(index, {
                         key: filter?.key,
-                        value: newValue || null,
+                        value: newValue === undefined ? null : newValue,
                         operator: newOperator,
                         type: filter?.type,
                         label: filter?.label,
