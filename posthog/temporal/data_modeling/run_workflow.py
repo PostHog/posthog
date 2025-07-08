@@ -629,6 +629,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     count_query = f"SELECT count() FROM ({query})"
 
     query_node = parse_select(count_query)
+    assert query_node is not None
 
     context = HogQLContext(
         team=team,
@@ -661,6 +662,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
     query_node = parse_select(query)
+    assert query_node is not None
 
     context = HogQLContext(
         team=team,
