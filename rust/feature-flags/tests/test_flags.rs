@@ -4672,3 +4672,240 @@ async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
+    // This test is to ensure that when flag_keys is specified, the dependency graph is included in the response
+    // For example, if parent_flag -> intermediate_flag -> leaf_flag, and we only request parent_flag,
+    // we should get the response for parent_flag, intermediate_flag, and leaf_flag otherwise parent_flag can't be evaluated.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    const LEAF_FLAG_ID: i32 = 1;
+    const INTERMEDIATE_FLAG_ID: i32 = 2;
+    const PARENT_FLAG_ID: i32 = 3;
+    const INDEPENDENT_FLAG_ID: i32 = 4;
+
+    // Create a dependency chain: parent_flag -> intermediate_flag -> leaf_flag
+    // parent_flag depends on intermediate_flag being true
+    // intermediate_flag depends on leaf_flag being true
+    let flag_json = json!([
+        {
+            "id": LEAF_FLAG_ID,
+            "key": "leaf_flag",
+            "name": "Leaf Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INTERMEDIATE_FLAG_ID,
+            "key": "intermediate_flag",
+            "name": "Intermediate Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": LEAF_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": PARENT_FLAG_ID,
+            "key": "parent_flag",
+            "name": "Parent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": INTERMEDIATE_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INDEPENDENT_FLAG_ID,
+            "key": "independent_flag",
+            "name": "Independent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Request only parent_flag with flag_keys where the whole chain evaluates to true because the leaf_flag is true
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 1 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    // Test 2: Request only parent_flag with flag_keys where the whole chain evaluates to false because the leaf_flag is false
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "not-test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 2 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    Ok(())
+}
