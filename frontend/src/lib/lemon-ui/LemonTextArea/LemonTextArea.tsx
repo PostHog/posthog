@@ -106,7 +106,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     <div
                         className={cn(
                             'flex flex-row justify-end text-sm',
-                            textLength === textProps.maxLength && 'text-danger'
+                            textLength >= textProps.maxLength && 'text-danger'
                         )}
                     >
                         {textLength} / {textProps.maxLength}
