@@ -192,6 +192,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
+    members_can_use_personal_api_keys: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
@@ -235,6 +236,7 @@ export const MOCK_DEFAULT_USER: UserType = {
         name,
         slug,
         membership_level,
+        members_can_use_personal_api_keys,
         logo_media_id: null,
     })),
     events_column_config: {
