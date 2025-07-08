@@ -251,7 +251,8 @@ export async function createUserTeamAndOrganization(
     userId: number = commonUserId,
     userUuid: string = commonUserUuid,
     organizationId: string = commonOrganizationId,
-    organizationMembershipId: string = commonOrganizationMembershipId
+    organizationMembershipId: string = commonOrganizationMembershipId,
+    teamOverrides: Record<string, any> = {}
 ): Promise<void> {
     await insertRow(db, 'posthog_user', {
         id: userId,
@@ -295,7 +296,10 @@ export async function createUserTeamAndOrganization(
         name: 'TEST PROJECT',
         created_at: new Date().toISOString(),
     })
-    await insertRow(db, 'posthog_team', {
+
+    // Map drop_events_older_than_seconds to drop_events_older_than for database insertion
+    const { drop_events_older_than_seconds, ...otherTeamOverrides } = teamOverrides
+    const teamData: Record<string, any> = {
         id: teamId,
         project_id: teamId,
         organization_id: organizationId,
@@ -324,7 +328,15 @@ export async function createUserTeamAndOrganization(
         access_control: false,
         base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
-    })
+        ...otherTeamOverrides,
+    }
+
+    // Convert seconds to interval if drop_events_older_than_seconds is provided
+    if (typeof drop_events_older_than_seconds === 'number') {
+        teamData.drop_events_older_than = `${drop_events_older_than_seconds} seconds`
+    }
+
+    await insertRow(db, 'posthog_team', teamData)
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
