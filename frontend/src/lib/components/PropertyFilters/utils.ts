@@ -40,6 +40,7 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    FlagDependencyPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -250,6 +251,9 @@ export function isDataWarehousePersonPropertyFilter(
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
+export function isFlagDependencyPropertyFilter(filter?: AnyFilterLike | null): filter is FlagDependencyPropertyFilter {
+    return filter?.type === PropertyFilterType.FlagDependency
+}
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
 }
@@ -266,6 +270,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
+        isFlagDependencyPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter)
     )
@@ -297,6 +302,7 @@ export function isPropertyFilterWithOperator(
             isRecordingPropertyFilter(filter) ||
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
+            isFlagDependencyPropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
@@ -376,6 +382,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.ErrorTrackingIssue]: PropertyDefinitionType.Resource,
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
+        [PropertyFilterType.FlagDependency]: PropertyDefinitionType.FlagValue,
     }
 
     return mapping[filterType as PropertyFilterType] ?? PropertyDefinitionType.Event
