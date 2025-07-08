@@ -6,6 +6,7 @@ import typing
 import uuid
 
 import pyarrow as pa
+import structlog
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -39,10 +40,11 @@ from posthog.temporal.batch_exports.sql import (
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import (
-    bind_temporal_worker_logger,
-    get_internal_logger,
+    bind_contextvars,
 )
 from posthog.warehouse.util import database_sync_to_async
+
+LOGGER = structlog.get_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -350,19 +352,19 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    await logger.ainfo(
+    bind_contextvars(
+        team_id=inputs.team_id,
+        batch_export_id=inputs.batch_export_id,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        is_backfill=inputs.is_backfill,
+        backfill_id=inputs.backfill_id,
+    )
+    logger = LOGGER.bind()
+    logger.info(
         "Starting batch export for range %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
-    )
-
-    # TODO - this internal logging can be removed once we're happy with the migration of the inputs
-    internal_logger = get_internal_logger()
-    internal_logger.info(
-        "Backfill inputs migration: is_backfill=%s, backfill_id=%s",
-        inputs.is_backfill,
-        inputs.backfill_id,
     )
 
     run = await database_sync_to_async(create_batch_export_run)(
@@ -416,7 +418,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     'failure_check_window' exceeds 'failure_threshold' and attempt to pause the batch export if
     that's the case. Also, a notification is sent to users on every failure.
     """
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status)
+    logger = LOGGER.bind()
 
     not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
     update_params = {
@@ -439,19 +442,19 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     )
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
-        await logger.aerror("Batch export failed with error: %s", batch_export_run.latest_error)
+        logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        await logger.aerror("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
+        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
 
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
             await database_sync_to_async(send_batch_export_run_failure)(inputs.id)
         except Exception:
-            await logger.aexception("Failure email notification could not be sent")
+            logger.exception("Failure email notification could not be sent")
         else:
-            await logger.ainfo("Failure notification email for run %s has been sent", inputs.id)
+            logger.info("Failure notification email for run %s has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -468,10 +471,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
-            await logger.aexception("Batch export could not be automatically paused")
+            logger.exception("Batch export could not be automatically paused")
         else:
             if was_paused:
-                await logger.awarning(
+                logger.warning(
                     "Batch export was automatically paused due to exceeding failure threshold and exhausting "
                     "all automated retries."
                     "The batch export can be unpaused after addressing any errors."
@@ -482,10 +485,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 inputs.batch_export_id,
             )
         except Exception:
-            await logger.aexception("Ongoing backfills could not be automatically cancelled")
+            logger.aexception("Ongoing backfills could not be automatically cancelled")
         else:
             if total_cancelled > 0:
-                await logger.awarning(
+                logger.warning(
                     f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
                     f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
                     " and exhausting all automated retries."
@@ -493,10 +496,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
-        await logger.awarning("Batch export was cancelled")
+        logger.warning("Batch export was cancelled")
 
     else:
-        await logger.ainfo(
+        logger.info(
             "Successfully finished exporting batch %s - %s",
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
@@ -607,8 +610,16 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     Intended to be used in all batch export backfill workflows, usually at the start, to create a
     model instance to represent them in our database.
     """
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    await logger.ainfo(
+    bind_contextvars(
+        team_id=inputs.team_id,
+        batch_export_id=inputs.batch_export_id,
+        status=inputs.status,
+        start_at=inputs.start_at,
+        end_at=inputs.end_at,
+    )
+    logger = LOGGER.bind()
+
+    logger.info(
         "Creating historical export for batches in range %s - %s",
         inputs.start_at,
         inputs.end_at,
@@ -635,22 +646,27 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportBackfill."""
+    bind_contextvars(
+        id=inputs.id,
+        status=inputs.status,
+    )
+    logger = LOGGER.bind()
+
     backfill = await database_sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id),
         status=inputs.status,
         # we currently only call this once the backfill is finished, so we can set the finished_at here
         finished_at=dt.datetime.now(dt.UTC),
     )
-    logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):
-        await logger.aerror("Historical export failed")
+        logger.error("Historical export failed")
 
     elif backfill.status == BatchExportBackfill.Status.CANCELLED:
-        await logger.awarning("Historical export was cancelled.")
+        logger.warning("Historical export was cancelled.")
 
     else:
-        await logger.ainfo(
+        logger.info(
             "Successfully finished exporting historical batches in %s - %s",
             backfill.start_at,
             backfill.end_at,
