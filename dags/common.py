@@ -32,8 +32,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "max_execution_time": "0",
         "max_memory_usage": "0",
         "mutations_sync": "0",
-        "receive_timeout": f"{15 * 60}",
-        # some synchronous queries like dictionary checksumming can be very slow to return
+        "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
@@ -48,14 +47,12 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                     and (
                         (
                             e.code
-                            in (
-                                # these are typically transient errors and unrelated to the query being executed
+                            in (  # these are typically transient errors and unrelated to the query being executed
                                 ErrorCodes.NETWORK_ERROR,
                                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                                 ErrorCodes.NOT_ENOUGH_SPACE,
                                 ErrorCodes.SOCKET_TIMEOUT,
-                                439,
-                                # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
+                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
                             )
                         )
                         # queries that exceed memory limits can be retried if they were killed due to total server
