@@ -1098,8 +1098,10 @@ async def test_cleanup_running_jobs_activity(activity_environment, ateam):
     await database_sync_to_async(completed_job.refresh_from_db)()
 
     assert old_job.status == DataModelingJob.Status.FAILED
+    assert old_job.error is not None
     assert "orphaned when a new data modeling run started" in old_job.error
     assert recent_job.status == DataModelingJob.Status.FAILED
+    assert recent_job.error is not None
     assert "orphaned when a new data modeling run started" in recent_job.error
     assert completed_job.status == DataModelingJob.Status.COMPLETED
 
