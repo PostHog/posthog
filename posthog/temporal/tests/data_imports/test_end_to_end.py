@@ -2103,7 +2103,11 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     mock_finish_row_tracking.assert_called_once()
 
     assert schema_id is not None
-    row_count_in_redis = get_rows(team.id, schema_id)
+    with override_settings(
+        DATA_WAREHOUSE_REDIS_HOST="localhost",
+        DATA_WAREHOUSE_REDIS_PORT="6379",
+    ):
+        row_count_in_redis = get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
