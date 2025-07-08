@@ -1,8 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,7 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
@@ -171,28 +169,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         name: stripHTTP(preflight.site_url),
                     })
                 }
-                // Organization
-                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
-                    if (!currentOrganization) {
-                        return breadcrumbs
-                    }
-                    breadcrumbs.push({
-                        key: 'organization',
-                        symbol: (
-                            <Tooltip title={currentOrganization.name} placement="left">
-                                <UploadedLogo
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                    size="xsmall"
-                                />
-                            </Tooltip>
-                        ),
-                        popover: {
-                            overlay: <OrganizationSwitcherOverlay />,
-                        },
-                    })
-                }
                 // Project
                 if (sceneConfig.projectBased) {
                     if (!currentProject || !currentTeam) {
@@ -205,6 +181,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         popover: {
                             overlay: <ProjectSwitcherOverlay />,
                         },
+                        popover_project: true,
                     })
                 }
 
