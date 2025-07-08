@@ -12,7 +12,7 @@ import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
 import { StoriesPlayer, Story } from './StoriesPlayer'
 
-const IMAGE_STORY_INTERVAL = 4000
+const IMAGE_STORY_INTERVAL = 6000
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
