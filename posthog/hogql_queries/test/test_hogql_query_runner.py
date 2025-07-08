@@ -4,7 +4,9 @@ from posthog.caching.utils import staleness_threshold_map, ThresholdMode
 from posthog.hogql import ast
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 from posthog.models.utils import UUIDT
+from posthog.models import Cohort
 from posthog.schema import HogQLASTQuery, HogQLPropertyFilter, HogQLQuery, HogQLFilters, CachedHogQLQueryResponse
 from posthog.test.base import (
     APIBaseTest,
@@ -150,3 +152,30 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             self.assertIsNotNone(response.cache_target_age)
             self.assertEqual(response.cache_target_age, expected_target_age)
+
+    def test_hogql_cohort_query_has_database_context(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[
+                {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "test_event",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                }
+            ],
+        )
+
+        hogql_cohort = HogQLCohortQuery(cohort=cohort, team=self.team)
+
+        self.assertIsNotNone(hogql_cohort.hogql_context.database)
