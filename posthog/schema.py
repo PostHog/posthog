@@ -1718,6 +1718,8 @@ class NodeKind(StrEnum):
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
+    WEB_ANALYTICS_EXTERNAL_WEB_OVERVIEW_QUERY = "WebAnalyticsExternalWebOverviewQuery"
+    WEB_ANALYTICS_EXTERNAL_WEB_STATS_TABLE_QUERY = "WebAnalyticsExternalWebStatsTableQuery"
     REVENUE_ANALYTICS_CUSTOMER_COUNT_QUERY = "RevenueAnalyticsCustomerCountQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
@@ -1923,7 +1925,7 @@ class QueryResponseAlternative17(BaseModel):
     total_exposures: dict[str, float]
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2406,6 +2408,15 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     )
     date_from: str
     date_to: str
+    explicit_date: Optional[bool] = None
+
+
+class WebAnalyticsExternalWebOverviewRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
     explicit_date: Optional[bool] = None
 
 
@@ -4290,6 +4301,38 @@ class WebAnalyticsExternalSummaryQueryResponse(BaseModel):
     data: dict[str, Any]
     error: Optional[ExternalQueryError] = None
     status: ExternalQueryStatus
+
+
+class WebAnalyticsExternalWebOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: dict[str, Any]
+    error: Optional[ExternalQueryError] = None
+    status: ExternalQueryStatus
+
+
+class WebAnalyticsExternalWebStatsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: dict[str, Any]
+    error: Optional[ExternalQueryError] = None
+    status: ExternalQueryStatus
+
+
+class WebAnalyticsExternalWebStatsTableRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_by: WebStatsBreakdown
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    explicit_date: Optional[bool] = None
+    include_bounce_rate: Optional[bool] = None
+    include_scroll_depth: Optional[bool] = None
+    limit: Optional[int] = None
+    order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
 
 
 class WebExternalClicksTableQueryResponse(BaseModel):
@@ -8231,7 +8274,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8253,7 +8296,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8274,7 +8317,7 @@ class QueryResponseAlternative27(BaseModel):
     )
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8296,7 +8339,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8318,7 +8361,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8345,7 +8388,7 @@ class QueryResponseAlternative30(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8371,7 +8414,7 @@ class QueryResponseAlternative31(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8398,7 +8441,7 @@ class QueryResponseAlternative32(BaseModel):
     types: Optional[list[str]] = None
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8425,7 +8468,7 @@ class QueryResponseAlternative33(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8455,7 +8498,7 @@ class QueryResponseAlternative34(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8480,7 +8523,7 @@ class QueryResponseAlternative35(BaseModel):
     usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8508,7 +8551,7 @@ class QueryResponseAlternative36(BaseModel):
     usedPreAggregatedTables: Optional[bool] = None
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8535,7 +8578,7 @@ class QueryResponseAlternative37(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8556,7 +8599,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8582,7 +8625,7 @@ class QueryResponseAlternative40(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8604,7 +8647,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8625,7 +8668,7 @@ class QueryResponseAlternative43(BaseModel):
     )
 
 
-class QueryResponseAlternative44(BaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8647,7 +8690,7 @@ class QueryResponseAlternative44(BaseModel):
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8669,7 +8712,7 @@ class QueryResponseAlternative45(BaseModel):
     )
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8695,7 +8738,7 @@ class QueryResponseAlternative46(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8722,7 +8765,7 @@ class QueryResponseAlternative48(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8747,7 +8790,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8772,7 +8815,7 @@ class QueryResponseAlternative52(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8794,7 +8837,7 @@ class QueryResponseAlternative53(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8816,7 +8859,7 @@ class QueryResponseAlternative54(BaseModel):
     )
 
 
-class QueryResponseAlternative55(BaseModel):
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8838,7 +8881,7 @@ class QueryResponseAlternative55(BaseModel):
     )
 
 
-class QueryResponseAlternative57(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8859,7 +8902,7 @@ class QueryResponseAlternative57(BaseModel):
     )
 
 
-class QueryResponseAlternative58(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8880,7 +8923,7 @@ class QueryResponseAlternative58(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8906,7 +8949,7 @@ class QueryResponseAlternative60(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8931,7 +8974,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8952,7 +8995,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8973,7 +9016,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8994,7 +9037,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9019,7 +9062,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9469,6 +9512,33 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebAnalyticsExternalSummaryQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebAnalyticsExternalWebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    kind: Literal["WebAnalyticsExternalWebOverviewQuery"] = "WebAnalyticsExternalWebOverviewQuery"
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebAnalyticsExternalWebOverviewQueryResponse] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebAnalyticsExternalWebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown
+    dateRange: DateRange
+    includeBounceRate: Optional[bool] = None
+    includeScrollDepth: Optional[bool] = None
+    kind: Literal["WebAnalyticsExternalWebStatsTableQuery"] = "WebAnalyticsExternalWebStatsTableQuery"
+    limit: Optional[int] = None
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebAnalyticsExternalWebStatsTableQueryResponse] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -10234,7 +10304,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11269,7 +11339,7 @@ class QueryResponseAlternative16(BaseModel):
     variants: Optional[Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]] = None
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11285,7 +11355,7 @@ class QueryResponseAlternative50(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11617,7 +11687,7 @@ class PathsQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11659,28 +11729,26 @@ class QueryResponseAlternative(
             QueryResponseAlternative22,
             QueryResponseAlternative23,
             QueryResponseAlternative24,
-            QueryResponseAlternative25,
             QueryResponseAlternative27,
-            QueryResponseAlternative28,
             QueryResponseAlternative29,
             QueryResponseAlternative30,
-            Any,
             QueryResponseAlternative31,
             QueryResponseAlternative32,
+            Any,
             QueryResponseAlternative33,
             QueryResponseAlternative34,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
             QueryResponseAlternative37,
+            QueryResponseAlternative38,
             QueryResponseAlternative39,
-            QueryResponseAlternative40,
             QueryResponseAlternative41,
+            QueryResponseAlternative42,
             QueryResponseAlternative43,
-            QueryResponseAlternative44,
             QueryResponseAlternative45,
             QueryResponseAlternative46,
+            QueryResponseAlternative47,
             QueryResponseAlternative48,
-            QueryResponseAlternative49,
             QueryResponseAlternative50,
             QueryResponseAlternative51,
             QueryResponseAlternative52,
@@ -11690,8 +11758,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative56,
             QueryResponseAlternative57,
             QueryResponseAlternative58,
+            QueryResponseAlternative59,
             QueryResponseAlternative60,
-            QueryResponseAlternative61,
             QueryResponseAlternative62,
             QueryResponseAlternative63,
             QueryResponseAlternative64,
@@ -11699,6 +11767,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative66,
             QueryResponseAlternative67,
             QueryResponseAlternative68,
+            QueryResponseAlternative69,
+            QueryResponseAlternative70,
         ]
     ]
 ):
@@ -11725,28 +11795,26 @@ class QueryResponseAlternative(
         QueryResponseAlternative22,
         QueryResponseAlternative23,
         QueryResponseAlternative24,
-        QueryResponseAlternative25,
         QueryResponseAlternative27,
-        QueryResponseAlternative28,
         QueryResponseAlternative29,
         QueryResponseAlternative30,
-        Any,
         QueryResponseAlternative31,
         QueryResponseAlternative32,
+        Any,
         QueryResponseAlternative33,
         QueryResponseAlternative34,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
         QueryResponseAlternative37,
+        QueryResponseAlternative38,
         QueryResponseAlternative39,
-        QueryResponseAlternative40,
         QueryResponseAlternative41,
+        QueryResponseAlternative42,
         QueryResponseAlternative43,
-        QueryResponseAlternative44,
         QueryResponseAlternative45,
         QueryResponseAlternative46,
+        QueryResponseAlternative47,
         QueryResponseAlternative48,
-        QueryResponseAlternative49,
         QueryResponseAlternative50,
         QueryResponseAlternative51,
         QueryResponseAlternative52,
@@ -11756,8 +11824,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative56,
         QueryResponseAlternative57,
         QueryResponseAlternative58,
+        QueryResponseAlternative59,
         QueryResponseAlternative60,
-        QueryResponseAlternative61,
         QueryResponseAlternative62,
         QueryResponseAlternative63,
         QueryResponseAlternative64,
@@ -11765,6 +11833,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative66,
         QueryResponseAlternative67,
         QueryResponseAlternative68,
+        QueryResponseAlternative69,
+        QueryResponseAlternative70,
     ]
 
 
@@ -12253,6 +12323,8 @@ class HogQLAutocomplete(BaseModel):
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
+            WebAnalyticsExternalWebOverviewQuery,
+            WebAnalyticsExternalWebStatsTableQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
@@ -12316,6 +12388,8 @@ class HogQLMetadata(BaseModel):
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
+            WebAnalyticsExternalWebOverviewQuery,
+            WebAnalyticsExternalWebStatsTableQuery,
             SessionAttributionExplorerQuery,
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
@@ -12400,6 +12474,8 @@ class MaxInsightContext(BaseModel):
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
+        WebAnalyticsExternalWebOverviewQuery,
+        WebAnalyticsExternalWebStatsTableQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -12483,6 +12559,8 @@ class QueryRequest(BaseModel):
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
+        WebAnalyticsExternalWebOverviewQuery,
+        WebAnalyticsExternalWebStatsTableQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -12570,6 +12648,8 @@ class QuerySchemaRoot(
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
             WebAnalyticsExternalSummaryQuery,
+            WebAnalyticsExternalWebOverviewQuery,
+            WebAnalyticsExternalWebStatsTableQuery,
             RevenueAnalyticsCustomerCountQuery,
             RevenueAnalyticsGrowthRateQuery,
             RevenueAnalyticsOverviewQuery,
@@ -12631,6 +12711,8 @@ class QuerySchemaRoot(
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
+        WebAnalyticsExternalWebOverviewQuery,
+        WebAnalyticsExternalWebStatsTableQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -12696,6 +12778,8 @@ class QueryUpgradeRequest(BaseModel):
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
+        WebAnalyticsExternalWebOverviewQuery,
+        WebAnalyticsExternalWebStatsTableQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -12761,6 +12845,8 @@ class QueryUpgradeResponse(BaseModel):
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
         WebAnalyticsExternalSummaryQuery,
+        WebAnalyticsExternalWebOverviewQuery,
+        WebAnalyticsExternalWebStatsTableQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,

@@ -115,6 +115,8 @@ export enum NodeKind {
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
+    WebAnalyticsExternalWebOverviewQuery = 'WebAnalyticsExternalWebOverviewQuery',
+    WebAnalyticsExternalWebStatsTableQuery = 'WebAnalyticsExternalWebStatsTableQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
@@ -175,6 +177,8 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebAnalyticsExternalWebOverviewQuery
+    | WebAnalyticsExternalWebStatsTableQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -225,6 +229,8 @@ export type QuerySchema =
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
     | WebAnalyticsExternalSummaryQuery
+    | WebAnalyticsExternalWebOverviewQuery
+    | WebAnalyticsExternalWebStatsTableQuery
 
     // Revenue analytics
     | RevenueAnalyticsCustomerCountQuery
@@ -3318,6 +3324,62 @@ export interface WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters
     response?: WebAnalyticsExternalSummaryQueryResponse
+}
+
+export interface WebAnalyticsExternalWebOverviewQueryResponse {
+    data: Record<string, any>
+    status: ExternalQueryStatus
+    error?: ExternalQueryError
+}
+
+export interface WebAnalyticsExternalWebOverviewQuery
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalWebOverviewQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
+    kind: NodeKind.WebAnalyticsExternalWebOverviewQuery
+    dateRange: DateRange
+    properties: WebAnalyticsPropertyFilters
+    response?: WebAnalyticsExternalWebOverviewQueryResponse
+}
+
+export interface WebAnalyticsExternalWebStatsTableQueryResponse {
+    data: Record<string, any>
+    status: ExternalQueryStatus
+    error?: ExternalQueryError
+}
+
+export interface WebAnalyticsExternalWebStatsTableQuery
+    extends Pick<
+        WebAnalyticsQueryBase<WebAnalyticsExternalWebStatsTableQueryResponse>,
+        'dateRange' | 'properties' | 'version'
+    > {
+    kind: NodeKind.WebAnalyticsExternalWebStatsTableQuery
+    breakdownBy: WebStatsBreakdown
+    dateRange: DateRange
+    includeBounceRate?: boolean
+    includeScrollDepth?: boolean
+    limit?: integer
+    orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[]
+    properties: WebAnalyticsPropertyFilters
+    response?: WebAnalyticsExternalWebStatsTableQueryResponse
+}
+
+export interface WebAnalyticsExternalWebOverviewRequest {
+    date_from?: string
+    date_to?: string
+    explicit_date?: boolean
+}
+
+export interface WebAnalyticsExternalWebStatsTableRequest {
+    breakdown_by: WebStatsBreakdown
+    date_from?: string
+    date_to?: string
+    explicit_date?: boolean
+    include_bounce_rate?: boolean
+    include_scroll_depth?: boolean
+    limit?: integer
+    order_by?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[]
 }
 
 export type HeatMapQuerySource = EventsNode
