@@ -20,7 +20,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
 from ee.tasks.subscriptions import _deliver_subscription_report, team_use_temporal_flag
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 

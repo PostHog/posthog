@@ -1,6 +1,5 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,20 +11,24 @@ import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_que
 import { NodeKind } from '~/queries/schema/schema-general'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
+        pageUrl: urls.experiment(EXPERIMENT_FREQUENTIST_TWO_VARIANTS.id),
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/19/': EXPERIMENT_FREQUENTIST_TWO_VARIANTS,
-                '/api/projects/:team_id/experiment_holdouts': [],
-                '/api/projects/:team_id/experiment_saved_metrics/': [],
-                '/api/projects/:team_id/feature_flags/321/': {},
-                '/api/projects/:team_id/feature_flags/321/status/': {},
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.id}/`]:
+                    EXPERIMENT_FREQUENTIST_TWO_VARIANTS,
+                [`/api/projects/:team_id/experiment_holdouts`]: [],
+                [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/`]: {},
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/status/`]:
+                    {},
             },
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
@@ -47,13 +50,7 @@ const meta: Meta = {
 }
 export default meta
 
-export const ExperimentFrequentistTwoVariants: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiment(EXPERIMENT_FREQUENTIST_TWO_VARIANTS.id))
-    }, [])
-    return <App />
-}
-ExperimentFrequentistTwoVariants.play = async () => {
-    // Add a small delay to ensure charts render completely
-    await new Promise((resolve) => setTimeout(resolve, 500))
-}
+type Story = StoryObj<typeof meta>
+
+// Small delay to ensure charts render completely
+export const ExperimentFrequentistTwoVariants: Story = { play: makeDelay(500) }

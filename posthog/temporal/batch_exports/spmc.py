@@ -24,6 +24,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
 from posthog.models import Team
 from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.sync import database_sync_to_async
 from posthog.temporal.batch_exports import sql
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
@@ -59,7 +60,6 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_external_logger, get_logger
-from posthog.warehouse.util import database_sync_to_async
 
 LOGGER = get_logger(__name__)
 EXTERNAL_LOGGER = get_external_logger()
