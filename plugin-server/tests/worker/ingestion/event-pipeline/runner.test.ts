@@ -494,6 +494,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -519,6 +520,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
