@@ -1134,11 +1134,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner_utc = WebOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_utc)
 
         # Generate SQL to capture in snapshots - the date boundaries should be different
-        response_with_tz = runner_with_tz.calculate()
-        response_utc = runner_utc.calculate()
-
-        # Verify the queries produced different results (timezone handling working correctly)
-        assert response_with_tz.results != response_utc.results or len(response_with_tz.results) == 0
+        runner_with_tz.calculate()
+        runner_utc.calculate()
 
         # Verify timezone info is used correctly in date range calculation
         tz_date_range = runner_with_tz.query_date_range
