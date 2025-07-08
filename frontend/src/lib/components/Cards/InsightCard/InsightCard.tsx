@@ -36,6 +36,8 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { ApiError } from 'lib/api'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -162,20 +164,16 @@ function InsightCardInternal(
             return <InsightLoadingState insightProps={insightLogicProps} />
         }
 
-        // We use 512 for query timeouts
-        // Async queries put the error message on data.error_message, while synchronous ones use detail
-        const validationError =
-            apiError?.status === 400 || apiError?.status === 512
-                ? (apiError.detail || apiError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
-                : null
-
-        if (validationError) {
-            return <InsightValidationError detail={validationError} />
-        }
-
         if (apiErrored) {
+            const validationError = extractValidationError(apiError)
+            if (validationError) {
+                return <InsightValidationError detail={validationError} />
+            } else if (apiError instanceof ApiError) {
+                return <InsightErrorState title={apiError?.detail} />
+            }
             return <InsightErrorState />
         }
+
         if (timedOut) {
             return <InsightTimeoutState />
         }
