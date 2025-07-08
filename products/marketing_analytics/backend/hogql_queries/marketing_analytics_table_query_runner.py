@@ -291,7 +291,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
             processor = ConversionGoalProcessor(
-                goal=conversion_goal, index=index, team=self.team, query_date_range=self.query_date_range
+                goal=conversion_goal, index=index, team=self.team
             )
             processors.append(processor)
         return processors

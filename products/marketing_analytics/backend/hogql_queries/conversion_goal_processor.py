@@ -36,7 +36,6 @@ class ConversionGoalProcessor:
     goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]
     index: int
     team: Team
-    query_date_range: DateRange | None
     use_temporal_attribution: bool = True  # For now it's always true, but might be configurable by the user
     utm_pageview_only: bool = (
         True  # Optimization: only search pageviews for UTM data, but might be configurable by the user
