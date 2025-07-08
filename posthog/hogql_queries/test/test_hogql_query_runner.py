@@ -177,5 +177,6 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         hogql_cohort = HogQLCohortQuery(cohort=cohort, team=self.team)
-
         self.assertIsNotNone(hogql_cohort.hogql_context.database)
+        self.assertTrue(hasattr(hogql_cohort.hogql_context.database, "get_all_tables"))
+        self.assertIsInstance(hogql_cohort.hogql_context.database.get_all_tables(), list)
