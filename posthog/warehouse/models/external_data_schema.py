@@ -452,7 +452,11 @@ def get_postgres_row_count(
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s",
+                    """
+                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
+                    UNION ALL
+                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s
+                    """,
                     {"schema": schema},
                 )
                 tables = cursor.fetchall()
