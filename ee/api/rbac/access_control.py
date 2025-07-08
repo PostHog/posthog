@@ -135,6 +135,12 @@ class AccessControlViewSetMixin(_GenericViewSet):
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if request.method == "GET" and self.action in ["access_controls", "global_access_controls"]:
+            return ["access_control:read"]
+
+        return None
+
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
