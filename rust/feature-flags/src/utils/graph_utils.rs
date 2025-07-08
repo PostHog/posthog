@@ -374,7 +374,9 @@ pub fn build_dependency_graph(
 }
 
 /// Filters a dependency graph to include only the requested flags and their dependencies.
-/// Returns None if there were errors during filtering.
+/// Returns None if:
+/// - There were errors during filtering
+/// - The global_graph's internal state is corrupted
 pub fn filter_graph_by_keys(
     global_graph: &DependencyGraph<FeatureFlag>,
     requested_keys: &[String],
