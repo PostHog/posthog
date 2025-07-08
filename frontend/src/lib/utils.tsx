@@ -452,6 +452,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
+}
+
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(resolve, ms)
