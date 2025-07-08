@@ -21,7 +21,7 @@ export function NotebookTableOfContents(): JSX.Element {
                 <div>Start editing your Notebook to see the outline.</div>
             ) : (
                 tableOfContents.map((item) => (
-                    <div style={{ paddingLeft: 12 * item.level }}>
+                    <div key={item.id} style={{ paddingLeft: 12 * item.level }}>
                         <Link onClick={() => onItemClick(item.id)} subtle>
                             {item.textContent}
                         </Link>
