@@ -206,6 +206,9 @@ export function PropertyValue({
         if (name === '') {
             return <i>(empty string)</i>
         }
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
