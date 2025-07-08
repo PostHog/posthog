@@ -1,40 +1,33 @@
 from abc import ABC
-from typing import cast, Literal
 
-from langchain_core.agents import AgentAction
-from langchain_core.messages import ToolMessage as LangchainToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
+from ee.hogai.graph.filter_options.toolkit import FilterOptionsToolkit
 from .nodes import FilterOptionsTool
 from .prompts import (
-    FILTER_OPTIONS_HELP_REQUEST_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
 from posthog.schema import AssistantToolCallMessage
 
 class FilterOptionsToolsNode(AssistantNode, ABC):
-    MAX_ITERATIONS = 3  # Maximum number of iterations for the ReAct agent
+    MAX_ITERATIONS = 5 # Maximum number of iterations for the ReAct agent
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = FilterOptionsToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
-
         input = None
         output = ""
 
         try:
-            # print(f"DEBUG: action: {action}")
-            # print(f"DEBUG: action.tool_input: {action.tool_input}")
+            print(f"DEBUG: action: {action}")
             input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input})
+            print(f"DEBUG: Successfully validated tool: {input.name}")
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -52,10 +45,10 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                         "result": input.arguments.result,  # type: ignore
                         "data": input.arguments.data  # type: ignore
                     }
-                    # print(f"DEBUG: final_answer full_response: {full_response}")
+                    print(f"DEBUG: final_answer full_response: {full_response}")
                     return PartialAssistantState(
                         filter_options_dict=full_response,
-                        filter_options_previous_response_id="",
+                        filter_options_previous_response_id=state.root_tool_call_id or "",
                         intermediate_steps=[],
                         # Preserve the original change and current_filters from the state
                         change=state.change,
@@ -73,57 +66,48 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
 
             # The agent has requested help, so we return a message to the root node
             if input.name == "ask_user_for_help":
-                print(f"DEBUG: ask_user_for_help called with request: '{input.arguments.request}'")  # type: ignore
                 help_message = input.arguments.request  # type: ignore
-                return self._get_reset_state(state, str(help_message))
+                return self._get_reset_state(state, str(help_message), input.name)
 
-        # If we're still here, check if we've hit the iteration limit
+        # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(state, FILTER_OPTIONS_ITERATION_LIMIT_PROMPT)
+            return self._get_reset_state(state, FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations")
 
         if input and not output:
             # Use the toolkit to handle the tool call
-            if input.name == "dynamic_retrieve_entity_properties":
-                output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
-            elif input.name == "dynamic_retrieve_entity_property_values":
+            if input.name == "retrieve_entity_property_values":
                 output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
             elif input.name == "retrieve_entity_properties":
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
-            elif input.name == "retrieve_entity_property_values":
-                output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
             else:
                 output = toolkit.handle_incorrect_response(input)
-
+            
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
-            # Preserve the original change and current_filters from the state
-            change=state.change,
-            current_filters=state.current_filters,
         )
 
-    def router(self, state: AssistantState):
-        # If we have a plan, end the process
+    def router(self, state: AssistantState):        
+        # If we have a final answer, end the process
         if state.filter_options_dict:
-            # print("DEBUG: Router returning 'end' - has filter_options_dict")
             return "end"
-        # Human-in-the-loop. Get out of the filter options subgraph.
-        # Only treat empty string as help request, not other falsy values
-        if state.root_tool_call_id == "":
-            # print("DEBUG: Router returning 'end' - empty root_tool_call_id (help request)")
-            return "end"
-        # If we need more information, continue the process
-        # print("DEBUG: Router returning 'continue'")
+
+        # Check if we have help request messages (created by _get_reset_state)
+        # These are AssistantToolCallMessage instances with specific help content
+        if state.messages:
+            last_message = state.messages[-1]
+            if isinstance(last_message, AssistantToolCallMessage) and last_message.content:
+                if last_message.tool_call_id == "max_iterations" or last_message.tool_call_id == "ask_user_for_help":
+                    return "end"
+
+        # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, state: AssistantState, output: str):
+    def _get_reset_state(self, state: AssistantState, output: str, tool_call_id: str):
         reset_state = PartialAssistantState.get_reset_state()
         reset_state.messages = [
             AssistantToolCallMessage(
-                tool_call_id=state.root_tool_call_id,  # Default to empty string if None
+                tool_call_id=tool_call_id,  # Default to empty string if None
                 content=output,
             )
         ]
-        # Preserve the original change and current_filters from the state
-        # reset_state.change = state.change
-        reset_state.current_filters = state.current_filters
         return reset_state 

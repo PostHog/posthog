@@ -1,36 +1,70 @@
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
 import json
 from datetime import datetime
+GROUP_PROPERTY_FILTER_TYPES = """
+Properties can orginate from the following sources:
+
+- Person Properties:
+    Are associated with a person. For example, $browser, email, name, is_signed_up etc.
+    Use the "name" field from the Person properties array (e.g., $browser, $device_type, email).
+    Example: If filtering on browser type, you might use the key $browser.
+    Use `retrieve_entity_properties` to get the list of all available person properties.
+
+- Session Properties:
+    Are associated with a session. For example, $start_timestamp, $entry_current_url, session duration etc.
+    Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
+    Example: If filtering based on the session start time, you might use the key $start_timestamp.
+    Use `retrieve_entity_properties` to get the list of all available session properties.
+
+- Event Properties:
+    Properties of an event. For example, $current_url, $browser, $ai_error etc
+    Use the "name" field from the Event properties array (e.g. $current_url).
+    Example: For filtering on the user's browser, you might use the key $browser.
+
+PostHog users can group these events into custom groups. For example organisation, instance, account etc.
+You can use the tool `retrieve_entity_properties` to retrieve the full list of properties for the given entity/group and the `retrieve_entity_property_values` to retrieve the values for each property. If no properties are found for the entity then make sure to ask the user for clarification to what entity they are referring to.
+These groups are also used for filtering.
+This is the list of all the groups that this user can generate filters for:
+{{#groups}}, {{.}}{{/groups}}
+
+If the user mentions a group that is not in this list you MUST infer the most similar group to the one the user is referring to.
+If the user mentions a property then you MUST infer the group that the property can belong to.
+After inferring the group, use the tool `retrieve_entity_property_values` to get possible values for the property mentioned by the user.
+If you can infer the correct entity type or the property name then use the tool `ask_user_for_help` to ask the user for clarification.
+
+Example: If user mentions "account property 'team size'":
+1. Infer the entity type and the property name from the user's question. In this case the entity type is "account".
+2. Use the `retrieve_entity_properties` with the infered entity type to get possible values for the property similar to "team size. If you cannot find any properties similar to team size then retry with a different entity type.
+3. After you find the property, use the tool `retrieve_entity_property_values` to get possible values of this property.
+3. If you could generate a filter then use the `final_answer` tool. ONLY USE `final_answer` if you have all the information you need to build the filter, if you don't have all the information you need then use the `ask_user_for_help` tool to clarify.
+"""
 
 FILTER_INITIAL_PROMPT = """
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
 
 <general_knowledge>
 PostHog users can filter their data using various properties and values.
-Properties are classified into groups. Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
-For example, properties can be events, persons, actions, cohorts, sessions properties and more custom groups.
-</general_knowledge>
+Properties are classified into groups based on the source of the property or a user defined group. 
+Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
+For example, properties can of events, persons, actions, cohorts, sessions properties and more custom groups.
 
-<key_points>
-1. Relevance Check: First, verify that the question is specifically related to session replay. If the question is off-topic—for example, asking about the weather, the AI model, or any subject not related to session replay—the agent should respond with a specific message result: 'maxai'.
-2. Ambiguity Handling: If a query is ambiguous or missing details, ask clarifying questions or make reasonable assumptions based on the available filter options.
-3. Infer the property group or the property name from the user's question. Use the tool to retrieve the full list of properties for the given group and the values for each property.
-4. If the user has set filters, you MUST include it in the final answer. DO NOT remove them.
-5. Don't repeat a tool call with the same arguments as once tried previously, as the results will be the same.
-</key_points>
+{GROUP_PROPERTY_FILTER_TYPES}
+
+</general_knowledge>
 
 <algorithm>
 Strictly follow this algorithm:
-1. Verify Query Relevance: Confirm that the user's question is related to filtering recordings.
+1. Verify Query Relevance: Confirm that the user's question is related to filter generation.
 2. Handle Irrelevant Queries: If the question is not related, return a response that explains why the query is outside the scope.
-3. Identify Missing Information: If the question is relevant but lacks some required details, use the tool `ask_user_for_help` to ask the user for clarification.
-4. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
-5. Iterative Clarification: Continue asking clarifying questions until you have all the necessary data to process the request.
-6. Use tools to discover entities, their properties and set their values.
+3. Infer the entity type from the user's question. If you can't infer the entity type then ask the user for clarification on what entity they are referring to.
+4. Based on the entity type, use the tool `retrieve_entity_properties` to discover the property name. If any of the properties are relevant to the user's question then use the tool `retrieve_entity_property_values` to discover the property values.
+5. If you found no property values or they are not what the user asked then simply use the value that the user has provided in the query.
+6. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
+7. If you cannot reliably determine groups, entity, or the property the user is asking to filter by then ask for further clarification.
 7. Return Structured Filter: Once all required data is collected, return a response with result containing the correctly structured answer as per the answer structure guidelines below.
 </algorithm>
 
-
+<response_formats>
 Formats of responses
 1. Question Response Format
 When you need clarification or determines that additional information is required, you should return a response in the following format:
@@ -55,9 +89,9 @@ Once all necessary data is collected, the agent should return the filter in this
                 "values": [
                     {
                         "key": "<key>",
-                        "type": "<PropertyFilterType>", // e.g., PropertyFilterType.Person or PropertyFilterType.Event
+                        "type": "<PropertyFilterType>",
                         "value": ["<value>"],
-                        "operator": "<PropertyOperator>" // e.g., PropertyOperator.Exact or PropertyOperator.IContains
+                        "operator": "<PropertyOperator>"
                     },
                 ],
                 ...
@@ -65,19 +99,15 @@ Once all necessary data is collected, the agent should return the filter in this
         ]
     }
 }
-3. Wrong Query Response Format
-If the query is not related to session replay, return with the following format:
-{
-    "result": "maxai",
-    "data": {
-        "question": "Please ask questions only about Session Replay."
-}
+
 Notes:
 1. Replace <date_from> and <date_to> with valid date strings.
 2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
 3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the session replay filtering process.
+4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+</response_formats>
 
+<date_fields>
 Below is a refined description for the date fields and their types:
 
 Date Fields and Types
@@ -89,7 +119,9 @@ date_from:
 date_to:
 - Default Value: Set as null when the date range extends to today.
 - Custom Date: If a specific end date is required, use the format "YYYY-MM-DD".
+</date_fields>
 
+<filter_logical_operator>
 Filter Logical Operator
 - Definition: The FilterLogicalOperator defines how filters should be combined.
 - Allowed Values: 'AND' or 'OR'
@@ -136,8 +168,10 @@ Property Operator
     --Maximum for 'max'
     --In for 'in'
     --NotIn for 'not_in'
-- Usage: Use it as an enum, for example, PropertyOperator.Exact for the exact match operator.
 
+</filter_logical_operator>
+
+<examples_and_rules>
 ## Examples and Rules
 
 1. Combining Filters with the AND Operator
@@ -182,6 +216,7 @@ json
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
+            "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
     "filter_group": {
     "type": FilterLogicalOperator.OR,
     "values": [
@@ -219,7 +254,8 @@ Notes:
 
 - Default Operators:
 In most cases, the operator can be either exact or contains:
-- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator (PropertyOperator.IContains) since the URL may include parameters.
+- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("PropertyOperator.IContains") since the URL may include parameters.
+
 - Exact Matching Example:
 If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type. For example:
 
@@ -229,6 +265,8 @@ json
     "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_test_accounts": "<boolean>",
     "filter_group": {
         "type": FilterLogicalOperator.AND,
         "values": [
@@ -252,7 +290,7 @@ json
 
 - Frustrated Users (Rageclicks):
 If the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:
-- "id": "$rageclick", "name": "$rageclick", and "type": "event"
+- "id": "$rageclick", "name": "$rageclick", "type": "event"
 
 - Users Facing Bugs/Errors/Problems:
 For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
@@ -263,10 +301,10 @@ The blank, default `filter_group` value you can use is:
 
 json
 {
-    "type": "AND",
+    "type": FilterLogicalOperator.AND,
     "values": [
         {
-            "type": "AND",
+            "type": FilterLogicalOperator.AND,
             "values": []
         }
     ]
@@ -289,18 +327,16 @@ json
         }
 }
 
-5. Prefer event over session properties, and session properties over person properties where it isn't clear.
-
-6. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
-7. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
-
+5. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
+6. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
+</examples_and_rules>
 """
 
 day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
 FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
 
-FILTER_PROPERTIES_PROMPT = f"""
+FILTER_PROPERTIES_PROMPT = """
 <taxonomy_info>
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
@@ -310,23 +346,6 @@ Below you will find information on how to correctly discover the taxonomy of the
 - Purpose:
 The <key> represents the name of the property on which the filter is applied.
 
-- Source of Properties:
-- Person Properties:
-    Use the "name" field from the Person properties array (e.g., $browser, $device_type, email).
-    Example: If filtering on browser type, you might use the key $browser.
-
-- Session Properties:
-    Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
-    Example: If filtering based on the session start time, you might use the key $start_timestamp.
-
-- Event Properties:
-    Use the "name" field from the Event properties array (e.g. $current_url).
-    Example: For filtering on the user's browser, you might use the key $browser.
-
-- Events:
-    In some cases, the filter might reference a predefined event name (e.g., "$rageclick", "recording viewed", etc.).
-    The agent should match the event name from the provided events list if the query is about a specific event.
-
 - Type Determination:
 The expected data type can be inferred from the property_type field provided in each property object:
 - "String" indicates the value should be a string.
@@ -335,6 +354,7 @@ The expected data type can be inferred from the property_type field provided in 
 - "DateTime", "Duration" and other types should follow their respective formats.
 - A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.
 
+<value_fields>
 <value> Field
 
 - Purpose:
@@ -349,38 +369,6 @@ Ensure the values in this array match the expected type of the property identifi
 - Multiple Values:
 The <value> array can contain multiple items when the filter should match any one of several potential values.
 
-Special Considerations and Examples
-
-- Guessing the Property Type:
-Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
-
-- Event Filtering:
-When the query references an event (such as a user action or system event) by name, verify that the <key> corresponds to an entry in the Event properties or the provided list of event names.
-</core_property_groups>
-
-<custom_property_groups>
-Custom property groups are groups that are not part of the core property groups.
-They are created by the project owner and are available to the user's project.
-You can use the tool `dynamic_retrieve_entity_properties` to retrieve the full list of properties for the given group and the `dynamic_retrieve_entity_property_values` to retrieve the values for each property.
-They follow the same format as the core property groups.
-
-For this project the names of the custom property groups are:
-{{#groups}}, {{.}}{{/groups}}
-
-TOOL USAGE RULES:
-- When you encounter an unknown property (like "team size", "account name", etc.), you MUST use tools to discover it
-- For event properties → use `dynamic_retrieve_entity_properties` with entity="event"
-- For person properties → use `dynamic_retrieve_entity_properties` with entity="person"
-- For session properties → use `dynamic_retrieve_entity_properties` with entity="session"
-- For other properties → use `dynamic_retrieve_entity_properties` with appropriate group entity
-- ALWAYS retrieve property values if unsure what values are available
-
-Example: If user mentions "account property 'team size'":
-1. First use `dynamic_retrieve_entity_properties` to find which entity has "team size" 
-2. Then use `dynamic_retrieve_entity_property_values` to get possible values for the property "team size"
-3. Finally build the filter using the `final_answer` tool
-
-</custom_property_groups>
 
 <supported_operators>
 Supported operators for the String or Numeric types are:
@@ -407,14 +395,27 @@ Supported operators for the Boolean type are:
 - is set
 - is not set
 
-All operators take a single value except for `equals` and `doesn't equal which can take one or more values.
+All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
 </supported_operators>
+
+
+Special Considerations and Examples
+
+- Guessing the Property Type:
+Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
+
+
+</value_fields>
+
+
 </taxonomy_info>
 
-
-<final_answer>
-Once ready, you must call the `final_answer` tool, which requires determining the .
-</final_answer>
+INSTRUCTIONS:
+1. You MUST use tools to explore available properties before creating filters about properties.
+2. TOOL USAGE IS REQUIRED FOR PROPERTY FILTERS - Don't guess property names or values. Use the tools to discover them first.
+3. You MUST call `final_answer` ONLY when you have a complete filter structure do not call if if you're asking for clarification. You MUST provide both fields:
+   - result: "filter" 
+   - data: The complete updated filter object (including date_from, date_to, filter_group, and all the other fields that are present in the current filter).
 """.strip()
 
 
@@ -423,13 +424,11 @@ HUMAN_IN_THE_LOOP_PROMPT = """
 Ask the user for clarification if:
 - The user's question is ambiguous.
 - You can't find matching events or properties.
+- You can't find matching property values.
 - You're unable to build a filter that effectively answers the user's question.
-Use the tool `ask_user_for_help` to ask the user for clarification.
+- Use the `ask_user_for_help` tool to ask the user for clarification.
 </human_in_the_loop>
 """.strip()
-
-
-FILTER_OPTIONS_HELP_REQUEST_PROMPT = """I need help understanding your request. {{{request}}}"""
 
 FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
 - What type of events or actions are you interested in?
@@ -448,27 +447,12 @@ The user has already set the following filters:
 """
 
 USER_FILTER_OPTIONS_PROMPT = """
-Generate a structured filter that would help achieve the following goal:
+Goal: {{{change}}}
 
-{{{change}}}
+Current filters: {{{current_filters}}}
 
-Current filters are: {{{current_filters}}}
+DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 
-ANALYSIS APPROACH:
-1. **Simple Changes**: If this is a simple modification (like changing date ranges, durations, or basic properties), modify the current filters directly and call `final_answer` immediately.
-
-2. **Complex Changes**: If you need to discover new events or properties, use the available tools first, then call `final_answer`.
-
-FINAL ANSWER STRUCTURE:
-The final_answer tool expects:
-- result: "filter" 
-- data: Complete filter object with date_from, date_to, filter_group, and other properties defined in the response_formats section.
-
-IMPORTANT:
-- MODIFY the existing filters, don't replace them entirely
-- For date changes: use formats like "-3d" (3 days), "-1h" (1 hour), "2024-01-15" (specific date)
-- Call `final_answer` as soon as you have a complete filter structure
-- 
-
-Remember: Your goal is to MODIFY or ADD to the existing filters efficiently.
+BE CAREFUL WITH THE OPERATORS. USE THE CORRECT OPERATORS FOR THE PROPERTY TYPE. 
+Always use the enum format. For example PropertyOperator.Exact or directly 'exact' DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
 """
