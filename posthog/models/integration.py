@@ -25,7 +25,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
-from products.messaging.backend.providers.mailjet import MailjetProvider
+from products.messaging.backend.providers import MailjetProvider, TwilioProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -1031,3 +1031,56 @@ class GitHubIntegration:
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+
+class TwilioIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "twilio":
+            raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @property
+    def twilio_provider(self) -> TwilioProvider:
+        return TwilioProvider()
+
+    @classmethod
+    def integration_from_keys(
+        cls, account_sid: str, auth_token: str, phone_number: str, team_id: int, created_by: Optional[User] = None
+    ) -> Integration:
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="twilio",
+            integration_id=account_sid,
+            defaults={
+                "config": {
+                    "account_sid": account_sid,
+                    "phone_number": phone_number,
+                },
+                "sensitive_config": {
+                    "auth_token": auth_token,
+                },
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def verify(self):
+        phone_number = self.integration.config.get("phone_number")
+
+        verification_result = self.twilio_provider.verify_phone_number(phone_number)
+
+        if verification_result.get("status") == "success":
+            updated_config = {"verified": True}
+
+            # Merge the new config with existing config
+            updated_config = {**self.integration.config, **updated_config}
+            self.integration.config = updated_config
+            self.integration.save()
+
+        return verification_result
