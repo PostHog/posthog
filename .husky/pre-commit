@@ -1,4 +1,4 @@
 #!/bin/sh
-# . "$(dirname "$0")/_/husky.sh"
+. "$(dirname "$0")/_/husky.sh"
 
-# NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
+NODE_OPTIONS='--max-old-space-size=8192' pnpm lint-staged
