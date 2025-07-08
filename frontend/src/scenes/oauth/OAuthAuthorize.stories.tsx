@@ -71,6 +71,7 @@ export const DefaultScopes: StoryFn = () => {
         })
         router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
     }, [])
+
     return <App />
 }
 
@@ -85,5 +86,6 @@ export const WithScopes: StoryFn = () => {
         })
         router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
     }, [])
+
     return <App />
 }
