@@ -1,35 +1,26 @@
-import xml.etree.ElementTree as ET
-from abc import ABC
 from functools import cached_property
-from typing import cast, Literal, Optional, Union
+from typing import cast, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
-    ToolMessage as LangchainToolMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import ValidationError, Field, create_model
 
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
-from .prompts import FILTER_INITIAL_PROMPT, FILTER_PROPERTIES_PROMPT, FILTER_SET_PROMPT, HUMAN_IN_THE_LOOP_PROMPT, USER_FILTER_OPTIONS_PROMPT
-from posthog.models.group_type_mapping import GroupTypeMapping
-from ee.hogai.graph.query_planner.toolkit import (
-    ask_user_for_help,
-    retrieve_entity_property_values,
-    retrieve_entity_properties
+from .prompts import (
+    FILTER_INITIAL_PROMPT,
+    FILTER_PROPERTIES_PROMPT,
+    FILTER_SET_PROMPT,
+    HUMAN_IN_THE_LOOP_PROMPT,
+    USER_FILTER_OPTIONS_PROMPT,
 )
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from ee.hogai.utils.helpers import remove_line_breaks
+from posthog.models.group_type_mapping import GroupTypeMapping
 from pydantic import BaseModel
 from .toolkit import final_answer, retrieve_entity_property_values, retrieve_entity_properties, ask_user_for_help
 
@@ -40,9 +31,11 @@ FilterOptionsToolUnion = Union[
     final_answer,
 ]
 
+
 class FilterOptionsTool(BaseModel):
     name: str
     arguments: FilterOptionsToolUnion
+
 
 class FilterOptionsNode(AssistantNode):
     """Node for generating filtering options based on user queries."""
@@ -57,10 +50,7 @@ class FilterOptionsNode(AssistantNode):
 
     @cached_property
     def _team_groups(self) -> list[GroupTypeMapping]:
-        return list(
-            GroupTypeMapping.objects.filter(project_id=self._team.project.id)
-            .order_by("group_type_index")
-        )
+        return list(GroupTypeMapping.objects.filter(project_id=self._team.project.id).order_by("group_type_index"))
 
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
@@ -77,7 +67,7 @@ class FilterOptionsNode(AssistantNode):
             .format_messages(current_set_filters=current_set_filters)[0]
             .content,
         )
-    
+
     def _get_model(self, state: AssistantState):
         return ChatOpenAI(
             model="gpt-4o",
@@ -107,18 +97,24 @@ class FilterOptionsNode(AssistantNode):
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
         ]
 
-        messages = system_messages + [("human", USER_FILTER_OPTIONS_PROMPT)]
+        messages = [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT)]
 
         if state.intermediate_steps:
             # Add tool execution context as system messages
             for action, result in state.intermediate_steps:
                 if result is not None:
-                    tool_context = f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {result}"
-                    messages.append(("system", f"Tool execution result: {tool_context} \n\nContinue with the next appropriate tool call."))
+                    tool_context = (
+                        f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {result}"
+                    )
+                    messages.append(
+                        (
+                            "system",
+                            f"Tool execution result: {tool_context} \n\nContinue with the next appropriate tool call.",
+                        )
+                    )
 
         conversation = ChatPromptTemplate(messages, template_format="mustache")
         return conversation
-    
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return filtering options."""
@@ -137,10 +133,8 @@ class FilterOptionsNode(AssistantNode):
             "person",
             "session",
             "event",
-            *[group_type for group_type in self._team_group_types],
+            *self._team_group_types,
         ]
-
-        print(f"Team group types: {entities}")
 
         output_message = chain.invoke(
             {
