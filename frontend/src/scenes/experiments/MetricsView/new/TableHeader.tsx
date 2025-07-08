@@ -1,7 +1,8 @@
-import { type ExperimentVariantResult, isBayesianResult } from '../shared/utils'
+import { type ExperimentVariantResult, isBayesianResult, getNiceTickValues } from '../shared/utils'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } from './constants'
-import { ChartAxis } from '../shared/axis'
+import { TickLabels, useAxisScale } from '../shared/axis'
+import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 
 interface TableHeaderProps {
     results: NewExperimentQueryResponse[]
@@ -16,6 +17,11 @@ export function TableHeader({ results, chartRadius }: TableHeaderProps): JSX.Ele
 
     const isBayesian = firstVariantResult ? isBayesianResult(firstVariantResult) : false
     const significanceHeader = isBayesian ? 'Chance to Win' : 'P-value'
+
+    // Set up tick values and scaling for the header
+    const tickValues = chartRadius ? getNiceTickValues(chartRadius) : []
+    const scale = useAxisScale(chartRadius || 0, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const { ticksSvgRef } = useSvgResizeObserver([tickValues, chartRadius])
 
     return (
         <thead>
@@ -34,25 +40,22 @@ export function TableHeader({ results, chartRadius }: TableHeaderProps): JSX.Ele
                 </th>
                 <th className="min-w-[400px] border-b-2 border-border bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
                     {chartRadius && chartRadius > 0 ? (
-                        <div className="relative">
+                        <div className="min-w-[780px]">
                             <svg
+                                ref={ticksSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
                                 className="w-full max-w-[1000px]"
                                 style={{ minHeight: `${TICK_PANEL_HEIGHT + 10}px` }}
                             >
-                                <ChartAxis
-                                    chartRadius={chartRadius}
-                                    height={TICK_PANEL_HEIGHT + 10}
+                                <TickLabels
+                                    tickValues={tickValues}
+                                    scale={scale}
+                                    y={TICK_PANEL_HEIGHT + 2}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
-                                    edgeMargin={SVG_EDGE_MARGIN}
-                                    showGridLines={false}
-                                    tickLabelsY={TICK_PANEL_HEIGHT + 2}
-                                    tickLabelsProps={{
-                                        fontSize: TICK_FONT_SIZE,
-                                        fontWeight: '600',
-                                        dominantBaseline: 'middle',
-                                    }}
+                                    fontSize={TICK_FONT_SIZE}
+                                    fontWeight="600"
+                                    dominantBaseline="middle"
                                 />
                             </svg>
                         </div>
