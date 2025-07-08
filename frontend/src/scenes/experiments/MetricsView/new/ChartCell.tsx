@@ -2,7 +2,8 @@ import { useChartColors } from '../shared/colors'
 import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, getNiceTickValues } from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
 import { SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
-import { GridLines, useAxisScale } from '../shared/axis'
+import { GridLines } from './GridLines'
+import { useAxisScale } from './useAxisScale'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult

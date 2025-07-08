@@ -1,7 +1,8 @@
 import { type ExperimentVariantResult, isBayesianResult, getNiceTickValues } from '../shared/utils'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } from './constants'
-import { TickLabels, useAxisScale } from '../shared/axis'
+import { useAxisScale } from './useAxisScale'
+import { TickLabels } from './TickLabels'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 
 interface TableHeaderProps {
