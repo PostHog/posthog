@@ -7,6 +7,7 @@ import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experi
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { makeDelay } from 'lib/utils'
 
 const meta: Meta = {
     component: App,
@@ -20,11 +21,11 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/14/': EXPERIMENT_WITH_MEAN_METRIC,
-                '/api/projects/:team_id/experiment_holdouts': [],
-                '/api/projects/:team_id/experiment_saved_metrics/': [],
-                '/api/projects/:team_id/feature_flags/139/': {},
-                '/api/projects/:team_id/feature_flags/139/status/': {},
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_MEAN_METRIC.id}/`]: EXPERIMENT_WITH_MEAN_METRIC,
+                [`/api/projects/:team_id/experiment_holdouts`]: [],
+                [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/status/`]: {},
             },
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
@@ -43,9 +44,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const ExperimentWithMeanMetric: Story = {
-    play: async () => {
-        // Add a small delay to ensure charts render completely
-        await new Promise((resolve) => setTimeout(resolve, 500))
-    },
-}
+
+// Small delay to ensure charts render completely
+export const ExperimentWithMeanMetric: Story = { play: makeDelay(500) }

@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { makeDelay } from 'lib/utils'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_FREQUENTIST_FIVE_VARIANTS from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants.json'
@@ -21,11 +22,13 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/20/': EXPERIMENT_FREQUENTIST_FIVE_VARIANTS,
-                '/api/projects/:team_id/experiment_holdouts': [],
-                '/api/projects/:team_id/experiment_saved_metrics/': [],
-                '/api/projects/:team_id/feature_flags/322/': {},
-                '/api/projects/:team_id/feature_flags/322/status/': {},
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_FREQUENTIST_FIVE_VARIANTS.id}/`]:
+                    EXPERIMENT_FREQUENTIST_FIVE_VARIANTS,
+                [`/api/projects/:team_id/experiment_holdouts`]: [],
+                [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_FIVE_VARIANTS.feature_flag.id}/`]: {},
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_FIVE_VARIANTS.feature_flag.id}/status/`]:
+                    {},
             },
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
@@ -48,9 +51,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const ExperimentFrequentistFiveVariants: Story = {
-    play: async () => {
-        // Add a small delay to ensure charts render completely
-        await new Promise((resolve) => setTimeout(resolve, 500))
-    },
-}
+
+// Small delay to ensure charts render completely
+export const ExperimentFrequentistFiveVariants: Story = { play: makeDelay(500) }

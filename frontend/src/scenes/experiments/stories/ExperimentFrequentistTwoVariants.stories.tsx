@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -21,11 +22,13 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/19/': EXPERIMENT_FREQUENTIST_TWO_VARIANTS,
-                '/api/projects/:team_id/experiment_holdouts': [],
-                '/api/projects/:team_id/experiment_saved_metrics/': [],
-                '/api/projects/:team_id/feature_flags/321/': {},
-                '/api/projects/:team_id/feature_flags/321/status/': {},
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.id}/`]:
+                    EXPERIMENT_FREQUENTIST_TWO_VARIANTS,
+                [`/api/projects/:team_id/experiment_holdouts`]: [],
+                [`/api/projects/:team_id/experiment_saved_metrics/`]: [],
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/`]: {},
+                [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/status/`]:
+                    {},
             },
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
@@ -48,9 +51,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const ExperimentFrequentistTwoVariants: Story = {
-    play: async () => {
-        // Add a small delay to ensure charts render completely
-        await new Promise((resolve) => setTimeout(resolve, 500))
-    },
-}
+
+// Small delay to ensure charts render completely
+export const ExperimentFrequentistTwoVariants: Story = { play: makeDelay(500) }
