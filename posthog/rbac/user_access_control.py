@@ -5,6 +5,7 @@ from django.db.models import Q, OuterRef, Case, When, Value, Model, QuerySet, Ex
 from django.db.models.functions import Cast
 from rest_framework import serializers
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from enum import Enum
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -29,6 +30,18 @@ try:
     from ee.models.rbac.access_control import AccessControl
 except ImportError:
     pass
+
+
+class AccessSource(Enum):
+    """Enum for how a user got access to a resource"""
+
+    CREATOR = "creator"
+    ORGANIZATION_ADMIN = "organization_admin"
+    EXPLICIT_MEMBER = "explicit_member"
+    EXPLICIT_ROLE = "explicit_role"
+    PROJECT_ADMIN = "project_admin"
+    DEFAULT = "default"
+
 
 AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
@@ -112,8 +125,13 @@ class UserAccessControl:
         self._organization_id = organization_id
 
     def _clear_cache(self):
-        # Primarily intended for tests
         self._cache = {}
+        if hasattr(self, "_cached_access_controls"):
+            delattr(self, "_cached_access_controls")
+        if hasattr(self, "_organization_membership"):
+            delattr(self, "_organization_membership")
+        if hasattr(self, "_user_role_ids"):
+            delattr(self, "_user_role_ids")
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
@@ -370,6 +388,58 @@ class UserAccessControl:
         # If they aren't the creator then they need to be a project admin or org admin
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         return self.check_access_level_for_object(self._team or obj, required_level="admin", explicit=True)
+
+    def get_access_source_for_object(
+        self, obj: Model, resource: Optional[APIScopeObject] = None
+    ) -> Optional[AccessSource]:
+        """
+        Determine how the user got access to an object.
+        Returns None if the user has no access context.
+        """
+        resource = resource or model_to_resource(obj)
+        org_membership = self._organization_membership
+
+        if not resource or not org_membership:
+            return None
+
+        # Check if user is the creator
+        if getattr(obj, "created_by", None) == self._user:
+            return AccessSource.CREATOR
+
+        # Check if user is org admin
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return AccessSource.ORGANIZATION_ADMIN
+
+        # If access controls aren't supported, return default
+        if not self.access_controls_supported:
+            return AccessSource.DEFAULT
+
+        # Get cached access controls for this object
+        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        cached_controls = self._get_access_controls(filters)
+
+        # Check for explicit member access
+        if any(ac.organization_member_id == org_membership.id for ac in cached_controls):
+            return AccessSource.EXPLICIT_MEMBER
+
+        # Check for explicit role access
+        if any(ac.role_id in self._user_role_ids for ac in cached_controls if ac.role_id):
+            return AccessSource.EXPLICIT_ROLE
+
+        # Check for project-level access
+        if self._team is None:
+            return AccessSource.DEFAULT
+
+        project_filters = self._access_controls_filters_for_object("project", str(self._team.id))
+        project_access_controls = self._get_access_controls(project_filters)
+        if any(
+            ac.resource_id == str(self._team.id) and ac.organization_member_id == org_membership.id
+            for ac in project_access_controls
+        ):
+            return AccessSource.PROJECT_ADMIN
+
+        # Default access
+        return AccessSource.DEFAULT
 
     # Resource level - checking conditions for the resource type
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:

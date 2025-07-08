@@ -75,6 +75,7 @@ export default {
                 '/api/environments/:team_id/integrations/': empty,
                 '/api/projects/:team_id/app_metrics/:plugin_config_id?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
                 '/api/projects/:team_id/app_metrics/:plugin_config_id/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
+                '/api/environments/:team_id/external_data_sources/wizard': empty,
             },
         }),
     ],

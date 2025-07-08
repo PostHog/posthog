@@ -108,7 +108,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
         setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
-        setPreviousUrl: (previousUrl: string) => ({ previousUrl }),
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -122,12 +121,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             false,
             {
                 setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
-            },
-        ],
-        previousUrl: [
-            '',
-            {
-                setPreviousUrl: (_, { previousUrl }) => previousUrl,
             },
         ],
     }),
@@ -521,31 +514,23 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     })),
-    urlToAction(({ values, actions }) => ({
+    urlToAction(({ values }) => ({
         [urls.sqlEditor()]: () => {
-            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && values.previousUrl !== urls.sqlEditor()) {
-                if (panelLayoutLogic.values.activePanelIdentifier === 'Database') {
-                    actions.setWasPanelActive(true)
-                } else {
-                    actions.setWasPanelActive(false)
-                }
+            if (values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
                 panelLayoutLogic.actions.showLayoutPanel(true)
                 panelLayoutLogic.actions.setActivePanelIdentifier('Database')
                 panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
             }
-            actions.setPreviousUrl(urls.sqlEditor())
         },
         '*': () => {
             if (
                 values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
                 router.values.location.pathname !== urls.sqlEditor()
             ) {
-                if (!values.wasPanelActive) {
-                    panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
-                    panelLayoutLogic.actions.showLayoutPanel(false)
-                }
+                panelLayoutLogic.actions.clearActivePanelIdentifier()
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                panelLayoutLogic.actions.showLayoutPanel(false)
             }
-            actions.setPreviousUrl(router.values.location.pathname)
         },
     })),
     subscriptions({
