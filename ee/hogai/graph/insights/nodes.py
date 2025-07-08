@@ -22,20 +22,23 @@ from posthog.models import InsightViewed, Insight
 class InsightSearchNode(AssistantNode):
     logger = structlog.get_logger(__name__)
 
-    # In-memory cache for semantic filtering results (TTL: 5 minutes)
-    _semantic_cache = {}
-    _cache_ttl = 300  # 5 minutes
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # In-memory cache for semantic filtering results (TTL: 5 minutes)
+        self._semantic_cache = {}
+        self._cache_ttl = 300  # 5 minutes
+        # Cache tracking variables
+        self._current_cache_hits = 0
+        self._current_cache_misses = 0
 
-    @classmethod
-    def _get_cache_key(cls, query: str, insight_names: list[str]) -> str:
+    def _get_cache_key(self, query: str, insight_names: list[str]) -> str:
         """Generate cache key for semantic filtering results."""
         # Filter out None values and convert to strings to avoid sorting errors
         cleaned_names = [name for name in insight_names if name is not None]
         content = f"{query}::{','.join(sorted(cleaned_names))}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    @classmethod
-    def _get_cached_semantic_result(cls, cache_key: str) -> tuple[dict | None, bool]:
+    def _get_cached_semantic_result(self, cache_key: str) -> tuple[dict | None, bool]:
         """
         Retrieve cached LLM semantic filtering results to avoid redundant API calls.
 
@@ -55,24 +58,23 @@ class InsightSearchNode(AssistantNode):
         Side effects:
             Automatically removes expired cache entries to prevent memory bloat (keep last 100 entries)
         """
-        if cache_key in cls._semantic_cache:
-            cached_data, timestamp = cls._semantic_cache[cache_key]
-            if time.time() - timestamp < cls._cache_ttl:
+        if cache_key in self._semantic_cache:
+            cached_data, timestamp = self._semantic_cache[cache_key]
+            if time.time() - timestamp < self._cache_ttl:
                 return cached_data, True
             else:
-                del cls._semantic_cache[cache_key]
+                del self._semantic_cache[cache_key]
         return None, False
 
-    @classmethod
-    def _cache_semantic_result(cls, cache_key: str, result: dict) -> None:
+    def _cache_semantic_result(self, cache_key: str, result: dict) -> None:
         """Cache semantic filtering result with timestamp."""
         # Simple cache management - keep last 100 entries
-        if len(cls._semantic_cache) > 100:
+        if len(self._semantic_cache) > 100:
             # Remove oldest entries (basic LRU)
-            oldest_key = min(cls._semantic_cache.keys(), key=lambda k: cls._semantic_cache[k][1])
-            del cls._semantic_cache[oldest_key]
+            oldest_key = min(self._semantic_cache.keys(), key=lambda k: self._semantic_cache[k][1])
+            del self._semantic_cache[oldest_key]
 
-        cls._semantic_cache[cache_key] = (result, time.time())
+        self._semantic_cache[cache_key] = (result, time.time())
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -152,9 +154,6 @@ class InsightSearchNode(AssistantNode):
 
     def _search_insights(self, root_to_search_insights: str | None = None, limit: int = 10) -> tuple[list, dict]:
         """Optimized insight search with improved data pipeline and cache tracking."""
-        # Initialize cache tracking
-        self._current_cache_hits = 0
-        self._current_cache_misses = 0
 
         # Step 1: Get basic insight data with optimized query size
         initial_fetch_size = 1500 if self._should_semantic_filter(root_to_search_insights) else 3
@@ -277,11 +276,6 @@ class InsightSearchNode(AssistantNode):
         # Check cache first
         cache_key = self._get_cache_key(query, insight_names)
         cached_ratings, was_cache_hit = self._get_cached_semantic_result(cache_key)
-
-        if not hasattr(self, "_current_cache_hits"):
-            self._current_cache_hits = 0
-        if not hasattr(self, "_current_cache_misses"):
-            self._current_cache_misses = 0
 
         if was_cache_hit:
             self._current_cache_hits += 1

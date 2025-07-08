@@ -75,7 +75,7 @@ class TestInsightSearchNode(BaseTest):
             insight=self.insight1,
         ).update(last_viewed_at=timezone.now())
 
-        results = self.node._search_insights()
+        results, _cache_stats = self.node._search_insights()
 
         # Should get unique insights only
         insight_ids = [r.get("insight_id") or r.get("id") for r in results]
@@ -343,7 +343,7 @@ class TestInsightSearchNode(BaseTest):
             last_viewed_at=timezone.now(),
         )
 
-        results = self.node._search_insights()
+        results, _cache_stats = self.node._search_insights()
 
         # Should only return insights from self.team
         for result in results:
