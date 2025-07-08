@@ -1,7 +1,7 @@
 import './LemonTextArea.scss'
 
 import clsx from 'clsx'
-import React, { ReactElement, useRef, useState } from 'react'
+import React, { ReactElement, useEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { cn } from 'lib/utils/css-classes'
 
@@ -60,7 +60,11 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
-    const [textLength, setTextLength] = useState(props.value?.length || props.defaultValue?.length || 0)
+    const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
+
+    useEffect(() => {
+        setTextLength(textProps.value?.length || 0)
+    }, [textProps.value])
 
     return (
         <div className="flex flex-col gap-y-1">
