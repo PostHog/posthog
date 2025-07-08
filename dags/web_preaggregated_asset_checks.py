@@ -278,10 +278,15 @@ def compare_web_overview_metrics(
 
     runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
 
-    # Query without pre-aggregated tables
+    # Query without pre-aggregated tables but using session-based filtering to match pre-aggregated logic
     # We have an known issue that the buckets are always in UTC, so we need to query in UTC to make sure we're comparing apples to apples
     # This can be improved if we change to hourly buckets but right now this fits our scope
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False)
+    # useSessionBasedFiltering=True makes the regular query use the same filtering logic as pre-aggregated tables
+    modifiers_regular = HogQLQueryModifiers(
+        useWebAnalyticsPreAggregatedTables=False,
+        convertToProjectTimezone=False,
+        useSessionBasedFiltering=True
+    )
 
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
