@@ -10,11 +10,18 @@ from psycopg import sql
 
 from posthog import constants
 from posthog.models.utils import uuid7
+from posthog.temporal.common.logger import configure_logger_async
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
 )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def configure_logger() -> None:
+    """Configure logger when running in a Temporal activity environment."""
+    configure_logger_async()
 
 
 @pytest.fixture

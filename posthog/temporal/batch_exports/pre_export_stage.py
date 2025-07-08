@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
+import structlog
 from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
@@ -64,10 +65,11 @@ from posthog.temporal.common.clickhouse import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
-    bind_temporal_worker_logger,
-    get_internal_logger,
+    bind_contextvars,
 )
 from posthog.warehouse.util import database_sync_to_async
+
+LOGGER = structlog.get_logger()
 
 
 async def execute_batch_export_insert_activity_using_s3_stage(
@@ -273,17 +275,18 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
 
     TODO - update sessions model query
     """
-
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    await logger.ainfo(
-        "Batch exporting range %s - %s",
-        inputs.data_interval_start or "START",
-        inputs.data_interval_end or "END",
+    bind_contextvars(
+        team_id=inputs.team_id,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
     )
+    logger = LOGGER.bind()
+
+    logger.info("Staging data for batch export")
 
     async with (
         Heartbeater(),
-        set_status_to_running_task(run_id=inputs.run_id, logger=logger),
+        set_status_to_running_task(run_id=inputs.run_id),
     ):
         _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
             inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
@@ -339,7 +342,8 @@ async def _get_query(
     filters: list[dict[str, str | list[str]]] | None = None,
     **parameters,
 ):
-    logger = get_internal_logger()
+    logger = LOGGER.bind(model_name=model_name)
+
     if fields is None:
         if destination_default_fields is None:
             fields = default_fields()
@@ -482,7 +486,7 @@ async def _write_batch_export_record_batches_to_s3(
     data_interval_end: str,
 ):
     """Write record batches to S3 staging area."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
 
     clickhouse_url = None
     # 5 min batch exports should query a single node, which is known to have zero replication lag
@@ -526,18 +530,19 @@ async def _write_batch_export_record_batches_to_s3(
                     bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
                 )
             except Exception as e:
-                await logger.aexception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
+                logger.exception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
                 raise
 
             query_id = uuid.uuid4()
-            await logger.ainfo(f"Executing query with ID = {query_id}")
+            logger.info("Executing pre-export stage query", query_id=str(query_id))
             try:
                 await client.execute_query(
                     query, query_parameters=query_parameters, query_id=str(query_id), timeout=300
                 )
             except ClickHouseClientTimeoutError:
-                await logger.awarning(
-                    f"Timed-out waiting for insert into S3 with ID: {str(query_id)}. Will attempt to check query status before continuing"
+                logger.warning(
+                    "Timed-out waiting for insert into S3. Will attempt to check query status before continuing",
+                    query_id=str(query_id),
                 )
 
                 status = await client.acheck_query(str(query_id), raise_on_error=True)
@@ -547,7 +552,7 @@ async def _write_batch_export_record_batches_to_s3(
                     status = await client.acheck_query(str(query_id), raise_on_error=True)
 
             except Exception as e:
-                await logger.aexception("Unexpected error occurred while writing record batches to S3", exc_info=e)
+                logger.exception("Unexpected error occurred while writing record batches to S3", exc_info=e)
                 raise
 
 
@@ -557,7 +562,7 @@ class ProducerFromInternalS3Stage:
     """
 
     def __init__(self):
-        self.logger = get_internal_logger()
+        self.logger = LOGGER.bind()
         self._task: asyncio.Task | None = None
 
     @property
