@@ -46,10 +46,12 @@ export function TableHeader({ results, chartRadius }: TableHeaderProps): JSX.Ele
                                     height={TICK_PANEL_HEIGHT + 10}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
                                     edgeMargin={SVG_EDGE_MARGIN}
-                                    tickLabelsY={TICK_PANEL_HEIGHT / 2 + 2}
+                                    showGridLines={false}
+                                    tickLabelsY={TICK_PANEL_HEIGHT + 2}
                                     tickLabelsProps={{
                                         fontSize: TICK_FONT_SIZE,
                                         fontWeight: '600',
+                                        dominantBaseline: 'middle',
                                     }}
                                 />
                             </svg>
