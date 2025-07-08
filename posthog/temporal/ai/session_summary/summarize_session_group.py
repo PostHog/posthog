@@ -6,6 +6,7 @@ from typing import cast
 import uuid
 import structlog
 import temporalio
+from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
@@ -299,5 +300,5 @@ def execute_summarize_session_group(
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"
-    result = asyncio.run(_execute_workflow(inputs=session_group_input, workflow_id=workflow_id))
+    result = async_to_sync(_execute_workflow)(inputs=session_group_input, workflow_id=workflow_id)
     return result
