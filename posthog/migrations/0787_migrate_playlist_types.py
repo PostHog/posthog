@@ -9,7 +9,7 @@ def migrate_playlist_types(apps, schema_editor):
     SessionRecordingPlaylistItem = apps.get_model("posthog", "SessionRecordingPlaylistItem")
 
     # 1. Get IDs of playlists that have playlist_items (should be COLLECTION)
-    playlist_ids_with_items = set(
+    playlist_ids_with_items = (
         SessionRecordingPlaylistItem.objects.filter(playlist__type__isnull=True, playlist__deleted=False)
         .values_list("playlist_id", flat=True)
         .distinct()
