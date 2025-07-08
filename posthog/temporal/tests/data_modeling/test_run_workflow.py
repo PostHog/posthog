@@ -1125,6 +1125,7 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     # Verify orphaned job was cleaned up
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
+    assert orphaned_job.error is not None
     assert "orphaned when a new data modeling run started" in orphaned_job.error
 
     # Test that create_job_model_activity creates a new job
