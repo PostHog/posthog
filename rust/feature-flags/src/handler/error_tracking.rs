@@ -1,7 +1,6 @@
 use crate::{api::errors::FlagError, team::team_models::Team};
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use serde_json::Value;
-use std::sync::Arc;
 
 #[derive(sqlx::FromRow)]
 struct SuppressionRuleRow {
@@ -11,7 +10,7 @@ struct SuppressionRuleRow {
 /// Get suppression rules for error tracking from the database
 /// Equivalent to Django's get_suppression_rules function
 pub async fn get_suppression_rules(
-    client: Arc<dyn DatabaseClient + Send + Sync>,
+    client: PostgresReader,
     team: &Team,
 ) -> Result<Vec<Value>, FlagError> {
     let mut conn = client.get_connection().await?;

@@ -6,12 +6,18 @@ from rest_framework.response import Response
 import posthoganalytics
 import uuid
 from datetime import timedelta
+from enum import Enum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
+
+
+class BatchImportKafkaTopic(str, Enum):
+    MAIN = "main"
+    HISTORICAL = "historical"
+    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -130,7 +136,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
         ).to_kafka(
-            topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+            topic=BatchImportKafkaTopic.HISTORICAL,
             send_rate=1000,
             transaction_timeout_seconds=60,
         )
@@ -156,6 +162,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     )
     access_key = serializers.CharField(write_only=True, required=True)
     secret_key = serializers.CharField(write_only=True, required=True)
+    is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -174,6 +181,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "content_type",
             "access_key",
             "secret_key",
+            "is_eu_region",
         ]
         read_only_fields = [
             "id",
@@ -222,8 +230,9 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 access_key=validated_data["access_key"],
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
+                is_eu_region=validated_data.get("is_eu_region", False),
             ).to_kafka(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
             )
