@@ -429,7 +429,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </div>
                     </div>
                     <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
-                        <div className="flex flex-wrap gap-2 items-center justify-end ">
+                        <div className="flex flex-wrap gap-2 items-center justify-end">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
