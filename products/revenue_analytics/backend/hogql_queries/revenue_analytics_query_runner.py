@@ -1,6 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Literal, Optional, Union, cast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
@@ -287,11 +288,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
     @cached_property
     def query_date_range(self):
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        timezone_info = self.team.timezone_info if self.modifiers.convertToProjectTimezone else ZoneInfo("UTC")
+
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            timezone_info=timezone_info,
             interval=self.query.interval if hasattr(self.query, "interval") else None,
-            now=datetime.now(),
+            now=datetime.now(timezone_info),
             earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
