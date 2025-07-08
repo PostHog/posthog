@@ -19,6 +19,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { ProjectDropdownMenu } from '~/layout/panel-layout/ProjectDropdownMenu'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -248,6 +249,17 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         </Component>
     )
 
+    if (breadcrumb.popover_project) {
+        return (
+            <ProjectDropdownMenu
+                buttonProps={{
+                    size: 'xxs',
+                    className: '-ml-1 text-[13px]',
+                }}
+            />
+        )
+    }
+
     if (breadcrumb.popover) {
         return (
             <Popover
@@ -285,7 +297,7 @@ function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
     const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
 
     return (
-        <h1 className="TopBar3000__here" data-attr="top-bar-name">
+        <h1 className="TopBar3000__here truncate" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (

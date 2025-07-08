@@ -103,6 +103,11 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
                 virtualFocus
                 role="listbox"
                 id="combobox-listbox"
+                style={
+                    {
+                        '--combobox-search-height': '38px',
+                    } as React.CSSProperties
+                }
             >
                 {children}
             </ListBox>
@@ -198,7 +203,12 @@ interface ContentProps {
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
-        <div className={cn('primitive-menu-content max-h-[300px] max-w-none border-transparent', className)}>
+        <div
+            className={cn(
+                'primitive-menu-content max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
+                className
+            )}
+        >
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars
