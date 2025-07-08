@@ -155,7 +155,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
         GET requests to access control endpoints require 'access_control:read' scope.
         PUT requests have no additional scope requirements.
         """
-        if request.method == "GET" and self.action in ["access_controls", "global_access_controls"]:
+        if request.method == "GET" and self.action in [
+            "access_controls",
+            "global_access_controls",
+            "users_with_access",
+        ]:
             return ["access_control:read"]
 
         return None
