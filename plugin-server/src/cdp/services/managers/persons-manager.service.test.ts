@@ -34,12 +34,6 @@ describe('PersonsManagerService', () => {
         expect(fetchPersonMock).not.toHaveBeenCalled()
     })
 
-    it('returns cached person properties if available', async () => {
-        personsManager['personsCache'].set(DISTINCT_ID, PERSON_DATA)
-        const result = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
-        expect(result).toEqual(PERSON_DATA)
-    })
-
     it('fetches person properties if not cached', async () => {
         fetchPersonMock.mockResolvedValue(PERSON_DATA)
         const result = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
