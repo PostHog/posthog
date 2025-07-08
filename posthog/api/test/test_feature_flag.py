@@ -2261,7 +2261,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         flag.refresh_from_db()
         assert flag.deleted is True
-        assert flag.key == f"flag1_deleted_{flag.id}"
+        assert flag.key == f"flag1:deleted:{flag.id}"
         # Should now be able to create a new flag with the original key
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "Flag1", "key": "flag1"})
         assert response.status_code == 201

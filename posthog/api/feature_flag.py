@@ -458,7 +458,7 @@ class FeatureFlagSerializer(
             # Append ID to the key when soft-deleting to prevent key conflicts
             # This allows the original key to be reused while preserving referential integrity for deleted experiments
             if instance.experiment_set.filter(deleted=True).exists():
-                validated_data["key"] = f"{instance.key}_deleted_{instance.id}"
+                validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
