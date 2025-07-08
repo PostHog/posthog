@@ -329,7 +329,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ),
                 ast.Field(chain=["product_id"]),
                 ast.Field(chain=["customer_id"]),
-                ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="invoice_id", expr=ast.Field(chain=["invoice", "id"])),
                 ast.Field(chain=["subscription_id"]),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
