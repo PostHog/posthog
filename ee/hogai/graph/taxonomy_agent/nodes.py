@@ -179,9 +179,9 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 AgentAction,
                 await agent.ainvoke(
                     {
-                        "react_format": self._get_react_format_prompt(toolkit),
+                        "react_format": await self._get_react_format_prompt(toolkit),
                         "core_memory": await self._aget_core_memory_raw_text(),
-                        "tools": toolkit.render_text_description(),
+                        "tools": await toolkit.render_text_description(),
                         "react_property_filters": react_property_filters_prompt,
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": team_group_types,
@@ -226,12 +226,13 @@ class TaxonomyAgentPlannerNode(AssistantNode):
     def _model(self) -> ChatOpenAI:
         return ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True, max_retries=3)
 
-    def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+    async def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+        tools = await toolkit.tools()
         return cast(
             str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
-                tool_names=", ".join([t["name"] for t in toolkit.tools]),
+                tool_names=", ".join([t["name"] for t in tools]),
             )[0]
             .content,
         )
@@ -371,7 +372,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
     to request additional information.
     """
 
-    def _run_with_toolkit(
+    async def _arun_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
@@ -406,15 +407,9 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
 
         if input and not output:
-            output = self._handle_tool(input, toolkit)
+            output = await self._ahandle_tool(input, toolkit)
 
         return PartialAssistantState(intermediate_steps=[*intermediate_steps[:-1], (action, output)])
-
-    async def _arun_with_toolkit(
-        self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
-    ) -> PartialAssistantState:
-        """Async version of _run_with_toolkit - same logic as sync version since it doesn't use Django ORM in async context"""
-        return self._run_with_toolkit(state, toolkit, config)
 
     def router(self, state: AssistantState):
         # Human-in-the-loop. Get out of the product analytics subgraph.
@@ -425,21 +420,26 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return "plan_found"
         return "continue"
 
-    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+    async def _ahandle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+        """Async version of _handle_tool that wraps toolkit methods in database_sync_to_async"""
+        from posthog.warehouse.util import database_sync_to_async
+
         if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments)
+            output = await database_sync_to_async(toolkit.retrieve_event_or_action_properties)(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
+            output = await database_sync_to_async(toolkit.retrieve_event_or_action_property_values)(
                 input.arguments.event_name, input.arguments.property_name
             )
         elif input.name == "retrieve_action_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
+            output = await database_sync_to_async(toolkit.retrieve_event_or_action_property_values)(
                 input.arguments.action_id, input.arguments.property_name
             )
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
+            output = await database_sync_to_async(toolkit.retrieve_entity_properties)(input.arguments)
         elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+            output = await database_sync_to_async(toolkit.retrieve_entity_property_values)(
+                input.arguments.entity, input.arguments.property_name
+            )
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
         return output

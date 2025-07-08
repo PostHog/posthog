@@ -14,7 +14,7 @@ class FunnelPlannerNode(TaxonomyAgentPlannerNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         # Pre-load async tools to avoid sync fallback
-        await toolkit._aget_tools()
+        await toolkit.tools()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", REACT_SYSTEM_PROMPT),
@@ -28,7 +28,7 @@ class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = FunnelsTaxonomyAgentToolkit(self._team)
         # Pre-load async tools to avoid sync fallback
-        await toolkit._aget_tools()
+        await toolkit.tools()
         return await super()._arun_with_toolkit(state, toolkit, config=config)
 
 

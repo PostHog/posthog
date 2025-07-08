@@ -2,39 +2,8 @@ from ..taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
 
 
 class SQLTaxonomyAgentToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return [
-            *self._default_tools,
-            {
-                "name": "final_answer",
-                "signature": "(final_response: str)",
-                "description": """
-                    Use this tool to provide the final answer to the user's question.
-
-                    Answer in the following format:
-                    ```
-                    Logic:
-                    - description of each logical layer of the query (if aggregations needed, include which concrete aggregation to use)
-
-
-                    Sources:
-                    - event 1
-                        - how it will be used, most importantly conditions
-                    - action ID 2
-                        - how it will be used, most importantly conditions
-                    - data warehouse table 3
-                        - how it will be used, most importantly conditions
-                    - repeat for each event/action/data warehouse table...
-                    ```
-
-                    Args:
-                        final_response: List all events and properties that you want to use to answer the question.
-                """,
-            },
-        ]
-
-    async def _aget_tools_list(self) -> list[ToolkitTool]:
-        default_tools = await self._aget_default_tools()
+    async def _get_tools(self) -> list[ToolkitTool]:
+        default_tools = await self._default_tools()
         return [
             *default_tools,
             {

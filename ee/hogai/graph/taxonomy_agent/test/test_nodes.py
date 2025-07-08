@@ -360,9 +360,9 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
         class Node(TaxonomyAgentPlannerToolsNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 toolkit = DummyToolkit(self._team)
-                return super()._run_with_toolkit(state, toolkit, config=config)
+                return await super()._arun_with_toolkit(state, toolkit, config=config)
 
         return Node(self.team, self.user)
 

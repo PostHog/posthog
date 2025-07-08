@@ -2,7 +2,6 @@ import re
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
@@ -113,142 +112,8 @@ class TaxonomyAgentToolkit(ABC):
     def __init__(self, team: Team):
         self._team = team
 
-    @cached_property
-    def tools(self) -> list[ToolkitTool]:
-        return [
-            {
-                "name": tool["name"],
-                "signature": tool["signature"],
-                "description": dedent(tool["description"]),
-            }
-            for tool in self._get_tools()
-        ]
-
-    @abstractmethod
-    def _get_tools(self) -> list[ToolkitTool]:
-        raise NotImplementedError
-
-    @property
-    def _default_tools(self) -> list[ToolkitTool]:
-        stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
-        return [
-            {
-                "name": "retrieve_event_properties",
-                "signature": "(event_name: str)",
-                "description": """
-                    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Try other events** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        event_name: The name of the event that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_event_property_values",
-                "signature": "(event_name: str, property_name: str)",
-                "description": """
-                    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        event_name: The name of the event that you want to retrieve values for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": "retrieve_action_properties",
-                "signature": "(action_id: int)",
-                "description": """
-                    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Try other actions or events** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        action_id: The ID of the action that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_action_property_values",
-                "signature": "(action_id: int, property_name: str)",
-                "description": """
-                    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        action_id: The ID of the action that you want to retrieve values for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": f"retrieve_entity_properties",
-                "signature": f"(entity: Literal[{stringified_entities}])",
-                "description": """
-                    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-                    - **Infer the property groups from the user's request.**
-                    - **Try other entities** if the tool doesn't return any properties.
-                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-
-                    Args:
-                        entity: The type of the entity that you want to retrieve properties for.
-                """,
-            },
-            {
-                "name": "retrieve_entity_property_values",
-                "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
-                "description": """
-                    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-
-                    Args:
-                        entity: The type of the entity that you want to retrieve properties for.
-                        property_name: The name of the property that you want to retrieve values for.
-                """,
-            },
-            {
-                "name": "ask_user_for_help",
-                "signature": "(question: str)",
-                "description": """
-                    Use this tool to ask a question to the user. Your question must be concise and clear.
-
-                    Args:
-                        question: The question you want to ask.
-                """,
-            },
-        ]
-
-    def render_text_description(self) -> str:
-        """
-        Render the tool name and description in plain text.
-
-        Returns:
-            The rendered text.
-
-        Output will be in the format of:
-
-        .. code-block:: markdown
-
-            search: This tool is used for search
-            calculator: This tool is used for math
-        """
-        root = ET.Element("tools")
-        for tool in self.tools:
-            tool_tag = ET.SubElement(root, "tool")
-            name_tag = ET.SubElement(tool_tag, "name")
-            name_tag.text = f"{tool['name']}{tool['signature']}"
-            description_tag = ET.SubElement(tool_tag, "description")
-            description_tag.text = tool["description"]
-        return ET.tostring(root, encoding="unicode")
-
-    @property
-    def _groups(self):
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-
     @alru_cache(maxsize=1)
-    async def _aget_groups(self):
+    async def _groups(self):
         return [
             group
             async for group in GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
@@ -256,27 +121,20 @@ class TaxonomyAgentToolkit(ABC):
             )
         ]
 
-    @cached_property
-    def _entity_names(self) -> list[str]:
+    @property
+    def _groups_sync(self):
+        """Sync fallback for backward compatibility"""
+        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+
+    @alru_cache(maxsize=1)
+    async def _entity_names(self) -> list[str]:
         """
         The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
         so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
         to create various tools for different group types. Since we don't use function calling here, we want to limit the
         number of tools because non-function calling models can't handle many tools.
         """
-        entities = [
-            "person",
-            "session",
-            *[group.group_type for group in self._groups],
-        ]
-        return entities
-
-    @alru_cache(maxsize=1)
-    async def _aget_entity_names(self) -> list[str]:
-        """
-        Async version of _entity_names using async group lookup.
-        """
-        groups = await self._aget_groups()
+        groups = await self._groups()
         entities = [
             "person",
             "session",
@@ -284,10 +142,20 @@ class TaxonomyAgentToolkit(ABC):
         ]
         return entities
 
+    @property
+    def _entity_names_sync(self) -> list[str]:
+        """Sync fallback for backward compatibility"""
+        entities = [
+            "person",
+            "session",
+            *[group.group_type for group in self._groups_sync],
+        ]
+        return entities
+
     @alru_cache(maxsize=1)
-    async def _aget_tools(self) -> list[ToolkitTool]:
+    async def tools(self) -> list[ToolkitTool]:
         """
-        Async version of tools property.
+        Get the toolkit tools.
         """
         return [
             {
@@ -295,17 +163,17 @@ class TaxonomyAgentToolkit(ABC):
                 "signature": tool["signature"],
                 "description": dedent(tool["description"]),
             }
-            for tool in await self._aget_tools_list()
+            for tool in await self._get_tools()
         ]
 
     @abstractmethod
-    async def _aget_tools_list(self) -> list[ToolkitTool]:
-        """Async version of _get_tools."""
+    async def _get_tools(self) -> list[ToolkitTool]:
+        """Get the list of tools for this toolkit."""
         raise NotImplementedError
 
-    async def _aget_default_tools(self) -> list[ToolkitTool]:
-        """Async version of _default_tools."""
-        entity_names = await self._aget_entity_names()
+    async def _default_tools(self) -> list[ToolkitTool]:
+        """Get the default tools."""
+        entity_names = await self._entity_names()
         stringified_entities = ", ".join([f"'{entity}'" for entity in entity_names])
         return [
             {
@@ -396,6 +264,30 @@ class TaxonomyAgentToolkit(ABC):
             },
         ]
 
+    async def render_text_description(self) -> str:
+        """
+        Render the tool name and description in plain text.
+
+        Returns:
+            The rendered text.
+
+        Output will be in the format of:
+
+        .. code-block:: markdown
+
+            search: This tool is used for search
+            calculator: This tool is used for math
+        """
+        root = ET.Element("tools")
+        tools = await self.tools()
+        for tool in tools:
+            tool_tag = ET.SubElement(root, "tool")
+            name_tag = ET.SubElement(tool_tag, "name")
+            name_tag.text = f"{tool['name']}{tool['signature']}"
+            description_tag = ET.SubElement(tool_tag, "description")
+            description_tag.text = tool["description"]
+        return ET.tostring(root, encoding="unicode")
+
     def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")
         property_type_to_tag = {}
@@ -435,7 +327,7 @@ class TaxonomyAgentToolkit(ABC):
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in ("person", "session", *[group.group_type for group in self._groups_sync]):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
@@ -455,7 +347,7 @@ class TaxonomyAgentToolkit(ABC):
             )
         else:
             group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
+                (group.group_type_index for group in self._groups_sync if group.group_type == entity), None
             )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
@@ -594,8 +486,8 @@ class TaxonomyAgentToolkit(ABC):
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        if entity not in self._entity_names:
-            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+        if entity not in self._entity_names_sync:
+            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names_sync)}."
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
@@ -603,7 +495,9 @@ class TaxonomyAgentToolkit(ABC):
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
         else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+            group_index = next(
+                (group.group_type_index for group in self._groups_sync if group.group_type == entity), None
+            )
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(
