@@ -150,7 +150,7 @@ function MaxFloatingInputContent(): JSX.Element {
 export function MaxFloatingInput(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { scene } = useValues(sceneLogic)
+    const { scene, sceneConfig } = useValues(sceneLogic)
     const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
     const { threadLogicKey, conversation } = useValues(maxLogic)
 
@@ -163,6 +163,10 @@ export function MaxFloatingInput(): JSX.Element | null {
         (scene === Scene.Max && !isFloatingMaxExpanded) || // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
         (sidePanelOpen && selectedTab === SidePanelTab.Max) // The Max side panel is open
     ) {
+        return null
+    }
+
+    if (sceneConfig?.layout === 'plain') {
         return null
     }
 

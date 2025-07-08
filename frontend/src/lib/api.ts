@@ -23,6 +23,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
     HogCompileResponse,
@@ -39,6 +40,7 @@ import {
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
+    SourceConfig,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -82,7 +84,6 @@ import {
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    ExternalDataSourceType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
@@ -2330,17 +2331,23 @@ const api = {
     hogFunctions: {
         async list({
             filter_groups,
+            search,
             types,
+            limit,
         }: {
             filter_groups?: CyclotronJobFiltersType[]
+            search?: string
             types?: HogFunctionTypeType[]
-        }): Promise<PaginatedResponse<HogFunctionType>> {
+            limit?: number
+        }): Promise<CountedPaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
                     filter_groups,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(search ? { search } : {}),
+                    ...(limit ? { limit } : {}),
                 })
                 .get()
         },
@@ -2373,7 +2380,6 @@ const api = {
         },
         async listTemplates(params: {
             types: HogFunctionTypeType[]
-            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
@@ -2383,8 +2389,8 @@ const api = {
 
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
+        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
@@ -3095,6 +3101,9 @@ const api = {
                 .withAction('database_schema')
                 .create({ data: { source_type, ...payload } })
         },
+        async wizard(): Promise<Record<string, SourceConfig>> {
+            return await new ApiRequest().externalDataSources().withAction('wizard').get()
+        },
         async source_prefix(
             source_type: ExternalDataSourceType,
             prefix: string
@@ -3527,7 +3536,8 @@ const api = {
     conversations: {
         async stream(
             data: {
-                content: string
+                /** The user message. Null content means we're continuing previous generation. */
+                content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxContextShape
                 conversation?: string | null

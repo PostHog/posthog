@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class InkeepConfig:
-    SUPPORTED_MODELS = ["inkeep-qa-expert"]
+    SUPPORTED_MODELS = ["inkeep-qa-sonnet-4"]
 
 
 class InkeepProvider:
