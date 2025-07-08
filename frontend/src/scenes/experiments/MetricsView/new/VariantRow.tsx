@@ -136,9 +136,9 @@ export function VariantRow({
                         <div className="relative">
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
-                                preserveAspectRatio="xMidYMid meet"
+                                preserveAspectRatio="none"
                                 className="w-full max-w-[1000px]"
-                                style={{ minHeight: '100px' }}
+                                style={{ height: '60px' }}
                             >
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}
