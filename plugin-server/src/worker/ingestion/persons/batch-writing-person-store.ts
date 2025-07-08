@@ -556,6 +556,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
+                      properties_last_updated_at: { ...result.properties_last_updated_at },
+                      properties_last_operation: result.properties_last_operation
+                          ? { ...result.properties_last_operation }
+                          : {},
                       created_at: result.created_at,
                   }
         } else {
@@ -579,6 +583,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
+                      properties_last_updated_at: { ...result.properties_last_updated_at },
+                      properties_last_operation: result.properties_last_operation
+                          ? { ...result.properties_last_operation }
+                          : {},
                       properties_to_set: { ...result.properties_to_set },
                       properties_to_unset: [...result.properties_to_unset],
                   }
@@ -699,11 +707,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (!existingUpdate) {
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
-            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update)
+            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update, true)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         } else {
             // Merge updates into existing cached PersonUpdate
-            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update)
+            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
@@ -714,7 +722,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * Helper method to merge an update into a PersonUpdate
      * Handles properties and is_identified merging with proper logic
      */
-    private mergeUpdateIntoPersonUpdate(personUpdate: PersonUpdate, update: Partial<InternalPerson>): PersonUpdate {
+    private mergeUpdateIntoPersonUpdate(
+        personUpdate: PersonUpdate,
+        update: Partial<InternalPerson>,
+        allowCreatedAtUpdate: boolean = false
+    ): PersonUpdate {
         // For properties, we track them in the fine-grained properties_to_set/unset
         if (update.properties) {
             // Add all properties from the update to properties_to_set
@@ -729,12 +741,19 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         // Apply other updates (excluding properties which we handled above)
-        const { properties, is_identified, created_at, ...otherUpdates } = update
+        const fieldsToExclude = ['properties', 'is_identified']
+        if (!allowCreatedAtUpdate) {
+            fieldsToExclude.push('created_at')
+        }
+
+        const otherUpdates = Object.fromEntries(
+            Object.entries(update).filter(([key]) => !fieldsToExclude.includes(key))
+        )
         Object.assign(personUpdate, otherUpdates)
 
         // Handle is_identified specially with || operator
-        if (is_identified !== undefined) {
-            personUpdate.is_identified = personUpdate.is_identified || is_identified
+        if (update.is_identified !== undefined) {
+            personUpdate.is_identified = personUpdate.is_identified || update.is_identified
         }
 
         personUpdate.needs_write = true
@@ -858,6 +877,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
             // Update the PersonUpdate with latest data and merged properties
             personUpdate.properties = mergedProperties
+            personUpdate.properties_last_updated_at = latestPerson.properties_last_updated_at || {}
+            personUpdate.properties_last_operation = latestPerson.properties_last_operation || {}
             personUpdate.version = latestPerson.version
         }
 

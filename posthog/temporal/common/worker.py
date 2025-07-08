@@ -49,7 +49,7 @@ async def create_worker(
         max_concurrent_activities: Maximum number of concurrent activity tasks the
             worker can handle. Defaults to 50.
     """
-    initialize_otel(sample_rate_override="1")
+    initialize_otel()
 
     runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(

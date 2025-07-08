@@ -243,6 +243,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
+        setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
     }),
     connect(() => ({
         values: [
@@ -303,8 +304,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 clearSearch: () => '',
             },
         ],
+        syncMoreNoticeDismissed: [
+            false,
+            { persist: true },
+            {
+                setSyncMoreNoticeDismissed: (_, { dismissed }) => dismissed,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
+        hasNonPosthogSources: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
+                return dataWarehouseTables.length > 0
+            },
+        ],
         relevantPosthogTables: [
             (s) => [s.posthogTables, s.searchTerm],
             (

@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import faulthandler
 import functools
+import logging
 import signal
 
 import structlog
@@ -25,6 +26,7 @@ from posthog.constants import (
 )
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
+from posthog.temporal.common.logger import configure_logger_async
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
@@ -179,6 +181,10 @@ class Command(BaseCommand):
         shutdown_task = None
 
         tag_queries(kind="temporal")
+
+        if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+            logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
+            configure_logger_async()
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
