@@ -5,7 +5,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { fetch, FetchResponse } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
-import { createExampleNativeInvocation } from '../_tests/fixtures-segment'
+import { createExampleNativeInvocation } from '../_tests/fixtures-native'
 import { NativeDestinationExecutorService } from './native-destination-executor.service'
 
 const inputs = {
