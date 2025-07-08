@@ -24,9 +24,9 @@ import { ExitHandler } from './action-handlers/exit.handler'
 import { FunctionHandler } from './action-handlers/function.handler'
 import { RandomCohortBranchHandler } from './action-handlers/random-cohort-branch.handler'
 import { WaitUntilTimeWindowHandler } from './action-handlers/wait-until-time-window.handler'
+import { HogFlowMetricsService } from './hogflow-metrics.service'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
-import { HogFlowMetricsService } from './services/hogflow-metrics.service'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 

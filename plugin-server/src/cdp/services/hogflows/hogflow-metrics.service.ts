@@ -1,5 +1,5 @@
-import { HogFlowAction } from '../../../../schema/hogflow'
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
+import { HogFlowAction } from '../../../schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../types'
 
 export class HogFlowMetricsService {
     trackActionMetric(
