@@ -91,7 +91,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     if (stopPropagation) {
                         event.stopPropagation()
                     }
-                    setTextLength((event.currentTarget.value ?? '').trim().length)
+                    setTextLength((event.currentTarget.value ?? '').length)
                     return onChange?.(event.currentTarget.value ?? '')
                 }}
                 {...textProps}
