@@ -249,12 +249,20 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         </Component>
     )
 
+<<<<<<< HEAD
     if (breadcrumb.is_popover_project) {
+=======
+    if (breadcrumb.popover_project) {
+>>>>>>> ea864723fe (use project dropdown menu for breadcrumbs, remove org dropdown, (finally) fix max-heights for various menus)
         return (
             <ProjectDropdownMenu
                 buttonProps={{
                     size: 'xxs',
+<<<<<<< HEAD
                     className: '-mx-1 text-[13px]',
+=======
+                    className: '-ml-1 text-[13px]',
+>>>>>>> ea864723fe (use project dropdown menu for breadcrumbs, remove org dropdown, (finally) fix max-heights for various menus)
                 }}
             />
         )
