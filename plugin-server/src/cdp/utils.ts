@@ -200,10 +200,6 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
     return preparedLogs
 }
 
-export function isHogFunction(hogFunction: HogFunctionType): boolean {
-    return hogFunction.template_id?.startsWith('template-') ?? false
-}
-
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
