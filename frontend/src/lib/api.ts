@@ -1256,8 +1256,8 @@ export class ApiRequest {
         return await api.create(this.assembleFullUrl(), options?.data, options)
     }
 
-    public async delete(): Promise<any> {
-        return await api.delete(this.assembleFullUrl())
+    public async delete(withBody: boolean = false): Promise<any> {
+        return await api.delete(this.assembleFullUrl(), withBody)
     }
 
     // Data color themes
@@ -2614,6 +2614,23 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
+        async bulkDelete(params: RecordingsQuery): Promise<{ success: boolean; task_id: string; message: string }> {
+            return await new ApiRequest().recordings().withQueryString(toParams(params)).delete(true)
+        },
+
+        async bulkDeleteStatus(taskId: string): Promise<{
+            state: 'PENDING' | 'PROGRESS' | 'SUCCESS' | 'FAILURE'
+            status?: string
+            current?: number
+            total?: number
+            playlist_items_deleted?: number
+            deleted_count?: number
+            playlist_items_deleted_count?: number
+            error?: string
+        }> {
+            return await new ApiRequest().recordings().withAction('tasks/bulk_delete_status').withAction(taskId).get()
+        },
+
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}
@@ -3638,10 +3655,11 @@ const api = {
         )
     },
 
-    async delete(url: string): Promise<any> {
+    async delete(url: string, withBody: boolean = false): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        return await handleFetch(url, 'DELETE', () =>
+
+        const response = await handleFetch(url, 'DELETE', () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
@@ -3651,6 +3669,12 @@ const api = {
                 },
             })
         )
+
+        if (withBody) {
+            return await getJSONOrNull(response)
+        }
+
+        return response
     },
 
     /** Stream server-sent events over an EventSource. */
