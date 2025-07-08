@@ -25,6 +25,7 @@ import {
     annotationScopeToName,
 } from './annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export function Annotations(): JSX.Element {
     const { currentTeam, timezone } = useValues(teamLogic)
@@ -45,10 +46,25 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
+                let renderedContent = <>{annotation.content ?? ''}</>
+                if ((annotation.content || '').trim().length > 30) {
+                    renderedContent = (
+                        <Tooltip
+                            title={
+                                <TextContent
+                                    text={annotation.content ?? ''}
+                                    data-attr="annotation-scene-comment-title-rendered-content"
+                                />
+                            }
+                        >
+                            {(annotation.content ?? '').slice(0, 27) + '...'}
+                        </Tooltip>
+                    )
+                }
                 return (
                     <div className="font-semibold">
                         <Link subtle to={urls.annotation(annotation.id)}>
-                            {annotation.content}
+                            {renderedContent}
                         </Link>
                     </div>
                 )
