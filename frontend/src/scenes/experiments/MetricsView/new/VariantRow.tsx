@@ -9,7 +9,7 @@ import {
     ExperimentStatsBase,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
-import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN } from './constants'
+import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, CHART_CELL_VIEW_BOX_HEIGHT, GRID_LINES_OPACITY } from './constants'
 import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
@@ -132,7 +132,7 @@ export function VariantRow({
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative">
                             <svg
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                                 preserveAspectRatio="none"
                                 className="w-full max-w-[1000px]"
                                 style={{ height: '60px' }}
@@ -140,13 +140,13 @@ export function VariantRow({
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}
                                     scale={scale}
-                                    height={100}
+                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
                                     zeroLineColor={colors.ZERO_LINE}
                                     gridLineColor={colors.BOUNDARY_LINES}
                                     zeroLineWidth={1.25}
                                     gridLineWidth={0.75}
-                                    opacity={1}
+                                    opacity={GRID_LINES_OPACITY}
                                 />
                             </svg>
                         </div>
