@@ -5,12 +5,13 @@ import { CyclotronPerson } from '~/cdp/types'
 import { Hub } from '../../../types'
 
 const PERSONS_CACHE_AGE_MS = 60 * 1000 // 1 minute
+const PERSONS_CACHE_MAX_SIZE = 100_000 // 100k entries
 
 export class PersonsManagerService {
     private personsCache: LRUCache<string, CyclotronPerson>
 
     constructor(private hub: Hub) {
-        this.personsCache = new LRUCache({ max: 1_000_000, maxAge: PERSONS_CACHE_AGE_MS })
+        this.personsCache = new LRUCache({ max: PERSONS_CACHE_MAX_SIZE, maxAge: PERSONS_CACHE_AGE_MS })
     }
 
     public async getPerson(teamId: number, distinctId: string): Promise<CyclotronPerson> {
@@ -27,7 +28,7 @@ export class PersonsManagerService {
 
         const person = {
             id: rawPerson.id,
-            properties: rawPerson.properties || {},
+            properties: rawPerson.properties ? { ...rawPerson.properties } : {},
         }
         this.personsCache.set(distinctId, person)
         return person
