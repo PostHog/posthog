@@ -159,12 +159,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
                             let kafkaMessages: TopicMessage[] = []
                             switch (this.options.dbWriteMode) {
-                                case 'NO_ASSERT':
+                                case 'NO_ASSERT': {
                                     const [_, messages] = await this.updatePersonNoAssert(update, 'batch')
                                     kafkaMessages = messages
                                     break
-                                case 'ASSERT_VERSION':
-                                    await promiseRetry(
+                                }
+                                case 'ASSERT_VERSION': {
+                                    const messages = await promiseRetry(
                                         () => this.updatePersonAssertVersion(update),
                                         'updatePersonAssertVersion',
                                         this.options.maxOptimisticUpdateRetries,
@@ -172,12 +173,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
-                                    // ASSERT_VERSION updates the DB directly via updatePersonAssertVersion
-                                    // which creates Kafka messages internally, so we don't get messages back
-                                    kafkaMessages = []
+                                    kafkaMessages = messages
                                     break
-                                case 'WITH_TRANSACTION':
-                                    await promiseRetry(
+                                }
+                                case 'WITH_TRANSACTION': {
+                                    const messages = await promiseRetry(
                                         () => this.updatePersonWithTransaction(update, 'batch'),
                                         'updatePersonWithTransaction',
                                         this.options.maxOptimisticUpdateRetries,
@@ -185,10 +185,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
-                                    // WITH_TRANSACTION updates the DB directly via updatePerson
-                                    // which creates Kafka messages internally, so we don't get messages back
-                                    kafkaMessages = []
+                                    kafkaMessages = messages
                                     break
+                                }
                             }
 
                             personWriteMethodAttemptCounter.inc({
@@ -854,11 +853,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * @param personUpdate the personUpdate to write
      * @returns the actual version of the person after the write
      */
-    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<void> {
+    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<TopicMessage[]> {
         this.incrementDatabaseOperation('updatePersonAssertVersion', personUpdate.distinct_id)
 
         const start = performance.now()
-        const actualVersion = await this.db.updatePersonAssertVersion(personUpdate)
+        const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
         this.recordUpdateLatency(
             'updatePersonAssertVersion',
             (performance.now() - start) / 1000,
@@ -869,7 +868,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (actualVersion !== undefined) {
             // Success - optimistic update worked, update version in cache
             personUpdate.version = actualVersion
-            return
+            return kafkaMessages
         }
 
         // Optimistic update failed due to version mismatch
@@ -903,7 +902,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         throw new Error('Assert version update failed, will retry')
     }
 
-    private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<void> {
+    private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<TopicMessage[]> {
         const operation = 'updatePersonTransaction' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
 
@@ -912,7 +911,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
 
         // Use a transaction to ensure we get the latest version with FOR UPDATE
-        await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
+        const kafkaMessages = await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
             // First fetch the person with FOR UPDATE to lock the row
             const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
                 forUpdate: true,
@@ -924,7 +923,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
             // Create update object without version field (updatePerson handles version internally)
             const { version, ...updateFields } = internalPerson
-            await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
+            const [_, kafkaMessages] = await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
+            return kafkaMessages
         })
         this.recordUpdateLatency(
             'updatePersonWithTransaction',
@@ -932,6 +932,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             personUpdate.distinct_id
         )
         observeLatencyByVersion(internalPerson, start, operation)
+        return kafkaMessages
     }
 
     private incrementCount(method: MethodName, distinctId: string): void {
