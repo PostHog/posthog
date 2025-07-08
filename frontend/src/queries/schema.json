@@ -427,6 +427,12 @@
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebStatsTableQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
@@ -14540,6 +14546,8 @@
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
                 "WebAnalyticsExternalSummaryQuery",
+                "WebAnalyticsExternalWebOverviewQuery",
+                "WebAnalyticsExternalWebStatsTableQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsRevenueQuery",
@@ -16381,6 +16389,38 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "data": {
+                            "type": "object"
+                        },
+                        "error": {
+                            "$ref": "#/definitions/ExternalQueryError"
+                        },
+                        "status": {
+                            "$ref": "#/definitions/ExternalQueryStatus"
+                        }
+                    },
+                    "required": ["data", "status"],
                     "type": "object"
                 },
                 {
@@ -18364,6 +18404,12 @@
                 },
                 {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebOverviewQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebStatsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
@@ -21673,6 +21719,167 @@
                 }
             },
             "required": ["date_from", "date_to"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebOverviewQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalWebOverviewQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebOverviewQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebOverviewQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebOverviewRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebStatsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownBy": {
+                    "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "includeBounceRate": {
+                    "type": "boolean"
+                },
+                "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebAnalyticsExternalWebStatsTableQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/WebAnalyticsOrderByFields"
+                            },
+                            {
+                                "$ref": "#/definitions/WebAnalyticsOrderByDirection"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsExternalWebStatsTableQueryResponse"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdownBy", "dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebStatsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "type": "object"
+                },
+                "error": {
+                    "$ref": "#/definitions/ExternalQueryError"
+                },
+                "status": {
+                    "$ref": "#/definitions/ExternalQueryStatus"
+                }
+            },
+            "required": ["data", "status"],
+            "type": "object"
+        },
+        "WebAnalyticsExternalWebStatsTableRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_by": {
+                    "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "date_from": {
+                    "type": "string"
+                },
+                "date_to": {
+                    "type": "string"
+                },
+                "explicit_date": {
+                    "type": "boolean"
+                },
+                "include_bounce_rate": {
+                    "type": "boolean"
+                },
+                "include_scroll_depth": {
+                    "type": "boolean"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "order_by": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/WebAnalyticsOrderByFields"
+                            },
+                            {
+                                "$ref": "#/definitions/WebAnalyticsOrderByDirection"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["breakdown_by"],
             "type": "object"
         },
         "WebAnalyticsOrderBy": {
