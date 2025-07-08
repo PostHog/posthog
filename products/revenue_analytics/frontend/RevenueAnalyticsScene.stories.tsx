@@ -13,8 +13,9 @@ import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, RevenueAnalyticsPropertyFilter } from '~/types'
 
 import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
+import revenueAnalyticsCustomerCountQueryMock from './__mocks__/RevenueAnalyticsCustomerCountQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
-import RevenueAnalyticsGrossRevenueQueryMock from './__mocks__/RevenueAnalyticsGrossRevenueQuery.json'
+import revenueAnalyticsRevenueQueryMock from './__mocks__/RevenueAnalyticsRevenueQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -27,7 +28,6 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
         testOptions: {
-            includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
         },
     },
@@ -51,14 +51,16 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, databaseSchemaMock]
+                    } else if (queryKind === 'RevenueAnalyticsCustomerCountQuery') {
+                        return [200, revenueAnalyticsCustomerCountQueryMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
                     } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
                         return [200, revenueAnalyticsTopCustomersMock]
                     } else if (queryKind === 'RevenueAnalyticsOverviewQuery') {
                         return [200, revenueAnalyticsOverviewMock]
-                    } else if (queryKind === 'RevenueAnalyticsGrossRevenueQuery') {
-                        return [200, RevenueAnalyticsGrossRevenueQueryMock]
+                    } else if (queryKind === 'RevenueAnalyticsRevenueQuery') {
+                        return [200, revenueAnalyticsRevenueQueryMock]
                     }
                 },
             },

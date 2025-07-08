@@ -41,11 +41,11 @@ export const MetricHeader = ({
     } = useActions(modalsLogic)
 
     return (
-        <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
+        <div className="text-xs font-semibold">
             <div className="deprecated-space-y-1">
                 <div className="flex items-center gap-2">
-                    <div className="@container cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-start">
-                        <span className="mr-1">{metricIndex + 1}.</span>
+                    <div className="text-xs font-semibold flex-grow flex items-start min-w-0">
+                        <span className="mr-1 flex-shrink-0">{metricIndex + 1}.</span>
                         <MetricTitle metric={metric} metricType={metricType} />
                     </div>
                     <div className="flex gap-1">

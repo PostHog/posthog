@@ -9,10 +9,13 @@ import {
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
     SourceMap,
+    ConversionGoalFilter,
+    MarketingAnalyticsOrderBy,
+    MarketingAnalyticsColumnsSchemaNames,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
@@ -43,20 +46,25 @@ export type NativeSource = {
     tables: DatabaseSchemaDataWarehouseTable[]
 }
 
-export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC'] | null
-
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
     actions({
-        setMarketingAnalyticsOrderBy: (orderBy: string, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
         clearMarketingAnalyticsOrderBy: () => true,
+        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
     }),
     reducers({
         marketingAnalyticsOrderBy: [
-            null as MarketingAnalyticsOrderBy,
+            null as MarketingAnalyticsOrderBy | null,
             {
                 setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
                 clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+        dynamicConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDynamicConversionGoal: (_, { goal }) => goal,
             },
         ],
     }),
@@ -80,11 +88,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 const validSourcesMap = sources_map
 
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
+                Object.values(MarketingAnalyticsColumnsSchemaNames)
+                    .filter(
+                        (column_name: MarketingAnalyticsColumnsSchemaNames) =>
+                            MARKETING_ANALYTICS_SCHEMA[column_name].required
+                    )
+                    .forEach((column_name: MarketingAnalyticsColumnsSchemaNames) => {
                         Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
+                            if (fieldMapping && !fieldMapping[column_name]) {
                                 delete validSourcesMap[tableId]
                             }
                         })
@@ -93,7 +104,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (Object.keys(validSourcesMap).length === 0) {
                     return null
                 }
-
                 return validSourcesMap
             },
         ],

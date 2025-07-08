@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.source import config
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.pipeline.consts import (
     DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
@@ -116,7 +117,7 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
 ) -> tuple[str, dict[str, Any]]:
-    query = f"SELECT * FROM `{schema}`.`{table_name}`"
+    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)}"
 
     if not should_use_incremental_field:
         return query, {}
@@ -374,6 +375,107 @@ def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MySQLColum
     )
 
 
+def _get_table_average_row_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int | None:
+    """Calculate average row size for a MySQL table by sampling the data.
+    Uses LENGTH() functions to calculate the actual size of each column's data
+    in a sample of rows, similar to how MSSQL uses DATALENGTH().
+    """
+    try:
+        # Build the query to sample from
+        inner_query, inner_query_args = _build_query(
+            schema,
+            table_name,
+            should_use_incremental_field,
+            incremental_field,
+            incremental_field_type,
+            db_incremental_field_last_value,
+        )
+
+        # Get column names from the table
+        cursor.execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %(schema)s AND TABLE_NAME = %(table_name)s ORDER BY ORDINAL_POSITION",
+            {"schema": schema, "table_name": table_name},
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            logger.debug(f"_get_table_average_row_size: No columns found.")
+            return None
+
+        columns = [row[0] for row in rows]
+
+        # Build the LENGTH sum for each column with proper sanitization
+        length_sum = " + ".join(f"LENGTH(COALESCE({_sanitize_identifier(col)}, ''))" for col in columns)
+
+        # NOTE: length_sum and inner_query are constructed with sanitized identifiers only.
+        # All column names are sanitized with _sanitize_identifier, and inner_query is built with same approach.
+        # No user-supplied values are directly interpolated here.
+        size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
+
+        cursor.execute(size_query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None or row[0] is None:
+            logger.debug(f"_get_table_average_row_size: No results returned.")
+            return None
+
+        row_size_bytes = max(row[0] or 0, 1)
+        return int(row_size_bytes)
+
+    except Exception as e:
+        logger.debug(f"_get_table_average_row_size: Error: {e}.", exc_info=e)
+        capture_exception(e)
+        return None
+
+
+def _get_table_chunk_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int:
+    """Calculate optimal chunk size for MySQL table based on average row size."""
+    try:
+        row_size_bytes = _get_table_average_row_size(
+            cursor,
+            schema,
+            table_name,
+            should_use_incremental_field,
+            incremental_field,
+            incremental_field_type,
+            db_incremental_field_last_value,
+            logger,
+        )
+        if row_size_bytes is None:
+            logger.debug(
+                f"_get_table_chunk_size: Could not calculate row size. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}"
+            )
+            return DEFAULT_CHUNK_SIZE
+    except Exception as e:
+        logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
+        capture_exception(e)
+        return DEFAULT_CHUNK_SIZE
+
+    chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+    min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+    logger.debug(
+        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+    )
+    return min_chunk_size
+
+
 def mysql_source(
     host: str,
     port: int,
@@ -420,6 +522,17 @@ def mysql_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table = _get_table(cursor, schema, table_name)
             rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+            # define chunk_size
+            chunk_size = _get_table_chunk_size(
+                cursor,
+                schema,
+                table_name,
+                should_use_incremental_field,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                logger,
+            )
             partition_settings = (
                 _get_partition_settings(cursor, schema, table_name) if should_use_incremental_field else None
             )
@@ -460,7 +573,8 @@ def mysql_source(
                 column_names = [column[0] for column in cursor.description or []]
 
                 while True:
-                    rows = cursor.fetchmany(DEFAULT_CHUNK_SIZE)
+                    # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
+                    rows = cursor.fetchmany(chunk_size)
                     if not rows:
                         break
 

@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
@@ -29,6 +30,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
+    ConversionGoalFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
@@ -437,7 +439,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['loading', 'createMarketingDataWarehouseNodes'],
+            ['loading', 'createMarketingDataWarehouseNodes', 'dynamicConversionGoal'],
         ],
     })),
     actions({
@@ -1266,7 +1268,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 colSpanClassName: 'md:col-span-2',
                                 orderWhenLargeClassName: 'xxl:order-1',
                             },
-                            title: 'Marketing Costs',
+                            title: 'Marketing costs',
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 embedded: true,
@@ -1299,7 +1301,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             canOpenInsight: true,
                             canOpenModal: false,
                             docs: {
-                                title: 'Marketing Costs',
+                                title: 'Marketing costs',
                                 description:
                                     createMarketingDataWarehouseNodes.length > 0
                                         ? 'Track costs from your configured marketing data sources.'
@@ -1314,13 +1316,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       colSpanClassName: 'md:col-span-2',
                                       orderWhenLargeClassName: 'xxl:order-2',
                                   },
-                                  title: 'Campaign Costs Breakdown',
+                                  title: 'Campaign costs breakdown',
                                   query: campaignCostsBreakdown,
                                   insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                                   canOpenModal: true,
                                   canOpenInsight: false,
                                   docs: {
-                                      title: 'Campaign Costs Breakdown',
+                                      title: 'Campaign costs breakdown',
                                       description:
                                           'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                                   },
@@ -2432,12 +2434,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.dateFilter, s.webAnalyticsFilters, s.shouldFilterTestAccounts],
+            (s) => [
+                s.loading,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+                s.dynamicConversionGoal,
+            ],
             (
                 loading: boolean,
-                dateFilter: any,
-                webAnalyticsFilters: any,
-                filterTestAccounts: boolean
+                dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                filterTestAccounts: boolean,
+                dynamicConversionGoal: ConversionGoalFilter | null
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2453,6 +2462,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         properties: webAnalyticsFilters || [],
                         filterTestAccounts: filterTestAccounts,
+                        dynamicConversionGoal: dynamicConversionGoal,
                         limit: 200,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                     } as MarketingAnalyticsTableQuery,
@@ -2845,6 +2855,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
+            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
+                const isPreAggregatedEnabled =
+                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
+
+                if (isPreAggregatedEnabled && values.conversionGoal) {
+                    actions.setConversionGoal(null)
+                    lemonToast.info(
+                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
+                    )
+                }
+            },
         }
     }),
     afterMount(({ actions, values }) => {

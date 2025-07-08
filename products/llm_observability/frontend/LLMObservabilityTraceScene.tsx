@@ -6,6 +6,7 @@ import {
     LemonTable,
     LemonTag,
     LemonTagProps,
+    LemonTabs,
     Link,
     SpinnerOverlay,
     Tooltip,
@@ -16,7 +17,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -47,6 +48,7 @@ import {
     isLLMTraceEvent,
     removeMilliseconds,
 } from './utils'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -77,7 +79,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
+                <div className="relative deprecated-space-y-4 flex flex-col">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
@@ -193,7 +195,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -432,6 +434,7 @@ const EventContent = React.memo(
     ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
+        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
         const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -512,57 +515,89 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            <div className="flex flex-row items-center gap-2">
-                                {showPlaygroundButton && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconChat />}
-                                        onClick={handleTryInPlayground}
-                                        tooltip="Try this prompt in the playground"
-                                    >
-                                        Try in Playground
-                                    </LemonButton>
-                                )}
-                                {hasSessionID(event) && (
+                            {showPlaygroundButton ||
+                                (hasSessionID(event) && (
                                     <div className="flex flex-row items-center gap-2">
-                                        <Link
-                                            to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
-                                            className="flex flex-row gap-1 items-center"
-                                        >
-                                            <IconOpenInNew />
-                                            <span>View session recording</span>
-                                        </Link>
+                                        {showPlaygroundButton && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                icon={<IconChat />}
+                                                onClick={handleTryInPlayground}
+                                                tooltip="Try this prompt in the playground"
+                                            >
+                                                Try in Playground
+                                            </LemonButton>
+                                        )}
+                                        {hasSessionID(event) && (
+                                            <ViewRecordingButton
+                                                inModal
+                                                type="secondary"
+                                                size="xsmall"
+                                                data-attr="llm-observability"
+                                                sessionId={getSessionID(event) || undefined}
+                                                timestamp={removeMilliseconds(event.createdAt)}
+                                            />
+                                        )}
                                     </div>
-                                )}
-                            </div>
+                                ))}
                         </header>
-                        {isLLMTraceEvent(event) ? (
-                            event.event === '$ai_generation' ? (
-                                <ConversationMessagesDisplay
-                                    tools={event.properties.$ai_tools}
-                                    input={event.properties.$ai_input}
-                                    output={
-                                        event.properties.$ai_is_error
-                                            ? event.properties.$ai_error
-                                            : event.properties.$ai_output_choices ?? event.properties.$ai_output
-                                    }
-                                    httpStatus={event.properties.$ai_http_status}
-                                    raisedError={event.properties.$ai_is_error}
-                                />
-                            ) : (
-                                <EventContentDisplay
-                                    input={event.properties.$ai_input_state}
-                                    output={event.properties.$ai_output_state ?? event.properties.$ai_error}
-                                    raisedError={event.properties.$ai_is_error}
-                                />
-                            )
-                        ) : (
-                            <>
-                                <TraceMetricsTable />
-                                <EventContentDisplay input={event.inputState} output={event.outputState} />
-                            </>
-                        )}
+                        <LemonTabs
+                            activeKey={viewMode}
+                            onChange={setViewMode}
+                            tabs={[
+                                {
+                                    key: 'conversation',
+                                    label: 'Conversation',
+                                    content: (
+                                        <>
+                                            {isLLMTraceEvent(event) ? (
+                                                event.event === '$ai_generation' ? (
+                                                    <ConversationMessagesDisplay
+                                                        tools={event.properties.$ai_tools}
+                                                        input={event.properties.$ai_input}
+                                                        output={
+                                                            event.properties.$ai_is_error
+                                                                ? event.properties.$ai_error
+                                                                : event.properties.$ai_output_choices ??
+                                                                  event.properties.$ai_output
+                                                        }
+                                                        httpStatus={event.properties.$ai_http_status}
+                                                        raisedError={event.properties.$ai_is_error}
+                                                    />
+                                                ) : (
+                                                    <EventContentDisplay
+                                                        input={event.properties.$ai_input_state}
+                                                        output={
+                                                            event.properties.$ai_output_state ??
+                                                            event.properties.$ai_error
+                                                        }
+                                                        raisedError={event.properties.$ai_is_error}
+                                                    />
+                                                )
+                                            ) : (
+                                                <>
+                                                    <TraceMetricsTable />
+                                                    <EventContentDisplay
+                                                        input={event.inputState}
+                                                        output={event.outputState}
+                                                    />
+                                                </>
+                                            )}
+                                        </>
+                                    ),
+                                },
+                                {
+                                    key: 'raw',
+                                    label: 'Raw',
+                                    content: (
+                                        <div className="p-2">
+                                            <JSONViewer src={event} collapsed={2} />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
                     </>
                 )}
             </div>

@@ -11,10 +11,10 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    MarketingAnalyticsHelperForColumnNames,
     PropertyMathType,
 )
 from .adapters.base import MarketingSourceAdapter
-from .utils import sanitize_conversion_goal_name
 from .constants import (
     CAMPAIGN_COST_CTE_NAME,
     CONVERSION_GOAL_PREFIX,
@@ -37,17 +37,11 @@ class ConversionGoalProcessor:
 
     def get_cte_name(self):
         """Generate CTE name for conversion goal"""
-        goal_name = self.goal.conversion_goal_name
-        sanitized_name = sanitize_conversion_goal_name(goal_name)
-        return f"{CONVERSION_GOAL_PREFIX_ABBREVIATION}{self.index}_{sanitized_name}"
+        return self.goal.conversion_goal_id
 
     def get_table_name(self):
         """Get table name for conversion goal"""
-        name = self.goal.name
         kind = self.goal.kind
-
-        if not name:
-            return "events"
 
         if kind == "EventsNode":
             return "events"
@@ -61,8 +55,8 @@ class ConversionGoalProcessor:
     def get_utm_expressions(self) -> tuple[ast.Expr, ast.Expr]:
         """Get UTM campaign and source expressions based on node kind"""
 
-        utm_campaign_field = self.goal.schema_.get("utm_campaign_name", "utm_campaign")
-        utm_source_field = self.goal.schema_.get("utm_source_name", "utm_source")
+        utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
+        utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
 
         if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
             # For events: properties.utm_campaign, properties.utm_source
@@ -84,7 +78,7 @@ class ConversionGoalProcessor:
                 # uniq(distinct_id)
                 return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
             elif self.goal.kind == "DataWarehouseNode":
-                distinct_id_field = self.goal.schema_.get("distinct_id_field", "distinct_id")
+                distinct_id_field = self.goal.schema_map.get("distinct_id_field", "distinct_id")
                 return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
             else:
                 return ast.Call(name="uniq", args=[ast.Field(chain=["distinct_id"])])
@@ -160,7 +154,7 @@ class ConversionGoalProcessor:
     def get_date_field(self):
         """Get the appropriate date field for the conversion goal"""
         if self.goal.kind == "DataWarehouseNode":
-            return self.goal.schema_.get("timestamp_field", "timestamp")
+            return self.goal.schema_map.get("timestamp_field", "timestamp")
         else:
             return "timestamp"
 
@@ -267,7 +261,9 @@ class ConversionGoalProcessor:
         # Build: round(division_expr, DECIMAL_PRECISION)
         round_expr = ast.Call(name="round", args=[division_expr, ast.Constant(value=DECIMAL_PRECISION)])
 
-        cost_per_goal_alias = ast.Alias(alias=f"Cost per {goal_name}", expr=round_expr)
+        cost_per_goal_alias = ast.Alias(
+            alias=f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {goal_name}", expr=round_expr
+        )
 
         return [conversion_goal_alias, cost_per_goal_alias]
 

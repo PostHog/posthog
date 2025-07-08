@@ -1,1 +1,1 @@
-0779_alter_integration_kind
+0786_add_is_emoji_to_annotation

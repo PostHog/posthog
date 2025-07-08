@@ -126,7 +126,7 @@ describe('hooks', () => {
 
             expect(err.name).toBe('TypeError')
             expect(err.cause.name).toBe('SecureRequestError')
-            expect(err.cause.message).toContain('Internal hostname')
+            expect(err.cause.message).toContain('Hostname is not allowed')
         })
     })
 })

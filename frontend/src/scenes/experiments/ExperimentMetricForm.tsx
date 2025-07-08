@@ -7,9 +7,12 @@ import { Query } from '~/queries/Query/Query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
+    FunnelsQuery,
+    InsightVizNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
@@ -17,14 +20,9 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import {
-    filterToMetricConfig,
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getMathAvailability,
-    metricToFilter,
-    metricToQuery,
-} from './utils'
+import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
+
+import { addExposureToQuery, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
@@ -86,16 +84,35 @@ export function ExperimentMetricForm({
         },
     ]
 
-    const metricFilter = metricToFilter(metric)
-    const previewQuery = metricToQuery(metric, filterTestAccounts)
+    const metricFilter = getFilter(metric)
 
-    const queryConfig = {
-        kind: NodeKind.InsightVizNode,
-        source: previewQuery,
-        showTable: false,
-        showLastComputation: true,
-        showLastComputationRefresh: false,
-    }
+    /**
+     * TODO: use exposure criteria form running time calculator instead of
+     * default $pageview event.
+     */
+    const queryBuilder = compose<
+        ExperimentMetric,
+        FunnelsQuery | TrendsQuery | undefined,
+        FunnelsQuery | TrendsQuery | undefined,
+        InsightVizNode | undefined
+    >(
+        getQuery({
+            filterTestAccounts,
+        }),
+        addExposureToQuery({
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            custom_name: 'Placeholder for experiment exposure',
+            properties: [],
+        }),
+        getInsight({
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        })
+    )
+
+    const query = queryBuilder(metric)
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -146,8 +163,11 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
+                        // Data warehouse is not supported for funnel metrics - enforced at schema level
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                            (type) => type !== 'data_warehouse'
+                        )}
+                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 )}
             </div>
@@ -174,11 +194,15 @@ export function ExperimentMetricForm({
                     Preview
                 </LemonLabel>
             </div>
-            {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                <Query query={queryConfig} readOnly />
-            )}
-            {isExperimentFunnelMetric(metric) && <Query query={queryConfig} readOnly />}
+            {/*
+             * we can't reuse the same <Query> component instance when changing metric types
+             * because the component will mantain it's internal state.
+             * We use to have typeguards here, creating a different execution context for each metric type.
+             * But to do it the React way, we added a key to the <Query> component.
+             *
+             * The query component should be reactive to prop changes, but it's not.
+             */}
+            {query && <Query key={metric.metric_type} query={query} readOnly />}
         </div>
     )
 }
