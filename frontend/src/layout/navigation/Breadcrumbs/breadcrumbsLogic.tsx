@@ -11,7 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
@@ -178,10 +177,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         key: 'project',
                         name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
                         tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
-                        popover: {
-                            overlay: <ProjectSwitcherOverlay />,
-                        },
-                        popover_project: true,
+                        is_popover_project: true,
                     })
                 }
 
