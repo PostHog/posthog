@@ -761,9 +761,10 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        logger.debug(
+        logger.info(
             '🧑‍🦰',
-            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
+            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`,
+            { updatedPerson: updatedPerson, update: update }
         )
 
         return [updatedPerson, [kafkaMessage], versionDisparity > 0]
