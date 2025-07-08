@@ -13,7 +13,7 @@ from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
