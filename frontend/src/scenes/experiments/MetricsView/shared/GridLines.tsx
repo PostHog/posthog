@@ -24,9 +24,9 @@ export function GridLines({
     viewBoxWidth = 800,
     zeroLineColor = COLORS.ZERO_LINE,
     gridLineColor = COLORS.BOUNDARY_LINES,
-    zeroLineWidth = 1,
-    gridLineWidth = 0.5,
-    opacity = 0.3,
+    zeroLineWidth = 1.25,
+    gridLineWidth = 0.75,
+    opacity = 1,
     edgeThreshold = 0.06,
 }: GridLinesProps): JSX.Element {
     return (

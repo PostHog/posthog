@@ -22,8 +22,9 @@ export function GridLines({
                         y1={0}
                         x2={x}
                         y2={chartHeight}
-                        stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
+                        stroke={COLORS.ZERO_LINE}
                         strokeWidth={value === 0 ? 1 : 0.5}
+                        vectorEffect="non-scaling-stroke"
                     />
                 )
             })}
