@@ -66,7 +66,6 @@ export const getNextRetryTime = (config: PluginsServerConfig, tries: number): Da
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
-export const MAX_LOG_LENGTH = 10000
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -159,21 +158,6 @@ const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobals
     }
 
     return value
-}
-
-export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
-    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
-
-    // Find and replace any sensitive values
-    sensitiveValues?.forEach((sensitiveValue) => {
-        message = message.replaceAll(sensitiveValue, '***REDACTED***')
-    })
-
-    if (message.length > MAX_LOG_LENGTH) {
-        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
-    }
-
-    return message
 }
 
 export const buildGlobalsWithInputs = async (

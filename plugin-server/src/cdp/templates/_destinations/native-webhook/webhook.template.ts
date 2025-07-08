@@ -1,4 +1,4 @@
-import { NativeTemplate } from '~/cdp/services/native-destination-executor.service'
+import { NativeTemplate } from '~/cdp/templates/types'
 import { IntegrationError } from '~/cdp/templates/types'
 
 export const template: NativeTemplate = {

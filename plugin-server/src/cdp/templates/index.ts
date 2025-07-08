@@ -1,5 +1,3 @@
-import { NativeTemplate } from '~/cdp/services/native-destination-executor.service'
-
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
@@ -22,7 +20,7 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
-import { HogFunctionTemplate } from './types'
+import { HogFunctionTemplate, NativeTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -91,5 +89,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
-    ...NATIVE_HOG_FUNCTIONS,
+    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
 ]
