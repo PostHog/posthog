@@ -141,7 +141,7 @@ export function AnnotationModal({
                             loading={isAnnotationModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                            Save
                         </LemonButton>
                     </div>
                 </div>
