@@ -47,6 +47,10 @@ DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
+class BillingLimitsWillBeReachedException(Exception):
+    pass
+
+
 class DuplicatePrimaryKeysException(Exception):
     pass
 

@@ -3,7 +3,6 @@ import os
 from unittest.mock import patch
 from rest_framework import status
 
-from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template
 from posthog.models import HogFunction
@@ -37,10 +36,57 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
     def setUp(self):
         super().setUp()
 
-        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
-            mock_get_templates.return_value.status_code = 200
-            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+        # Clear any existing templates and create test templates in the database
+        DBHogFunctionTemplate.objects.all().delete()
+
+        # Create test templates that the tests expect
+        self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
+
+        # Create a webhook template
+        self.webhook_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            sha="1.0.0",
+            name="Webhook",
+            description="Generic webhook template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="stable",
+            category=["Integrations"],
+            free=True,
+        )
+
+        # Create additional templates to ensure we have > 5 templates
+        for i in range(4):
+            DBHogFunctionTemplate.objects.create(
+                template_id=f"template-test-{i}",
+                sha="1.0.0",
+                name=f"Test Template {i}",
+                description=f"Test template {i}",
+                code="return event",
+                code_language="hog",
+                inputs_schema={},
+                type="destination",
+                status="stable",
+                category=["Testing"],
+                free=True,
+            )
+
+        # Create a site_destination template for filtering tests
+        DBHogFunctionTemplate.objects.create(
+            template_id="template-site-destination",
+            sha="1.0.0",
+            name="Site Destination",
+            description="Site destination template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="site_destination",
+            status="stable",
+            category=["Testing"],
+            free=True,
+        )
 
     def test_list_function_templates(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/")
@@ -165,7 +211,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
 
         # Test getting templates via API endpoint
-        response = self.client.get("/api/projects/@current/hog_function_templates/?db_templates=true")
+        response = self.client.get("/api/projects/@current/hog_function_templates/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         results = response.json()["results"]
@@ -185,7 +231,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
     def test_get_specific_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Test getting a specific template via API endpoint
-        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack?db_templates=true")
+        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         # Verify it has the expected name
@@ -194,17 +240,13 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
     def test_get_specific_missing_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Verify non-existent template returns 404
-        response_missing = self.client.get(
-            "/api/projects/@current/hog_function_templates/non-existent-template?db_templates=true"
-        )
+        response_missing = self.client.get("/api/projects/@current/hog_function_templates/non-existent-template")
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_specific_deprecated_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Test getting a specific template via API endpoint
-        response = self.client.get(
-            f"/api/projects/@current/hog_function_templates/template-deprecated?db_templates=true"
-        )
+        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-deprecated")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         # Verify it has the expected name
@@ -215,9 +257,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
 
         # Initial sha of the template
-        initial_response = self.client.get(
-            "/api/projects/@current/hog_function_templates/template-slack?db_templates=true"
-        )
+        initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert initial_response.status_code == status.HTTP_200_OK
         assert initial_response.json()["name"] == template.name
 
@@ -238,18 +278,14 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         DBHogFunctionTemplate.create_from_dataclass(modified_template)
 
         # Get the template again and check it was updated
-        updated_response = self.client.get(
-            "/api/projects/@current/hog_function_templates/template-slack?db_templates=true"
-        )
+        updated_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert updated_response.status_code == status.HTTP_200_OK
         assert updated_response.json()["name"] == "Updated Slack"
         assert updated_response.json()["description"] == "This template was updated"
 
-    @patch("posthog.api.hog_function_template.get_hog_function_templates")
-    def test_toggle_returns_in_memory_templates_when_off(self, mock_get_templates):
-        """Test that in-memory templates are used when db_templates is false"""
-        # Setup: First create a distinct template in the DB with a unique name
-        # that doesn't exist in the in-memory templates
+    def test_always_uses_database_templates(self):
+        """Test that templates are always loaded from database"""
+        # Create a unique template in the DB
         DBHogFunctionTemplate.objects.create(
             template_id="unique-db-template",
             sha="1.0.0",
@@ -264,12 +300,8 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             free=True,
         )
 
-        # Mock the in-memory templates
-        mock_get_templates.return_value.status_code = 200
-        mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
-
-        # 1. First test with db_templates = true
-        response = self.client.get("/api/projects/@current/hog_function_templates/?db_templates=true")
+        # Test that the template is always returned from database
+        response = self.client.get("/api/projects/@current/hog_function_templates/")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Verify our unique DB template is included
@@ -277,23 +309,6 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         assert "unique-db-template" in template_ids
 
         # Get the specific template via API
-        response_specific = self.client.get(
-            "/api/projects/@current/hog_function_templates/unique-db-template?db_templates=true"
-        )
+        response_specific = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
         assert response_specific.status_code == status.HTTP_200_OK, response_specific.json()
         assert response_specific.json()["name"] == "Unique DB Template"
-
-        # 2. Now test with db_templates = false (default)
-        response_memory = self.client.get("/api/projects/@current/hog_function_templates/")
-        assert response_memory.status_code == status.HTTP_200_OK, response_memory.json()
-
-        # Verify our unique DB template is NOT included in memory templates
-        memory_template_ids = [t["id"] for t in response_memory.json()["results"]]
-        assert "unique-db-template" not in memory_template_ids
-
-        # But we should still get the common slack template
-        assert "template-slack" in memory_template_ids
-
-        # Get the specific template via API - should 404 since it only exists in DB
-        response_missing = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
-        assert response_missing.status_code == status.HTTP_404_NOT_FOUND

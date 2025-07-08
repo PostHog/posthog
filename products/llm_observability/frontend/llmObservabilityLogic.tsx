@@ -228,6 +228,19 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         insightProps: {
                             dashboardItemId: `new-generations-query`,
                         },
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityUsers(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {

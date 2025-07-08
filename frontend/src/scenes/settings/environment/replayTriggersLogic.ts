@@ -9,6 +9,10 @@ import type { replayTriggersLogicType } from './replayTriggersLogicType'
 
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
 
+export function isStringWithLength(x: unknown): x is string {
+    return typeof x === 'string' && x.trim() !== ''
+}
+
 function ensureAnchored(url: string): string {
     url = url.startsWith('^') ? url.substring(1) : url
     url = url.endsWith('$') ? url.substring(0, url.length - 1) : url
@@ -102,8 +106,13 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         eventTriggerConfig: [
             null as string[] | null,
             {
-                setEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
-                updateEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
+                // we have seen some instances where a user manages to get a null into the array.
+                // we guard against this by filtering out nulls, and empty strings
+                // since we only want valid strings, empty arrays or null-ish, as the value here
+                setEventTriggerConfig: (_, { eventTriggerConfig }) =>
+                    eventTriggerConfig?.filter(isStringWithLength) ?? null,
+                updateEventTriggerConfig: (_, { eventTriggerConfig }) =>
+                    eventTriggerConfig?.filter(isStringWithLength) ?? null,
             },
         ],
     }),
@@ -156,7 +165,9 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         currentTeam: (currentTeam: TeamPublicType | TeamType | null) => {
             actions.setUrlTriggerConfig(currentTeam?.session_recording_url_trigger_config ?? [])
             actions.setUrlBlocklistConfig(currentTeam?.session_recording_url_blocklist_config ?? [])
-            actions.setEventTriggerConfig(currentTeam?.session_recording_event_trigger_config ?? [])
+            actions.setEventTriggerConfig(
+                (currentTeam?.session_recording_event_trigger_config ?? []).filter(isStringWithLength)
+            )
         },
     })),
     forms(({ values, actions }) => ({
@@ -225,9 +236,15 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         },
         updateEventTriggerConfig: async ({ eventTriggerConfig }) => {
             actions.setEventTriggerConfig(eventTriggerConfig)
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_event_trigger_config: eventTriggerConfig,
-            })
+            // ok to stringify here... this will always be a small array
+            if (
+                JSON.stringify(eventTriggerConfig) !==
+                JSON.stringify(values.currentTeam?.session_recording_event_trigger_config)
+            ) {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    session_recording_event_trigger_config: eventTriggerConfig,
+                })
+            }
         },
     })),
 ])

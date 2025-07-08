@@ -204,13 +204,23 @@ impl SinkConfig {
             } => Ok(Box::new(
                 FileEmitter::new(path.clone(), *as_json, *cleanup).await?,
             )),
-            SinkConfig::Kafka(kafka_emitter_config) => Ok(Box::new(
-                // We use the job id as the kafka transactional id, since it's persistent across
-                // e.g. restarts and worker-job-passing, but still allows multiple jobs/workers to
-                // emit to kafka at the same time.
-                KafkaEmitter::new(kafka_emitter_config.clone(), &model.id.to_string(), context)
-                    .await?,
-            )),
+            SinkConfig::Kafka(kafka_emitter_config) => {
+                // resolve logical topic to env var configured topic
+                let actual_topic = context
+                    .config
+                    .resolve_kafka_topic(&kafka_emitter_config.topic)?;
+                let resolved_config = KafkaEmitterConfig {
+                    topic: actual_topic,
+                    send_rate: kafka_emitter_config.send_rate,
+                    transaction_timeout_seconds: kafka_emitter_config.transaction_timeout_seconds,
+                };
+                Ok(Box::new(
+                    // We use the job id as the kafka transactional id, since it's persistent across
+                    // e.g. restarts and worker-job-passing, but still allows multiple jobs/workers to
+                    // emit to kafka at the same time.
+                    KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
+                ))
+            }
         }
     }
 }

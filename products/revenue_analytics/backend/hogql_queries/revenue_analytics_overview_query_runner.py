@@ -22,9 +22,8 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        # If there are no charge revenue views, we return a query that returns 0 for all values
-        _, _, invoice_item_subquery, _ = self.revenue_subqueries
-        if invoice_item_subquery is None:
+        # If there are no invoice item revenue views, we return a query that returns 0 for all values
+        if self.revenue_subqueries.invoice_item is None:
             return ast.SelectQuery(
                 select=[
                     ast.Alias(alias="revenue", expr=CONSTANT_ZERO),
@@ -87,13 +86,21 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                     ),
                 ),
             ],
-            select_from=self.append_joins(
+            select_from=self._append_joins(
                 ast.JoinExpr(
-                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), table=invoice_item_subquery
+                    alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                    table=self.revenue_subqueries.invoice_item,
                 ),
-                self.joins_for_properties,
+                self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
             ),
-            where=ast.And(exprs=[self.timestamp_where_clause(), *self.where_property_exprs]),
+            where=ast.And(
+                exprs=[
+                    self.timestamp_where_clause(
+                        [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"],
+                    ),
+                    *self.where_property_exprs,
+                ]
+            ),
         )
 
     def calculate(self):

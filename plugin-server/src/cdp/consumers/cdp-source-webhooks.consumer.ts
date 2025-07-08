@@ -120,7 +120,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             logger.error('Error executing hog function', { error })
             result = createInvocationResult(
                 createInvocation({} as any, hogFunction),
-                { queue: 'hog' },
+                {},
                 {
                     finished: true,
                     error: error.message,

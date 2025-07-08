@@ -115,16 +115,16 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture call for invitee
         mock_capture.assert_any_call(
-            f"invite_{invite_id}",
-            "user invited",
+            event="user invited",
+            distinct_id=f"invite_{invite_id}",
             properties=capture_props,
             groups={"instance": ANY, "organization": str(self.team.organization_id)},
         )
 
         # Assert capture call for inviting party
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "team member invited",
+            event="team member invited",
+            distinct_id=self.user.distinct_id,
             properties={**capture_props, "$current_url": None, "$session_id": None},
             groups={
                 "instance": ANY,
@@ -382,8 +382,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "bulk invite executed",
+            event="bulk invite executed",
+            distinct_id=self.user.distinct_id,
             properties={
                 "invitee_count": 7,
                 "name_count": sum(1 for user in payload if user["first_name"]),
@@ -402,8 +402,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture call for invitee
         mock_capture.assert_any_call(
-            f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
-            "user invited",
+            event="user invited",
+            distinct_id=f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
             properties={
                 "name_provided": True,
                 "current_invite_count": 7,

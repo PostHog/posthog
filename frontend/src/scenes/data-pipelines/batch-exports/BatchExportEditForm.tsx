@@ -10,6 +10,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import React from 'react'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -156,11 +157,16 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <div className="flex gap-4">
-                            <LemonField name="file_format" label="Format" className="flex-1">
+                            <LemonField
+                                name="file_format"
+                                label="Format"
+                                className="flex-1"
+                                info="We recommend Parquet with zstd compression for the best performance"
+                            >
                                 <LemonSelect
                                     options={[
-                                        { value: 'JSONLines', label: 'JSON lines' },
                                         { value: 'Parquet', label: 'Apache Parquet' },
+                                        { value: 'JSONLines', label: 'JSON lines' },
                                     ]}
                                 />
                             </LemonField>
@@ -183,13 +189,61 @@ export function BatchExportsEditFields({
 
                         <div className="flex gap-4">
                             <LemonField name="compression" label="Compression" className="flex-1">
-                                <LemonSelect
-                                    options={[
+                                {({ value, onChange }) => {
+                                    const parquetCompressionOptions = [
+                                        { value: 'zstd', label: 'zstd' },
+                                        { value: 'lz4', label: 'lz4' },
+                                        { value: 'snappy', label: 'snappy' },
                                         { value: 'gzip', label: 'gzip' },
                                         { value: 'brotli', label: 'brotli' },
                                         { value: null, label: 'No compression' },
-                                    ]}
-                                />
+                                    ]
+                                    const jsonLinesCompressionOptions = [
+                                        { value: 'gzip', label: 'gzip' },
+                                        { value: 'brotli', label: 'brotli' },
+                                        { value: null, label: 'No compression' },
+                                    ]
+                                    const compressionOptions =
+                                        batchExportConfigForm.file_format === 'Parquet'
+                                            ? parquetCompressionOptions
+                                            : batchExportConfigForm.file_format === 'JSONLines'
+                                            ? jsonLinesCompressionOptions
+                                            : []
+
+                                    const isSelectedCompressionOptionValid = (value: string | null): boolean => {
+                                        if (batchExportConfigForm.file_format === 'Parquet') {
+                                            return parquetCompressionOptions.some((option) => option.value === value)
+                                        } else if (batchExportConfigForm.file_format === 'JSONLines') {
+                                            return jsonLinesCompressionOptions.some((option) => option.value === value)
+                                        }
+                                        return false
+                                    }
+
+                                    // Set defaults when file format changes for new destinations
+                                    React.useEffect(() => {
+                                        if (isNew && batchExportConfigForm.file_format === 'JSONLines') {
+                                            onChange(null)
+                                        } else if (isNew && batchExportConfigForm.file_format === 'Parquet') {
+                                            onChange('zstd')
+                                        } else if (!isSelectedCompressionOptionValid(value)) {
+                                            // if file format is changed but existing compression is not valid, set to null
+                                            onChange(null)
+                                        }
+                                    }, [batchExportConfigForm.file_format, isNew])
+
+                                    return (
+                                        <LemonSelect
+                                            options={compressionOptions}
+                                            value={value}
+                                            onChange={onChange}
+                                            placeholder={
+                                                !batchExportConfigForm.file_format
+                                                    ? 'Select file format first'
+                                                    : undefined
+                                            }
+                                        />
+                                    )
+                                }}
                             </LemonField>
 
                             <LemonField name="encryption" label="Encryption" className="flex-1">

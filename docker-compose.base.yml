@@ -245,8 +245,6 @@ services:
             # REDIS_TIMEOUT_MS: 200
             ADDRESS: '0.0.0.0:3001'
             RUST_LOG: 'info'
-            SKIP_WRITES: 'false'
-            SKIP_READS: 'false'
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop
@@ -349,28 +347,6 @@ services:
         environment:
             <<: *worker_env
             TEMPORAL_HOST: temporal
-
-    cyclotron-fetch:
-        image: ghcr.io/posthog/posthog/cyclotron-fetch:master
-        build:
-            context: rust/
-            args:
-                BIN: cyclotron-fetch
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'clickhouse_app_metrics2'
-            WORKER_ID: 'default_worker_id'
-            JOB_POLL_INTERVAL: '1s'
-            MAX_CONCURRENT_JOBS: '10'
-            DEBUG: '1'
-            RUST_LOG: 'info'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
 
     cyclotron-janitor:
         image: ghcr.io/posthog/posthog/cyclotron-janitor:master

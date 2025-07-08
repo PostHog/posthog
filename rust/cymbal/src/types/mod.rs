@@ -348,7 +348,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "?".to_string());
-        assert!(frame.in_app);
+        assert!(frame.meta.in_app);
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
@@ -360,7 +360,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
-        assert!(frame.in_app);
+        assert!(frame.meta.in_app);
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 15003);
     }

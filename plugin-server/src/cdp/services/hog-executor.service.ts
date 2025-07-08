@@ -1,8 +1,8 @@
 import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
-import { fetch, FetchOptions } from '~/utils/request'
+import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -11,14 +11,12 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import {
-    CyclotronFetchFailureInfo,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionQueueParametersFetchRequest,
-    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
     LogEntry,
     MinimalAppMetric,
@@ -28,7 +26,43 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { LiquidRenderer } from '../utils/liquid'
-import { cdpHttpRequests, isFetchResponseRetriable } from './fetch-executor.service'
+
+const cdpHttpRequests = new Counter({
+    name: 'cdp_http_requests',
+    help: 'HTTP requests and their outcomes',
+    labelNames: ['status'],
+})
+
+export const RETRIABLE_STATUS_CODES = [
+    408, // Request Timeout
+    429, // Too Many Requests (rate limiting)
+    500, // Internal Server Error
+    502, // Bad Gateway
+    503, // Service Unavailable
+    504, // Gateway Timeout
+]
+
+export const isFetchResponseRetriable = (response: FetchResponse | null, error: any | null): boolean => {
+    let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
+    if (error) {
+        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+            canRetry = false
+        } else {
+            canRetry = true // Only retry on general errors, not security or validation errors
+        }
+    }
+
+    return canRetry
+}
+
+export const getNextRetryTime = (config: PluginsServerConfig, tries: number): DateTime => {
+    const backoffMs = Math.min(
+        config.CDP_FETCH_BACKOFF_BASE_MS * tries + Math.floor(Math.random() * config.CDP_FETCH_BACKOFF_BASE_MS),
+        config.CDP_FETCH_BACKOFF_MAX_MS
+    )
+    return DateTime.utc().plus({ milliseconds: backoffMs })
+}
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -318,10 +352,6 @@ export class HogExecutorService {
         let asyncFunctionCount = 0
         const maxAsyncFunctions = options?.maxAsyncFunctions ?? 1
 
-        // NOTE: Only needed until the migration to hog only queue is complete
-        // After which we can trust this is set correctly by the scheduler
-        invocation.state.attempts = invocation.state.attempts ?? 0
-
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
@@ -373,73 +403,9 @@ export class HogExecutorService {
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'hog',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
         try {
-            // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
-            if (invocation.queueParameters) {
-                // NOTE: This is all based around the only response type being fetch currently
-                const {
-                    logs = [],
-                    response = null,
-                    trace = [],
-                    error,
-                    timings = [],
-                } = invocation.queueParameters as HogFunctionQueueParametersFetchResponse
-
-                let body = invocation.queueParameters.body
-
-                // If we got a response from fetch, we know the response code was in the <300 range,
-                // but if we didn't (indicating a bug in the fetch worker), we use a default of 503
-                let status = response?.status ?? 503
-
-                // If we got a trace, then the last "result" is the final attempt, and we should try to grab a status from it
-                // or any preceding attempts, and produce a log message for each of them
-                if (trace.length > 0) {
-                    logs.push({
-                        level: 'error',
-                        timestamp: DateTime.now(),
-                        message: `Fetch failed after ${trace.length} attempts`,
-                    })
-                    for (const attempt of trace) {
-                        logs.push({
-                            level: 'warn',
-                            timestamp: DateTime.now(),
-                            message: fetchFailureToLogMessage(attempt),
-                        })
-                        if (attempt.status) {
-                            status = attempt.status
-                        }
-                    }
-                }
-
-                if (!invocation.state.vmState) {
-                    throw new Error("VM state wasn't provided for queue parameters")
-                }
-
-                if (error) {
-                    throw new Error(error)
-                }
-
-                if (typeof body === 'string') {
-                    try {
-                        body = parseJSON(body)
-                    } catch (e) {
-                        // pass - if it isn't json we just pass it on
-                    }
-                }
-
-                // Finally we create the response object as the VM expects
-                result.invocation.state.vmState!.stack.push({
-                    status,
-                    body: body,
-                })
-                result.invocation.state.timings = result.invocation.state.timings.concat(timings)
-                result.logs = [...logs, ...result.logs]
-            }
-
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
 
@@ -612,16 +578,14 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
-                            const fetchQueueParameters = this.enrichFetchRequest({
+                            const fetchQueueParameters: HogFunctionQueueParametersFetchRequest = {
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers,
-                                return_queue: 'hog',
-                            })
+                            }
 
-                            result.invocation.queue = 'fetch' // TODO: Once we have moved away from the queue types then this will swap to "hog" queue
                             result.invocation.queueParameters = fetchQueueParameters
                             break
                         }
@@ -669,11 +633,6 @@ export class HogExecutorService {
         } catch (err) {
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
-            logger.error(
-                '🦔',
-                `[HogExecutor] Error executing function ${invocation.hogFunction.id} - ${invocation.hogFunction.name}. Event: '${invocation.state.globals.event?.url}'`,
-                err
-            )
         }
 
         return result
@@ -690,9 +649,7 @@ export class HogExecutorService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {
-                queue: 'hog',
-            },
+            {},
             {
                 finished: false,
             }
@@ -836,18 +793,4 @@ export class HogExecutorService {
 
         return request
     }
-
-    public redactFetchRequest(request: HogFunctionQueueParametersFetchRequest): HogFunctionQueueParametersFetchRequest {
-        if (request.headers && request.headers['developer-token'] === this.config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN) {
-            delete request.headers['developer-token']
-        }
-
-        return request
-    }
-}
-
-function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
-    return `Fetch failure of kind ${failure.kind} with status ${failure.status ?? '(none)'} and message ${
-        failure.message
-    }`
 }

@@ -391,6 +391,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 <MaxTool
                     name="create_and_query_insight"
                     displayName="Edit insight"
+                    description="Max can tweak and rework the insight you're viewing"
                     context={{
                         current_query: querySource,
                     }}

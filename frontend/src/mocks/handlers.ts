@@ -205,7 +205,6 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/:team_id/user_groups': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,

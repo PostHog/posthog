@@ -4,7 +4,7 @@ const { join } = require('path')
 
 import fetch from 'node-fetch'
 
-import { logger } from './src/utils/logger'
+import { logger, shutdownLogger } from './src/utils/logger'
 
 // Setup spies on the logger for all tests to use
 
@@ -98,4 +98,9 @@ beforeAll(() => {
     jest.spyOn(process, 'exit').mockImplementation((number) => {
         throw new Error('process.exit: ' + number)
     })
+})
+
+afterAll(async () => {
+    // Shutdown logger to prevent Jest from hanging on open handles
+    await shutdownLogger()
 })

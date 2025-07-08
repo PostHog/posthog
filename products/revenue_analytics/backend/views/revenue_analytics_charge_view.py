@@ -2,7 +2,10 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import (
+    DatabaseSchemaManagedViewTableKind,
+    HogQLQueryModifiers,
+)
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -53,7 +56,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
 
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
@@ -131,7 +134,9 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, _modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

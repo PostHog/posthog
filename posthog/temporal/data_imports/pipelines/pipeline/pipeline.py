@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
@@ -39,7 +40,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows
+from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import (
     DataWarehouseTable,
@@ -129,6 +130,12 @@ class PipelineNonDLT:
             # Setup row tracking
             if self._resource.rows_to_sync:
                 increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
+
+                # Check billing limits against incoming rows
+                if will_hit_billing_limit(team_id=self._job.team_id, logger=self._logger):
+                    raise BillingLimitsWillBeReachedException(
+                        f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
+                    )
 
             buffer: list[Any] = []
             py_table = None
@@ -423,9 +430,9 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             for user in schema.team.all_users_with_access():
                 if user.distinct_id is not None:
                     posthoganalytics.capture(
-                        user.distinct_id,
-                        "revenue_analytics_ready",
-                        {"source_type": schema.source.source_type},
+                        distinct_id=user.distinct_id,
+                        event="revenue_analytics_ready",
+                        properties={"source_type": schema.source.source_type},
                     )
 
             # Mark the team as notified, avoiding spamming emails

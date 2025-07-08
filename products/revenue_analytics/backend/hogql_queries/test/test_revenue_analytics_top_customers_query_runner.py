@@ -2,6 +2,7 @@ from freezegun import freeze_time
 from pathlib import Path
 from decimal import Decimal
 import datetime
+from unittest.mock import ANY
 
 from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
@@ -240,10 +241,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             results,
             [
                 ("John Doe", "cus_1", Decimal("239.9567749999"), "all"),
-                ("Jane Doe", "cus_2", Decimal("121.2037749998"), "all"),
+                ("Jane Doe", "cus_2", Decimal("222.6060849997"), "all"),
                 ("John Smith", "cus_3", Decimal("17453.43924"), "all"),
                 ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
-                ("John Doe Jr", "cus_5", Decimal("547.1405"), "all"),
+                ("John Doe Jr", "cus_5", Decimal("1379.39181"), "all"),
                 ("John Doe Jr Jr", "cus_6", Decimal("8756.78246"), "all"),
             ],
         )
@@ -273,8 +274,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
 
@@ -308,7 +309,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                (None, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                (None, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )

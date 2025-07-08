@@ -517,7 +517,7 @@ export class DB {
                 AND posthog_persondistinctid.distinct_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
-            PostgresUse.COMMON_READ,
+            PostgresUse.PERSONS_READ,
             queryString,
             values,
             'personPropertiesSize'
@@ -1014,7 +1014,7 @@ export class DB {
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],
             'addPersonToCohort'
@@ -1031,7 +1031,7 @@ export class DB {
         // When personIDs change, update places depending on a person_id foreign key
 
         await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // Do two high level things in a single round-trip to the DB.
             //
             // 1. Update cohorts.

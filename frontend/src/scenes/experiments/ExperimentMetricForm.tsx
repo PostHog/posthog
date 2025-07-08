@@ -22,7 +22,7 @@ import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandli
 import { commonActionFilterProps } from './Metrics/Selectors'
 import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
 
-import { addExposureToMetric, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
+import { addExposureToQuery, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
@@ -92,18 +92,18 @@ export function ExperimentMetricForm({
      */
     const queryBuilder = compose<
         ExperimentMetric,
-        ExperimentMetric,
+        FunnelsQuery | TrendsQuery | undefined,
         FunnelsQuery | TrendsQuery | undefined,
         InsightVizNode | undefined
     >(
-        addExposureToMetric({
+        getQuery({
+            filterTestAccounts,
+        }),
+        addExposureToQuery({
             kind: NodeKind.EventsNode,
             event: '$pageview',
             custom_name: 'Placeholder for experiment exposure',
             properties: [],
-        }),
-        getQuery({
-            filterTestAccounts,
         }),
         getInsight({
             showTable: true,
@@ -163,8 +163,11 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
+                        // Data warehouse is not supported for funnel metrics - enforced at schema level
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                            (type) => type !== 'data_warehouse'
+                        )}
+                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 )}
             </div>
@@ -191,11 +194,15 @@ export function ExperimentMetricForm({
                     Preview
                 </LemonLabel>
             </div>
-            {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {query && isExperimentMeanMetric(metric) && metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
-                <Query query={query} readOnly />
-            )}
-            {query && isExperimentFunnelMetric(metric) && <Query query={query} readOnly />}
+            {/*
+             * we can't reuse the same <Query> component instance when changing metric types
+             * because the component will mantain it's internal state.
+             * We use to have typeguards here, creating a different execution context for each metric type.
+             * But to do it the React way, we added a key to the <Query> component.
+             *
+             * The query component should be reactive to prop changes, but it's not.
+             */}
+            {query && <Query key={metric.metric_type} query={query} readOnly />}
         </div>
     )
 }

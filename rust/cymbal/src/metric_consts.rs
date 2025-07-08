@@ -64,3 +64,7 @@ pub const GROUPING_RULES_PROCESSING_TIME: &str = "cymbal_grouping_rules_processi
 pub const GROUPING_RULES_FOUND: &str = "cymbal_grouping_rules_found";
 pub const GROUPING_RULES_TRIED: &str = "cymbal_grouping_rules_tried";
 pub const CUSTOM_GROUPED_EVENTS: &str = "cymbal_custom_grouped_events";
+pub const STACK_PROCESSING_TIME: &str = "cymbal_stack_processing_time";
+pub const ISSUE_PROCESSING_TIME: &str = "cymbal_issue_processing_time";
+pub const FRAME_BATCH_TIME: &str = "cymbal_frame_batch_time";
+pub const FINGERPRINT_BATCH_TIME: &str = "cymbal_fingerprint_batch_time";

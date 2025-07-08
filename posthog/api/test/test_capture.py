@@ -8,8 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta, UTC
 from typing import Any, Union, cast
 from unittest import mock
-from unittest.mock import ANY, MagicMock, call
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring

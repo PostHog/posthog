@@ -1,7 +1,7 @@
 from unittest.mock import patch, MagicMock
 from django.test import TransactionTestCase
 
-from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature
+from posthog.models import Team, User, Insight, Dashboard, FeatureFlag, Annotation, EarlyAccessFeature, Project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 
@@ -277,3 +277,121 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
 
         mock_get_client.assert_called_once()
         mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_task_main_env_to_secondary(self, mock_get_client: MagicMock) -> None:
+        """Test migrating from main environment (team.id == project.id) to secondary environment"""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        project = Project.objects.create(id=100, organization=self.organization, name="Main Project")
+        production_env = Team.objects.create(
+            id=project.id, organization=self.organization, name="Production", project_id=project.id
+        )
+        staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
+
+        production_insight = Insight.objects.create(team=production_env, name="Production Insight")
+        production_dashboard = Dashboard.objects.create(team=production_env, name="Production Dashboard")
+        production_feature_flag = FeatureFlag.objects.create(
+            team=production_env, name="Production Flag", key="prod-flag"
+        )
+
+        environments_rollback_migration(
+            organization_id=self.organization.id,
+            environment_mappings={str(production_env.id): staging_env.id},
+            user_id=self.user.id,
+        )
+
+        production_insight.refresh_from_db()
+        production_dashboard.refresh_from_db()
+        production_feature_flag.refresh_from_db()
+
+        self.assertEqual(production_insight.team_id, staging_env.id)
+        self.assertEqual(production_dashboard.team_id, staging_env.id)
+        self.assertEqual(production_feature_flag.team_id, staging_env.id)
+
+        staging_env.refresh_from_db()
+        production_env.refresh_from_db()
+
+        self.assertEqual(staging_env.project_id, staging_env.id)
+        self.assertNotEqual(staging_env.project_id, project.id)
+
+        self.assertEqual(production_env.project_id, project.id)
+
+        staging_project = Project.objects.get(id=staging_env.id)
+        self.assertEqual(staging_project.name, "Main Project (Staging)")
+        self.assertEqual(staging_project.organization, self.organization)
+
+        mock_get_client.assert_called_once()
+        mock_posthog_client.capture.assert_called_once()
+        mock_posthog_client.flush.assert_called_once()
+        mock_posthog_client.shutdown.assert_called_once()
+
+    @patch("posthog.tasks.environments_rollback.get_client")
+    def test_environments_rollback_same_name_logic(self, mock_get_client: MagicMock) -> None:
+        """Test that environments with same name as project keep their original names."""
+        mock_posthog_client = MagicMock()
+        mock_get_client.return_value = mock_posthog_client
+
+        from posthog.models import Project
+
+        # Create project with team that has the same name
+        project1 = Project.objects.create(id=500, organization=self.organization, name="Default project")
+        same_name_env = Team.objects.create(
+            id=501, organization=self.organization, name="Default project", project_id=project1.id
+        )
+        different_name_env = Team.objects.create(
+            id=502, organization=self.organization, name="Development", project_id=project1.id
+        )
+
+        # Create another project with different scenario
+        project2 = Project.objects.create(id=600, organization=self.organization, name="Analytics")
+        analytics_env = Team.objects.create(
+            id=601, organization=self.organization, name="Analytics", project_id=project2.id
+        )
+        staging_env = Team.objects.create(
+            id=602, organization=self.organization, name="Staging", project_id=project2.id
+        )
+
+        # Run migration
+        environment_mappings = {"501": 502, "601": 602}
+        environments_rollback_migration(self.organization.id, environment_mappings, self.user.id)
+
+        # Refresh all teams and projects from database
+        same_name_env.refresh_from_db()
+        different_name_env.refresh_from_db()
+        analytics_env.refresh_from_db()
+        staging_env.refresh_from_db()
+        project1.refresh_from_db()
+        project2.refresh_from_db()
+
+        # Verify teams with same name as project keep original names
+        self.assertEqual(same_name_env.name, "Default project")
+        self.assertEqual(
+            same_name_env.project.name, "Default project"
+        )  # Project name should be the same as the environment name
+        self.assertNotEqual(same_name_env.project.id, project1.id)  # Should be in new project
+
+        # Verify teams with different names get renamed
+        self.assertEqual(different_name_env.name, "Default project (Development)")
+        self.assertEqual(different_name_env.project.name, "Default project (Development)")
+        self.assertEqual(different_name_env.project.id, project1.id)  # Should stay in original project
+
+        # Verify second scenario: Analytics team keeps original name
+        self.assertEqual(analytics_env.name, "Analytics")
+        self.assertEqual(analytics_env.project.name, "Analytics")
+        self.assertNotEqual(analytics_env.project.id, project2.id)  # Should be in new project
+
+        # Verify staging team gets renamed
+        self.assertEqual(staging_env.name, "Analytics (Staging)")
+        self.assertEqual(staging_env.project.name, "Analytics (Staging)")
+        self.assertEqual(staging_env.project.id, project2.id)  # Should stay in original project
+
+        # Verify that the migration completed successfully
+        mock_posthog_client.capture.assert_called()
+        completion_calls = [
+            call
+            for call in mock_posthog_client.capture.call_args_list
+            if "organization environments rollback completed" in str(call)
+        ]
+        self.assertEqual(len(completion_calls), 1)

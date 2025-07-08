@@ -9,6 +9,11 @@ from posthog.schema import (
     DateRange,
 )
 from posthog.test.base import APIBaseTest
+from posthog.hogql.database.schema.web_analytics_s3 import (
+    _get_s3_credentials,
+    create_s3_web_stats_table,
+    create_s3_web_bounces_table,
+)
 
 
 class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
@@ -148,3 +153,106 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert results["total_sessions"] == 0
         assert results["total_pageviews"] == 0
         assert results["bounce_rate"] == 0.0
+
+    def test_build_correct_paths_and_structures_for_s3_chdb_queries_in_production_mode(self):
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+            runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
+
+            stats_func = runner._build_s3_stats_table_func()
+            bounces_func = runner._build_s3_bounces_table_func()
+
+            # The generated functions should be valid S3 function calls
+            assert stats_func.startswith("s3(")
+            assert "'Native'" in stats_func
+            assert bounces_func.startswith("s3(")
+            assert "'Native'" in bounces_func
+
+            # Most importantly, verify that the create functions actually return tables with no credentials
+            stats_table = create_s3_web_stats_table(self.team.pk)
+            assert stats_table.access_key is None, "Production should use IAM roles (no access key)"
+            assert stats_table.access_secret is None, "Production should use IAM roles (no secret key)"
+            assert stats_table.format == "Native"
+            assert "web_stats_daily_export" in stats_table.url
+
+            bounces_table = create_s3_web_bounces_table(self.team.pk)
+            assert bounces_table.access_key is None, "Production should use IAM roles (no access key)"
+            assert bounces_table.access_secret is None, "Production should use IAM roles (no secret key)"
+            assert bounces_table.format == "Native"
+            assert "web_bounces_daily_export" in bounces_table.url
+
+    def test_build_correct_paths_and_structures_for_s3_chdb_queries_in_debug_mode(self):
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
+            runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
+
+            # Test that the S3 table creation functions work correctly in debug mode
+            stats_func = runner._build_s3_stats_table_func()
+            bounces_func = runner._build_s3_bounces_table_func()
+
+            # The generated functions should be valid S3 function calls
+            assert stats_func.startswith("s3(")
+            assert "'Native'" in stats_func
+            assert bounces_func.startswith("s3(")
+            assert "'Native'" in bounces_func
+
+            # Most importantly, verify that the create functions return tables WITH credentials in debug
+            from posthog.hogql.database.schema.web_analytics_s3 import (
+                create_s3_web_stats_table,
+                create_s3_web_bounces_table,
+            )
+
+            stats_table = create_s3_web_stats_table(self.team.pk)
+            assert stats_table.access_key is not None
+            assert stats_table.access_secret is not None
+            assert stats_table.format == "Native"
+            assert "web_stats_daily_export" in stats_table.url
+
+            bounces_table = create_s3_web_bounces_table(self.team.pk)
+            assert bounces_table.access_key is not None
+            assert bounces_table.access_secret is not None
+            assert bounces_table.format == "Native"
+            assert "web_bounces_daily_export" in bounces_table.url
+
+    def test_credential_helper_function_behavior(self):
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+            access_key, access_secret = _get_s3_credentials()
+            assert access_key is None
+            assert access_secret is None
+
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
+            with patch("posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_ACCESS_KEY_ID", "debug_key"):
+                with patch(
+                    "posthog.hogql.database.schema.web_analytics_s3.OBJECT_STORAGE_SECRET_ACCESS_KEY", "debug_secret"
+                ):
+                    access_key, access_secret = _get_s3_credentials()
+                    assert access_key == "debug_key"
+                    assert access_secret == "debug_secret"
+
+    def test_s3_table_creation_integration(self):
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", False):
+            stats_table = create_s3_web_stats_table(self.team.pk)
+            assert stats_table.access_key is None
+            assert stats_table.access_secret is None
+            assert stats_table.format == "Native"
+            assert stats_table.name == "web_stats_daily_s3"
+            assert "web_stats_daily_export" in stats_table.url
+            assert str(self.team.pk) in stats_table.url
+
+            bounces_table = create_s3_web_bounces_table(self.team.pk)
+            assert bounces_table.access_key is None
+            assert bounces_table.access_secret is None
+            assert bounces_table.format == "Native"
+            assert bounces_table.name == "web_bounces_daily_s3"
+            assert "web_bounces_daily_export" in bounces_table.url
+
+        with patch("posthog.hogql.database.schema.web_analytics_s3.DEBUG", True):
+            stats_table = create_s3_web_stats_table(self.team.pk)
+            assert stats_table.access_key is not None
+            assert stats_table.access_secret is not None
+            assert stats_table.format == "Native"
+            assert stats_table.name == "web_stats_daily_s3"
+
+            bounces_table = create_s3_web_bounces_table(self.team.pk)
+            assert bounces_table.access_key is not None
+            assert bounces_table.access_secret is not None
+            assert bounces_table.format == "Native"
+            assert bounces_table.name == "web_bounces_daily_s3"

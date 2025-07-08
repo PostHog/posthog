@@ -1,10 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
-use crate::flags::flag_matching::PostgresReader;
 use crate::metrics::consts::{
     COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER, DB_COHORT_ERRORS_COUNTER,
     DB_COHORT_READS_COUNTER,
 };
+use common_database::PostgresReader;
 use common_types::ProjectId;
 use moka::future::Cache;
 use std::sync::Arc;

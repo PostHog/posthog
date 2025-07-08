@@ -9,6 +9,7 @@ interface InlinePropsBase {
     description?: string
     /** Makes text selectable instead of copying on click anywhere */
     selectable?: boolean
+    /** adds ph-no-capture class to the element **/
     isValueSensitive?: boolean
     tooltipMessage?: React.ReactNode | null
     iconStyle?: Record<string, string | number>

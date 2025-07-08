@@ -1,8 +1,7 @@
-// Signup.stories.tsx
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -16,6 +15,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags to properly render the sidebar
     },
     decorators: [
         mswDecorator({
@@ -38,6 +38,7 @@ const meta: Meta = {
     ],
 }
 export default meta
+
 export const CurrentUserIsOwner = (): JSX.Element => {
     useStorybookMocks({
         get: {
@@ -49,9 +50,11 @@ export const CurrentUserIsOwner = (): JSX.Element => {
             },
         },
     })
+
     useEffect(() => {
         router.actions.push(urls.settings('organization-members'))
     }, [])
+
     return <App />
 }
 
@@ -70,9 +73,11 @@ export const CurrentUserIsAdmin = (): JSX.Element => {
             ],
         },
     })
+
     useEffect(() => {
         router.actions.push(urls.settings('organization-members'))
     }, [])
+
     return <App />
 }
 
@@ -91,8 +96,10 @@ export const CurrentUserIsMember = (): JSX.Element => {
             ],
         },
     })
+
     useEffect(() => {
         router.actions.push(urls.settings('organization-members'))
     }, [])
+
     return <App />
 }

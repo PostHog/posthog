@@ -73,7 +73,7 @@ export function FloatingSuggestionsDisplay({
     }
 
     return (
-        <div className="mb-1">
+        <div className="mt-1 mx-1">
             {/* Main suggestion groups */}
             {(!activeSuggestionGroup || !compact) && (
                 <>

@@ -257,3 +257,69 @@ class TestTraceClickhouseQueryDecorator:
             # When span is not recording, OpenTelemetry functions are no-ops
             # but we still call them, so the mock will record the calls
             # This is expected behavior since OpenTelemetry handles the no-op internally
+
+    def test_decorator_team_id_literal_in_query(self):
+        """Test decorator extracts team_id from a literal in the query string"""
+
+        @trace_clickhouse_query_decorator
+        def test_function(
+            query, args=None, workload=Workload.DEFAULT, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
+        ):
+            return [1]
+
+        with patch("posthog.clickhouse.client.tracing.trace") as mock_trace:
+            mock_span = Mock()
+            mock_span.is_recording.return_value = True
+            mock_context = MagicMock()
+            mock_context.__enter__.return_value = mock_span
+            mock_context.__exit__.return_value = None
+            mock_tracer = Mock()
+            mock_tracer.start_as_current_span.return_value = mock_context
+            mock_trace.get_tracer.return_value = mock_tracer
+
+            test_function("SELECT * FROM table WHERE team_id = 42 AND x = 1")
+            mock_span.set_attribute.assert_any_call("clickhouse.team_id", "42")
+
+    def test_decorator_team_id_param_in_query_and_args(self):
+        """Test decorator extracts team_id from parameterized query and args dict"""
+
+        @trace_clickhouse_query_decorator
+        def test_function(
+            query, args=None, workload=Workload.DEFAULT, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
+        ):
+            return [1]
+
+        with patch("posthog.clickhouse.client.tracing.trace") as mock_trace:
+            mock_span = Mock()
+            mock_span.is_recording.return_value = True
+            mock_context = MagicMock()
+            mock_context.__enter__.return_value = mock_span
+            mock_context.__exit__.return_value = None
+            mock_tracer = Mock()
+            mock_tracer.start_as_current_span.return_value = mock_context
+            mock_trace.get_tracer.return_value = mock_tracer
+
+            test_function("SELECT * FROM table WHERE team_id = %(team_id)s AND x = 1", {"team_id": 123, "x": 2})
+            mock_span.set_attribute.assert_any_call("clickhouse.team_id", "123")
+
+    def test_decorator_team_id_not_present(self):
+        """Test decorator sets team_id to empty string if not present anywhere"""
+
+        @trace_clickhouse_query_decorator
+        def test_function(
+            query, args=None, workload=Workload.DEFAULT, team_id=None, readonly=False, ch_user=ClickHouseUser.DEFAULT
+        ):
+            return [1]
+
+        with patch("posthog.clickhouse.client.tracing.trace") as mock_trace:
+            mock_span = Mock()
+            mock_span.is_recording.return_value = True
+            mock_context = MagicMock()
+            mock_context.__enter__.return_value = mock_span
+            mock_context.__exit__.return_value = None
+            mock_tracer = Mock()
+            mock_tracer.start_as_current_span.return_value = mock_context
+            mock_trace.get_tracer.return_value = mock_tracer
+
+            test_function("SELECT * FROM table WHERE x = 1", {"x": 2})
+            mock_span.set_attribute.assert_any_call("clickhouse.team_id", "")

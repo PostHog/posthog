@@ -1,10 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+    time::Instant,
+};
 
+use common_database::{PostgresReader, PostgresWriter};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
@@ -23,14 +27,11 @@ use crate::{
     },
     properties::{
         property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter, PropertyType},
+        property_models::{OperatorType, PropertyFilter},
     },
 };
 
-use super::{
-    flag_group_type_mapping::GroupTypeIndex,
-    flag_matching::{FlagEvaluationState, PostgresReader, PostgresWriter},
-};
+use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
@@ -309,9 +310,7 @@ pub fn locally_computable_property_overrides(
 
 /// Checks if any property filters involve cohorts that require database lookup
 fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
-    property_filters
-        .iter()
-        .any(|prop| prop.prop_type == PropertyType::Cohort)
+    property_filters.iter().any(|prop| prop.is_cohort())
 }
 
 /// Determines if the provided overrides contain properties that the flag actually needs
@@ -640,7 +639,7 @@ mod tests {
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,

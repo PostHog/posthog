@@ -34,12 +34,44 @@ pub struct FlagFilters {
     pub groups: Vec<FlagPropertyGroup>,
     #[serde(default)]
     pub multivariate: Option<MultivariateFlagOptions>,
+    /// The group type index is used to determine which group type to use for the flag.
+    ///
+    /// Typical group type mappings are:
+    /// - 0 → "project"
+    /// - 1 → "organization"
+    /// - 2 → "instance"
+    /// - 3 → "customer"
+    /// - 4 → "team"
     #[serde(default)]
     pub aggregation_group_type_index: Option<i32>,
     #[serde(default)]
     pub payloads: Option<serde_json::Value>,
+    /// Super groups are a special group of feature flag conditions that act as a gate that must be
+    /// satisfied before any other conditions are evaluated. Currently, we only ever evaluate the first
+    /// super group. This is used for early access features which is a key and a boolean like so:
+    /// {
+    ///   "key": "$feature_enrollment/feature-flags-flag-dependency",
+    ///   "type": "person",
+    ///   "value": [
+    ///     "true"
+    ///   ],
+    ///   "operator": "exact"
+    /// }
+    /// If they match, the flag is enabled and no other conditions are evaluated. If they don't match,
+    /// fallback to regular conditions.
     #[serde(default)]
     pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    /// The holdout group (though the type can hold multiple, we only evaluate the first one)
+    /// is a condition that defines a set of users intentionally excluded from a test or
+    /// experiment to serve as a baseline or control group. The group is defined as a percentage
+    /// which is held back by hashing the distinct identifier of the user. Here's an example:
+    /// "holdout_groups": [
+    /// {
+    ///     "variant": "holdout-1",
+    ///     "properties": [],
+    ///     "rollout_percentage": 10
+    ///   }
+    /// ]
     #[serde(default)]
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
 }
@@ -82,10 +114,4 @@ pub struct FeatureFlagRow {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
-}
-
-impl FeatureFlagList {
-    pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
-    }
 }

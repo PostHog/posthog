@@ -9,7 +9,7 @@ from loginas.utils import is_impersonated_session
 from django.db import transaction
 
 
-from rest_framework import serializers, viewsets, exceptions
+from rest_framework import serializers, viewsets, exceptions, filters
 from rest_framework.serializers import BaseSerializer
 from posthog.api.utils import action
 from rest_framework.request import Request
@@ -409,7 +409,8 @@ class HogFunctionViewSet(
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ["name", "description"]
     filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"

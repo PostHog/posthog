@@ -12,7 +12,7 @@ from dagster import (
     asset_check,
 )
 from dags.common import JobOwners
-from dags.web_preaggregated_utils import TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED
+from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
@@ -36,11 +36,6 @@ MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
 WEB_DATA_QUALITY_CONFIG_SCHEMA = {
-    "team_ids": Field(
-        list,
-        default_value=TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
-        description="List of team IDs to validate data quality for",
-    ),
     "tolerance_pct": Field(
         float,
         default_value=DEFAULT_TOLERANCE_PCT,
@@ -110,8 +105,8 @@ def stats_hourly_has_data() -> AssetCheckResult:
 
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
-        export_filename = f"{export_type}_export.native"
-        export_path = get_s3_url(table_name=export_filename, team_id=2)
+        export_filename = f"{export_type}_export"
+        export_path = get_s3_url(table_name=export_filename, team_id=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
 
         if export_type == "web_stats_daily":
             table_structure = get_s3_web_stats_structure().strip()
@@ -284,7 +279,9 @@ def compare_web_overview_metrics(
     runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
 
     # Query without pre-aggregated tables
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
+    # We have an known issue that the buckets are always in UTC, so we need to query in UTC to make sure we're comparing apples to apples
+    # This can be improved if we change to hourly buckets but right now this fits our scope
+    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False)
 
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
@@ -352,20 +349,9 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     Data quality check: validates pre-aggregated tables match regular WebOverview queries within some % accuracy.
     """
     run_config = context.run.run_config.get("ops", {}).get("web_analytics_accuracy_check", {}).get("config", {})
-    team_ids = run_config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     tolerance_pct = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
     days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
-
-    # Validate inputs
-    if not team_ids:
-        return AssetCheckResult(
-            passed=False,
-            description="No team IDs provided for accuracy validation",
-            metadata={"error": MetadataValue.text("Empty team_ids list")},
-        )
-
-    if len(team_ids) > MAX_TEAMS_PER_BATCH:
-        context.log.warning(f"Large team batch ({len(team_ids)} teams), consider splitting for better performance")
+    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
     end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
     start_date = end_date - timedelta(days=days_back)
@@ -373,39 +359,22 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     date_to = end_date.strftime("%Y-%m-%d")
 
     validation_results = []
-    failed_teams = []
-    skipped_teams = []
 
-    context.log.info(f"Starting accuracy validation for {len(team_ids)} teams, tolerance: {tolerance_pct}%")
+    context.log.info(f"Starting accuracy validation for team {team_id}, tolerance: {tolerance_pct}%")
 
-    for team_id in team_ids:
-        try:
-            context.log.info(f"Validating data quality for team {team_id}")
+    try:
+        is_valid, comparison_data = compare_web_overview_metrics(
+            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
+        )
 
-            is_valid, comparison_data = compare_web_overview_metrics(
-                team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
-            )
+        validation_results.append(comparison_data)
 
-            validation_results.append(comparison_data)
-
-            if not is_valid:
-                failed_teams.append(team_id)
-
-                # Log specific metric failures
-                if "metrics" in comparison_data:
-                    for metric_key, metric_data in comparison_data["metrics"].items():
-                        if not metric_data.get("within_tolerance", True):
-                            context.log.error(
-                                f"Metric accuracy check failed for team {team_id}, metric {metric_key}: "
-                                f"pre_agg={metric_data.get('pre_aggregated')}, regular={metric_data.get('regular')}, "
-                                f"diff={metric_data.get('pct_difference'):.2f}%, tolerance={tolerance_pct}%"
-                            )
-        except Exception as e:
-            context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
-            skipped_teams.append(team_id)
-            validation_results.append(
-                {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to, "skipped": True}
-            )
+        context.log.info(f"Comparison is valid: {is_valid}, comparison data: {comparison_data}")
+    except Exception as e:
+        context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
+        validation_results.append(
+            {"team_id": team_id, "error": str(e), "date_from": date_from, "date_to": date_to, "skipped": True}
+        )
 
     total_metrics_checked = sum(
         len(result.get("metrics", {})) for result in validation_results if not result.get("skipped")
@@ -419,26 +388,15 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     )
 
     success_rate = (total_metrics_checked - failed_metrics) / max(total_metrics_checked, 1) * 100
-    processed_teams = len(team_ids) - len(skipped_teams)
 
-    if skipped_teams and len(skipped_teams) == len(team_ids):
-        passed = False
-        severity = AssetCheckSeverity.ERROR
-        description = f"All {len(team_ids)} teams failed validation due to errors"
-    elif not failed_teams and not skipped_teams:
-        passed = True
-        severity = None
-        description = f"All {len(team_ids)} teams passed accuracy validation within {tolerance_pct}% tolerance"
-    elif success_rate >= 95 and len(failed_teams) <= 1:
+    if success_rate >= 95:
         passed = True
         severity = AssetCheckSeverity.WARN
-        description = f"{processed_teams - len(failed_teams)}/{processed_teams} teams passed validation (success rate: {success_rate:.1f}%)"
+        description = f"Team {team_id} passed validation (success rate: {success_rate:.1f}%)"
     else:
         passed = False
         severity = AssetCheckSeverity.ERROR
-        description = (
-            f"{len(failed_teams)} of {processed_teams} teams failed accuracy validation. Failed teams: {failed_teams}"
-        )
+        description = f"Team {team_id} failed accuracy validation."
 
     return AssetCheckResult(
         passed=passed,
@@ -446,15 +404,10 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
         description=description,
         metadata={
             "success_rate": MetadataValue.float(success_rate),
-            "teams_passed": MetadataValue.int(processed_teams - len(failed_teams)),
-            "total_teams": MetadataValue.int(len(team_ids)),
-            "processed_teams": MetadataValue.int(processed_teams),
             "failed_metrics": MetadataValue.int(failed_metrics),
             "total_metrics": MetadataValue.int(total_metrics_checked),
             "tolerance_pct": MetadataValue.float(tolerance_pct),
             "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
-            "failed_teams": MetadataValue.json(failed_teams),
-            "skipped_teams": MetadataValue.json(skipped_teams),
             "detailed_results": MetadataValue.json(validation_results),
         },
     )
@@ -486,7 +439,6 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
                         "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
                         "days_back": DEFAULT_DAYS_BACK,
                     }

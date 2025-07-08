@@ -5,7 +5,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../../utils'
+import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -46,11 +46,11 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
 
-    const requiredFields = Object.keys(MARKETING_ANALYTICS_SCHEMA).filter(
+    const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
     )
 
-    const isFieldMapped = (table: ExternalTable, fieldName: string): boolean => {
+    const isFieldMapped = (table: ExternalTable, fieldName: MarketingAnalyticsColumnsSchemaNames): boolean => {
         const sourceMapping = table.source_map
         if (!sourceMapping) {
             return false
@@ -106,8 +106,8 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
         const sourceMapping = table.source_map
 
         if (sourceMapping) {
-            Object.keys(sourceMapping).forEach((fieldName) => {
-                updateSourceMapping(table.source_map_id, fieldName, null)
+            Object.keys(sourceMapping).forEach((fieldName: string) => {
+                updateSourceMapping(table.source_map_id, fieldName as MarketingAnalyticsColumnsSchemaNames, null)
             })
         }
     }

@@ -270,15 +270,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
-        name: 'Revenue Analytics Growth Rate',
-        description: 'View revenue analytics growth rate.',
+    [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
+        name: 'Revenue Analytics Customer Count',
+        description: 'View revenue analytics customer and subscription count.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsGrossRevenueQuery]: {
-        name: 'Revenue Analytics Gross Revenue',
-        description: 'View revenue analytics gross revenue.',
+    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
+        name: 'Revenue Analytics Growth Rate',
+        description: 'View revenue analytics growth rate.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -288,15 +288,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
-        name: 'Revenue Analytics Top Customers',
-        description: 'View revenue analytics top customers.',
+    [NodeKind.RevenueAnalyticsRevenueQuery]: {
+        name: 'Revenue Analytics Revenue',
+        description: 'View revenue analytics gross and MRR revenue.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsRevenueQuery]: {
-        name: 'Revenue Analytics Revenue',
-        description: 'View revenue analytics MRR/ARR.',
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
         icon: IconPiggyBank,
         inMenu: true,
     },

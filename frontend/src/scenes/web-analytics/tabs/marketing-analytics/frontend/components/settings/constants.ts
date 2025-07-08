@@ -6,7 +6,7 @@ export const defaultConversionGoalFilter: ConversionGoalFilter = {
     conversion_goal_name: '',
     kind: NodeKind.EventsNode,
     event: '',
-    name: 'Select event, custom event, action or any Data Warehouse table',
+    name: 'Select event, custom event, action or any data warehouse table',
     math: BaseMathType.TotalCount,
     schema_map: {
         utm_campaign_name: 'utm_campaign',

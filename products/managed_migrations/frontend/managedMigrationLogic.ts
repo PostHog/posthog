@@ -24,6 +24,8 @@ export interface ManagedMigrationForm {
     // date range specific fields
     start_date?: string
     end_date?: string
+    // EU region support for amplitude/mixpanel
+    is_eu_region?: boolean
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
@@ -36,6 +38,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     content_type: 'captured',
     start_date: '',
     end_date: '',
+    is_eu_region: false,
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -122,6 +125,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         ...payload,
                         start_date: values.start_date,
                         end_date: values.end_date,
+                        is_eu_region: values.is_eu_region,
                     }
                 }
                 try {

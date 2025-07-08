@@ -216,9 +216,7 @@ export class HogTransformerService {
                                         },
                                         hogFunction
                                     ),
-                                    {
-                                        queue: 'hog',
-                                    },
+                                    {},
                                     {
                                         metrics: filterResults.metrics,
                                         logs: filterResults.logs,

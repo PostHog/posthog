@@ -35,10 +35,10 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                     className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"
                     title={storiesCollapsed ? 'Show stories' : 'Hide stories'}
                 >
-                    <span className="text-sm font-medium text-text-3000">Video updates</span>
                     <IconChevronRight
                         className={`w-3 h-3 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
                     />
+                    <span className="text-sm font-medium text-text-3000">Stories</span>
                 </button>
             </div>
             {!storiesCollapsed && (
@@ -64,6 +64,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                         story_group_id: storyGroup.id,
                                         group_title: storyGroup.title,
                                         group_thumbnail_url: nextStory.thumbnailUrl,
+                                        group_index: originalIndex,
                                     })
                                     setActiveStoryIndex(nextStoryIndex)
                                     setActiveGroupIndex(originalIndex)

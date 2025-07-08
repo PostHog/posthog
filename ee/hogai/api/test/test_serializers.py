@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.graph.graph import AssistantGraph
@@ -38,7 +38,7 @@ class TestConversationSerializers(APIBaseTest):
         state = AssistantState(messages=mock_messages)
 
         # Mock the get_state method to return our test data
-        with patch("langgraph.graph.state.CompiledStateGraph.get_state") as mock_get_state:
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
 
             class MockSnapshot:
                 values = state.model_dump()

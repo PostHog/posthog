@@ -6,6 +6,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
@@ -456,6 +457,76 @@ describe('EventPipelineRunner', () => {
                     'produceExceptionSymbolificationEventStep',
                 ])
             })
+        })
+
+        it('captures ingestion warning for $groupidentify with too long $group_key', async () => {
+            const longKey = 'x'.repeat(401)
+            const event = {
+                ...pluginEvent,
+                event: '$groupidentify',
+                properties: { $group_key: longKey },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([])
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    messages: [
+                        expect.objectContaining({
+                            value: expect.stringContaining('group_key_too_long'),
+                        }),
+                    ],
+                })
+            )
+        })
+
+        it('does not capture warning for $groupidentify with short $group_key', async () => {
+            const event = {
+                ...pluginEvent,
+                event: '$groupidentify',
+                properties: { $group_key: 'x'.repeat(400) },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([
+                'pluginsProcessEventStep',
+                'transformEventStep',
+                'normalizeEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'extractHeatmapDataStep',
+                'createEventStep',
+                'emitEventStep',
+            ])
+            // Should not call queueMessages with group_key_too_long
+            expect(
+                mockProducer.queueMessages.mock.calls.some(([arg]) =>
+                    JSON.stringify(arg).includes('group_key_too_long')
+                )
+            ).toBe(false)
+        })
+
+        it('does not capture warning for non-$groupidentify events with long $group_key', async () => {
+            const event = {
+                ...pluginEvent,
+                event: 'not_groupidentify',
+                properties: { $group_key: 'x'.repeat(1000) },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([
+                'pluginsProcessEventStep',
+                'transformEventStep',
+                'normalizeEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'extractHeatmapDataStep',
+                'createEventStep',
+                'emitEventStep',
+            ])
+            expect(
+                mockProducer.queueMessages.mock.calls.some(([arg]) =>
+                    JSON.stringify(arg).includes('group_key_too_long')
+                )
+            ).toBe(false)
         })
     })
 

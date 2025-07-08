@@ -1,7 +1,7 @@
 import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -14,6 +14,7 @@ import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -78,34 +79,6 @@ function CinemaMode(): JSX.Element {
             icon={<IconVideoCamera className="text-2xl" />}
             data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
         />
-    )
-}
-
-function CommentOnRecordingButton(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setIsCommenting(!isCommenting)}
-            tooltip={
-                isCommenting ? (
-                    <>
-                        Stop commenting <KeyboardShortcut c />
-                    </>
-                ) : (
-                    <>
-                        Comment on this recording <KeyboardShortcut c />
-                    </>
-                )
-            }
-            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isCommenting}
-            icon={<IconComment className="text-xl" />}
-        >
-            Comment
-        </LemonButton>
     )
 }
 

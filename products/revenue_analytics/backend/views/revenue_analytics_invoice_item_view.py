@@ -2,7 +2,10 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import (
+    DatabaseSchemaManagedViewTableKind,
+    HogQLQueryModifiers,
+)
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -32,7 +35,7 @@ from posthog.hogql.database.schema.exchange_rate import (
 )
 
 SOURCE_VIEW_SUFFIX = "invoice_item_revenue_view"
-EVENTS_VIEW_SUFFIX = "invoice_item_revenue_view_events"
+EVENTS_VIEW_SUFFIX = "invoice_item_events_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -44,6 +47,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
     "invoice_id": StringDatabaseField(name="invoice_id"),
+    "subscription_id": StringDatabaseField(name="subscription_id"),
     "session_id": StringDatabaseField(name="session_id"),
     "event_name": StringDatabaseField(name="event_name"),
     "coupon": StringDatabaseField(name="coupon"),
@@ -157,7 +161,7 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
 
     # NOTE: Very similar to charge views, but for individual invoice items
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
@@ -198,10 +202,11 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="created_at", expr=ast.Field(chain=["timestamp"])),
                     ast.Alias(alias="is_recurring", expr=ast.Constant(value=False)),
                     ast.Alias(alias="product_id", expr=ast.Constant(value=None)),
-                    ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
                     ast.Alias(
-                        alias="invoice_id", expr=ast.Constant(value=None)
-                    ),  # Helpful for sources, not helpful for events
+                        alias="customer_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["person_id"])])
+                    ),
+                    ast.Alias(alias="invoice_id", expr=ast.Constant(value=None)),
+                    ast.Alias(alias="subscription_id", expr=ast.Constant(value=None)),
                     ast.Alias(
                         alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])
                     ),
@@ -243,7 +248,9 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, _modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -310,13 +317,20 @@ class RevenueAnalyticsInvoiceItemView(RevenueAnalyticsBaseView):
                 ast.Alias(
                     alias="is_recurring",
                     expr=ast.Call(
-                        name="isNotNull",
-                        args=[ast.Field(chain=["subscription_id"])],
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="notEmpty",
+                                args=[ast.Field(chain=["subscription_id"])],
+                            ),
+                            ast.Constant(value=0),
+                        ],
                     ),
                 ),
                 ast.Field(chain=["product_id"]),
                 ast.Field(chain=["customer_id"]),
                 ast.Alias(alias="invoice_id", expr=ast.Field(chain=["id"])),
+                ast.Field(chain=["subscription_id"]),
                 ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
                 ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
                 ast.Alias(alias="coupon", expr=extract_json_string("discount", "coupon", "name")),

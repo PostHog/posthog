@@ -341,8 +341,8 @@ class OrganizationInviteViewSet(
         session_id = request.headers.get("X-Posthog-Session-Id")
         if user.distinct_id:
             posthoganalytics.capture(
-                user.distinct_id,
-                "bulk invite attempted",
+                distinct_id=str(user.distinct_id),
+                event="bulk invite attempted",
                 properties={
                     "invitees_count": len(data),
                     "$current_url": current_url,

@@ -198,6 +198,18 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
+        // id hyphens are removed. Used for hex'd id paths in DAG
+        dataWarehouseSavedQueryMapByIdStringMap: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => {
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.id.replace(/-/g, '')] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
+            },
+        ],
         dataWarehouseSavedQueryMap: [
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
