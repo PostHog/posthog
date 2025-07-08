@@ -35,31 +35,41 @@ def get_internal_logger():
     return logger.new(**temporal_context)
 
 
-def get_logger(name: str | None = None):
-    logger = logging.getLogger(name or __name__)
-    logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
+def bind_contextvars(**kwargs):
+    """Bind any variables to the context, including base Temporal variables."""
+    temporal_context = get_temporal_context()
+    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
-    handler = logging.StreamHandler()
+
+def get_logger(name: str | None = None) -> logging.Logger:
+    logger = logging.getLogger(name or __name__)
+
+    if not logger.handlers:
+        configure_stdlib_logger(logger)
+
+    return structlog.get_logger(name or __name__)
+
+
+def get_external_logger(**kwargs) -> logging.Logger:
+    """Return a bound logger to log user-facing logs."""
+    logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
+
+    if not logger.handlers:
+        configure_stdlib_logger(logger)
+
+    return EXTERNAL_LOGGER.bind(**kwargs)
+
+
+def configure_stdlib_logger(logger: logging.Logger) -> None:
+    handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(settings.TEMPORAL_LOG_LEVEL)
 
     formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
 
-    return structlog.get_logger(name or __name__)
-
-
-def bind_contextvars(**kwargs):
-    """Bind any variables to the context, including base Temporal variables."""
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.TEMPORAL_LOG_LEVEL)
-    temporal_context = get_temporal_context()
-    structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
-
-
-def get_external_logger(**kwargs) -> logging.Logger:
-    """Return a bound logger to log user-facing logs."""
-    # Always set to 'DEBUG' to display all external logs to users.
-    logging.getLogger(EXTERNAL_LOGGER_NAME).setLevel(logging.DEBUG)
-    return EXTERNAL_LOGGER.bind(**kwargs)
+    logger.addHandler(handler)
+    logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
+    logger.propagate = False
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
