@@ -21,6 +21,25 @@ class FunnelPlannerNode(TaxonomyAgentPlannerNode):
         )
         return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # Create toolkit and force evaluation of lazy properties in sync context
+        from posthog.warehouse.util import database_sync_to_async
+
+        def create_and_initialize_toolkit():
+            toolkit = FunnelsTaxonomyAgentToolkit(self._team)
+            # Force evaluation of cached properties that contain database queries
+            _ = toolkit.tools  # This triggers _default_tools which triggers _entity_names which triggers _groups
+            return toolkit
+
+        toolkit = await database_sync_to_async(create_and_initialize_toolkit)()
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", REACT_SYSTEM_PROMPT),
+            ],
+            template_format="mustache",
+        )
+        return await super()._arun_with_prompt_and_toolkit(state, prompt, toolkit, config)
+
 
 class FunnelPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -44,6 +63,15 @@ class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
             template_format="mustache",
         )
         return super()._run_with_prompt(state, prompt, config=config)
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", FUNNEL_SYSTEM_PROMPT),
+            ],
+            template_format="mustache",
+        )
+        return await super()._arun_with_prompt(state, prompt, config=config)
 
 
 class FunnelGeneratorToolsNode(SchemaGeneratorToolsNode):

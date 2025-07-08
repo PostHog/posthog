@@ -28,6 +28,25 @@ class SQLPlannerNode(TaxonomyAgentPlannerNode):
         )
         return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # Create toolkit and force evaluation of lazy properties in sync context
+        from posthog.warehouse.util import database_sync_to_async
+
+        def create_and_initialize_toolkit():
+            toolkit = SQLTaxonomyAgentToolkit(self._team)
+            # Force evaluation of cached properties that contain database queries
+            _ = toolkit.tools  # This triggers _default_tools which triggers _entity_names which triggers _groups
+            return toolkit
+
+        toolkit = await database_sync_to_async(create_and_initialize_toolkit)()
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SQL_REACT_SYSTEM_PROMPT),
+            ],
+            template_format="mustache",
+        )
+        return await super()._arun_with_prompt_and_toolkit(state, prompt, toolkit, config)
+
 
 class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -74,6 +93,43 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
             template_format="mustache",
         )
         return super()._run_with_prompt(state, prompt, config=config)
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        from posthog.warehouse.util import database_sync_to_async
+
+        # Create database and context in sync context since it makes database queries
+        def create_database_and_context():
+            database = create_hogql_database(team=self._team)
+            hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
+            serialized_database = serialize_database(hogql_context)
+            return database, hogql_context, serialized_database
+
+        database, self.hogql_context, serialized_database = await database_sync_to_async(create_database_and_context)()
+
+        schema_description = "\n\n".join(
+            (
+                f"Table `{table_name}` with fields:\n"
+                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                for table_name, table in serialized_database.items()
+                # Only the most important core tables, plus all warehouse tables
+                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+            )
+        )
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    IDENTITY_MESSAGE
+                    + "\n\n<example_query>\n"
+                    + HOGQL_EXAMPLE_MESSAGE
+                    + "\n</example_query>\n\n"
+                    + SCHEMA_MESSAGE.format(schema_description=schema_description),
+                ),
+            ],
+            template_format="mustache",
+        )
+        return await super()._arun_with_prompt(state, prompt, config=config)
 
     def _parse_output(self, output):  # type: ignore
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore

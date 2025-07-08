@@ -77,6 +77,20 @@ class AssistantNode(ABC):
             return ""
         return self.core_memory.formatted_text
 
+    async def _aget_core_memory_text(self) -> str:
+        """Async version of core_memory_text property (formatted/truncated)"""
+        core_memory = await self._aget_core_memory()
+        if not core_memory:
+            return ""
+        return core_memory.formatted_text
+
+    async def _aget_core_memory_raw_text(self) -> str:
+        """Get raw core memory text (not truncated)"""
+        core_memory = await self._aget_core_memory()
+        if not core_memory:
+            return ""
+        return core_memory.text
+
     @property
     def _utc_now_datetime(self) -> datetime.datetime:
         return timezone.now().astimezone(datetime.UTC)

@@ -3,6 +3,8 @@ from functools import cached_property
 from typing import Generic, Optional, TypeVar
 from uuid import uuid4
 
+from async_lru import alru_cache
+
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
@@ -125,6 +127,73 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             query_generation_retry_count=len(intermediate_steps),
         )
 
+    async def _arun_with_prompt(
+        self,
+        state: AssistantState,
+        prompt: ChatPromptTemplate,
+        config: Optional[RunnableConfig] = None,
+    ) -> PartialAssistantState:
+        # Use async cached version to avoid database queries in async context
+        group_mapping_prompt = await self._aget_group_mapping_prompt()
+
+        start_id = state.start_id
+        generated_plan = state.plan or ""
+        intermediate_steps = state.intermediate_steps or []
+        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
+
+        generation_prompt = prompt + self._construct_messages_async(
+            state, group_mapping_prompt, validation_error_message=validation_error_message
+        )
+        merger = merge_message_runs()
+
+        chain = generation_prompt | merger | self._model | self._parse_output
+
+        try:
+            message: SchemaGeneratorOutput[Q] = await chain.ainvoke(
+                {
+                    "project_datetime": self.project_now,
+                    "project_timezone": self.project_timezone,
+                    "project_name": self._team.name,
+                },
+                config,
+            )
+        except PydanticOutputParserException as e:
+            # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
+            if len(intermediate_steps) >= 2:
+                return PartialAssistantState(
+                    messages=[
+                        FailureMessage(
+                            content=f"Oops! It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
+                        )
+                    ],
+                    intermediate_steps=[],
+                    plan="",
+                    query_generation_retry_count=len(intermediate_steps) + 1,
+                )
+
+            return PartialAssistantState(
+                intermediate_steps=[
+                    *intermediate_steps,
+                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
+                ],
+                query_generation_retry_count=len(intermediate_steps) + 1,
+            )
+
+        final_message = VisualizationMessage(
+            query=self._get_insight_plan(state),
+            plan=generated_plan,
+            answer=message.query,
+            initiator=start_id,
+            id=str(uuid4()),
+        )
+
+        return PartialAssistantState(
+            messages=[final_message],
+            intermediate_steps=[],
+            plan="",
+            query_generation_retry_count=len(intermediate_steps),
+        )
+
     def router(self, state: AssistantState):
         if state.intermediate_steps:
             return "tools"
@@ -142,8 +211,36 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
+    @alru_cache(maxsize=1)
+    async def _aget_group_mapping_prompt(self) -> str:
+        """Async cached version of _group_mapping_prompt"""
+        from posthog.warehouse.util import database_sync_to_async
+
+        def get_group_mapping():
+            groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+            if not groups:
+                return "The user has not defined any groups."
+
+            root = ET.Element("list of defined groups")
+            root.text = (
+                "\n"
+                + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups])
+                + "\n"
+            )
+            return ET.tostring(root, encoding="unicode")
+
+        return await database_sync_to_async(get_group_mapping)()
+
     def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
+    ) -> list[BaseMessage]:
+        """
+        Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
+        """
+        return self._construct_messages_async(state, self._group_mapping_prompt, validation_error_message)
+
+    def _construct_messages_async(
+        self, state: AssistantState, group_mapping_prompt: str, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
@@ -155,7 +252,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         # Add the group mapping prompt to the beginning of the conversation.
         conversation: list[BaseMessage] = [
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
-                group_mapping=self._group_mapping_prompt
+                group_mapping=group_mapping_prompt
             )
         ]
 

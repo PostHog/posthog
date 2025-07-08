@@ -3,6 +3,8 @@ from abc import ABC
 from functools import cached_property
 from typing import cast
 
+from async_lru import alru_cache
+
 from git import Optional
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
@@ -136,6 +138,89 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             intermediate_steps=[*intermediate_steps, (result, None)],
         )
 
+    async def _arun_with_prompt_and_toolkit(
+        self,
+        state: AssistantState,
+        prompt: ChatPromptTemplate,
+        toolkit: TaxonomyAgentToolkit,
+        config: RunnableConfig,
+    ) -> PartialAssistantState:
+        # Use async cached versions to avoid database queries in async context
+        team_group_types = await self._aget_team_group_types()
+        react_property_filters_prompt = await self._aget_react_property_filters_prompt()
+
+        intermediate_steps = state.intermediate_steps or []
+        conversation = (
+            prompt
+            + ChatPromptTemplate.from_messages(
+                [
+                    ("user", REACT_DEFINITIONS_PROMPT),
+                ],
+                template_format="mustache",
+            )
+            + self._construct_messages(state)
+            + ChatPromptTemplate.from_messages(
+                [
+                    ("user", REACT_SCRATCHPAD_PROMPT),
+                ],
+                template_format="mustache",
+            )
+        )
+
+        events_in_context = []
+        if ui_context := self._get_ui_context(state):
+            events_in_context = ui_context.events if ui_context.events else []
+
+        agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
+
+        try:
+            result = cast(
+                AgentAction,
+                await agent.ainvoke(
+                    {
+                        "react_format": self._get_react_format_prompt(toolkit),
+                        "core_memory": await self._aget_core_memory_raw_text(),
+                        "tools": toolkit.render_text_description(),
+                        "react_property_filters": react_property_filters_prompt,
+                        "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
+                        "groups": team_group_types,
+                        "events": self._format_events_prompt(events_in_context),
+                        "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
+                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
+                        "project_datetime": self.project_now,
+                        "project_timezone": self.project_timezone,
+                        "project_name": self._team.name,
+                        "actions": state.rag_context,
+                        "actions_prompt": REACT_ACTIONS_PROMPT,
+                    },
+                    config,
+                ),
+            )
+        except ReActParserException as e:
+            if isinstance(e, ReActParserMissingActionException):
+                # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
+                # so that it has a higher chance to recover.
+                corrected_log = str(
+                    ChatPromptTemplate.from_template(REACT_MISSING_ACTION_CORRECTION_PROMPT, template_format="mustache")
+                    .format_messages(output=e.llm_output)[0]
+                    .content
+                )
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    REACT_MISSING_ACTION_PROMPT,
+                    corrected_log,
+                )
+            else:
+                result = AgentAction(
+                    "handle_incorrect_response",
+                    REACT_MALFORMED_JSON_PROMPT,
+                    e.llm_output,
+                )
+
+        return PartialAssistantState(
+            intermediate_steps=[*intermediate_steps, (result, None)],
+        )
+
     @property
     def _model(self) -> ChatOpenAI:
         return ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True, max_retries=3)
@@ -155,6 +240,17 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             str,
             ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
             .format_messages(groups=self._team_group_types)[0]
+            .content,
+        )
+
+    @alru_cache(maxsize=1)
+    async def _aget_react_property_filters_prompt(self) -> str:
+        """Async cached version of _get_react_property_filters_prompt"""
+        team_group_types = await self._aget_team_group_types()
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            .format_messages(groups=team_group_types)[0]
             .content,
         )
 
@@ -215,6 +311,20 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )
+
+    @alru_cache(maxsize=1)
+    async def _aget_team_group_types(self) -> list[str]:
+        """Async cached version of _team_group_types"""
+        from posthog.warehouse.util import database_sync_to_async
+
+        def get_team_group_types():
+            return list(
+                GroupTypeMapping.objects.filter(project_id=self._team.project_id)
+                .order_by("group_type_index")
+                .values_list("group_type", flat=True)
+            )
+
+        return await database_sync_to_async(get_team_group_types)()
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
