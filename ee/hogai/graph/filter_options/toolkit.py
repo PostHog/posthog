@@ -222,10 +222,18 @@ class FilterOptionsToolkit:
             )[:MAX_PROPERTIES]
             props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.SESSION).values_list(
-                "name", "property_type"
-            )[:MAX_PROPERTIES]
-            props = self._enrich_props_with_descriptions("session", qs)
+            # qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.SESSION).values_list(
+            #     "name", "property_type"
+            # )[:MAX_PROPERTIES]
+            props = self._enrich_props_with_descriptions(
+                "session",
+                [
+                    (prop_name, prop["type"])
+                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
+                    if prop.get("type") is not None
+                ],
+            )
+            # props = self._enrich_props_with_descriptions("session", qs)
         elif entity == "event":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
                 "name", "property_type"
