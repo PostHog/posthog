@@ -440,13 +440,13 @@ class FeatureFlagSerializer(
         validated_data["last_modified_by"] = request.user
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
-            # Check for early access features first
+            # Check for linked early access features
             if instance.features.count() > 0:
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
 
-            # Check for active (non-deleted) experiments
+            # Check for linked active (non-deleted) experiments
             active_experiments = instance.experiment_set.filter(deleted=False)
             if active_experiments.exists():
                 experiment_ids = list(active_experiments.values_list("id", flat=True))
@@ -481,9 +481,6 @@ class FeatureFlagSerializer(
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
-
-            # Note: We no longer need to delete soft-deleted flags with the same key
-            # because we handle key reuse proactively when soft-deleting flags
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
