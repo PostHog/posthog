@@ -36,6 +36,7 @@ export interface LemonTabsProps<T extends string | number> {
     'data-attr'?: string
     barClassName?: string
     className?: string
+    contentClassName?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -51,6 +52,7 @@ export function LemonTabs<T extends string | number>({
     size = 'medium',
     className,
     'data-attr': dataAttr,
+    contentClassName,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -120,7 +122,7 @@ export function LemonTabs<T extends string | number>({
                 })}
             </ul>
             {activeTab && 'content' in activeTab && (
-                <div className="LemonTabs__content" key={activeKey}>
+                <div className={cn('LemonTabs__content', contentClassName)} key={activeKey}>
                     {activeTab.content}
                 </div>
             )}
