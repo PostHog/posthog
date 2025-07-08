@@ -37,12 +37,15 @@ def get_internal_logger():
 
 def bind_contextvars(**kwargs):
     """Bind any variables to the context, including base Temporal variables."""
+    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.TEMPORAL_LOG_LEVEL)
     temporal_context = get_temporal_context()
     structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
 
 def get_external_logger(**kwargs) -> logging.Logger:
     """Return a bound logger to log user-facing logs."""
+    # Always set to 'DEBUG' to display all external logs to users.
+    logging.getLogger(EXTERNAL_LOGGER_NAME).setLevel(logging.DEBUG)
     return EXTERNAL_LOGGER.bind(**kwargs)
 
 
@@ -203,7 +206,6 @@ def configure_logger_async(
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.format_exc_info,
         structlog.processors.CallsiteParameterAdder(
             {
                 structlog.processors.CallsiteParameter.FILENAME,
