@@ -48,7 +48,7 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
     return (
         <div
             ref={containerRef}
-            className="relative inline-block w-full h-full"
+            className="relative block w-full h-full"
             onMouseEnter={() => setIsVisible(true)}
             onMouseLeave={() => setIsVisible(false)}
         >
