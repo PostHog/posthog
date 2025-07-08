@@ -23,6 +23,7 @@ import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { PersonsManagerService } from '../managers/persons-manager.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 const cleanLogs = (logs: string[]): string[] => {
@@ -50,6 +51,7 @@ describe('Hogflow Executor', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        const personManager = new PersonsManagerService(hub)
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
 
@@ -92,7 +94,7 @@ describe('Hogflow Executor', () => {
             bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
+        executor = new HogFlowExecutorService(hub, personManager, hogExecutor, hogFunctionTemplateManager)
     })
 
     describe('general event processing', () => {
