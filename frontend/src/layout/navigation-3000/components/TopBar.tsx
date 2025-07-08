@@ -249,7 +249,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         </Component>
     )
 
-    if (breadcrumb.popover_project) {
+    if (breadcrumb.is_popover_project) {
         return (
             <ProjectDropdownMenu
                 buttonProps={{
