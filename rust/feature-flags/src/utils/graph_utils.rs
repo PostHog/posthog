@@ -382,16 +382,16 @@ pub fn filter_graph_by_keys(
     let mut nodes_to_include = HashSet::new();
 
     // Build an index from flag keys to node indices for O(1) lookups
-    let key_to_node: HashMap<&String, petgraph::graph::NodeIndex> = global_graph
+    let key_to_node: HashMap<&str, petgraph::graph::NodeIndex> = global_graph
         .graph
         .node_indices()
-        .map(|idx| (&global_graph.graph[idx].key, idx))
+        .map(|idx| (global_graph.graph[idx].key.as_str(), idx))
         .collect();
 
     // For each requested flag, traverse the global graph to collect dependencies
     for key in requested_keys {
         // Find the flag in the global graph using the index
-        let node_idx = key_to_node.get(key);
+        let node_idx = key_to_node.get(key.as_str());
 
         if let Some(&start_idx) = node_idx {
             // Use BFS to collect all reachable nodes (dependencies) from this flag
