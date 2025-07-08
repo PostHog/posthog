@@ -12,7 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat import Heartbeater
 from asgiref.sync import sync_to_async
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from posthog.utils import (
     get_instance_region,
     get_previous_day,

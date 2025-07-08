@@ -132,6 +132,10 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+
+    HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
+    HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
+    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 }
 
 export type IngestionConsumerConfig = {
