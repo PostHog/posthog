@@ -10919,6 +10919,33 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
+        "ExternalDataSourceType": {
+            "enum": [
+                "Stripe",
+                "Hubspot",
+                "Postgres",
+                "MySQL",
+                "MSSQL",
+                "Zendesk",
+                "Snowflake",
+                "Salesforce",
+                "Vitally",
+                "BigQuery",
+                "Chargebee",
+                "GoogleAds",
+                "MetaAds",
+                "Klaviyo",
+                "Mailchimp",
+                "Braze",
+                "Mailjet",
+                "Redshift",
+                "GoogleSheets",
+                "MongoDB",
+                "TemporalIO",
+                "DoIt"
+            ],
+            "type": "string"
+        },
         "ExternalQueryError": {
             "additionalProperties": false,
             "properties": {
@@ -20715,6 +20742,207 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SourceConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "betaSource": {
+                    "type": "boolean"
+                },
+                "caption": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {}
+                    ]
+                },
+                "disabledReason": {
+                    "type": ["string", "null"]
+                },
+                "existingSource": {
+                    "type": "boolean"
+                },
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "$ref": "#/definitions/ExternalDataSourceType"
+                },
+                "unreleasedSource": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["name", "caption", "fields"],
+            "type": "object"
+        },
+        "SourceFieldConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/SourceFieldInputConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSwitchGroupConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSelectConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldOauthConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                }
+            ]
+        },
+        "SourceFieldFileUploadConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "fileFormat": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "file-upload",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldInputConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "placeholder"],
+            "type": "object"
+        },
+        "SourceFieldOauthConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "oauth",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "kind"],
+            "type": "object"
+        },
+        "SourceFieldSelectConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "defaultValue": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "options": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "fields": {
+                                "items": {
+                                    "$ref": "#/definitions/SourceFieldConfig"
+                                },
+                                "type": "array"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "select",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "defaultValue", "options"],
+            "type": "object"
+        },
+        "SourceFieldSwitchGroupConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "default": {
+                    "type": ["string", "number", "boolean"]
+                },
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "switch-group",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "default", "fields"],
             "type": "object"
         },
         "SourceMap": {
