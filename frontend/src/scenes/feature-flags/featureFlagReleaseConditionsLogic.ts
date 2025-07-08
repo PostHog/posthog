@@ -31,7 +31,7 @@ import {
     UserBlastRadiusType,
 } from '~/types'
 
-import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
+import type { featureFlagReleaseConditionsLogicType } from './FeatureFlagReleaseConditionsLogicType'
 
 // Helper function to move a condition set to a new index
 function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] {
@@ -55,7 +55,7 @@ export interface FeatureFlagReleaseConditionsLogicProps {
 function ensureSortKeys(filters: FeatureFlagFilters): FeatureFlagFilters {
     return {
         ...filters,
-        groups: filters.groups.map((group: FeatureFlagGroupType) => ({
+        groups: (filters.groups || []).map((group: FeatureFlagGroupType) => ({
             ...group,
             sort_key: group.sort_key ?? uuidv4(),
         })),
@@ -102,7 +102,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         filters: {
             setFilters: (_, { filters }) => {
                 // Only assign sort_keys to groups that don't have one
-                const groupsWithKeys = filters.groups.map((group: FeatureFlagGroupType) => {
+                const groupsWithKeys = (filters.groups || []).map((group: FeatureFlagGroupType) => {
                     if (group.sort_key) {
                         return group
                     }
