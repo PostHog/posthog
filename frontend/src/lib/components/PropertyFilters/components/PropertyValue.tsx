@@ -201,6 +201,14 @@ export function PropertyValue({
         )
     }
 
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
     return (
         <LemonInputSelect
             className={inputClassName}
@@ -221,18 +229,14 @@ export function PropertyValue({
                     : undefined
             }
             popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
+            options={displayOptions.map(({ name: value }, index) => {
+                const name = toString(value)
                 return {
                     key: name,
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(value)}
                         </span>
                     ),
                 }
