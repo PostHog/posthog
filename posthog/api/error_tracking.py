@@ -131,8 +131,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        id = obj.user_id or obj.role_id
-        return str(id) if id else None
+        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
     def get_type(self, obj):
         return "role" if obj.role else "user"
