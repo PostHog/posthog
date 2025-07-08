@@ -191,6 +191,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const uniqSeries = Array.from(
                     new Set(
                         indexedResults
+                            .slice()
                             .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
                             .map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
                     )
