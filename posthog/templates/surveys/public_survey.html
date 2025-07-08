@@ -619,12 +619,6 @@
             if (appearance.borderColor) {
                 root.style.setProperty('--ph-survey-border-color', appearance.borderColor);
             }
-            if (appearance.fontFamily) {
-                const fontFamily = appearance.fontFamily === 'inherit' ?
-                    '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif' :
-                    appearance.fontFamily;
-                root.style.setProperty('--ph-survey-font-family', fontFamily);
-            }
             if (appearance.maxWidth) {
                 root.style.setProperty('--ph-survey-max-width', appearance.maxWidth);
             }
