@@ -30,6 +30,7 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
+import { InsightErrorState, InsightLoadingState, InsightValidationError } from 'scenes/insights/EmptyStates'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -42,6 +43,8 @@ export interface InsightCardProps extends Resizeable {
     loading?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
+    /** Might contain more information on the error that occured on the server. */
+    apiError?: Error
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     /** Whether loading timed out. */
@@ -86,6 +89,7 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
+        apiError,
         apiErrored,
         timedOut,
         highlighted,
@@ -144,6 +148,31 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const cachedResults = noCache ? undefined : insight
+    const hasResults = !!cachedResults?.result || !!cachedResults?.results
+
+    // Empty states that completely replace the Query component.
+    const BlockingEmptyState = (() => {
+        if (!hasResults && loadingQueued) {
+            return <InsightLoadingState insightProps={insightLogicProps} />
+        }
+
+        // We use 512 for query timeouts
+        // Async queries put the error message on data.error_message, while synchronous ones use detail
+        const validationError =
+            apiError?.status === 400 || apiError?.status === 512
+                ? (apiError.detail || apiError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                : null
+
+        if (validationError) {
+            return <InsightValidationError detail={validationError} />
+        }
+
+        if (apiErrored) {
+            return <InsightErrorState />
+        }
+        return null
+    })()
 
     return (
         <div
@@ -178,17 +207,21 @@ function InsightCardInternal(
                             variablesOverride={variablesOverride}
                         />
                         <div className="InsightCard__viz">
-                            <Query
-                                query={insight.query}
-                                cachedResults={noCache ? undefined : insight}
-                                context={{
-                                    insightProps: insightLogicProps,
-                                }}
-                                readOnly
-                                embedded
-                                inSharedMode={placement === DashboardPlacement.Public}
-                                variablesOverride={variablesOverride}
-                            />
+                            {BlockingEmptyState ? (
+                                BlockingEmptyState
+                            ) : (
+                                <Query
+                                    query={insight.query}
+                                    cachedResults={cachedResults}
+                                    context={{
+                                        insightProps: insightLogicProps,
+                                    }}
+                                    readOnly
+                                    embedded
+                                    inSharedMode={placement === DashboardPlacement.Public}
+                                    variablesOverride={variablesOverride}
+                                />
+                            )}
                         </div>
                     </BindLogic>
                     {showResizeHandles && (
