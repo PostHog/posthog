@@ -1,11 +1,9 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import { urls } from 'scenes/urls'
 
 const dashboardRaw = require('../dashboard/__mocks__/dashboard1.json')
 // Mark all tiles as cached to prevent refresh attempts in storybook
@@ -59,6 +57,7 @@ const insightFetchMock = (req: any): [number, any] => {
 }
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Project Homepage',
     decorators: [
         mswDecorator({
@@ -84,12 +83,10 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.projectHomepage(),
     },
 }
 export default meta
-export const ProjectHomepage = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.projectHomepage())
-    }, [])
-    return <App />
-}
+
+type Story = StoryObj<typeof meta>
+export const ProjectHomepage: Story = {}
