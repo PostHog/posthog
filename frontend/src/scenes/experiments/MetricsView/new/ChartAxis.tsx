@@ -1,4 +1,4 @@
-import { getNiceTickValues } from './utils'
+import { getNiceTickValues } from '../shared/utils'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
 import { TickLabels } from './TickLabels'

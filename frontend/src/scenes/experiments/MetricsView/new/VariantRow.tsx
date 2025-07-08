@@ -11,7 +11,8 @@ import {
 import { InsightType } from '~/types'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN } from './constants'
 import { useChartColors } from '../shared/colors'
-import { GridLines, useAxisScale } from '../shared/axis'
+import { useAxisScale } from './useAxisScale'
+import { GridLines } from './GridLines'
 
 interface VariantRowProps {
     variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data

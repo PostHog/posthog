@@ -1,7 +1,8 @@
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { getNiceTickValues } from '../shared/utils'
 import { SVG_EDGE_MARGIN, TICK_FONT_SIZE, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
-import { TickLabels, useAxisScale } from '../shared/axis'
+import { useAxisScale } from './useAxisScale'
+import { TickLabels } from './TickLabels'
 
 /**
  * ConfidenceIntervalAxis renders the horizontal axis for experiment confidence interval charts, rendered at the top of the metrics results view.
