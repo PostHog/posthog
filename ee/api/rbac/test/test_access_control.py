@@ -10,7 +10,6 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.models import 
 from posthog.models.personal_api_key import hash_key_value, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal
 from posthog.rbac.user_access_control import AccessSource
