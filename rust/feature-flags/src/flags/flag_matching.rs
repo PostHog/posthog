@@ -25,7 +25,7 @@ use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::DependencyGraph;
 use anyhow::Result;
-use common_database::Client as DatabaseClient;
+use common_database::{PostgresReader, PostgresWriter};
 use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -35,9 +35,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, warn};
 use uuid::Uuid;
-
-pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
-pub type PostgresWriter = Arc<dyn DatabaseClient + Send + Sync>;
 
 #[derive(Debug)]
 struct SuperConditionEvaluation {
