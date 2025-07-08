@@ -7,7 +7,7 @@ from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
     ERROR_TRACKING_SYSTEM_PROMPT,
-    #    PREFER_FILTERS_PROMPT
+    PREFER_FILTERS_PROMPT,
 )
 from ee.hogai.tool import MaxTool
 from typing import Optional
@@ -40,7 +40,9 @@ class ErrorTrackingSceneTool(MaxTool):
             + "<properties_taxonomy>"
             + ERROR_TRACKING_FILTER_PROPERTIES_PROMPT
             + "</properties_taxonomy>"
-            # + "<prefer_filters>" + PREFER_FILTERS_PROMPT + "</prefer_filters>"
+            + "<prefer_filters>"
+            + PREFER_FILTERS_PROMPT
+            + "</prefer_filters>"
         )
 
         user_content = f"Update the error tracking issue list filters to: {change}"

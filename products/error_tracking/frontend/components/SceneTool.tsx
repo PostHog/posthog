@@ -5,6 +5,8 @@ import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLog
 import { useActions, useValues } from 'kea'
 import { ErrorTrackingSceneToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './ErrorFilters/FilterGroup'
 
 function updateFilterGroup(
     removedFilterIndexes: number[] | undefined,
@@ -58,9 +60,15 @@ function updateFilterGroup(
 
 export function ErrorTrackingSceneTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
-    const { setDateRange, setSearchQuery, setFilterGroup } = useActions(errorFiltersLogic)
+    const { setDateRange, setFilterGroup } = useActions(errorFiltersLogic)
     const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
     const { filterGroup } = useValues(errorFiltersLogic)
+    const { setSearchQuery } = useActions(
+        taxonomicFilterLogic({
+            taxonomicFilterLogicKey: taxonomicFilterLogicKey,
+            taxonomicGroupTypes: taxonomicGroupTypes,
+        })
+    )
 
     const callback = (update: ErrorTrackingSceneToolOutput): void => {
         if (update.orderBy) {

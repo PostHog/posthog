@@ -206,18 +206,13 @@ Users might ask you for a platform not listed about - if they do, take a best gu
 PREFER_FILTERS_PROMPT = """
 ### MANDATORY: Strongly Prefer Property Filters
 
-**USE searchQuery ONLY FOR RARE CROSS-FIELD TEXT SEARCHES**
-
 **Use property filters for 99% of cases:**
 - Exception types (use `$exception_type` property with `exact` operator)
-- Library/framework identification (use `$lib`, `$lib_version` with `exact` operator)
+- Library/framework identification or filtering by language (use `$lib`, `$lib_version` with `exact` operator)
 - Browser/device filtering (use `$browser`, `$device_type`, `$os` with `exact` operator)
 - URL/page filtering (use `$current_url`, `$pathname` with `icontains` operator)
 - User identification (use `email`, `user_id` with appropriate operators)
 - Session context (use `$session_duration`, `$channel_type` with appropriate operators)
-- Error messages (use `$exception_message` with `icontains` operator)
-- File names (use `$exception_source` with `icontains` operator)
-- Function names (use appropriate property keys with `icontains` operator)
 - All structured, categorical data
 - Numeric comparisons and ranges
 - Complex logical operations (AND/OR)
@@ -228,4 +223,5 @@ PREFER_FILTERS_PROMPT = """
 - Multi-word phrases that need to be found across multiple fields
 - Complex quoted strings that span exception messages and stack traces
 - Cross-field text patterns that cannot be achieved with property filters
+- Queries like "show me errors relating to functions called `foo`" or "show me errors relating to files called `example.py`"
 """
