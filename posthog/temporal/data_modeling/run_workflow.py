@@ -891,6 +891,11 @@ class CreateJobModelInputs:
 async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
+    # First, clean up any existing RUNNING jobs
+    await logger.adebug("Cleaning up any existing RUNNING DataModelingJobs before creating new job")
+    cleanup_inputs = CleanupRunningJobsActivityInputs(team_id=inputs.team_id)
+    await cleanup_running_jobs_activity(cleanup_inputs)
+
     await logger.adebug(f"Creating DataModelingJob for {[selector.label for selector in inputs.select]}")
 
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
@@ -905,6 +910,33 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
         job = await start_job_modeling_run(team, workflow_id, workflow_run_id, None)
 
     return str(job.id)
+
+
+@dataclasses.dataclass
+class CleanupRunningJobsActivityInputs:
+    team_id: int
+
+
+@temporalio.activity.defn
+async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
+    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
+    Since only one job can run at a time per team, any existing RUNNING jobs
+    are orphaned when a new run starts.
+    """
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
+    orphaned_count = await database_sync_to_async(
+        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
+    )(
+        status=DataModelingJob.Status.FAILED,
+        error="Job was orphaned when a new data modeling run started",
+        updated_at=dt.datetime.now(dt.UTC),
+    )
+
+    if orphaned_count > 0:
+        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
+    else:
+        await logger.adebug("No orphaned jobs found")
 
 
 @temporalio.activity.defn
