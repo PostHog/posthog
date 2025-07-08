@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal, TypedDict
 from uuid import uuid4
 import hashlib
 import time
@@ -17,6 +17,50 @@ from ee.hogai.graph.base import AssistantNode
 from .prompts import IMPROVED_SEMANTIC_FILTER_PROMPT
 
 from posthog.models import InsightViewed, Insight
+
+
+class RawInsightData(TypedDict, total=False):
+    """Raw insight data from database query."""
+
+    insight_id: int
+    insight__name: str | None
+    insight__description: str | None
+    insight__derived_name: str | None
+    keyword_score: float  # Added during processing
+    semantic_score: float  # Added during processing
+    relevance_score: float  # Added during processing
+
+
+class InsightWithScores(TypedDict):
+    """Insight data with relevance scoring."""
+
+    insight_id: int
+    insight__name: str | None
+    insight__description: str | None
+    insight__derived_name: str | None
+    keyword_score: float
+    semantic_score: float
+    relevance_score: float
+
+
+class EnrichedInsight(TypedDict):
+    """Full insight data with query information."""
+
+    id: int
+    name: str | None
+    derived_name: str | None
+    description: str | None
+    query: dict[str, Any]
+    filters: dict[str, Any]
+    short_id: str
+    relevance_score: float
+
+
+class CacheStats(TypedDict):
+    """Cache performance statistics."""
+
+    hits: int
+    misses: int
 
 
 class InsightSearchNode(AssistantNode):
@@ -38,7 +82,7 @@ class InsightSearchNode(AssistantNode):
         content = f"{query}::{','.join(sorted(cleaned_names))}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    def _get_cached_semantic_result(self, cache_key: str) -> tuple[dict | None, bool]:
+    def _get_cached_semantic_result(self, cache_key: str) -> tuple[dict[int, str] | None, bool]:
         """
         Retrieve cached LLM semantic filtering results to avoid redundant API calls.
 
@@ -66,7 +110,7 @@ class InsightSearchNode(AssistantNode):
                 del self._semantic_cache[cache_key]
         return None, False
 
-    def _cache_semantic_result(self, cache_key: str, result: dict) -> None:
+    def _cache_semantic_result(self, cache_key: str, result: dict[int, str]) -> None:
         """Cache semantic filtering result with timestamp."""
         # Simple cache management - keep last 100 entries
         if len(self._semantic_cache) > 100:
@@ -152,7 +196,9 @@ class InsightSearchNode(AssistantNode):
                 root_to_search_insights="",
             )
 
-    def _search_insights(self, root_to_search_insights: str | None = None, limit: int = 10) -> tuple[list, dict]:
+    def _search_insights(
+        self, root_to_search_insights: str | None = None, limit: int = 10
+    ) -> tuple[list[EnrichedInsight], CacheStats]:
         """Optimized insight search with improved data pipeline and cache tracking."""
 
         # Step 1: Get basic insight data with optimized query size
@@ -176,7 +222,7 @@ class InsightSearchNode(AssistantNode):
         )
 
         if not raw_results:
-            cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+            cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
             return [], cache_stats
 
         # Step 2: Apply semantic filtering if query exists
@@ -191,12 +237,20 @@ class InsightSearchNode(AssistantNode):
                     # Step 4: Final LLM selection of most relevant insight
                     best_insight = self._select_best_insight(enriched_results, root_to_search_insights)
                     results = [best_insight] if best_insight else enriched_results[:1]
-                    cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+                    cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
                     return results, cache_stats
 
         # Fallback: get full data for most recent insights without semantic filtering
-        fallback_insights = [
-            {"insight_id": result["insight_id"], "relevance_score": 0.5}
+        fallback_insights: list[InsightWithScores] = [
+            {
+                "insight_id": result["insight_id"],
+                "insight__name": result["insight__name"],
+                "insight__description": result["insight__description"],
+                "insight__derived_name": result["insight__derived_name"],
+                "keyword_score": 0.0,
+                "semantic_score": 0.0,
+                "relevance_score": 0.5,
+            }
             for result in raw_results[:1]  # Just get the most recent one
         ]
 
@@ -204,13 +258,13 @@ class InsightSearchNode(AssistantNode):
         results = enriched_fallback[:1] if enriched_fallback else []
 
         # Return results and cache stats
-        cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
+        cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
         return results, cache_stats
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         return "end"
 
-    def _semantic_filter_insights(self, insights: list, query: str | None) -> list:
+    def _semantic_filter_insights(self, insights: list[RawInsightData], query: str | None) -> list[InsightWithScores]:
         """Filter insights by semantic relevance using hybrid keyword + LLM classification."""
         if not query or not insights:
             return insights
@@ -224,7 +278,7 @@ class InsightSearchNode(AssistantNode):
         # Step 3: Combine scores and filter
         return self._combine_and_filter_scores(insights_with_semantic_scores)
 
-    def _apply_keyword_matching(self, insights: list, query: str) -> list:
+    def _apply_keyword_matching(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
         """Apply keyword matching to boost insights with exact matches in names."""
         query_keywords = query.lower().split()
 
@@ -249,7 +303,7 @@ class InsightSearchNode(AssistantNode):
 
         return insights
 
-    def _apply_semantic_filtering(self, insights: list, query: str) -> list:
+    def _apply_semantic_filtering(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
         """Apply LLM-based semantic filtering with improved prompt."""
         # Create insight names for cache key
         insight_names = []
@@ -313,7 +367,7 @@ class InsightSearchNode(AssistantNode):
 
         return insights
 
-    def _combine_and_filter_scores(self, insights: list) -> list:
+    def _combine_and_filter_scores(self, insights: list[InsightWithScores]) -> list[InsightWithScores]:
         """Combine keyword and semantic scores, then filter relevant insights."""
         relevant_insights = []
 
@@ -381,7 +435,7 @@ class InsightSearchNode(AssistantNode):
 
         return ratings
 
-    def _get_full_queries_for_insights(self, filtered_insights: list) -> list:
+    def _get_full_queries_for_insights(self, filtered_insights: list[InsightWithScores]) -> list[EnrichedInsight]:
         """Get full query data for filtered insights with optimized database access."""
         if not filtered_insights:
             return []
@@ -408,7 +462,7 @@ class InsightSearchNode(AssistantNode):
 
         return enriched_insights
 
-    def _select_best_insight(self, insights: list, query: str | None) -> dict | None:
+    def _select_best_insight(self, insights: list[EnrichedInsight], query: str | None) -> EnrichedInsight | None:
         """Select the single most relevant insight using LLM analysis."""
 
         if not insights:
@@ -479,7 +533,7 @@ Most relevant insight number:"""
             # Fallback to highest relevance score
             return max(insights, key=lambda x: x.get("relevance_score", 0))
 
-    def _summarize_query_data(self, query_data: dict, filters_data: dict) -> str:
+    def _summarize_query_data(self, query_data: dict[str, Any], filters_data: dict[str, Any]) -> str:
         """Summarize query/filters data for LLM readability."""
         if query_data:
             query_kind = query_data.get("kind", "Unknown")
@@ -493,7 +547,7 @@ Most relevant insight number:"""
         else:
             return "No query data available"
 
-    def _format_insight_results(self, results: list, search_query: str | None) -> str:
+    def _format_insight_results(self, results: list[EnrichedInsight], search_query: str | None) -> str:
         """Format insight search results for user display."""
 
         if not results:
