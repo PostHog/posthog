@@ -17,7 +17,7 @@ interface UseDragAndSnapProps {
     onPositionChange?: (position: PositionWithSide) => void
     disabled?: boolean
     currentSide?: 'left' | 'right'
-    dragElementRef?: React.RefObject<HTMLElement>
+    dragElementRef?: React.RefObject<HTMLDivElement>
     containerRef?: React.RefObject<HTMLElement>
 }
 

@@ -1,5 +1,10 @@
+import { useEffect, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { maxGlobalLogic } from '../maxGlobalLogic'
+
 /**
- * Comprehensive positioning utilities and drag behavior for Max AI floating components
+ * Positioning utilities and drag behavior for Max AI floating components
  */
 
 // Constants
@@ -162,5 +167,58 @@ export function calculateSnapPosition(
         x: finalX,
         y: finalY,
         side: isRightSide ? 'right' : 'left',
+    }
+}
+
+export function useFloatingMaxPosition(): {
+    floatingMaxPositionStyle: React.CSSProperties
+    shouldAnimate: boolean
+} {
+    const { isFloatingMaxExpanded, floatingMaxPosition, floatingMaxDragState } = useValues(maxGlobalLogic)
+    const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    const [shouldAnimate, setShouldAnimate] = useState(false)
+    const prevExpandedRef = useRef(isFloatingMaxExpanded)
+    const [floatingMaxPositionStyle, setFloatingMaxPositionStyle] = useState<React.CSSProperties>({})
+
+    // Only animate when transitioning from collapsed to expanded
+    useEffect(() => {
+        const wasCollapsed = !prevExpandedRef.current
+        const isNowExpanded = isFloatingMaxExpanded
+
+        if (wasCollapsed && isNowExpanded) {
+            setShouldAnimate(true)
+            // Clear animation flag after animation completes
+            const timer = setTimeout(() => setShouldAnimate(false), 200)
+            return () => clearTimeout(timer)
+        }
+
+        prevExpandedRef.current = isFloatingMaxExpanded
+    }, [isFloatingMaxExpanded])
+
+    // Update position style when layout changes
+    useEffect(() => {
+        const side = floatingMaxPosition?.side || 'right'
+        const baseStyle = isFloatingMaxExpanded
+            ? {
+                  borderRadius: '8px',
+                  transformOrigin: floatingMaxPosition?.side === 'left' ? 'bottom left' : 'bottom right',
+                  ...(shouldAnimate
+                      ? { animation: 'MaxFloatingInput__ExpandFromAvatar 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }
+                      : {}),
+              }
+            : {
+                  borderRadius: '50%',
+              }
+
+        setFloatingMaxPositionStyle({
+            ...calculateCSSPosition(side),
+            ...baseStyle,
+        })
+        // oxlint-disable-next-line exhaustive-deps
+    }, [isFloatingMaxExpanded, isLayoutNavCollapsed, floatingMaxDragState, floatingMaxPosition, shouldAnimate])
+
+    return {
+        floatingMaxPositionStyle,
+        shouldAnimate,
     }
 }

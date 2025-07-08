@@ -19,7 +19,7 @@ describe('useDragAndSnap', () => {
         expect(result.current.isAnimating).toBe(false)
         expect(result.current.hasDragged).toBe(false)
         expect(result.current.containerStyle).toEqual({})
-        expect(result.current.avatarButtonRef.current).toBeNull()
+        expect(result.current.dragElementRef.current).toBeNull()
     })
 
     it('should not start drag when disabled', () => {
@@ -64,12 +64,12 @@ describe('useDragAndSnap', () => {
     it('should start drag on valid mouse down', () => {
         const { result } = renderHook(() => useDragAndSnap({ onPositionChange: mockOnPositionChange }))
 
-        // Mock avatarButtonRef
+        // Mock dragElementRef
         const mockElement = {
             getBoundingClientRect: () => ({ left: 100, top: 100, width: 48, height: 48 }),
         }
         // @ts-expect-error - Mocking ref for testing
-        result.current.avatarButtonRef.current = mockElement as any
+        result.current.dragElementRef.current = mockElement as any
 
         const mockEvent = {
             button: 0,
@@ -98,7 +98,7 @@ describe('useDragAndSnap', () => {
             getBoundingClientRect: () => ({ left: 100, top: 100, width: 48, height: 48 }),
         }
         // @ts-expect-error - Mocking ref for testing
-        result.current.avatarButtonRef.current = mockElement as any
+        result.current.dragElementRef.current = mockElement as any
 
         const mockEvent = {
             button: 0,
@@ -121,7 +121,7 @@ describe('useDragAndSnap', () => {
             getBoundingClientRect: () => ({ left: 100, top: 100, width: 48, height: 48 }),
         }
         // @ts-expect-error - Mocking ref for testing
-        result.current.avatarButtonRef.current = mockElement as any
+        result.current.dragElementRef.current = mockElement as any
 
         const mockEvent = {
             button: 0,
