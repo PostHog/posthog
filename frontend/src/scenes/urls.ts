@@ -6,7 +6,6 @@ import { productUrls } from '~/products'
 import {
     ActivityTab,
     AnnotationType,
-    ExternalDataSourceType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
@@ -17,6 +16,7 @@ import {
 
 import type { BillingSectionId } from './billing/types'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
