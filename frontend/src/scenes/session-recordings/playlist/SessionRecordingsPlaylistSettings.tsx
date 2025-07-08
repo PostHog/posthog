@@ -1,8 +1,9 @@
 import { IconEllipsis, IconTrash } from '@posthog/icons'
+import { useState } from 'react'
 import { IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonModal, LemonInput, LemonButton } from '@posthog/lemon-ui'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -95,21 +96,6 @@ function SortedBy({
     )
 }
 
-function BulkDeleteRecordingsDialog(): JSX.Element {
-    return (
-        <div className="space-y-3">
-            <p>Are you sure you want to delete all recordings matching these filters?</p>
-            <div className="bg-warning-highlight border border-warning rounded p-3 text-sm">
-                This action cannot be undone.
-            </div>
-            <div className="text-muted text-xs">
-                <strong>Note:</strong> Deleting recordings won't affect your billing since we charge for ingestion, not
-                storage.
-            </div>
-        </div>
-    )
-}
-
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -122,20 +108,14 @@ export function SessionRecordingsPlaylistTopSettings({
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+    const [confirmationText, setConfirmationText] = useState('')
+    const confirmationTextPattern = 'Delete recordings'
 
-    const handleBulkDeleteRecordings = (): void =>
-        LemonDialog.open({
-            title: 'Delete recordings',
-            content: <BulkDeleteRecordingsDialog />,
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: () => onDelete?.(filters || {}),
-            },
-        })
+    const handleBulkDeleteRecordings = (): void => {
+        setConfirmationText('') // Reset confirmation text
+        setIsDeleteDialogOpen(true)
+    }
 
     const menuItems = [
         {
@@ -178,6 +158,53 @@ export function SessionRecordingsPlaylistTopSettings({
                 </span>
             ) : null}
             <SettingsMenu items={menuItems} icon={<IconEllipsis className="rotate-90" />} />
+
+            {/* Add the controlled dialog */}
+            <LemonModal
+                isOpen={isDeleteDialogOpen}
+                onClose={() => setIsDeleteDialogOpen(false)}
+                title="Confirm deletion"
+                maxWidth="500px"
+            >
+                <div className="space-y-4">
+                    <h4>Are you sure you want to delete all recordings matching these filters?</h4>
+                    <div className="space-y-2">
+                        <label className="text-sm">
+                            To confirm, please type <strong>{confirmationTextPattern}</strong> below:
+                        </label>
+                        <LemonInput
+                            value={confirmationText}
+                            onChange={setConfirmationText}
+                            placeholder={confirmationTextPattern}
+                            className="w-full"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
+                        This action cannot be undone. Deleting recordings won't affect your billing since we charge for
+                        ingestion, not storage.
+                    </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                    <LemonButton type="secondary" onClick={() => setIsDeleteDialogOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabledReason={
+                            confirmationText !== confirmationTextPattern
+                                ? 'Please type the correct confirmation text'
+                                : undefined
+                        }
+                        onClick={() => {
+                            onDelete?.(filters || {})
+                            setIsDeleteDialogOpen(false)
+                        }}
+                    >
+                        Delete
+                    </LemonButton>
+                </div>
+            </LemonModal>
         </SettingsBar>
     )
 }
