@@ -1,8 +1,11 @@
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
@@ -51,6 +54,8 @@ const QuestionIconMap = {
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     return (
         <div className="flex gap-4">
@@ -105,6 +110,24 @@ export function SurveyOverview(): JSX.Element {
                 <SurveyOption label="Partial responses">
                     {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
                 </SurveyOption>
+                {featureFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS] && (
+                    <SurveyOption label="Responses via external link">
+                        <div className="flex flex-row items-center gap-2">
+                            {survey.is_publicly_shareable ? 'Enabled' : 'Disabled'}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    const url = new URL(window.location.href)
+                                    url.pathname = `/surveys/${survey.id}`
+                                    copyToClipboard(url.toString(), 'survey link')
+                                }}
+                            >
+                                Copy survey URL
+                            </LemonButton>
+                        </div>
+                    </SurveyOption>
+                )}
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </dl>
