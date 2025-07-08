@@ -1,15 +1,23 @@
 import { useChartColors } from '../shared/colors'
 import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, getNiceTickValues } from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
-import { SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
+import {
+    SVG_EDGE_MARGIN,
+    VIEW_BOX_WIDTH,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    CHART_CELL_BAR_HEIGHT_PERCENT,
+    CHART_CELL_HEIGHT_PX,
+    CHART_BAR_OPACITY,
+    GRID_LINES_OPACITY,
+} from './constants'
 import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
+import { ChartGradients } from './ChartGradients'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
     chartRadius: number
     metricIndex: number
-    isSecondary: boolean
     showGridLines?: boolean
 }
 
@@ -17,7 +25,6 @@ export function ChartCell({
     variantResult,
     chartRadius,
     metricIndex,
-    isSecondary,
     showGridLines = true,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
@@ -29,8 +36,8 @@ export function ChartCell({
     const hasEnoughData = !!interval
 
     // Position calculations
-    const viewBoxHeight = 100 // Use percentage-based viewBox
-    const barHeightPercent = 30 // Percentage of cell height for the bar (reduced from 40)
+    const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
+    const barHeightPercent = CHART_CELL_BAR_HEIGHT_PERCENT
     const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
     const x1 = scale(lower)
     const x2 = scale(upper)
@@ -48,10 +55,10 @@ export function ChartCell({
         <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
             <div className="relative">
                 <svg
-                    viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                    viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                     preserveAspectRatio="none"
                     className="w-full max-w-[1000px]"
-                    style={{ height: '60px' }}
+                    style={{ height: `${CHART_CELL_HEIGHT_PX}px` }}
                 >
                     {/* Grid lines for all ticks - spans full height */}
                     {showGridLines && (
@@ -64,49 +71,24 @@ export function ChartCell({
                             gridLineColor={colors.BOUNDARY_LINES}
                             zeroLineWidth={1.25}
                             gridLineWidth={0.75}
-                            opacity={1}
+                            opacity={GRID_LINES_OPACITY}
+                            edgeMargin={SVG_EDGE_MARGIN}
                         />
                     )}
 
-                    {/* Gradient definition */}
-                    <defs>
-                        <linearGradient
-                            id={`gradient-${metricIndex}-${variantResult.key}-${isSecondary ? 'secondary' : 'primary'}`}
-                            x1="0"
-                            x2="1"
-                            y1="0"
-                            y2="0"
-                        >
-                            {lower < 0 && upper > 0 ? (
-                                <>
-                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_NEGATIVE}
-                                    />
-                                    <stop
-                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                        stopColor={colors.BAR_POSITIVE}
-                                    />
-                                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                                </>
-                            ) : (
-                                <stop
-                                    offset="100%"
-                                    stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
-                                />
-                            )}
-                        </linearGradient>
-                    </defs>
+                    {/* Gradient definition for this specific bar */}
+                    <ChartGradients
+                        lower={lower}
+                        upper={upper}
+                        gradientId={`gradient-${metricIndex}-${variantResult.key}`}
+                    />
 
                     {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
                     {isBayesianResult(variantResult) ? (
                         <path
                             d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
-                                isSecondary ? 'secondary' : 'primary'
-                            })`}
-                            opacity={0.7}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                            opacity={CHART_BAR_OPACITY}
                         />
                     ) : (
                         <rect
@@ -114,10 +96,8 @@ export function ChartCell({
                             y={y}
                             width={x2 - x1}
                             height={barHeightPercent}
-                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
-                                isSecondary ? 'secondary' : 'primary'
-                            })`}
-                            opacity={0.7}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                            opacity={CHART_BAR_OPACITY}
                             rx={3}
                             ry={3}
                         />

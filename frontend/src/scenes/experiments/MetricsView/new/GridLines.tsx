@@ -11,6 +11,7 @@ interface GridLinesProps {
     gridLineWidth?: number
     opacity?: number
     edgeThreshold?: number
+    edgeMargin?: number
 }
 
 /**
@@ -28,12 +29,15 @@ export function GridLines({
     gridLineWidth = 0.75,
     opacity = 1,
     edgeThreshold = 0.06,
+    edgeMargin = 20,
 }: GridLinesProps): JSX.Element {
     return (
         <>
             {tickValues.map((value) => {
                 const x = scale(value)
-                const position = x / viewBoxWidth
+                // Calculate position considering edge margins
+                const usableWidth = viewBoxWidth - 2 * edgeMargin
+                const position = (x - edgeMargin) / usableWidth
                 const isZeroLine = value === 0
 
                 // Hide grid lines that are too close to the edges, but always show zero line
