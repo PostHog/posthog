@@ -73,10 +73,10 @@ class CreateHogTransformationFunctionTool(MaxTool):
         prompt = ChatPromptTemplate.from_messages(
             [("system", system_content), ("human", user_content)], template_format="mustache"
         )
-        chain = prompt | self._model
 
         final_error: Optional[Exception] = None
         for _ in range(3):
+            chain = prompt | self._model
             try:
                 result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result.content)
@@ -156,18 +156,17 @@ class CreateHogFunctionFiltersTool(MaxTool):
         prompt = ChatPromptTemplate.from_messages(
             [("system", system_content), ("human", user_content)], template_format="mustache"
         )
-        chain = prompt | self._model
 
         final_error: Optional[Exception] = None
         for _ in range(3):
+            chain = prompt | self._model
             try:
                 result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
                 # Add error feedback to system message for retry
-                system_content += f"\n\nAvoid this error: {str(e)}"
-                prompt.messages[0].content = system_content
+                prompt.messages[0].content += f"\n\nAvoid this error: {str(e)}"
                 final_error = e
         else:
             raise final_error
@@ -237,17 +236,16 @@ class CreateHogFunctionInputsTool(MaxTool):
         prompt = ChatPromptTemplate.from_messages(
             [("system", system_content), ("human", user_content)], template_format="mustache"
         )
-        chain = prompt | self._model
 
         final_error: Optional[Exception] = None
         for _ in range(3):
+            chain = prompt | self._model
             try:
                 result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
-                system_content += f"\n\nAvoid this error: {str(e)}"
-                prompt.messages[0].content = system_content
+                prompt.messages[0].content += f"\n\nAvoid this error: {str(e)}"
                 final_error = e
         else:
             raise final_error
