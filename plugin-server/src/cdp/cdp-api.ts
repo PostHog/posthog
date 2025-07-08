@@ -19,12 +19,7 @@ import { NativeDestinationExecutorService } from './services/native-destination-
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import {
-    convertToHogFunctionInvocationGlobals,
-    isHogFunction,
-    isNativeHogFunction,
-    isSegmentPluginHogFunction,
-} from './utils'
+import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -260,14 +255,12 @@ export class CdpApi {
                     }
 
                     let response: any = null
-                    if (isHogFunction(compoundConfiguration)) {
-                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
-                    } else if (isNativeHogFunction(compoundConfiguration)) {
+                    if (isNativeHogFunction(compoundConfiguration)) {
                         response = await this.nativeDestinationExecutorService.execute(invocation)
                     } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
                         response = await this.segmentDestinationExecutorService.execute(invocation)
                     } else {
-                        throw new Error('Invalid function type')
+                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
                     }
 
                     logs = logs.concat(response.logs)
