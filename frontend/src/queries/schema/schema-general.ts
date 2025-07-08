@@ -1,6 +1,6 @@
 import { DataColorToken } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema, MarketingAnalyticsSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
 import {
     AnyFilterLike,
@@ -116,6 +116,7 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
+    RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
@@ -159,6 +160,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
@@ -224,6 +226,7 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
+    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
@@ -326,6 +329,8 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
+    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinModeModifier
+    revenueAnalyticsPersonsJoinModeCustom?: string | null
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
@@ -342,6 +347,12 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
+}
+
+export enum RevenueAnalyticsPersonsJoinModeModifier {
+    ID = 'id',
+    EMAIL = 'email',
+    CUSTOM = 'custom',
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
@@ -711,6 +722,8 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** Use recent_events table (last 7 days) for better performance when querying recent data */
+    useRecentEventsTable?: boolean
 }
 
 /**
@@ -750,6 +763,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsCustomerCountQuery
                     | RevenueAnalyticsGrowthRateQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
@@ -781,6 +795,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsCustomerCountQuery
         | RevenueAnalyticsGrowthRateQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
@@ -1246,6 +1261,7 @@ export type RetentionFilter = {
     retentionReference?: RetentionFilterLegacy['retention_reference']
     /** @default 8 */
     totalIntervals?: integer
+    minimumOccurrences?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
@@ -1948,6 +1964,19 @@ export interface RevenueAnalyticsRevenueQueryResponse
     columns?: string[]
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
+
+export interface RevenueAnalyticsCustomerCountQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsCustomerCountQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsCustomerCountQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsCustomerCountQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsCustomerCountQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsCustomerCountQueryResponse>
 
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
@@ -3212,13 +3241,15 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
+export type MarketingAnalyticsOrderBy = [number, 'ASC' | 'DESC']
+
 export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
     kind: NodeKind.MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
     /** Columns to order by - similar to EventsQuery format */
-    orderBy?: string[]
+    orderBy?: MarketingAnalyticsOrderBy[]
     /** Number of rows to return */
     limit?: integer
     /** Number of rows to skip before returning rows */
@@ -3298,7 +3329,41 @@ export interface EventsHeatMapStructuredResult {
     allAggregations: integer
 }
 
-export type SourceMap = Record<MarketingAnalyticsSchema, string | undefined>
+export type MarketingAnalyticsSchemaFieldTypes =
+    | 'string'
+    | 'integer'
+    | 'number'
+    | 'float'
+    | 'datetime'
+    | 'date'
+    | 'boolean'
+
+export type MarketingAnalyticsSchemaField = {
+    type: MarketingAnalyticsSchemaFieldTypes[]
+    required: boolean
+}
+
+export enum MarketingAnalyticsColumnsSchemaNames {
+    Campaign = 'campaign',
+    Clicks = 'clicks',
+    Cost = 'cost',
+    Currency = 'currency',
+    Date = 'date',
+    Impressions = 'impressions',
+    Source = 'source',
+}
+
+export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
+    [MarketingAnalyticsColumnsSchemaNames.Date]: { type: ['datetime', 'date', 'string'], required: true }, // self managed sources dates are not converted to date type
+    [MarketingAnalyticsColumnsSchemaNames.Source]: { type: ['string'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Campaign]: { type: ['string'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Cost]: { type: ['float', 'integer'], required: true },
+    [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+}
+
+export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
 
 export type SchemaMap = Record<ConversionGoalSchema, string | undefined>
 
@@ -3311,4 +3376,19 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
+}
+
+export enum MarketingAnalyticsBaseColumns {
+    Campaign = 'Campaign',
+    Source = 'Source',
+    TotalCost = 'Total Cost',
+    TotalClicks = 'Total Clicks',
+    TotalImpressions = 'Total Impressions',
+    CostPerClick = 'Cost per Click',
+    CTR = 'CTR',
+}
+
+export enum MarketingAnalyticsHelperForColumnNames {
+    Goal = 'Goal',
+    CostPer = 'Cost per',
 }
