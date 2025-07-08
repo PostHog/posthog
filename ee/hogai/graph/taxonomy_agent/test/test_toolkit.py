@@ -8,34 +8,41 @@ from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _acreate_person
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._get_default_tools
+    async def _get_tools(self) -> list[ToolkitTool]:
+        return await self._default_tools()
 
 
-class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
+class TestTaxonomyAgentToolkit(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.action = Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "event1"}])
 
-    def _create_taxonomy(self):
-        PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="$browser", property_type=PropertyType.String
-        )
-        PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="id", property_type=PropertyType.Numeric
-        )
-        PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="bool", property_type=PropertyType.Boolean
-        )
-        PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="date", property_type=PropertyType.Datetime
+    async def _create_taxonomy(self):
+        await PropertyDefinition.objects.abulk_create(
+            [
+                PropertyDefinition(
+                    team=self.team,
+                    type=PropertyDefinition.Type.EVENT,
+                    name="$browser",
+                    property_type=PropertyType.String,
+                ),
+                PropertyDefinition(
+                    team=self.team, type=PropertyDefinition.Type.EVENT, name="id", property_type=PropertyType.Numeric
+                ),
+                PropertyDefinition(
+                    team=self.team, type=PropertyDefinition.Type.EVENT, name="bool", property_type=PropertyType.Boolean
+                ),
+                PropertyDefinition(
+                    team=self.team, type=PropertyDefinition.Type.EVENT, name="date", property_type=PropertyType.Datetime
+                ),
+            ]
         )
 
-        _create_person(
+        await _acreate_person(
             distinct_ids=["person1"],
             team=self.team,
             properties={"email": "person1@example.com"},
@@ -59,7 +66,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        _create_person(
+        await _acreate_person(
             distinct_ids=["person2"],
             properties={"email": "person2@example.com"},
             team=self.team,
@@ -72,72 +79,72 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             )
 
-    def test_retrieve_entity_properties(self):
+    async def test_retrieve_entity_properties(self):
         toolkit = DummyToolkit(self.team)
 
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
         )
         self.assertEqual(
-            toolkit.retrieve_entity_properties("person"),
+            await toolkit.retrieve_entity_properties("person"),
             "<properties><String><prop><name>test</name></prop></String></properties>",
         )
 
-        GroupTypeMapping.objects.create(
+        await GroupTypeMapping.objects.acreate(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
         )
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
         self.assertEqual(
-            toolkit.retrieve_entity_properties("group"),
+            await toolkit.retrieve_entity_properties("group"),
             "<properties><Numeric><prop><name>test</name></prop></Numeric></properties>",
         )
 
         self.assertNotEqual(
-            toolkit.retrieve_entity_properties("session"),
+            await toolkit.retrieve_entity_properties("session"),
             "<properties />",
         )
         self.assertIn(
             "$session_duration",
-            toolkit.retrieve_entity_properties("session"),
+            await toolkit.retrieve_entity_properties("session"),
         )
 
-    def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
+    async def test_retrieve_entity_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_entity_properties("person"),
+            await toolkit.retrieve_entity_properties("person"),
             "Properties do not exist in the taxonomy for the entity person.",
         )
 
-    def test_retrieve_entity_property_values(self):
+    async def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "$session_duration"),
+            await toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
         )
         self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "nonsense"),
+            await toolkit.retrieve_entity_property_values("session", "nonsense"),
             "The property nonsense does not exist in the taxonomy.",
         )
 
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
         )
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
         )
 
         for i in range(25):
             id = f"person{i}"
             with freeze_time(f"2024-01-01T00:{i}:00Z"):
-                _create_person(
+                await _acreate_person(
                     distinct_ids=[id],
                     properties={"email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
-            _create_person(
+            await _acreate_person(
                 distinct_ids=["person25"],
                 properties={"email": "person25@example.com", "id": 25},
                 team=self.team,
@@ -145,24 +152,24 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn(
             '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "email"),
+            await toolkit.retrieve_entity_property_values("person", "email"),
         )
         self.assertIn(
             "1 more distinct value",
-            toolkit.retrieve_entity_property_values("person", "id"),
+            await toolkit.retrieve_entity_property_values("person", "id"),
         )
 
         toolkit = DummyToolkit(self.team)
-        GroupTypeMapping.objects.create(
+        await GroupTypeMapping.objects.acreate(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
-        GroupTypeMapping.objects.create(
+        await GroupTypeMapping.objects.acreate(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
-        PropertyDefinition.objects.create(
+        await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=1, name="test", property_type="String"
         )
 
@@ -184,36 +191,36 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(
-            toolkit.retrieve_entity_property_values("proj", "test"),
+            await toolkit.retrieve_entity_property_values("proj", "test"),
             "6, 5, 4, 3, 2, 1, 0",
         )
-        self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
+        self.assertEqual(await toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
-    def test_group_names(self):
-        GroupTypeMapping.objects.create(
+    async def test_group_names(self):
+        await GroupTypeMapping.objects.acreate(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
-        GroupTypeMapping.objects.create(
+        await GroupTypeMapping.objects.acreate(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         toolkit = DummyToolkit(self.team)
-        self.assertEqual(toolkit._get_entity_names, ["person", "session", "proj", "org"])
+        self.assertEqual(await toolkit._entity_names(), ["person", "session", "proj", "org"])
 
-    def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
+    async def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("pageview"),
+            await toolkit.retrieve_event_or_action_properties("pageview"),
             "Properties do not exist in the taxonomy for the event pageview.",
         )
 
-    def test_empty_events(self):
+    async def test_empty_events(self):
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("test"),
+            await toolkit.retrieve_event_or_action_properties("test"),
             "Properties do not exist in the taxonomy for the event test.",
         )
 
-        _create_person(
+        await _acreate_person(
             distinct_ids=["person1"],
             team=self.team,
             properties={},
@@ -227,15 +234,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         toolkit = DummyToolkit(self.team)
         self.assertEqual(
-            toolkit.retrieve_event_or_action_properties("event1"),
+            await toolkit.retrieve_event_or_action_properties("event1"),
             "Properties do not exist in the taxonomy for the event event1.",
         )
 
-    def test_retrieve_event_or_action_properties(self):
-        self._create_taxonomy()
+    async def test_retrieve_event_or_action_properties(self):
+        await self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
         for item in ("event1", self.action.id):
-            prompt = toolkit.retrieve_event_or_action_properties(item)
+            prompt = await toolkit.retrieve_event_or_action_properties(item)
             self.assertIn(
                 "<Numeric><prop><name>id</name></prop></Numeric>",
                 prompt,
@@ -253,42 +260,43 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 prompt,
             )
 
-    def test_retrieve_event_or_action_property_values(self):
-        self._create_taxonomy()
+    async def test_retrieve_event_or_action_property_values(self):
+        await self._create_taxonomy()
         toolkit = DummyToolkit(self.team)
 
         for item in ("event1", self.action.id):
-            self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
-            self.assertIn('"Firefox"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
-            self.assertEqual(toolkit.retrieve_event_or_action_property_values(item, "bool"), "true")
+            self.assertIn('"Chrome"', await toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertIn('"Firefox"', await toolkit.retrieve_event_or_action_property_values(item, "$browser"))
+            self.assertEqual(await toolkit.retrieve_event_or_action_property_values(item, "bool"), "true")
             self.assertEqual(
-                toolkit.retrieve_event_or_action_property_values(item, "id"),
+                await toolkit.retrieve_event_or_action_property_values(item, "id"),
                 "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
             )
             self.assertEqual(
-                toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+                await toolkit.retrieve_event_or_action_property_values(item, "date"),
+                f'"{datetime(2024, 1, 1).isoformat()}"',
             )
 
-    def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
+    async def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team)
         incorrect_action_id = self.action.id + 999  # Ensure it doesn't exist
 
-        result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
+        result = await toolkit.retrieve_event_or_action_properties(incorrect_action_id)
         self.assertEqual(
             result,
             f"Action {incorrect_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again.",
         )
 
-    def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
-        Action.objects.all().delete()
+    async def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
+        await Action.objects.all().adelete()
 
         toolkit = DummyToolkit(self.team)
         incorrect_action_id = 9999
 
-        result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
+        result = await toolkit.retrieve_event_or_action_properties(incorrect_action_id)
         self.assertEqual(result, "No actions exist in the project.")
 
-    def test_enrich_props_with_descriptions(self):
+    async def test_enrich_props_with_descriptions(self):
         toolkit = DummyToolkit(self.team)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
         self.assertEqual(len(res), 1)

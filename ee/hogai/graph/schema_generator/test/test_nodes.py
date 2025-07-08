@@ -32,7 +32,7 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
                 ("system", "system_prompt"),
             ],
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._arun_with_prompt(state, prompt, config=config)
 
 
 @override_settings(IN_UNIT_TESTING=True)

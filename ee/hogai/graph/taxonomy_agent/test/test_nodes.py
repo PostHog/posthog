@@ -29,7 +29,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 class DummyToolkit(TaxonomyAgentToolkit):
     async def _get_tools(self) -> Coroutine[Any, Any, list[ToolkitTool]]:
-        return await self._get_default_tools()
+        return await self._default_tools()
 
 
 @override_settings(IN_UNIT_TESTING=True)

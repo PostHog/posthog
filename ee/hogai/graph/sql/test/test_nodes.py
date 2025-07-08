@@ -10,7 +10,7 @@ from posthog.schema import (
     HumanMessage,
     VisualizationMessage,
 )
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 
 class TestSQLPlannerNode(BaseTest):
@@ -26,7 +26,7 @@ class TestSQLPlannerNode(BaseTest):
             node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
 
 
-class TestSQLGeneratorNode(BaseTest):
+class TestSQLGeneratorNode(NonAtomicBaseTest):
     maxDiff = None
 
     def test_node_runs(self):

@@ -309,6 +309,7 @@ class TaxonomyAgentToolkit(ABC):
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
+    @alru_cache()
     async def retrieve_entity_properties(self, entity: str) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
@@ -347,7 +348,8 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._generate_properties_xml(props)
 
-    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as the I/O here is our still-sync QueryRunner
+    @alru_cache()
+    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as all the I/O is our still-sync QueryRunner
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
@@ -360,6 +362,7 @@ class TaxonomyAgentToolkit(ABC):
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
+    @alru_cache()
     async def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
@@ -367,8 +370,10 @@ class TaxonomyAgentToolkit(ABC):
         try:
             response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
-            if not project_actions:
+            project_actions_exist = await Action.objects.filter(
+                team__project_id=self._team.project_id, deleted=False
+            ).aexists()
+            if not project_actions_exist:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
 
@@ -424,6 +429,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return prop_values
 
+    @alru_cache()
     async def retrieve_event_or_action_property_values(
         self, event_name_or_action_id: str | int, property_name: str
     ) -> str:
@@ -476,8 +482,8 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
-    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as the I/O here is our still-sync QueryRunner
-    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
+    @alru_cache()
+    async def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         entity_names = await self._entity_names()
         if entity not in entity_names:
             return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(entity_names)}."
@@ -505,7 +511,7 @@ class TaxonomyAgentToolkit(ABC):
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
 
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team,
                 name=property_name,
                 type=prop_type,
@@ -514,9 +520,12 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+        def run_query():
+            return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+
+        response = await database_sync_to_async(run_query)()
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
             return f"The entity {entity} does not exist in the taxonomy."
