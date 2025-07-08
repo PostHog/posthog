@@ -467,10 +467,13 @@ pub fn log_dependency_graph_operation_error(
     tracing::error!("Failed to {} for team {}: {:?}", error_type, team_id, error);
     inc(
         FLAG_EVALUATION_ERROR_COUNTER,
-        &[(
-            "reason".to_string(),
-            format!("{}_error", error_type.replace(" ", "_")),
-        )],
+        &[
+            (
+                "reason".to_string(),
+                format!("{}_error", error_type.replace(" ", "_")),
+            ),
+            ("team_id".to_string(), team_id.to_string()),
+        ],
         1,
     );
 }
@@ -482,7 +485,10 @@ pub fn log_dependency_graph_construction_errors(
 ) {
     inc(
         FLAG_EVALUATION_ERROR_COUNTER,
-        &[("reason".to_string(), "dependency_graph_error".to_string())],
+        &[
+            ("reason".to_string(), "dependency_graph_error".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
+        ],
         1,
     );
     tracing::error!(
