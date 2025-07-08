@@ -1092,6 +1092,7 @@ class TestSurvey(APIBaseTest):
                     "type": "popover",
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "is_publicly_shareable": False,
                     "questions": [
                         {
                             "id": response_data["results"][0]["questions"][0]["id"],
