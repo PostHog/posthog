@@ -84,7 +84,7 @@ export interface RefreshStatus {
     /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
-    error?: boolean
+    errored?: boolean
     timer?: Date | null
 }
 
@@ -754,7 +754,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId }) => ({
                     ...state,
-                    [shortId]: { error: true, timer: state[shortId]?.timer || null },
+                    [shortId]: { errored: true, timer: state[shortId]?.timer || null },
                 }),
                 updateDashboardItems: () => ({}),
                 abortQuery: () => ({}),

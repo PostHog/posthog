@@ -153,7 +153,7 @@ export function DashboardItems(): JSX.Element {
                                     insight={insight}
                                     loadingQueued={isRefreshingQueued(insight.short_id)}
                                     loading={isRefreshing(insight.short_id)}
-                                    apiErrored={refreshStatus[insight.short_id]?.error || false}
+                                    apiErrored={refreshStatus[insight.short_id]?.errored || false}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
