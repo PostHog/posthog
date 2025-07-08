@@ -368,7 +368,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             else:
                 date_cast: ast.Expr
                 # Build for regular datetime conditions
-                if date_field != "timestamp":
+                if "." in date_field:
                     date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
                 else:
                     date_cast = ast.Field(chain=date_field_chain)

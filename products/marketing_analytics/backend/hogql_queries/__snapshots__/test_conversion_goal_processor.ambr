@@ -47,7 +47,7 @@
   SELECT
       coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
       coalesce(events.properties.utm_source, 'Unknown Source') AS source,
-      round(sum(toFloat(events.properties.revenue)), 2) AS conversion_0
+      round(sum(toFloat(coalesce(events.properties.revenue, '0'))), 2) AS conversion_0
   
   FROM
       events

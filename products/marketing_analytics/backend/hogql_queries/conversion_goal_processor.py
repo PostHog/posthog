@@ -88,7 +88,8 @@ class ConversionGoalProcessor:
                 if self.goal.kind == "EventsNode" or self.goal.kind == "ActionsNode":
                     # round(sum(toFloat(properties.math_property)), DECIMAL_PRECISION)
                     property_field = ast.Field(chain=["events", "properties", math_property])
-                    to_float = ast.Call(name="toFloat", args=[property_field])
+                    coalesced_field = ast.Call(name="coalesce", args=[property_field, ast.Constant(value="0")])
+                    to_float = ast.Call(name="toFloat", args=[coalesced_field])
                     sum_expr = ast.Call(name="sum", args=[to_float])
                     return ast.Call(name="round", args=[sum_expr, ast.Constant(value=DECIMAL_PRECISION)])
                 elif self.goal.kind == "DataWarehouseNode":
