@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -176,15 +177,18 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle } = useValues(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, sendSupportRequest } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
+    const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
-        (!!billing?.trial?.status && billing.trial.status === 'active')
+        (!!billing?.trial?.status && billing.trial.status === 'active') ||
+        sendSupportRequest.target_area === 'billing' ||
+        isCurrentOrganizationNew
 
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
