@@ -209,7 +209,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
 
         data = res.json()
         assert data["total_count"] == 4  # user, user2, user3, user4
-
+        assert len(data["users"]) == 4
         # Check that all users are included with default access
         user_ids = [user["user_id"] for user in data["users"]]
         assert str(self.user.uuid) in user_ids
