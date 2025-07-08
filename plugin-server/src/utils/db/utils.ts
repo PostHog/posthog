@@ -192,6 +192,10 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
 }
 
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
+    logger.info('🔁', 'Generating Kafka person update message', {
+        person: person,
+        isDeleted: isDeleted,
+    })
     return {
         topic: KAFKA_PERSON,
         messages: [
