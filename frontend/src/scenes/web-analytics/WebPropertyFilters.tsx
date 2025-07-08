@@ -1,4 +1,4 @@
-import { IconFilter } from '@posthog/icons'
+import { IconBolt, IconFilter } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -6,6 +6,7 @@ import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
@@ -23,32 +24,45 @@ export const WebPropertyFilters = (): JSX.Element => {
     ]
 
     // Keep in sync with posthog/hogql_queries/web_analytics/stats_table_pre_aggregated.py
+
+    // Create ordered property lists with optimized properties first
+    const orderedEventProperties = [
+        // Optimized properties first
+        '$host',
+        '$device_type',
+        '$browser',
+        '$os',
+        '$referring_domain',
+        '$geoip_country_code',
+        '$geoip_city_name',
+        '$geoip_subdivision_1_code',
+        '$geoip_subdivision_1_name',
+        '$geoip_time_zone',
+        '$pathname',
+        // Additional common properties that aren't optimized could go here
+    ]
+
+    const orderedSessionProperties = [
+        // Optimized properties first
+        '$entry_pathname',
+        '$end_pathname',
+        '$entry_utm_source',
+        '$entry_utm_medium',
+        '$entry_utm_campaign',
+        '$entry_utm_term',
+        '$entry_utm_content',
+        // Additional common properties that aren't optimized could go here
+    ]
+
     const webAnalyticsPropertyAllowList = preAggregatedEnabled
         ? {
-              [TaxonomicFilterGroupType.EventProperties]: [
-                  '$host',
-                  '$device_type',
-                  '$browser',
-                  '$os',
-                  '$referring_domain',
-                  '$geoip_country_code',
-                  '$geoip_city_name',
-                  '$geoip_subdivision_1_code',
-                  '$geoip_subdivision_1_name',
-                  '$geoip_time_zone',
-                  '$pathname',
-              ],
-              [TaxonomicFilterGroupType.SessionProperties]: [
-                  '$entry_pathname',
-                  '$end_pathname',
-                  '$entry_utm_source',
-                  '$entry_utm_medium',
-                  '$entry_utm_campaign',
-                  '$entry_utm_term',
-                  '$entry_utm_content',
-              ],
+              [TaxonomicFilterGroupType.EventProperties]: orderedEventProperties,
+              [TaxonomicFilterGroupType.SessionProperties]: orderedSessionProperties,
           }
-        : undefined
+        : {
+              [TaxonomicFilterGroupType.EventProperties]: orderedEventProperties,
+              [TaxonomicFilterGroupType.SessionProperties]: orderedSessionProperties,
+          }
 
     return (
         <Popover
@@ -75,7 +89,16 @@ export const WebPropertyFilters = (): JSX.Element => {
             <LemonButton
                 icon={
                     <IconWithCount count={rawWebAnalyticsFilters.length} showZero={false}>
-                        <IconFilter />
+                        <div className="relative inline-flex">
+                            <IconFilter />
+                            {preAggregatedEnabled && (
+                                <div className="absolute -top-1 -right-1 flex items-center justify-center">
+                                    <Tooltip title="Using optimized query engine">
+                                        <IconBolt className="text-orange-500 text-xs" />
+                                    </Tooltip>
+                                </div>
+                            )}
+                        </div>
                     </IconWithCount>
                 }
                 type="secondary"
