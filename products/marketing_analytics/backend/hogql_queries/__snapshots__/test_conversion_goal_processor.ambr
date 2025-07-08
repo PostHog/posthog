@@ -32,7 +32,7 @@
   SELECT
                   events.person_id,
                   arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'user signed up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                  arrayFilter(x -> notEquals(x, NULL), groupArray(if(equals(events.event, 'user signed up'), 1, NULL))) AS conversion_math_values,
+                  arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'user signed up'), toFloat(1), 0))) AS conversion_math_values,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'user signed up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'user signed up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
                   arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
@@ -92,7 +92,7 @@
   SELECT
                   events.person_id,
                   arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'user signed up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                  arrayFilter(x -> notEquals(x, NULL), groupArray(if(equals(events.event, 'user signed up'), 1, NULL))) AS conversion_math_values,
+                  arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'user signed up'), toFloat(1), 0))) AS conversion_math_values,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'user signed up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'user signed up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
                   arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
@@ -152,7 +152,7 @@
   SELECT
                   events.person_id,
                   arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                  arrayFilter(x -> notEquals(x, NULL), groupArray(if(equals(events.event, 'purchase'), 1, NULL))) AS conversion_math_values,
+                  arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
                   arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
@@ -212,7 +212,7 @@
   SELECT
                   events.person_id,
                   arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                  arrayFilter(x -> notEquals(x, NULL), groupArray(if(equals(events.event, 'sign_up'), 1, NULL))) AS conversion_math_values,
+                  arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
                   arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
@@ -272,7 +272,7 @@
   SELECT
                   events.person_id,
                   arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                  arrayFilter(x -> notEquals(x, NULL), groupArray(if(equals(events.event, 'purchase'), toFloat(ifNull(events.properties.revenue, '0')), NULL))) AS conversion_math_values,
+                  arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), coalesce(toFloat(events.properties.revenue), 0.0), 0))) AS conversion_math_values,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
                   arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
                   arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,

@@ -463,8 +463,8 @@ class ConversionGoalProcessor:
                             args=["x"],
                             expr=ast.CompareOperation(
                                 left=ast.Field(chain=["x"]),
-                                op=ast.CompareOperationOp.NotEq,
-                                right=ast.Constant(value=None),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
                             ),
                         ),
                         ast.Call(
@@ -482,7 +482,7 @@ class ConversionGoalProcessor:
                                             right=ast.Constant(value=conversion_event),
                                         ),
                                         self.get_conversion_value_ast_expr(),
-                                        ast.Constant(value=None),
+                                        ast.Constant(value=0),
                                     ],
                                 )
                             ],
@@ -924,6 +924,7 @@ class ConversionGoalProcessor:
         """Get the final conversion value expression for the attribution logic"""
         math_type = self.goal.math
         if math_type in [BaseMathType.DAU, "dau"]:
+            # For DAU, we need to return person_id for unique counting later
             return ast.Field(chain=["person_id"])
         elif math_type == "sum" or str(math_type).endswith("_sum"):
             return ast.Call(name="toFloat", args=[ast.Field(chain=["conversion_math_value"])])
@@ -1041,14 +1042,16 @@ class ConversionGoalProcessor:
         math_property = getattr(self.goal, "math_property", None)
 
         if math_type in [BaseMathType.DAU, "dau"]:
-            return ast.Field(chain=["events", "person_id"])
+            # For DAU, we need to return a float value to avoid type conflicts
+            # Convert person_id to a float (we'll count unique person_ids in aggregation)
+            return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
         elif (math_type == "sum" or str(math_type).endswith("_sum")) and math_property:
-            # Build: toFloat(ifNull(events.properties.math_property, '0'))
+            # Build: coalesce(toFloat(events.properties.math_property), 0.0)
             property_field = ast.Field(chain=["events", "properties", math_property])
-            ifnull_expr = ast.Call(name="ifNull", args=[property_field, ast.Constant(value="0")])
-            return ast.Call(name="toFloat", args=[ifnull_expr])
+            to_float_expr = ast.Call(name="toFloat", args=[property_field])
+            return ast.Call(name="coalesce", args=[to_float_expr, ast.Constant(value=0.0)])
         else:
-            return ast.Constant(value=1)
+            return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
     def get_array_based_aggregation_ast(self) -> ast.Expr:
         """Get the aggregation expression as AST based on math type"""
