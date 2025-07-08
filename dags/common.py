@@ -3,6 +3,7 @@ from enum import Enum
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     ExponentialBackoff,
@@ -10,6 +11,7 @@ from posthog.clickhouse.cluster import (
     get_cluster,
 )
 from posthog.clickhouse.custom_metrics import MetricsClient
+from posthog.clickhouse.query_tagging import DagsterTags
 
 
 class JobOwners(str, Enum):
@@ -30,7 +32,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "max_execution_time": "0",
         "max_memory_usage": "0",
         "mutations_sync": "0",
-        "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
+        "receive_timeout": f"{15 * 60}",
+        # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
@@ -45,12 +48,14 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                     and (
                         (
                             e.code
-                            in (  # these are typically transient errors and unrelated to the query being executed
+                            in (
+                                # these are typically transient errors and unrelated to the query being executed
                                 ErrorCodes.NETWORK_ERROR,
                                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                                 ErrorCodes.NOT_ENOUGH_SPACE,
                                 ErrorCodes.SOCKET_TIMEOUT,
-                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
+                                439,
+                                # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
                             )
                         )
                         # queries that exceed memory limits can be retried if they were killed due to total server
@@ -88,3 +93,22 @@ job_status_metrics_sensors = [
         dagster.DagsterRunStatus.CANCELED,
     ]
 ]
+
+
+def dagster_tags(context: dagster.AbstractComputeExecutionContext) -> DagsterTags:
+    r = context.run
+    return DagsterTags(
+        job_name=r.job_name,
+        run_id=r.run_id,
+        tags=r.tags,
+        root_run_id=r.root_run_id,
+        parent_run_id=r.parent_run_id,
+        job_snapshot_id=r.job_snapshot_id,
+        execution_plan_snapshot_id=r.execution_plan_snapshot_id,
+    )
+
+
+def settings_with_log_comment(context: dagster.AbstractComputeExecutionContext) -> dict[str, str]:
+    qt = query_tagging.get_query_tags()
+    qt.with_dagster(dagster_tags(context))
+    return {"log_comment": qt.to_json()}
