@@ -931,9 +931,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def authenticate_wizard(self, request, **kwargs):
         hash = request.data.get("hash")
+        project_id = request.data.get("projectId")
 
         if not hash:
             raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        if not project_id:
+            raise serializers.ValidationError({"projectId": ["This field is required."]}, code="required")
 
         cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
         wizard_data = cache.get(cache_key)
@@ -941,8 +945,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if wizard_data is None:
             raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
 
+        try:
+            project = Project.objects.get(id=project_id)
+
+            # Verify user has access to this project
+            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
+            if project.id not in visible_teams_ids:
+                raise serializers.ValidationError(
+                    {"projectId": ["You don't have access to this project."]}, code="permission_denied"
+                )
+
+            project_api_token = project.passthrough_team.api_token
+        except Project.DoesNotExist:
+            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
+
         wizard_data = {
-            "project_api_key": request.user.team.api_token,
+            "project_api_key": project_api_token,
             "host": get_api_host(),
             "user_distinct_id": request.user.distinct_id,
         }
