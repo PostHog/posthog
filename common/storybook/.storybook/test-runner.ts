@@ -159,7 +159,7 @@ async function takeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
     // Set the right theme
@@ -183,7 +183,7 @@ async function doTakeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters

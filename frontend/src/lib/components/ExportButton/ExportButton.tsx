@@ -17,7 +17,7 @@ export interface ExportButtonItem {
 }
 
 export interface ExportButtonProps
-    extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'sideIcon' | 'id' | 'type' | 'fullWidth'> {
+    extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'sideIcon' | 'id' | 'type' | 'fullWidth' | 'size'> {
     items: ExportButtonItem[]
     buttonCopy?: string
 }
