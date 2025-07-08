@@ -55,68 +55,66 @@ export function ChartCell({
     return (
         <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
             <ChartCellTooltip variantResult={variantResult}>
-                <div className="relative">
-                    <svg
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
-                        preserveAspectRatio="none"
-                        className="w-full max-w-[1000px]"
-                        style={{ height: `${CHART_CELL_HEIGHT_PX}px` }}
-                    >
-                        {/* Grid lines for all ticks - spans full height */}
-                        {showGridLines && (
-                            <GridLines
-                                tickValues={getNiceTickValues(chartRadius)}
-                                scale={scale}
-                                height={viewBoxHeight}
-                                viewBoxWidth={VIEW_BOX_WIDTH}
-                                zeroLineColor={colors.ZERO_LINE}
-                                gridLineColor={colors.BOUNDARY_LINES}
-                                zeroLineWidth={1.25}
-                                gridLineWidth={0.75}
-                                opacity={GRID_LINES_OPACITY}
-                                edgeMargin={SVG_EDGE_MARGIN}
-                            />
-                        )}
-
-                        {/* Gradient definition for this specific bar */}
-                        <ChartGradients
-                            lower={lower}
-                            upper={upper}
-                            gradientId={`gradient-${metricIndex}-${variantResult.key}`}
+                <svg
+                    viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
+                    preserveAspectRatio="none"
+                    className="w-full max-w-[1000px]"
+                    style={{ height: `${CHART_CELL_HEIGHT_PX}px` }}
+                >
+                    {/* Grid lines for all ticks - spans full height */}
+                    {showGridLines && (
+                        <GridLines
+                            tickValues={getNiceTickValues(chartRadius)}
+                            scale={scale}
+                            height={viewBoxHeight}
+                            viewBoxWidth={VIEW_BOX_WIDTH}
+                            zeroLineColor={colors.ZERO_LINE}
+                            gridLineColor={colors.BOUNDARY_LINES}
+                            zeroLineWidth={1.25}
+                            gridLineWidth={0.75}
+                            opacity={GRID_LINES_OPACITY}
+                            edgeMargin={SVG_EDGE_MARGIN}
                         />
+                    )}
 
-                        {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
-                        {isBayesianResult(variantResult) ? (
-                            <path
-                                d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
-                                opacity={CHART_BAR_OPACITY}
-                            />
-                        ) : (
-                            <rect
-                                x={x1}
-                                y={y}
-                                width={x2 - x1}
-                                height={barHeightPercent}
-                                fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
-                                opacity={CHART_BAR_OPACITY}
-                                rx={3}
-                                ry={3}
-                            />
-                        )}
+                    {/* Gradient definition for this specific bar */}
+                    <ChartGradients
+                        lower={lower}
+                        upper={upper}
+                        gradientId={`gradient-${metricIndex}-${variantResult.key}`}
+                    />
 
-                        {/* Delta marker */}
-                        <line
-                            x1={deltaX}
-                            y1={y}
-                            x2={deltaX}
-                            y2={y + barHeightPercent}
-                            stroke={colors.BAR_MIDDLE_POINT}
-                            strokeWidth={2}
-                            shapeRendering="crispEdges"
+                    {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
+                    {isBayesianResult(variantResult) ? (
+                        <path
+                            d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                            opacity={CHART_BAR_OPACITY}
                         />
-                    </svg>
-                </div>
+                    ) : (
+                        <rect
+                            x={x1}
+                            y={y}
+                            width={x2 - x1}
+                            height={barHeightPercent}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key})`}
+                            opacity={CHART_BAR_OPACITY}
+                            rx={3}
+                            ry={3}
+                        />
+                    )}
+
+                    {/* Delta marker */}
+                    <line
+                        x1={deltaX}
+                        y1={y}
+                        x2={deltaX}
+                        y2={y + barHeightPercent}
+                        stroke={colors.BAR_MIDDLE_POINT}
+                        strokeWidth={2}
+                        shapeRendering="crispEdges"
+                    />
+                </svg>
             </ChartCellTooltip>
         </td>
     )
