@@ -111,6 +111,7 @@ const DropdownMenuContent = React.forwardRef<
                         matchTriggerWidth && 'min-w-[var(--radix-dropdown-menu-trigger-width)]',
                         className
                     )}
+                    loop
                     {...props}
                 >
                     <ScrollableShadows
@@ -200,11 +201,19 @@ const DropdownMenuSeparator = React.forwardRef<
 )
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
 
-const DropdownMenuOpenIndicator = ({ className, ...props }: React.HTMLAttributes<HTMLOrSVGElement>): JSX.Element => {
+interface DropdownMenuOpenIndicatorProps extends React.HTMLAttributes<HTMLOrSVGElement> {
+    intent?: 'default' | 'sub'
+}
+const DropdownMenuOpenIndicator = ({
+    className,
+    intent = 'default',
+    ...props
+}: DropdownMenuOpenIndicatorProps): JSX.Element => {
     return (
         <IconChevronRight
             className={cn(
                 'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
+                intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
                 className
             )}
             {...props}

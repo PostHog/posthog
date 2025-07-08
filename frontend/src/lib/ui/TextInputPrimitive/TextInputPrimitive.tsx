@@ -4,13 +4,13 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import './TextInputPrimitive.css'
 
 export const textInputVariants = cva({
-    base: 'w-full rounded border border-primary p-2 text-sm outline-none focus-visible:border-secondary',
+    base: 'rounded border border-primary text-sm outline-none focus-visible:border-secondary',
     variants: {
         variant: {
             default: 'border-primary bg-surface-primary hover:border-secondary',
         },
         size: {
-            default: 'text-input-primitive--height-base',
+            base: 'text-input-primitive--height-base',
             sm: 'text-input-primitive--height-sm',
             lg: 'text-input-primitive--height-lg',
         },
@@ -21,7 +21,7 @@ export const textInputVariants = cva({
     },
     defaultVariants: {
         variant: 'default',
-        size: 'default',
+        size: 'base',
         error: false,
     },
 })
@@ -38,7 +38,7 @@ export interface TextInputPrimitiveProps
         Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {}
 
 export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiveProps>((props, ref) => {
-    const { autoFocus, variant, size = 'default', type = 'text', className, ...rest } = props
+    const { autoFocus, variant, size = 'base', type = 'text', className, ...rest } = props
 
     const internalRef = useRef<HTMLInputElement>(null)
 

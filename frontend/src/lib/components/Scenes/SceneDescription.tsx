@@ -28,7 +28,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
-            <div className="gap-0">
+            <div className="flex flex-col gap-0">
                 <Label intent="menu" htmlFor="page-description-input">
                     Description
                 </Label>
@@ -41,6 +41,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
                     id="page-description-input"
                     data-attr={`${dataAttr}-description-input`}
                     autoFocus
+                    className="-ml-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -78,7 +79,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
                     autoHeight
                     menuItem
                 >
-                    {defaultValue || <span className="text-tertiary font-normal">No description</span>}
+                    {defaultValue || <span className="text-tertiary font-normal">Description (optional)</span>}
                 </ButtonPrimitive>
             </div>
         </div>

@@ -39,7 +39,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
-            <div className="gap-0">
+            <div className="flex flex-col gap-0">
                 <Label intent="menu" htmlFor="page-name-input">
                     Name
                 </Label>
@@ -53,6 +53,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     data-attr={`${dataAttr}-name-input`}
                     autoFocus
                     error={!!error}
+                    className="-ml-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -79,7 +80,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
             </div>
         </form>
     ) : (
-        <div className="gap-0">
+        <div className="flex flex-col gap-0">
             <Label intent="menu">Name</Label>
             <div className="-ml-1.5">
                 <ButtonPrimitive

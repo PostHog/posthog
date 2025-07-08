@@ -1,4 +1,4 @@
-import { IconBell, IconDownload, IconInfo, IconPencil, IconShare, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -14,11 +14,14 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
@@ -66,6 +69,9 @@ import {
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -624,14 +630,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                       }
                                     : undefined
                             }
-                            shortId={insight.short_id}
-                            notebook={hasDashboardItemId ? {} : undefined}
                             favorite={{
                                 active: insight.favorited,
                                 onClick: () => {
                                     setInsightMetadata({ favorited: !insight.favorited })
                                 },
                             }}
+                        />
+                    </ScenePanelCommonActions>
+
+                    <ScenePanelActions>
+                        {hasDashboardItemId && <SceneMetalyticsSummaryButton />}
+
+                        <SceneAddToDropdownMenu
+                            notebook={hasDashboardItemId}
                             dashboard={
                                 hasDashboardItemId
                                     ? {
@@ -641,41 +653,28 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                       }
                                     : undefined
                             }
+                            shortId={insight.short_id}
                         />
-                    </ScenePanelCommonActions>
-
-                    <ScenePanelActions>
-                        {hasDashboardItemId && <SceneMetalyticsSummaryButton />}
 
                         {hasDashboardItemId && (
-                            <SubscribeButton
-                                insightShortId={insight.short_id}
-                                buttonProps={{ size: 'small', icon: <IconBell /> }}
-                            />
+                            <SceneNotificationDropdownMenu insight={insight} insightLogicProps={insightLogicProps} />
                         )}
 
                         {hasDashboardItemId && (
-                            <AlertsButton
-                                insight={insight}
-                                insightLogicProps={insightLogicProps}
-                                text="Alerts"
-                                size="small"
-                            />
-                        )}
-
-                        {hasDashboardItemId && (
-                            <LemonButton
-                                onClick={() => (insight.short_id ? push(urls.insightSharing(insight.short_id)) : null)}
-                                fullWidth
-                                icon={<IconShare />}
-                                size="small"
+                            <SceneShareButton
+                                buttonProps={{
+                                    menuItem: true,
+                                    onClick: () =>
+                                        insight.short_id ? push(urls.insightSharing(insight.short_id)) : null,
+                                }}
                             >
+                                <IconShare />
                                 Share or embed
-                            </LemonButton>
+                            </SceneShareButton>
                         )}
 
                         {!insight.short_id && (
-                            <LemonButton
+                            <ButtonPrimitive
                                 onClick={() => {
                                     const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
                                     LemonDialog.open({
@@ -707,57 +706,50 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         },
                                     })
                                 }}
-                                fullWidth
-                                size="small"
-                                icon={<IconShare />}
+                                menuItem
                             >
+                                <IconShare />
                                 Share as template
-                            </LemonButton>
+                            </ButtonPrimitive>
                         )}
 
                         {exportContext ? (
-                            <ExportButton
-                                fullWidth
-                                items={[
+                            <SceneExportDropdownMenu
+                                dropdownMenuItems={[
                                     {
-                                        export_format: ExporterFormat.PNG,
+                                        format: ExporterFormat.PNG,
                                         insight: insight.id,
                                     },
                                     {
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: exportContext,
+                                        format: ExporterFormat.CSV,
+                                        context: exportContext,
                                     },
                                     {
-                                        export_format: ExporterFormat.XLSX,
-                                        export_context: exportContext,
+                                        format: ExporterFormat.XLSX,
+                                        context: exportContext,
                                     },
                                 ]}
-                                size="small"
-                                icon={<IconDownload />}
                             />
                         ) : null}
 
-                        {(hogQL || showCohortButton) && <ScenePanelDivider />}
                         {hogQL &&
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
-                                <LemonButton
+                                <ButtonPrimitive
                                     data-attr="edit-insight-sql"
                                     onClick={() => {
                                         router.actions.push(urls.sqlEditor(hogQL))
                                     }}
-                                    fullWidth
-                                    size="small"
-                                    icon={<IconPencil />}
+                                    menuItem
                                 >
-                                    Edit SQL directly
-                                </LemonButton>
+                                    <IconPencil />
+                                    Edit in SQL editor
+                                </ButtonPrimitive>
                             )}
 
                         {hogQL && showCohortButton && (
-                            <LemonButton
+                            <ButtonPrimitive
                                 data-attr="edit-insight-sql"
-                                size="small"
                                 onClick={() => {
                                     LemonDialog.openForm({
                                         title: 'Save as static cohort',
@@ -791,10 +783,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         },
                                     })
                                 }}
-                                fullWidth
                             >
                                 Save as static cohort
-                            </LemonButton>
+                            </ButtonPrimitive>
                         )}
 
                         <ScenePanelDivider />
@@ -836,26 +827,32 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {hasDashboardItemId && (
                             <>
                                 <ScenePanelDivider />
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Notebook}
                                     minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Insight}
-                                    status="danger"
-                                    onClick={() =>
-                                        void deleteInsightWithUndo({
-                                            object: insight as QueryBasedInsightModel,
-                                            endpoint: `projects/${currentProjectId}/insights`,
-                                            callback: () => {
-                                                loadInsights()
-                                                push(urls.savedInsights())
-                                            },
-                                        })
-                                    }
-                                    fullWidth
-                                    size="small"
                                 >
-                                    Delete insight
-                                </AccessControlledLemonButton>
+                                    {({ disabledReason }) => (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            variant="danger"
+                                            disabled={!!disabledReason}
+                                            {...(disabledReason && { tooltip: disabledReason })}
+                                            onClick={() =>
+                                                void deleteInsightWithUndo({
+                                                    object: insight as QueryBasedInsightModel,
+                                                    endpoint: `projects/${currentProjectId}/insights`,
+                                                    callback: () => {
+                                                        loadInsights()
+                                                        push(urls.savedInsights())
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            <IconTrash />
+                                            Delete insight
+                                        </ButtonPrimitive>
+                                    )}
+                                </AccessControlAction>
                             </>
                         )}
                     </ScenePanelActions>
