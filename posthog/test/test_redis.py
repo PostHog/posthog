@@ -2,6 +2,7 @@ from unittest.mock import ANY, patch
 from posthog.redis import TEST_clear_clients, get_client, _client_map
 
 from django.test.testcases import TestCase
+from django.test import override_settings
 
 
 class TestRedis(TestCase):
@@ -31,17 +32,21 @@ class TestRedis(TestCase):
             "redis://other:6379": ANY,
         }
 
-    @patch("posthog.redis.redis")
-    def test_redis_client_is_cached_between_calls(self, mock_redis):
-        mock_redis.from_url.return_value = "test"
 
-        with self.settings(REDIS_URL="redis://mocked:6379", TEST=False):
-            assert get_client()
-            mock_redis.from_url.assert_called_once_with("redis://mocked:6379", db=0)
-            mock_redis.from_url.reset_mock()
+@override_settings(REDIS_URL="redis://mocked:6379", TEST=False)
+def test_redis_client_is_cached_between_calls(mocker):
+    TEST_clear_clients()
 
-            assert get_client()
-            mock_redis.from_url.assert_not_called()
+    import posthog.redis
 
-            assert get_client("redis://other:6379")
-            mock_redis.from_url.assert_called_once_with("redis://other:6379", db=0)
+    spy = mocker.spy(posthog.redis.redis, "from_url")
+
+    assert get_client()
+    spy.assert_called_once_with("redis://mocked:6379", db=0)
+    spy.reset_mock()
+
+    assert get_client()
+    spy.assert_not_called()
+
+    assert get_client("redis://other:6379")
+    spy.assert_called_once_with("redis://other:6379", db=0)
