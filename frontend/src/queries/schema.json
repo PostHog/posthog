@@ -9402,21 +9402,14 @@
         "ErrorTrackingSceneToolOutput": {
             "additionalProperties": false,
             "properties": {
-                "assignee": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filterGroup": {
-                    "$ref": "#/definitions/PropertyGroupFilter"
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "orderBy": {
                     "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
@@ -9426,6 +9419,12 @@
                     "enum": ["ASC", "DESC"],
                     "type": "string"
                 },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
                 "searchQuery": {
                     "type": "string"
                 },
@@ -9434,7 +9433,6 @@
                     "type": "string"
                 }
             },
-            "required": ["dateRange"],
             "type": "object"
         },
         "EventDefinition": {
