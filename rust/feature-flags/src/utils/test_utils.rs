@@ -1,7 +1,12 @@
 use crate::{
-    cohorts::cohort_models::{Cohort, CohortId}, config::{Config, DEFAULT_TEST_CONFIG}, flags::flag_models::{
+    api::types::FlagValue,
+    cohorts::cohort_models::{Cohort, CohortId},
+    config::{Config, DEFAULT_TEST_CONFIG},
+    flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
-    }, properties::property_models::PropertyFilter, team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX}
+    },
+    properties::property_models::{OperatorType, PropertyFilter, PropertyType},
+    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
 use axum::async_trait;
@@ -613,7 +618,7 @@ pub fn create_test_flag_with_property(
     id: i32,
     team_id: TeamId,
     key: &str,
-    filter: crate::properties::property_models::PropertyFilter,
+    filter: PropertyFilter,
 ) -> FeatureFlag {
     create_test_flag_with_properties(id, team_id, key, vec![filter])
 }
@@ -624,17 +629,17 @@ pub fn create_test_flag_that_depends_on_flag(
     team_id: TeamId,
     key: &str,
     depends_on_flag_id: i32,
-    depends_on_flag_value: crate::api::types::FlagValue,
+    depends_on_flag_value: FlagValue,
 ) -> FeatureFlag {
     create_test_flag_with_property(
         id,
         team_id,
         key,
-        crate::properties::property_models::PropertyFilter {
+        PropertyFilter {
             key: depends_on_flag_id.to_string(),
-            value: Some(serde_json::json!(depends_on_flag_value)),
-            operator: Some(crate::properties::property_models::OperatorType::Exact),
-            prop_type: crate::properties::property_models::PropertyType::Flag,
+            value: Some(json!(depends_on_flag_value)),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,
         },
