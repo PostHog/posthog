@@ -31,25 +31,6 @@ import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
-export function createHogFlowInvocation(
-    globals: HogFunctionInvocationGlobals,
-    hogFlow: HogFlow
-): CyclotronJobInvocationHogFlow {
-    return {
-        id: new UUIDT().toString(),
-        state: {
-            personId: globals.person?.id ?? '',
-            event: globals.event,
-            actionStepCount: 0,
-        },
-        teamId: hogFlow.team_id,
-        functionId: hogFlow.id,
-        hogFlow,
-        queue: 'hogflow',
-        queuePriority: 1,
-    }
-}
-
 export class HogFlowExecutorService {
     private readonly actionHandlers: Map<string, ActionHandler>
     private readonly metricsService: HogFlowMetricsService
