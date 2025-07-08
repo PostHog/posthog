@@ -144,6 +144,7 @@ export function VariantRow({
                                     tickValues={getNiceTickValues(chartRadius)}
                                     scale={scale}
                                     height={100}
+                                    viewBoxWidth={VIEW_BOX_WIDTH}
                                     zeroLineColor={colors.ZERO_LINE}
                                     gridLineColor={colors.BOUNDARY_LINES}
                                     zeroLineWidth={1.5}

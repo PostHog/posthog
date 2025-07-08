@@ -4,11 +4,13 @@ interface GridLinesProps {
     tickValues: number[]
     scale: (value: number) => number
     height: number
+    viewBoxWidth?: number
     zeroLineColor?: string
     gridLineColor?: string
     zeroLineWidth?: number
     gridLineWidth?: number
     opacity?: number
+    edgeThreshold?: number
 }
 
 /**
@@ -19,17 +21,26 @@ export function GridLines({
     tickValues,
     scale,
     height,
+    viewBoxWidth = 800,
     zeroLineColor = COLORS.ZERO_LINE,
     gridLineColor = COLORS.BOUNDARY_LINES,
     zeroLineWidth = 1,
     gridLineWidth = 0.5,
     opacity = 0.3,
+    edgeThreshold = 0.06,
 }: GridLinesProps): JSX.Element {
     return (
         <>
             {tickValues.map((value) => {
                 const x = scale(value)
+                const position = x / viewBoxWidth
                 const isZeroLine = value === 0
+
+                // Hide grid lines that are too close to the edges, but always show zero line
+                if (!isZeroLine && (position < edgeThreshold || position > 1 - edgeThreshold)) {
+                    return null
+                }
+
                 return (
                     <line
                         key={value}

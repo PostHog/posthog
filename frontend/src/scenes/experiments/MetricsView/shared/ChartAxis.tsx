@@ -35,7 +35,15 @@ export function ChartAxis({
 
     return (
         <>
-            {showGridLines && <GridLines tickValues={tickValues} scale={scale} height={height} {...gridLinesProps} />}
+            {showGridLines && (
+                <GridLines
+                    tickValues={tickValues}
+                    scale={scale}
+                    height={height}
+                    viewBoxWidth={viewBoxWidth}
+                    {...gridLinesProps}
+                />
+            )}
             {showTickLabels && (
                 <TickLabels
                     tickValues={tickValues}

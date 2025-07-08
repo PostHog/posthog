@@ -58,6 +58,7 @@ export function ChartCell({
                             tickValues={getNiceTickValues(chartRadius)}
                             scale={scale}
                             height={viewBoxHeight}
+                            viewBoxWidth={VIEW_BOX_WIDTH}
                             zeroLineColor={colors.ZERO_LINE}
                             gridLineColor={colors.BOUNDARY_LINES}
                             zeroLineWidth={1.5}
