@@ -7,7 +7,7 @@ import { SourceConfig } from '~/queries/schema/schema-general'
 import type { availableSourcesDataLogicType } from './availableSourcesDataLogicType'
 
 export const availableSourcesDataLogic = kea<availableSourcesDataLogicType>([
-    path(['scenes', 'data-warehouse', 'new', 'sourceWizardDataLogic']),
+    path(['scenes', 'data-warehouse', 'new', 'availableSourcesDataLogic']),
     loaders({
         availableSources: [
             null as Record<string, SourceConfig> | null,

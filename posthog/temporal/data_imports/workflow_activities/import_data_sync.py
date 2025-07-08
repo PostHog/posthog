@@ -163,6 +163,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             if "hubspot_integration_id" in model.pipeline.job_inputs.keys():
                 hubspot_integration_id = model.pipeline.job_inputs.get("hubspot_integration_id")
+                if not Integration.objects.exists(id=hubspot_integration_id, team_id=inputs.team_id):
+                    raise Exception(f"Hubspot integration not found with id = {hubspot_integration_id}")
+
                 integration = Integration.objects.get(id=hubspot_integration_id, team_id=inputs.team_id)
 
                 if not integration.access_token or not integration.refresh_token:
@@ -512,6 +515,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             if not salesforce_integration_id:
                 raise ValueError(f"Salesforce integration not found for job {model.id}")
+
+            if not Integration.objects.exists(id=salesforce_integration_id, team_id=inputs.team_id):
+                raise Exception(f"Salesforce integration not found with id = {salesforce_integration_id}")
 
             integration = Integration.objects.get(id=salesforce_integration_id, team_id=inputs.team_id)
             salesforce_refresh_token = integration.refresh_token
