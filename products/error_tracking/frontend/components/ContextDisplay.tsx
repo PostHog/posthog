@@ -3,12 +3,10 @@ import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PropsWithChildren } from 'react'
 import { match } from 'ts-pattern'
-import { exceptionCardLogic } from './ExceptionCard/exceptionCardLogic'
-import { useValues } from 'kea'
 
-export function ContextLoader({ children }: PropsWithChildren<{}>): JSX.Element {
-    const { loading } = useValues(exceptionCardLogic)
+export type ContextTableProps = { entries: [string, unknown][] }
 
+export function ContextLoader({ loading, children }: PropsWithChildren<{ loading: boolean }>): JSX.Element {
     return (
         <>
             {match(loading)
@@ -23,7 +21,7 @@ export function ContextLoader({ children }: PropsWithChildren<{}>): JSX.Element 
     )
 }
 
-export function ContextTable({ entries }: { entries: [string, unknown][] }): JSX.Element {
+export function ContextTable({ entries }: ContextTableProps): JSX.Element {
     return (
         <LemonTable
             embedded

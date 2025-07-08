@@ -22,7 +22,7 @@ export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
 
 export function PropertiesTab({ ...props }: PropertiesTabProps): JSX.Element {
     const { properties, exceptionAttributes, additionalProperties } = useValues(errorPropertiesLogic)
-    const { showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
+    const { loading, showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
 
     const additionalEntries = Object.entries(additionalProperties).map(
         ([key, value]) => [identifierToHuman(key, 'title'), value] as [string, unknown]
@@ -48,7 +48,7 @@ export function PropertiesTab({ ...props }: PropertiesTabProps): JSX.Element {
                 {showJSONProperties ? (
                     <JSONViewer src={properties} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 ) : (
-                    <ContextLoader>
+                    <ContextLoader loading={loading}>
                         <ContextTable
                             entries={[...exceptionEntries, ...(showAdditionalProperties ? additionalEntries : [])]}
                         />
