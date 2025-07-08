@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
-import structlog
 from aiobotocore.response import StreamingBody
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
@@ -66,10 +65,11 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_contextvars,
+    get_logger,
 )
 from posthog.warehouse.util import database_sync_to_async
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 async def execute_batch_export_insert_activity_using_s3_stage(

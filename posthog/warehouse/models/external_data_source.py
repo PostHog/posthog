@@ -37,6 +37,12 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         TEMPORALIO = "TemporalIO", "TemporalIO"
         DOIT = "DoIt", "DoIt"
         GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
+        METAADS = "MetaAds", "MetaAds"
+        KLAVIYO = "Klaviyo", "Klaviyo"
+        MAILCHIMP = "Mailchimp", "Mailchimp"
+        BRAZE = "Braze", "Braze"
+        MAILJET = "Mailjet", "Mailjet"
+        REDSHIFT = "Redshift", "Redshift"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
