@@ -757,6 +757,9 @@ importers:
       elkjs:
         specifier: ^0.10.0
         version: 0.10.0
+      emoji-regex:
+        specifier: ^10.4.0
+        version: 10.4.0
       eventsource-parser:
         specifier: ^3.0.0
         version: 3.0.0
