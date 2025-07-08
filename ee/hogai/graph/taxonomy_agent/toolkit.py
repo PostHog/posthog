@@ -6,6 +6,7 @@ from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
+from async_lru import alru_cache
 from pydantic import BaseModel, Field, RootModel, field_validator
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -246,6 +247,15 @@ class TaxonomyAgentToolkit(ABC):
     def _groups(self):
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
+    @alru_cache(maxsize=1)
+    async def _aget_groups(self):
+        return [
+            group
+            async for group in GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+                "group_type_index"
+            )
+        ]
+
     @cached_property
     def _entity_names(self) -> list[str]:
         """
@@ -260,6 +270,131 @@ class TaxonomyAgentToolkit(ABC):
             *[group.group_type for group in self._groups],
         ]
         return entities
+
+    @alru_cache(maxsize=1)
+    async def _aget_entity_names(self) -> list[str]:
+        """
+        Async version of _entity_names using async group lookup.
+        """
+        groups = await self._aget_groups()
+        entities = [
+            "person",
+            "session",
+            *[group.group_type for group in groups],
+        ]
+        return entities
+
+    @alru_cache(maxsize=1)
+    async def _aget_tools(self) -> list[ToolkitTool]:
+        """
+        Async version of tools property.
+        """
+        return [
+            {
+                "name": tool["name"],
+                "signature": tool["signature"],
+                "description": dedent(tool["description"]),
+            }
+            for tool in await self._aget_tools_list()
+        ]
+
+    @abstractmethod
+    async def _aget_tools_list(self) -> list[ToolkitTool]:
+        """Async version of _get_tools."""
+        raise NotImplementedError
+
+    async def _aget_default_tools(self) -> list[ToolkitTool]:
+        """Async version of _default_tools."""
+        entity_names = await self._aget_entity_names()
+        stringified_entities = ", ".join([f"'{entity}'" for entity in entity_names])
+        return [
+            {
+                "name": "retrieve_event_properties",
+                "signature": "(event_name: str)",
+                "description": """
+                    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+                    - **Try other events** if the tool doesn't return any properties.
+                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+
+                    Args:
+                        event_name: The name of the event that you want to retrieve properties for.
+                """,
+            },
+            {
+                "name": "retrieve_event_property_values",
+                "signature": "(event_name: str, property_name: str)",
+                "description": """
+                    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+
+                    Args:
+                        event_name: The name of the event that you want to retrieve values for.
+                        property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": "retrieve_action_properties",
+                "signature": "(action_id: int)",
+                "description": """
+                    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+                    - **Try other actions or events** if the tool doesn't return any properties.
+                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+
+                    Args:
+                        action_id: The ID of the action that you want to retrieve properties for.
+                """,
+            },
+            {
+                "name": "retrieve_action_property_values",
+                "signature": "(action_id: int, property_name: str)",
+                "description": """
+                    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+
+                    Args:
+                        action_id: The ID of the action that you want to retrieve values for.
+                        property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": f"retrieve_entity_properties",
+                "signature": f"(entity: Literal[{stringified_entities}])",
+                "description": """
+                    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+                    - **Infer the property groups from the user's request.**
+                    - **Try other entities** if the tool doesn't return any properties.
+                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+
+                    Args:
+                        entity: The type of the entity that you want to retrieve properties for.
+                """,
+            },
+            {
+                "name": "retrieve_entity_property_values",
+                "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
+                "description": """
+                    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+
+                    Args:
+                        entity: The type of the entity that you want to retrieve properties for.
+                        property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": "ask_user_for_help",
+                "signature": "(question: str)",
+                "description": """
+                    Use this tool to ask a question to the user. Your question must be concise and clear.
+
+                    Args:
+                        question: The question you want to ask.
+                """,
+            },
+        ]
 
     def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")

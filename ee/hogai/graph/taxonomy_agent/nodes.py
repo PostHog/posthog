@@ -408,9 +408,13 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         if input and not output:
             output = self._handle_tool(input, toolkit)
 
-        return PartialAssistantState(
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
-        )
+        return PartialAssistantState(intermediate_steps=[*intermediate_steps[:-1], (action, output)])
+
+    async def _arun_with_toolkit(
+        self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
+    ) -> PartialAssistantState:
+        """Async version of _run_with_toolkit - same logic as sync version since it doesn't use Django ORM in async context"""
+        return self._run_with_toolkit(state, toolkit, config)
 
     def router(self, state: AssistantState):
         # Human-in-the-loop. Get out of the product analytics subgraph.

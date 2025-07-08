@@ -94,3 +94,7 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantHogQLQuery):
             return SQL_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        """Async version of run method - same logic as sync version since it doesn't use Django ORM in async context"""
+        return self.run(state, config)

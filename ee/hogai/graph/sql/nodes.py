@@ -18,27 +18,10 @@ from posthog.schema import AssistantHogQLQuery
 
 
 class SQLPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = SQLTaxonomyAgentToolkit(self._team)
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SQL_REACT_SYSTEM_PROMPT),
-            ],
-            template_format="mustache",
-        )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        # Create toolkit and force evaluation of lazy properties in sync context
-        from posthog.warehouse.util import database_sync_to_async
-
-        def create_and_initialize_toolkit():
-            toolkit = SQLTaxonomyAgentToolkit(self._team)
-            # Force evaluation of cached properties that contain database queries
-            _ = toolkit.tools  # This triggers _default_tools which triggers _entity_names which triggers _groups
-            return toolkit
-
-        toolkit = await database_sync_to_async(create_and_initialize_toolkit)()
+        toolkit = SQLTaxonomyAgentToolkit(self._team)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit._aget_tools()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SQL_REACT_SYSTEM_PROMPT),
@@ -49,9 +32,11 @@ class SQLPlannerNode(TaxonomyAgentPlannerNode):
 
 
 class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = SQLTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit._aget_tools()
+        return await super()._arun_with_toolkit(state, toolkit, config=config)
 
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
@@ -63,36 +48,6 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
     OUTPUT_SCHEMA = SQL_SCHEMA
 
     hogql_context: HogQLContext
-
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        database = create_hogql_database(team=self._team)
-        self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
-
-        serialized_database = serialize_database(self.hogql_context)
-        schema_description = "\n\n".join(
-            (
-                f"Table `{table_name}` with fields:\n"
-                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
-                for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
-            )
-        )
-
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    IDENTITY_MESSAGE
-                    + "\n\n<example_query>\n"
-                    + HOGQL_EXAMPLE_MESSAGE
-                    + "\n</example_query>\n\n"
-                    + SCHEMA_MESSAGE.format(schema_description=schema_description),
-                ),
-            ],
-            template_format="mustache",
-        )
-        return super()._run_with_prompt(state, prompt, config=config)
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from posthog.warehouse.util import database_sync_to_async
@@ -131,7 +86,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         )
         return await super()._arun_with_prompt(state, prompt, config=config)
 
-    def _parse_output(self, output) -> SQLSchemaGeneratorOutput:
+    def _parse_output(self, output) -> SQLSchemaGeneratorOutput:  # type: ignore
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)
         # We also ensure the generated SQL is valid
         assert result.query is not None

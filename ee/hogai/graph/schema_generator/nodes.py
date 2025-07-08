@@ -330,3 +330,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
                 (action, str(prompt)),
             ]
         )
+
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        """Async version of run method - same logic as sync version since it's just data manipulation"""
+        return self.run(state, config)
