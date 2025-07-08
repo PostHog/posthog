@@ -43,6 +43,7 @@ export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number })
                             tickValues={tickValues}
                             scale={scale}
                             y={TICK_PANEL_HEIGHT / 2}
+                            viewBoxWidth={VIEW_BOX_WIDTH}
                             fontSize={TICK_FONT_SIZE}
                             fontWeight="600"
                         />
