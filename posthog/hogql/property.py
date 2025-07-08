@@ -651,7 +651,25 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types: "recording", "behavioral"
+    elif property.type == "behavioral":
+        # Behavioral cohorts require special handling since they can't be evaluated at query time
+        # Instead, we create a placeholder that will be resolved at runtime by the CDP system
+        if not team:
+            raise Exception("Can not convert behavioral cohort property to expression without team")
+
+        # Create a call to a special function that will be handled by the CDP filter system
+        return ast.Call(
+            name="isBehavioralCohortMatch",
+            args=[
+                ast.Constant(value=property.value),  # cohort_id
+                ast.Constant(value=team.id),  # team_id
+                ast.Field(chain=["person_id"]),  # person_id
+                ast.Field(chain=["event"]),  # event_name
+                ast.Field(chain=["properties"]),  # event_properties
+            ],
+        )
+
+    # TODO: Add support for these types: "recording"
 
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"

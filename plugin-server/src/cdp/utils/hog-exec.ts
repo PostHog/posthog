@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { Counter } from 'prom-client'
 import RE2 from 're2'
 
+import { BehavioralCohortService } from '../../worker/ingestion/behavioral-cohort-service'
 import { Semaphore } from './sempahore'
 
 export const MAX_THREAD_WAIT_TIME_MS = 200
@@ -47,7 +48,7 @@ const waitForThreadRelief = async (timeout: number = DEFAULT_TIMEOUT_MS): Promis
 // To work around this we have a check when we run it to make sure that
 export async function execHog(
     bytecode: any,
-    options?: ExecOptions
+    options?: ExecOptions & { behavioralCohortService?: BehavioralCohortService }
 ): Promise<{
     execResult?: ExecResult
     error?: any
@@ -71,7 +72,7 @@ export async function execHog(
 
 function execHogImmediate(
     bytecode: any,
-    options?: ExecOptions
+    options?: ExecOptions & { behavioralCohortService?: BehavioralCohortService }
 ): {
     execResult?: ExecResult
     error?: any
@@ -88,6 +89,36 @@ function execHogImmediate(
             external: {
                 regex: { match: (regex, str) => new RE2(regex).test(str) },
                 crypto,
+                // Add behavioral cohort evaluation function
+                __isBehavioralCohortMatch: async (
+                    cohortId: number,
+                    teamId: number,
+                    personId: string,
+                    eventName: string,
+                    eventProperties: any
+                ) => {
+                    if (!options?.behavioralCohortService) {
+                        return false
+                    }
+
+                    // Create a mock event for the behavioral cohort service
+                    const mockEvent = {
+                        teamId,
+                        person_id: personId,
+                        event: eventName,
+                        properties: eventProperties,
+                    } as any
+
+                    try {
+                        return await options.behavioralCohortService.evaluateBehavioralCohort(
+                            cohortId,
+                            teamId,
+                            mockEvent
+                        )
+                    } catch (error) {
+                        return false
+                    }
+                },
                 ...options?.external,
             },
         })

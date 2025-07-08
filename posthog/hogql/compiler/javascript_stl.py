@@ -1411,6 +1411,24 @@ function __setProperty(objectOrArray, key, value) {
 }""",
         ["__toHogDate"],
     ],
+    "isBehavioralCohortMatch": [
+        """function isBehavioralCohortMatch(cohortId, teamId, personId, eventName, eventProperties) {
+    // This function is a placeholder for behavioral cohort evaluation
+    // It will be intercepted by the CDP filter system and evaluated using the BehavioralCohortService
+    // during real-time event processing
+    return __isBehavioralCohortMatch(cohortId, teamId, personId, eventName, eventProperties);
+}""",
+        ["__isBehavioralCohortMatch"],
+    ],
+    "__isBehavioralCohortMatch": [
+        """function __isBehavioralCohortMatch(cohortId, teamId, personId, eventName, eventProperties) {
+    // This is a stub implementation that will be replaced by the CDP filter system
+    // In practice, this function should never be called directly - it will be intercepted
+    // by the BehavioralCohortService during filter evaluation
+    return false;
+}""",
+        [],
+    ],
 }
 
 

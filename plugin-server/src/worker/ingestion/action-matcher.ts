@@ -24,6 +24,7 @@ import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { captureException } from '../../utils/posthog'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
+import { BehavioralCohortService } from './behavioral-cohort-service'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
 const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
@@ -132,17 +133,23 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    constructor(private postgres: PostgresRouter, private actionManager: ActionManager) {}
+    constructor(
+        private postgres: PostgresRouter,
+        private actionManager: ActionManager,
+        private behavioralCohortService?: BehavioralCohortService
+    ) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
     }
 
     /** Get all actions matched to the event. */
-    public match(event: PostIngestionEvent): Action[] {
+    public async match(event: PostIngestionEvent): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        const teamActionsMatching: boolean[] = teamActions.map((action) => this.checkAction(event, action))
+        const teamActionsMatching: boolean[] = await Promise.all(
+            teamActions.map((action) => this.checkAction(event, action))
+        )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
             if (teamActionsMatching[i]) {
@@ -163,10 +170,10 @@ export class ActionMatcher {
      * Return whether the event is a match for the action.
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
-    public checkAction(event: PostIngestionEvent, action: Action): boolean {
+    public async checkAction(event: PostIngestionEvent, action: Action): Promise<boolean> {
         for (const step of action.steps) {
             try {
-                if (this.checkStep(event, step)) {
+                if (await this.checkStep(event, step)) {
                     return true
                 }
             } catch (error) {
@@ -194,13 +201,13 @@ export class ActionMatcher {
      * Return whether the event is a match for the step (match group).
      * The event is considered a match if no subcheck fails. Many subchecks are usually irrelevant and skipped.
      */
-    private checkStep(event: PostIngestionEvent, step: ActionStep): boolean {
+    private async checkStep(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         return (
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
             // The below checks are less performant may parse the elements chain or do a database query hence moved to the end
             this.checkStepElement(event, step) &&
-            this.checkStepFilters(event, step)
+            (await this.checkStepFilters(event, step))
         )
     }
 
@@ -285,12 +292,12 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's fiter constraints.
      * Step property: `properties`.
      */
-    private checkStepFilters(event: PostIngestionEvent, step: ActionStep): boolean {
+    private async checkStepFilters(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!this.checkEventAgainstFilterAsync(event, filter)) {
+                if (!(await this.checkEventAgainstFilterAsync(event, filter))) {
                     return false
                 }
             }
@@ -317,7 +324,7 @@ export class ActionMatcher {
     /**
      * Sublevel 3 of action matching.
      */
-    private checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): boolean {
+    private async checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
         const match = this.checkEventAgainstFilterSync(event, filter)
 
         if (match) {
@@ -326,7 +333,7 @@ export class ActionMatcher {
 
         switch (filter.type) {
             case 'cohort':
-                return this.checkEventAgainstCohortFilter(event, filter)
+                return await this.checkEventAgainstCohortFilter(event, filter)
             default:
                 return false
         }
@@ -366,7 +373,10 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstCohortFilter(event: PostIngestionEvent, filter: CohortPropertyFilter): boolean {
+    private async checkEventAgainstCohortFilter(
+        event: PostIngestionEvent,
+        filter: CohortPropertyFilter
+    ): Promise<boolean> {
         let cohortId = filter.value
         if (cohortId === 'all') {
             // The "All users" cohort matches anyone
@@ -381,6 +391,22 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
+
+        // Use behavioral cohort service if available
+        if (this.behavioralCohortService) {
+            try {
+                const result = await this.behavioralCohortService.evaluateBehavioralCohort(
+                    cohortId,
+                    event.teamId,
+                    event
+                )
+                return filter.operator === PropertyOperator.IsNot ? !result : result
+            } catch (error) {
+                captureException(error)
+                return false
+            }
+        }
+
         return false
     }
 
