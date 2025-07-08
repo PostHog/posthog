@@ -301,12 +301,14 @@ export class IngestionConsumer {
             personsStoreForBatch.flush(),
         ])
 
-        await Promise.all([
-            this.kafkaProducer?.queueMessages(groupStoreMessages),
-            this.kafkaProducer?.queueMessages(personsStoreMessages),
-        ])
+        if (this.kafkaProducer) {
+            await Promise.all([
+                this.kafkaProducer.queueMessages(groupStoreMessages),
+                this.kafkaProducer.queueMessages(personsStoreMessages),
+            ])
 
-        await this.kafkaProducer?.flush()
+            await this.kafkaProducer.flush()
+        }
 
         personsStoreForBatch.reportBatch()
         groupStoreForBatch.reportBatch()
