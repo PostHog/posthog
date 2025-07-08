@@ -75,5 +75,5 @@ export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
             }
         ) => Promise<Response>,
         inputs: Record<string, any>
-    ) => Promise<Response> | void
+    ) => any
 }
