@@ -17,12 +17,12 @@ import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 import { ISSUE_STATUS_OPTIONS } from './utils'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -47,6 +47,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
 
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
 
     useEffect(() => {
@@ -58,13 +59,15 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                            icon={<SidePanelDiscussionIcon />}
-                        >
-                            Comment
-                        </LemonButton>
+                        {hasDiscussions && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                icon={<SidePanelDiscussionIcon />}
+                            >
+                                Comment
+                            </LemonButton>
+                        )}
                         {!issueLoading && issue?.status === 'active' && (
                             <AssigneeSelect
                                 assignee={issue?.assignee}
