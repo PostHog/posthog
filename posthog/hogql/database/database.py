@@ -121,12 +121,8 @@ from posthog.schema import (
     SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-    RevenueAnalyticsBaseView,
-)
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -501,41 +497,24 @@ def create_hogql_database(
     # For every Stripe source, let's generate its own revenue view
     # Prefetch related schemas and tables to avoid N+1
     with timings.measure("revenue_analytics_views"):
-        with timings.measure("select"):
-            stripe_sources = list(
-                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
-                .exclude(deleted=True)
-                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
-            )
+        revenue_views = []
+        try:
+            revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
+        except Exception as e:
+            capture_exception(e)
 
-        with timings.measure("for_schema_source"):
-            for stripe_source in stripe_sources:
-                try:
-                    revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
-
-                    # View will have a name similar to stripe.prefix.table_name
-                    # We want to create a nested table group where stripe is the parent,
-                    # prefix is the child of stripe, and table_name is the child of prefix
-                    # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
-                    # but still allowing the bare stripe.prefix.table_name string access
-                    for view in revenue_views:
-                        views[view.name] = view
-                        create_nested_table_group(view.name.split("."), views, view)
-                except Exception as e:
-                    capture_exception(e)
-                    continue
-
-        # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
-        # so let's make sure we have the proper nested queries
-        with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsBaseView.for_events(team)
-            for view in revenue_views:
-                try:
-                    views[view.name] = view
-                    create_nested_table_group(view.name.split("."), views, view)
-                except Exception as e:
-                    capture_exception(e)
-                    continue
+        # Each view will have a name similar to stripe.prefix.table_name
+        # We want to create a nested table group where stripe is the parent,
+        # prefix is the child of stripe, and table_name is the child of prefix
+        # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
+        # but still allowing the bare stripe.prefix.table_name string access
+        for view in revenue_views:
+            try:
+                views[view.name] = view
+                create_nested_table_group(view.name.split("."), views, view)
+            except Exception as e:
+                capture_exception(e)
+                continue
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):

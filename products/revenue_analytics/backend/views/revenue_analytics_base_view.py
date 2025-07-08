@@ -1,15 +1,38 @@
 from typing import Optional
+from django.db.models import Prefetch
 from posthog.models.team.team import Team
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.hogql import ast
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import SavedQuery
 from posthog.schema import DatabaseSchemaManagedViewTableKind
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 import re
+
+SUPPORTED_SOURCES: list[ExternalDataSource.Type] = [ExternalDataSource.Type.STRIPE]
 
 
 class RevenueAnalyticsBaseView(SavedQuery):
     source_id: Optional[str] = None
     prefix: str
+
+    @classmethod
+    def for_team(cls, team: "Team", timings: HogQLTimings) -> list["RevenueAnalyticsBaseView"]:
+        with timings.measure("for_events"):
+            for_events = cls.for_events(team)
+
+        with timings.measure("for_schema_source"):
+            schema_sources = list(
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type__in=SUPPORTED_SOURCES)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            )
+
+            for_schema_sources = [
+                view for schema_source in schema_sources for view in cls.for_schema_source(schema_source)
+            ]
+
+        return [*for_events, *for_schema_sources]
 
     @classmethod
     def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:

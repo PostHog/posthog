@@ -14,11 +14,14 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsProductView,
     RevenueAnalyticsSubscriptionView,
 )
+from posthog.hogql.timings import HogQLTimings
 
 
 class TestRevenueAnalyticsViews(BaseTest):
     def setUp(self):
         super().setUp()
+
+        self.timings = HogQLTimings()
 
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -199,6 +202,11 @@ class TestRevenueAnalyticsViews(BaseTest):
             should_sync=True,
             last_synced_at="2024-01-01",
         )
+
+        views = RevenueAnalyticsBaseView.for_team(self.team, self.timings)
+        self.assertEqual(len(views), 5)
+        self.assertIn("./for_events", self.timings.to_dict().keys())
+        self.assertIn("./for_schema_source", self.timings.to_dict().keys())
 
         views = RevenueAnalyticsBaseView.for_schema_source(self.source)
         self.assertEqual(len(views), 5)
