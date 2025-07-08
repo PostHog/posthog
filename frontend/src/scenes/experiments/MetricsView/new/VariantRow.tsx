@@ -1,13 +1,7 @@
 import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
-import {
-    type ExperimentVariantResult,
-    isBayesianResult,
-    formatChanceToWin,
-    getNiceTickValues,
-    valueToXCoordinate,
-} from '../shared/utils'
+import { type ExperimentVariantResult, isBayesianResult, formatChanceToWin, getNiceTickValues } from '../shared/utils'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -17,6 +11,7 @@ import {
 import { InsightType } from '~/types'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN } from './constants'
 import { useChartColors } from '../shared/colors'
+import { GridLines, useAxisScale } from '../shared/axis'
 
 interface VariantRowProps {
     variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
@@ -48,6 +43,7 @@ export function VariantRow({
     canDuplicateMetric,
 }: VariantRowProps): JSX.Element {
     const colors = useChartColors()
+    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     // Helper function to format variant data
     const formatVariantData = (variant: ExperimentStatsBase): { primaryValue: number; formattedValue: string } => {
@@ -137,25 +133,25 @@ export function VariantRow({
             {isBaseline ? (
                 <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
                     {chartRadius && chartRadius > 0 ? (
-                        <svg
-                            viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
-                            preserveAspectRatio="none"
-                            className="block w-full h-full absolute inset-0"
-                        >
-                            {/* Grid lines - match ChartCell exactly */}
-                            {getNiceTickValues(chartRadius).map((value) => (
-                                <line
-                                    key={value}
-                                    x1={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                                    y1={0}
-                                    x2={valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
-                                    y2={100}
-                                    stroke={value === 0 ? colors.ZERO_LINE : colors.BOUNDARY_LINES}
-                                    strokeWidth={value === 0 ? 1.5 : 0.75}
-                                    opacity={value === 0 ? 0.6 : 0.5}
+                        <div className="relative">
+                            <svg
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} 100`}
+                                preserveAspectRatio="xMidYMid meet"
+                                className="w-full max-w-[1000px]"
+                                style={{ minHeight: '100px' }}
+                            >
+                                <GridLines
+                                    tickValues={getNiceTickValues(chartRadius)}
+                                    scale={scale}
+                                    height={100}
+                                    zeroLineColor={colors.ZERO_LINE}
+                                    gridLineColor={colors.BOUNDARY_LINES}
+                                    zeroLineWidth={1.5}
+                                    gridLineWidth={0.75}
+                                    opacity={0.5}
                                 />
-                            ))}
-                        </svg>
+                            </svg>
+                        </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
                     )}
