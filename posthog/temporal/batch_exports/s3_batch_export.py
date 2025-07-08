@@ -913,9 +913,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=s3_default_fields(),
         )
 
-        # rolling out pre-export stage to select teams for now
-        is_sessions_model = inputs.batch_export_model and inputs.batch_export_model.name == "sessions"
-        if not is_sessions_model and str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
+        if _use_internal_stage(inputs):
             await execute_batch_export_insert_activity_using_s3_stage(
                 insert_into_s3_activity_from_stage,
                 insert_inputs,
@@ -932,6 +930,20 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
             finish_inputs=finish_inputs,
         )
+
+
+def _use_internal_stage(inputs: S3BatchExportInputs) -> bool:
+    """Determine if we should use the internal S3 stage for a batch export.
+
+    This is just needed while we gradually roll out the pre-export stage.
+    """
+    # TODO - support sessions model
+    is_sessions_model = inputs.batch_export_model and inputs.batch_export_model.name == "sessions"
+    if is_sessions_model:
+        return False
+    if str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
+        return True
+    return inputs.team_id % 100 < settings.BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
 
 
 @activity.defn

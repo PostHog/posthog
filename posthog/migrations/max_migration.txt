@@ -1,1 +1,1 @@
-0784_fix_null_event_triggers
+0786_add_is_emoji_to_annotation

@@ -15,6 +15,7 @@ import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
+import { router } from 'kea-router'
 
 interface QueryInfoProps {
     codeEditorKey: string
@@ -69,6 +70,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     const {
         dataWarehouseSavedQueryMapById,
+        dataWarehouseSavedQueryMapByIdStringMap,
         updatingDataWarehouseSavedQuery,
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
@@ -82,6 +84,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
+    const currentViewIdHex = editingView?.id.replace(/-/g, '')
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     if (initialDataWarehouseSavedQueryLoading) {
@@ -314,35 +317,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         />
                     </>
                 )}
-                <div>
-                    <h3>Columns</h3>
-                    <p className="text-xs">Columns that are available in the materialized view.</p>
-                </div>
-                <LemonTable
-                    size="small"
-                    columns={[
-                        {
-                            key: 'name',
-                            title: 'Name',
-                            render: (_, column) => column.name,
-                        },
-                        {
-                            key: 'type',
-                            title: 'Type',
-                            render: (_, column) => column.type,
-                        },
-                        {
-                            key: 'schema_valid',
-                            title: 'Schema Valid',
-                            render: (_, column) => (
-                                <LemonTag type={column.schema_valid ? 'success' : 'danger'}>
-                                    {column.schema_valid ? 'Yes' : 'No'}
-                                </LemonTag>
-                            ),
-                        },
-                    ]}
-                    dataSource={savedQuery?.columns || []}
-                />
                 {!isLineageDependencyViewEnabled && (
                     <>
                         <div>
@@ -413,8 +387,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                 {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
-                            <h3>Upstream Dependencies</h3>
-                            <p className="text-xs">Tables and views that this query depends on.</p>
+                            <h3>Tables we use</h3>
+                            <p className="text-xs">Tables and views that this query relies on.</p>
                         </div>
                         <LemonTable
                             size="small"
@@ -422,16 +396,45 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     key: 'name',
                                     title: 'Name',
-                                    render: (_, { name }) => (
-                                        <div className="flex items-center gap-1">
-                                            {name === editingView?.name && (
-                                                <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconTarget className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {name}
-                                        </div>
-                                    ),
+                                    render: (_, { id, name, type }) => {
+                                        if (type === 'view' && currentViewIdHex !== id) {
+                                            const _view = dataWarehouseSavedQueryMapByIdStringMap[id]
+                                            return (
+                                                <div className="flex items-center gap-1">
+                                                    {name === editingView?.name && (
+                                                        <Tooltip
+                                                            placement="right"
+                                                            title="This is the currently viewed query"
+                                                        >
+                                                            <IconTarget className="text-warning" />
+                                                        </Tooltip>
+                                                    )}
+                                                    <Link
+                                                        onClick={() => {
+                                                            multitabEditorLogic({
+                                                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                                            }).actions.editView(_view.query.query, _view)
+                                                        }}
+                                                    >
+                                                        {name}
+                                                    </Link>
+                                                </div>
+                                            )
+                                        }
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                {name === editingView?.name && (
+                                                    <Tooltip
+                                                        placement="right"
+                                                        title="This is the currently viewed query"
+                                                    >
+                                                        <IconTarget className="text-warning" />
+                                                    </Tooltip>
+                                                )}
+                                                {name}
+                                            </div>
+                                        )
+                                    },
                                 },
                                 {
                                     key: 'type',
