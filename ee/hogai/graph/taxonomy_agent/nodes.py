@@ -90,13 +90,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
         agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
 
+        core_memory_text = await self._aget_core_memory_text()
         try:
             result = cast(
                 AgentAction,
                 agent.invoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
-                        "core_memory": self.core_memory.text if self.core_memory else "",
+                        "core_memory": core_memory_text,
                         "tools": toolkit.render_text_description(),
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
@@ -179,7 +180,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 await agent.ainvoke(
                     {
                         "react_format": await self._get_react_format_prompt(toolkit),
-                        "core_memory": await self._aget_core_memory_raw_text(),
+                        "core_memory": await self._aget_core_memory_text(),
                         "tools": await toolkit.render_text_description(),
                         "react_property_filters": react_property_filters_prompt,
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,

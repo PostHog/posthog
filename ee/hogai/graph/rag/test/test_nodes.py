@@ -45,7 +45,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
 
     @patch("ee.hogai.graph.rag.nodes.TeamTaxonomyQueryRunner")
-    def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
+    async def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
         # Arrange
         team = MagicMock()
         retriever = InsightRagContextNode(team=team, user=self.user)
@@ -54,7 +54,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         mock_team_taxonomy_query_runner.return_value = mock_runner_instance
 
         # Act
-        retriever._prewarm_queries()
+        await retriever._prewarm_queries()
 
         # Assert
         mock_team_taxonomy_query_runner.assert_called_once()

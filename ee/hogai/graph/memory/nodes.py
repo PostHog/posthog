@@ -82,12 +82,12 @@ class MemoryInitializerContextMixin:
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
-    def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
+    async def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         If the conversation starts with the onboarding initial message, start the onboarding process.
         """
-        core_memory = self.core_memory
+        core_memory = await self._aget_core_memory()
 
         if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
             # a user has already started the onboarding, we don't allow other users to start it concurrently until timeout is reached
@@ -297,7 +297,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory = self.core_memory
+        core_memory = await self._aget_core_memory()
         if core_memory is None:
             raise ValueError("No core memory found.")
         if state.onboarding_question and core_memory.answers_left > 0:
@@ -328,7 +328,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        core_memory = self.core_memory
+        core_memory = await self._aget_core_memory()
         if core_memory is None:
             raise ValueError("No core memory found.")
         # Compress the question/answer memory before saving it
@@ -389,7 +389,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        if self.should_run_onboarding_at_start(state) != "continue":
+        if await self.should_run_onboarding_at_start(state) != "continue":
             return None
 
         node_messages = state.memory_collection_messages or []
@@ -399,10 +399,11 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         ) + self._construct_messages(state)
         chain = prompt | self._model | raise_memory_updated
 
+        core_memory_text = await self._aget_core_memory_text()
         try:
             response = chain.invoke(
                 {
-                    "core_memory": self.core_memory_text,
+                    "core_memory": core_memory_text,
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
                 config=config,
@@ -458,7 +459,7 @@ class MemoryCollectorToolsNode(AssistantNode):
         last_message = node_messages[-1]
         if not isinstance(last_message, LangchainAIMessage):
             raise ValueError("Last message must be an AI message.")
-        core_memory = self.core_memory
+        core_memory = await self._aget_core_memory()
         if core_memory is None:
             raise ValueError("No core memory found.")
 

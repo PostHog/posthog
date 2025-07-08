@@ -26,7 +26,7 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
     OUTPUT_SCHEMA = {}
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", "system_prompt"),

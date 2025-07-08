@@ -51,9 +51,9 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
     hogql_context: HogQLContext
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        database = create_hogql_database(team=self._team)
-        hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
-        serialized_database = await sync_to_async(serialize_database)(hogql_context)
+        database = await sync_to_async(create_hogql_database)(team=self._team)
+        self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
+        serialized_database = await sync_to_async(serialize_database)(self.hogql_context)
 
         schema_description = "\n\n".join(
             (

@@ -66,68 +66,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     def _parse_output(cls, output: dict) -> SchemaGeneratorOutput[Q]:
         return parse_pydantic_structured_output(cls.OUTPUT_MODEL)(output)
 
-    def _run_with_prompt(
-        self,
-        state: AssistantState,
-        prompt: ChatPromptTemplate,
-        config: Optional[RunnableConfig] = None,
-    ) -> PartialAssistantState:
-        start_id = state.start_id
-        generated_plan = state.plan or ""
-        intermediate_steps = state.intermediate_steps or []
-        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
-
-        generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
-        merger = merge_message_runs()
-
-        chain = generation_prompt | merger | self._model | self._parse_output
-
-        try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke(
-                {
-                    "project_datetime": self.project_now,
-                    "project_timezone": self.project_timezone,
-                    "project_name": self._team.name,
-                },
-                config,
-            )
-        except PydanticOutputParserException as e:
-            # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
-            if len(intermediate_steps) >= 2:
-                return PartialAssistantState(
-                    messages=[
-                        FailureMessage(
-                            content=f"Oops! It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
-                        )
-                    ],
-                    intermediate_steps=[],
-                    plan="",
-                    query_generation_retry_count=len(intermediate_steps) + 1,
-                )
-
-            return PartialAssistantState(
-                intermediate_steps=[
-                    *intermediate_steps,
-                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
-                ],
-                query_generation_retry_count=len(intermediate_steps) + 1,
-            )
-
-        final_message = VisualizationMessage(
-            query=self._get_insight_plan(state),
-            plan=generated_plan,
-            answer=message.query,
-            initiator=start_id,
-            id=str(uuid4()),
-        )
-
-        return PartialAssistantState(
-            messages=[final_message],
-            intermediate_steps=[],
-            plan="",
-            query_generation_retry_count=len(intermediate_steps),
-        )
-
     async def _arun_with_prompt(
         self,
         state: AssistantState,
@@ -216,15 +154,20 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     async def _aget_group_mapping_prompt(self) -> str:
         """Async cached version of _group_mapping_prompt"""
 
-        groups = (
-            GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index").aiterator()
-        )
-        if not groups:
+        groups_types = [
+            groups_type
+            async for groups_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id)
+            .order_by("group_type_index")
+            .aiterator()
+        ]
+        if not groups_types:
             return "The user has not defined any groups."
 
         root = ET.Element("list of defined groups")
         root.text = (
-            "\n" + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups]) + "\n"
+            "\n"
+            + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups_types])
+            + "\n"
         )
         return ET.tostring(root, encoding="unicode")
 
@@ -308,7 +251,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
             return PartialAssistantState()
@@ -326,7 +269,3 @@ class SchemaGeneratorToolsNode(AssistantNode):
                 (action, str(prompt)),
             ]
         )
-
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        """Async version of run method - same logic as sync version since it's just data manipulation"""
-        return self.run(state, config)

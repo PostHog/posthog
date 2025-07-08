@@ -31,7 +31,7 @@ async def aembed_documents(client: EmbeddingsClientAsync, texts: list[str]) -> G
     )
     if not response.data:
         raise ValueError("No embeddings returned")
-    return (cast(list[float], res.embedding) for res in response.data)
+    return [cast(list[float], res.embedding) for res in response.data]
 
 
 def embed_search_query(client: EmbeddingsClient, text: str) -> list[float]:
