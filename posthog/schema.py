@@ -3156,22 +3156,13 @@ class ElementPropertyFilter(BaseModel):
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
 
 
-class Integration(BaseModel):
+class ErrorTrackingExternalReferenceIntegration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     display_name: str
     id: float
     kind: IntegrationKind
-
-
-class ErrorTrackingExternalReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    external_url: str
-    id: str
-    integration: Integration
 
 
 class ErrorTrackingIssueAssignee(BaseModel):
@@ -3191,19 +3182,6 @@ class ErrorTrackingIssueFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
-
-
-class ErrorTrackingRelationalIssue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignee: Optional[ErrorTrackingIssueAssignee] = None
-    description: Optional[str] = None
-    external_issues: list[ErrorTrackingExternalReference]
-    first_seen: datetime
-    id: str
-    name: Optional[str] = None
-    status: Status2
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -6990,6 +6968,15 @@ class EntityNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ErrorTrackingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: ErrorTrackingExternalReferenceIntegration
+
+
 class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7030,6 +7017,19 @@ class ErrorTrackingQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ErrorTrackingRelationalIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    external_issues: list[ErrorTrackingExternalReference]
+    first_seen: datetime
+    id: str
+    name: Optional[str] = None
+    status: Status2
 
 
 class EventTaxonomyQueryResponse(BaseModel):

@@ -9120,23 +9120,26 @@
                     "type": "string"
                 },
                 "integration": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "display_name": {
-                            "type": "string"
-                        },
-                        "id": {
-                            "type": "number"
-                        },
-                        "kind": {
-                            "$ref": "#/definitions/IntegrationKind"
-                        }
-                    },
-                    "required": ["display_name", "id", "kind"],
-                    "type": "object"
+                    "$ref": "#/definitions/ErrorTrackingExternalReferenceIntegration"
                 }
             },
             "required": ["id", "external_url", "integration"],
+            "type": "object"
+        },
+        "ErrorTrackingExternalReferenceIntegration": {
+            "additionalProperties": false,
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "kind": {
+                    "$ref": "#/definitions/IntegrationKind"
+                }
+            },
+            "required": ["id", "kind", "display_name"],
             "type": "object"
         },
         "ErrorTrackingIssue": {

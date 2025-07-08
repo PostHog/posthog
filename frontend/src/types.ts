@@ -5017,67 +5017,6 @@ export enum SidePanelTab {
     AccessControl = 'access-control',
 }
 
-export interface SourceFieldOauthConfig {
-    type: 'oauth'
-    name: string
-    label: string
-    required: boolean
-    kind: IntegrationKind
-}
-
-export interface SourceFieldInputConfig {
-    type: LemonInputProps['type'] | 'textarea'
-    name: string
-    label: string
-    required: boolean
-    placeholder: string
-}
-
-export interface SourceFieldSelectConfig {
-    type: 'select'
-    name: string
-    label: string
-    required: boolean
-    defaultValue: string
-    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
-}
-
-export interface SourceFieldSwitchGroupConfig {
-    type: 'switch-group'
-    name: string
-    label: string
-    default: string | number | boolean
-    fields: SourceFieldConfig[]
-    caption?: string
-}
-
-export interface SourceFieldFileUploadConfig {
-    type: 'file-upload'
-    name: string
-    label: string
-    fileFormat: string
-    required: boolean
-}
-
-export type SourceFieldConfig =
-    | SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldFileUploadConfig
-
-export interface SourceConfig {
-    name: ExternalDataSourceType
-    label?: string
-    caption: string | React.ReactNode
-    fields: SourceFieldConfig[]
-    disabledReason?: string | null
-    oauthPayload?: string[]
-    existingSource?: boolean
-    unreleasedSource?: boolean
-    betaSource?: boolean
-}
-
 export interface ProductPricingTierSubrows {
     columns: LemonTableColumns<BillingTableTierAddonRow>
     rows: BillingTableTierAddonRow[]
