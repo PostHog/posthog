@@ -1,5 +1,4 @@
 import { NativeTemplate } from '~/cdp/templates/types'
-import { IntegrationError } from '~/cdp/templates/types'
 
 export const template: NativeTemplate = {
     free: false,
@@ -18,10 +17,7 @@ export const template: NativeTemplate = {
                 json: payload.body,
             })
         } catch (error) {
-            if (error instanceof TypeError) {
-                throw new IntegrationError(error.message, 'INVALID_PAYLOAD', 400)
-            }
-            throw error
+            throw new Error(error.message)
         }
     },
     inputs_schema: [
