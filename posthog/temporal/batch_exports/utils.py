@@ -8,13 +8,13 @@ import uuid
 
 import orjson
 import pyarrow as pa
-import structlog
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import aupdate_batch_export_run
+from posthog.temporal.common.logger import get_logger
 
 T = typing.TypeVar("T")
-LOGGER = structlog.get_logger()
+LOGGER = get_logger()
 
 
 def peek_first_and_rewind(
