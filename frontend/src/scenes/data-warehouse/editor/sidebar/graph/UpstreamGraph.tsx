@@ -25,7 +25,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { LineageNode as LineageNodeType } from '~/types'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { multitabEditorLogic } from '../../multitabEditorLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface UpstreamGraphProps {

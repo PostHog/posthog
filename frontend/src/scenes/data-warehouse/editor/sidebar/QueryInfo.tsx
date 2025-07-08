@@ -17,7 +17,6 @@ import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
-import { router } from 'kea-router'
 import { UpstreamGraph } from './graph/UpstreamGraph'
 
 interface QueryInfoProps {
@@ -73,7 +72,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     const {
         dataWarehouseSavedQueryMapById,
-        dataWarehouseSavedQueryMapByIdStringMap,
         updatingDataWarehouseSavedQuery,
         initialDataWarehouseSavedQueryLoading,
         dataModelingJobs,
@@ -87,7 +85,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
-    const currentViewIdHex = editingView?.id.replace(/-/g, '')
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     if (initialDataWarehouseSavedQueryLoading) {
@@ -419,45 +416,19 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     {
                                         key: 'name',
                                         title: 'Name',
-                                        render: (_, { id, name, type }) => {
-                                            if (type === 'view' && currentViewIdHex !== id) {
-                                                const _view = dataWarehouseSavedQueryMapByIdStringMap[id]
-                                                return (
-                                                    <div className="flex items-center gap-1">
-                                                        {name === editingView?.name && (
-                                                            <Tooltip
-                                                                placement="right"
-                                                                title="This is the currently viewed query"
-                                                            >
-                                                                <IconTarget className="text-warning" />
-                                                            </Tooltip>
-                                                        )}
-                                                        <Link
-                                                            onClick={() => {
-                                                                multitabEditorLogic({
-                                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                                                }).actions.editView(_view.query.query, _view)
-                                                            }}
-                                                        >
-                                                            {name}
-                                                        </Link>
-                                                    </div>
-                                                )
-                                            }
-                                            return (
-                                                <div className="flex items-center gap-1">
-                                                    {name === editingView?.name && (
-                                                        <Tooltip
-                                                            placement="right"
-                                                            title="This is the currently viewed query"
-                                                        >
-                                                            <IconTarget className="text-warning" />
-                                                        </Tooltip>
-                                                    )}
-                                                    {name}
-                                                </div>
-                                            )
-                                        },
+                                        render: (_, { name }) => (
+                                            <div className="flex items-center gap-1">
+                                                {name === editingView?.name && (
+                                                    <Tooltip
+                                                        placement="right"
+                                                        title="This is the currently viewed query"
+                                                    >
+                                                        <IconTarget className="text-warning" />
+                                                    </Tooltip>
+                                                )}
+                                                {name}
+                                            </div>
+                                        ),
                                     },
                                     {
                                         key: 'type',
