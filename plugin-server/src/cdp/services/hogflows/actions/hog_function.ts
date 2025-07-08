@@ -80,6 +80,8 @@ export class HogFunctionHandler implements ActionHandler {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
 
+        const person = await invocation.getPerson()
+
         const globals: HogFunctionInvocationGlobals = {
             source: {
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
@@ -92,9 +94,8 @@ export class HogFunctionHandler implements ActionHandler {
             },
             event: invocation.state.event,
             person: {
+                ...person,
                 name: '',
-                properties: {},
-                id: invocation.state.event.distinct_id,
                 url: `${projectUrl}/person/${encodeURIComponent(invocation.state.event.distinct_id)}`,
             },
         }
