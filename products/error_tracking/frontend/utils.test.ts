@@ -98,7 +98,7 @@ describe('mergeIssues', () => {
                 users: 102,
                 volumeRange: [0, 500, 1510, 1026, 1406],
             },
-        })
+        } satisfies ErrorTrackingIssue)
     })
 })
 
