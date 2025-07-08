@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { calculateSnapPosition, getFloatingMaxDimensions, Position, PositionWithSide } from './floatingMaxPositioning'
+import {
+    calculateSnapPosition,
+    getFloatingMaxDimensions,
+    getElementDimensions,
+    Position,
+    PositionWithSide,
+} from './floatingMaxPositioning'
 
 const DRAG_THRESHOLD = 5 // pixels
 const SNAP_THRESHOLD = 100 // pixels - threshold for snapping to opposite side
@@ -11,6 +17,8 @@ interface UseDragAndSnapProps {
     onPositionChange?: (position: PositionWithSide) => void
     disabled?: boolean
     currentSide?: 'left' | 'right'
+    dragElementRef?: React.RefObject<HTMLElement>
+    containerRef?: React.RefObject<HTMLElement>
 }
 
 interface UseDragAndSnapReturn {
@@ -19,7 +27,7 @@ interface UseDragAndSnapReturn {
     hasDragged: boolean
     containerStyle: React.CSSProperties
     handleMouseDown: (e: React.MouseEvent) => void
-    avatarButtonRef: React.RefObject<HTMLDivElement>
+    dragElementRef: React.RefObject<HTMLDivElement>
 }
 
 type MousePosition = Position
@@ -32,6 +40,8 @@ export function useDragAndSnap({
     onPositionChange,
     disabled = false,
     currentSide,
+    dragElementRef: externalDragElementRef,
+    containerRef: externalContainerRef,
 }: UseDragAndSnapProps): UseDragAndSnapReturn {
     const [isDragging, setIsDragging] = useState(false)
     const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 })
@@ -40,12 +50,16 @@ export function useDragAndSnap({
     const [isAnimating, setIsAnimating] = useState(false)
     const [mouseDownPosition, setMouseDownPosition] = useState<MousePosition | null>(null)
     const [cachedBottomOffset, setCachedBottomOffset] = useState<number>(CACHED_BOTTOM_OFFSET_DEFAULT)
-    const avatarButtonRef = useRef<HTMLDivElement>(null)
+    const internalDragElementRef = useRef<HTMLDivElement>(null)
+    const internalContainerRef = useRef<HTMLDivElement>(null)
+    const dragElementRef = externalDragElementRef || internalDragElementRef
+    const containerRef = externalContainerRef || internalContainerRef
 
     // Cache the bottom offset when not dragging
     useEffect(() => {
         if (!isDragging && !isAnimating) {
-            const floatingMaxContainer = document.querySelector('[data-attr="floating-max-container"]') as HTMLElement
+            const floatingMaxContainer =
+                containerRef.current || (document.querySelector('[data-attr="floating-max-container"]') as HTMLElement)
             if (floatingMaxContainer) {
                 const computedStyle = getComputedStyle(floatingMaxContainer)
                 const marginBottom = parseFloat(computedStyle.marginBottom) || 0
@@ -55,7 +69,7 @@ export function useDragAndSnap({
                 setCachedBottomOffset(bottomOffset)
             }
         }
-    }, [isDragging, isAnimating])
+    }, [isDragging, isAnimating, containerRef])
 
     // Handle drag functionality
     useEffect(() => {
@@ -99,14 +113,20 @@ export function useDragAndSnap({
             if (hasDragged) {
                 setIsAnimating(true)
 
-                const { width: avatarWidth } = getFloatingMaxDimensions()
+                const containerElement = containerRef?.current
+                const { width: elementWidth, height: elementHeight } = containerElement
+                    ? getElementDimensions(containerElement)
+                    : dragElementRef.current
+                    ? getElementDimensions(dragElementRef.current)
+                    : getFloatingMaxDimensions()
                 const snapPosition = calculateSnapPosition(
                     e.clientX,
                     cachedBottomOffset,
-                    avatarWidth,
+                    elementWidth,
                     mouseDownPosition?.x,
                     currentSide,
-                    SNAP_THRESHOLD
+                    SNAP_THRESHOLD,
+                    elementHeight
                 )
 
                 // Animate to final position
@@ -147,17 +167,28 @@ export function useDragAndSnap({
         const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
         const isVerySmallScreen = window.innerWidth < MIN_SCREEN_WIDTH_FOR_DRAG
 
-        if ((isTouchDevice && isVerySmallScreen) || !avatarButtonRef.current) {
+        if ((isTouchDevice && isVerySmallScreen) || !dragElementRef.current) {
             return
         }
 
-        const rect = avatarButtonRef.current.getBoundingClientRect()
+        const dragElementRect = dragElementRef.current.getBoundingClientRect()
+        const containerElement = containerRef?.current || dragElementRef.current
+        const containerRect = containerElement.getBoundingClientRect()
+
+        // Calculate offset relative to the container, but based on where the user clicked on the drag element
+        const dragOffsetX = e.clientX - dragElementRect.left
+        const dragOffsetY = e.clientY - dragElementRect.top
+
+        // Calculate the offset from the drag element to the container
+        const elementToContainerOffsetX = dragElementRect.left - containerRect.left
+        const elementToContainerOffsetY = dragElementRect.top - containerRect.top
+
         setDragOffset({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
+            x: dragOffsetX + elementToContainerOffsetX,
+            y: dragOffsetY + elementToContainerOffsetY,
         })
         setMouseDownPosition({ x: e.clientX, y: e.clientY })
-        setDragPosition({ x: rect.left, y: rect.top })
+        setDragPosition({ x: containerRect.left, y: containerRect.top })
         e.preventDefault()
     }
 
@@ -179,6 +210,6 @@ export function useDragAndSnap({
         hasDragged,
         containerStyle,
         handleMouseDown,
-        avatarButtonRef,
+        dragElementRef,
     }
 }

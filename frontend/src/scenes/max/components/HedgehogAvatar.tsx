@@ -33,7 +33,7 @@ export function HedgehogAvatar({
     const { setFloatingMaxDragState } = useActions(maxGlobalLogic)
 
     // Use the drag and snap hook
-    const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, avatarButtonRef } = useDragAndSnap({
+    const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, dragElementRef } = useDragAndSnap({
         onPositionChange,
         disabled: false,
         currentSide: fixedDirection,
@@ -79,7 +79,7 @@ export function HedgehogAvatar({
                 delayMs={0}
             >
                 <div
-                    ref={avatarButtonRef}
+                    ref={dragElementRef}
                     // border color should be the same as textarea :focus border
                     className={`size-10 rounded-full overflow-hidden border border-[var(--border-bold)] transition-all duration-100 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 flex items-center justify-center bg-bg-light m-0.5 ${
                         isDragging ? 'cursor-grabbing' : 'cursor-grab'

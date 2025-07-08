@@ -1,4 +1,11 @@
-.floating-max-container {
-    transition: width 150ms cubic-bezier(0.4, 0, 0.2, 1), padding 150ms cubic-bezier(0.4, 0, 0.2, 1),
-        border-radius 150ms cubic-bezier(0.4, 0, 0.2, 1);
+@keyframes MaxFloatingInput__ExpandFromAvatar {
+    0% {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
 }

@@ -108,15 +108,28 @@ export function getFloatingMaxDimensions(): { width: number; height: number } {
 }
 
 /**
+ * Get the dimensions of a specific element
+ */
+export function getElementDimensions(element: HTMLElement | null): { width: number; height: number } {
+    const rect = element?.getBoundingClientRect()
+
+    return {
+        width: rect?.width || 0,
+        height: rect?.height || 0,
+    }
+}
+
+/**
  * Calculate the absolute snap position for draggable elements
  */
 export function calculateSnapPosition(
     mouseX: number,
     bottomOffset: number,
-    avatarWidth: number = 0,
+    elementWidth: number = 0,
     dragStartX?: number,
     currentSide?: 'left' | 'right',
-    snapThreshold?: number
+    snapThreshold?: number,
+    elementHeight?: number
 ): PositionWithSide {
     const windowWidth = window.innerWidth
     const windowHeight = window.innerHeight
@@ -140,10 +153,10 @@ export function calculateSnapPosition(
     const { sidePanelWidth, projectPanelWidth, xPadding } = getPanelDimensions()
 
     const finalX = isRightSide
-        ? windowWidth - (sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE + avatarWidth)
+        ? windowWidth - (sidePanelWidth + xPadding + PANEL_FIXED_DISTANCE + elementWidth)
         : projectPanelWidth + xPadding + PANEL_FIXED_DISTANCE
 
-    const finalY = windowHeight - avatarWidth - bottomOffset
+    const finalY = windowHeight - (elementHeight || elementWidth) - bottomOffset
 
     return {
         x: finalX,
