@@ -317,145 +317,361 @@ class ConversionGoalProcessor:
         self, additional_conditions: list[ast.Expr], use_temporal_attribution: bool = False
     ) -> ast.SelectQuery:
         """
-        STEP 3: Generate main CTE query with HYBRID EVENT/PERSON-LEVEL UTM ATTRIBUTION
+        OPTIMIZED: Generate main CTE query with ARRAY-BASED HYBRID ATTRIBUTION (no expensive JOINs)
 
-        PURPOSE: Combine conversion data with UTM attribution using intelligent fallback logic
-        This is the MAIN QUERY that implements the hybrid attribution model
-
-        EXAMPLE SQL OUTPUT:
-        SELECT
-            coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign_name,
-            coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source_name,
-            sum(conversion_data.conversion_value) AS conversion_0
-        FROM (conversion_data_subquery) AS conversion_data
-        LEFT JOIN (utm_attribution_subquery) AS utm_attribution
-            ON conversion_data.person_id = utm_attribution.person_id
-        GROUP BY campaign_name, source_name
-
-        EXAMPLE RESULT ROWS (with attribution logic):
-        campaign_name | source_name | conversion_0 | (attribution used)
-        --------------|-------------|--------------|---------------------------------------------
-        google_ads    | google      | 150.50       | Event UTM (purchase had UTM data)
-        facebook_ads  | facebook    | 75.00        | Person UTM fallback (purchase had no UTM)
-        organic       | organic     | 25.00        | Organic default (no UTM data anywhere)
-
-        HYBRID ATTRIBUTION LOGIC:
-        1. EVENT UTM FIRST: If conversion event has UTM data → use that (most direct)
-        2. PERSON UTM FALLBACK: If conversion event has no UTM → use person's most recent UTM
-        3. ORGANIC DEFAULT: If no UTM data anywhere → use "organic"
-
-        WHY THIS APPROACH:
-        - Most accurate: Direct event attribution when available
-        - Smart fallback: Person-level attribution for events without UTM
-        - Always has data: Organic default ensures no NULL attribution
+        PURPOSE: Use single-pass array aggregation instead of expensive JOINs for much better performance
+        Supports different date ranges for conversions vs UTM attribution data
         """
+        utm_campaign_field = self.goal.schema_map.get("utm_campaign_name", "utm_campaign")
+        utm_source_field = self.goal.schema_map.get("utm_source_name", "utm_source")
 
-        # STEP 3A: Create conversion data subquery with event-level UTM data
-        # This gets conversion events + their direct UTM parameters (if any)
-        conversion_subquery = self.generate_conversion_data_with_utm_subquery(additional_conditions)
-
-        # STEP 3B: Create person-level UTM attribution subquery
-        if use_temporal_attribution:
-            # PREFERRED: Event-level temporal attribution (most recent UTM before each conversion, ignores query date range)
-            utm_attribution_subquery = self.generate_person_utm_with_temporal_attribution_subquery(
-                additional_conditions
-            )
+        # Get conversion math expression (always as string for consistent tuple structure)
+        if self.goal.math in [BaseMathType.DAU, "dau"]:
+            conversion_value = ast.Call(name="toString", args=[ast.Constant(value=1)])  # For DAU, we count unique persons
+        elif self.goal.math in [PropertyMathType.SUM, "sum"] and self.goal.math_property:
+            conversion_value = ast.Call(name="toString", args=[
+                ast.Call(name="ifNull", args=[
+                    ast.Field(chain=["events", "properties", self.goal.math_property]),
+                    ast.Constant(value="0")  # Use string "0" instead of numeric 0
+                ])
+            ])
         else:
-            # LEGACY: Date-bounded attribution (most recent UTM within date range only)
-            utm_attribution_subquery = self.generate_person_utm_subquery(additional_conditions)
+            conversion_value = ast.Call(name="toString", args=[ast.Constant(value=1)])  # Default for TOTAL and other math types
 
-        # STEP 3C: Build the HYBRID ATTRIBUTION LOGIC using coalesce()
-        # NOTE: Schema mapping happens in subqueries when extracting from events.properties
-        # Here we reference the standardized alias names that subqueries output
+        # Build base conversion conditions (event type, action, properties)
+        base_conversion_conditions = self.get_base_where_conditions()
+        base_conversion_conditions = add_conversion_goal_property_filters(base_conversion_conditions, self.goal, self.team)
 
-        # CAMPAIGN ATTRIBUTION: event → person → organic
-        # coalesce(A, B, C) = "use A if not null, else B if not null, else C"
-        campaign_coalesce = ast.Call(
-            name="coalesce",
-            args=[
-                # 1st priority: Event-level UTM campaign
-                # "If this conversion event has utm_campaign, use that"
-                ast.Field(chain=["conversion_data", "event_utm_campaign"]),
-                # 2nd priority: Person-level UTM campaign (global most recent)
-                # "Else if this person has recent utm_campaign, use that"
-                ast.Field(chain=["utm_attribution", "utm_campaign"]),
-                # 3rd priority: Organic default
-                # "Else default to 'organic'"
-                ast.Constant(value=ORGANIC_CAMPAIGN),
-            ],
+        # Convert conditions to AND expression for use in groupArrayIf
+        conversion_condition_expr = None
+        if base_conversion_conditions:
+            if len(base_conversion_conditions) == 1:
+                conversion_condition_expr = base_conversion_conditions[0]
+            else:
+                conversion_condition_expr = ast.And(exprs=base_conversion_conditions)
+
+        # Build UTM pageview conditions
+        utm_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="$pageview")
+            ),
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_campaign_field])]),
+            ast.Call(name="isNotNull", args=[ast.Field(chain=["events", "properties", utm_source_field])]),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "properties", utm_campaign_field]),
+                op=ast.CompareOperationOp.NotEq,
+                right=ast.Constant(value=""),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "properties", utm_source_field]),
+                op=ast.CompareOperationOp.NotEq,
+                right=ast.Constant(value=""),
+            ),
+        ]
+
+        # Create AND expression for UTM conditions  
+        utm_condition_expr = ast.And(exprs=utm_conditions)
+
+        # Extract date condition from additional_conditions for conversion filtering
+        date_condition = None
+        non_date_conditions = []
+        for cond in additional_conditions:
+            if (hasattr(cond, 'left') and hasattr(cond.left, 'chain') 
+                and cond.left.chain == ["events", "timestamp"]):
+                date_condition = cond
+            else:
+                non_date_conditions.append(cond)
+
+        # STEP 1: Build inner query that collects all data per person
+        inner_select = [
+            ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
+            # Collect conversion events WITH date filter
+            ast.Alias(
+                alias="conversion_events",
+                expr=ast.Call(
+                    name="groupArrayIf",
+                    args=[
+                        ast.Call(
+                            name="tuple",
+                            args=[
+                                ast.Field(chain=["events", "timestamp"]),
+                                ast.Call(name="ifNull", args=[
+                                    ast.Call(name="toString", args=[ast.Field(chain=["events", "properties", utm_campaign_field])]),
+                                    ast.Constant(value="")
+                                ]),
+                                ast.Call(name="ifNull", args=[
+                                    ast.Call(name="toString", args=[ast.Field(chain=["events", "properties", utm_source_field])]),
+                                    ast.Constant(value="")
+                                ]),
+                                conversion_value
+                            ]
+                        ),
+                        # FIXED: Properly combine conversion conditions with date filter
+                        ast.And(exprs=[
+                            expr for expr in [
+                                conversion_condition_expr,
+                                date_condition
+                            ] if expr is not None
+                        ]) if conversion_condition_expr or date_condition else ast.Constant(value=True)
+                    ]
+                )
+            ),
+            # Collect UTM events (sorted) WITHOUT date filter for broader attribution window
+            ast.Alias(
+                alias="utm_events",
+                expr=ast.Call(
+                    name="arraySort",
+                    args=[
+                        # FIXED: Make sorting deterministic by using timestamp + campaign as sort key
+                        ast.Lambda(args=["x"], expr=ast.Call(
+                            name="tuple", 
+                            args=[
+                                ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=1)]),  # timestamp first
+                                ast.Call(name="tupleElement", args=[ast.Field(chain=["x"]), ast.Constant(value=2)])   # campaign second (tie-breaker)
+                            ]
+                        )),
+                        ast.Call(
+                            name="groupArrayIf",
+                            args=[
+                                ast.Call(
+                                    name="tuple",
+                                    args=[
+                                        ast.Field(chain=["events", "timestamp"]),
+                                        ast.Call(name="ifNull", args=[
+                                            ast.Call(name="toString", args=[ast.Field(chain=["events", "properties", utm_campaign_field])]),
+                                            ast.Constant(value="")
+                                        ]),
+                                        ast.Call(name="ifNull", args=[
+                                            ast.Call(name="toString", args=[ast.Field(chain=["events", "properties", utm_source_field])]),
+                                            ast.Constant(value="")
+                                        ])
+                                    ]
+                                ),
+                                # Only UTM conditions, no date filter for broader attribution window
+                                utm_condition_expr
+                            ]
+                        )
+                    ]
+                )
+            )
+        ]
+
+        # Build WHERE clause for events table - use non-date conditions
+        where_expr = None
+        if non_date_conditions:
+            if len(non_date_conditions) == 1:
+                where_expr = non_date_conditions[0]
+            else:
+                where_expr = ast.And(exprs=non_date_conditions)
+
+        # Inner query
+        inner_query = ast.SelectQuery(
+            select=inner_select,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where_expr,
+            group_by=[ast.Field(chain=["events", "person_id"])],
+            having=ast.CompareOperation(
+                left=ast.Call(name="length", args=[ast.Field(chain=["conversion_events"])]),
+                op=ast.CompareOperationOp.Gt,
+                right=ast.Constant(value=0)
+            )
         )
 
-        # SOURCE ATTRIBUTION: event → person → organic (same logic as campaign)
-        source_coalesce = ast.Call(
-            name="coalesce",
-            args=[
-                # 1st priority: Event-level UTM source
-                ast.Field(chain=["conversion_data", "event_utm_source"]),
-                # 2nd priority: Person-level UTM source (global most recent)
-                ast.Field(chain=["utm_attribution", "utm_source"]),
-                # 3rd priority: Organic default
-                ast.Constant(value=ORGANIC_SOURCE),
-            ],
+        # STEP 2: Build outer query with arrayMap for attribution
+        attribution_select = [
+            ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])),
+            ast.Alias(
+                alias="attribution_results",
+                expr=ast.Call(
+                    name="arrayMap",
+                    args=[
+                        ast.Lambda(
+                            args=["conversion_tuple"],
+                            expr=ast.Call(
+                                name="tuple",
+                                args=[
+                                    # Campaign attribution: event -> temporal -> organic
+                                    ast.Call(
+                                        name="if",
+                                        args=[
+                                            ast.Call(name="notEmpty", args=[ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=2)])]),
+                                            ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=2)]),  # Use event UTM
+                                            ast.Call(
+                                                name="if",
+                                                args=[
+                                                    ast.And(exprs=[
+                                                        ast.CompareOperation(
+                                                            left=ast.Call(name="length", args=[ast.Field(chain=["utm_events"])]),
+                                                            op=ast.CompareOperationOp.Gt,
+                                                            right=ast.Constant(value=0)
+                                                        ),
+                                                        ast.CompareOperation(
+                                                            left=ast.Call(
+                                                                name="arrayLastIndex",
+                                                                args=[
+                                                                    ast.Lambda(
+                                                                        args=["utm_tuple"],
+                                                                        expr=ast.CompareOperation(
+                                                                            left=ast.Call(name="tupleElement", args=[ast.Field(chain=["utm_tuple"]), ast.Constant(value=1)]),
+                                                                            op=ast.CompareOperationOp.LtEq,
+                                                                            right=ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=1)])
+                                                                        )
+                                                                    ),
+                                                                    ast.Field(chain=["utm_events"])
+                                                                ]
+                                                            ),
+                                                            op=ast.CompareOperationOp.Gt,
+                                                            right=ast.Constant(value=0)
+                                                        )
+                                                    ]),
+                                                    # Find last UTM before conversion
+                                                    ast.Call(
+                                                        name="tupleElement",
+                                                        args=[
+                                                            ast.Call(
+                                                                name="arrayElement",
+                                                                args=[
+                                                                    ast.Field(chain=["utm_events"]),
+                                                                    ast.Call(
+                                                                        name="arrayLastIndex",
+                                                                        args=[
+                                                                            ast.Lambda(
+                                                                                args=["utm_tuple"],
+                                                                                expr=ast.CompareOperation(
+                                                                                    left=ast.Call(name="tupleElement", args=[ast.Field(chain=["utm_tuple"]), ast.Constant(value=1)]),
+                                                                                    op=ast.CompareOperationOp.LtEq,
+                                                                                    right=ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=1)])
+                                                                                )
+                                                                            ),
+                                                                            ast.Field(chain=["utm_events"])
+                                                                        ]
+                                                                    )
+                                                                ]
+                                                            ),
+                                                            ast.Constant(value=2)
+                                                        ]
+                                                    ),
+                                                    ast.Constant(value=ORGANIC_CAMPAIGN)
+                                                ]
+                                            )
+                                        ]
+                                    ),
+                                    # Source attribution (same logic)
+                                    ast.Call(
+                                        name="if",
+                                        args=[
+                                            ast.Call(name="notEmpty", args=[ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=3)])]),
+                                            ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=3)]),  # Use event UTM
+                                            ast.Call(
+                                                name="if",
+                                                args=[
+                                                    ast.And(exprs=[
+                                                        ast.CompareOperation(
+                                                            left=ast.Call(name="length", args=[ast.Field(chain=["utm_events"])]),
+                                                            op=ast.CompareOperationOp.Gt,
+                                                            right=ast.Constant(value=0)
+                                                        ),
+                                                        ast.CompareOperation(
+                                                            left=ast.Call(
+                                                                name="arrayLastIndex",
+                                                                args=[
+                                                                    ast.Lambda(
+                                                                        args=["utm_tuple"],
+                                                                        expr=ast.CompareOperation(
+                                                                            left=ast.Call(name="tupleElement", args=[ast.Field(chain=["utm_tuple"]), ast.Constant(value=1)]),
+                                                                            op=ast.CompareOperationOp.LtEq,
+                                                                            right=ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=1)])
+                                                                        )
+                                                                    ),
+                                                                    ast.Field(chain=["utm_events"])
+                                                                ]
+                                                            ),
+                                                            op=ast.CompareOperationOp.Gt,
+                                                            right=ast.Constant(value=0)
+                                                        )
+                                                    ]),
+                                                    # Find last UTM before conversion
+                                                    ast.Call(
+                                                        name="tupleElement",
+                                                        args=[
+                                                            ast.Call(
+                                                                name="arrayElement",
+                                                                args=[
+                                                                    ast.Field(chain=["utm_events"]),
+                                                                    ast.Call(
+                                                                        name="arrayLastIndex",
+                                                                        args=[
+                                                                            ast.Lambda(
+                                                                                args=["utm_tuple"],
+                                                                                expr=ast.CompareOperation(
+                                                                                    left=ast.Call(name="tupleElement", args=[ast.Field(chain=["utm_tuple"]), ast.Constant(value=1)]),
+                                                                                    op=ast.CompareOperationOp.LtEq,
+                                                                                    right=ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=1)])
+                                                                                )
+                                                                            ),
+                                                                            ast.Field(chain=["utm_events"])
+                                                                        ]
+                                                                    )
+                                                                ]
+                                                            ),
+                                                            ast.Constant(value=3)
+                                                        ]
+                                                    ),
+                                                    ast.Constant(value=ORGANIC_SOURCE)
+                                                ]
+                                            )
+                                        ]
+                                    ),
+                                    # Conversion value
+                                    ast.Call(name="tupleElement", args=[ast.Field(chain=["conversion_tuple"]), ast.Constant(value=4)])
+                                ]
+                            )
+                        ),
+                        ast.Field(chain=["conversion_events"])
+                    ]
+                )
+            )
+        ]
+
+        attribution_query = ast.SelectQuery(
+            select=attribution_select,
+            select_from=ast.JoinExpr(table=inner_query, alias="person_data")
         )
 
-        # STEP 3D: Build SELECT columns for final output
-        select_columns = [
-            # Campaign attribution result
-            ast.Alias(alias=MarketingSourceAdapter.campaign_name_field, expr=campaign_coalesce),
-            # Source attribution result
-            ast.Alias(alias=MarketingSourceAdapter.source_name_field, expr=source_coalesce),
-            # Sum all conversion values for this campaign/source combination
+        # STEP 3: Final query with array join and aggregation
+        final_select = [
+            ast.Alias(
+                alias=MarketingSourceAdapter.campaign_name_field,
+                expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["result_tuple"]), ast.Constant(value=1)])
+            ),
+            ast.Alias(
+                alias=MarketingSourceAdapter.source_name_field,
+                expr=ast.Call(name="tupleElement", args=[ast.Field(chain=["result_tuple"]), ast.Constant(value=2)])
+            ),
             ast.Alias(
                 alias=CONVERSION_GOAL_PREFIX + str(self.index),
-                expr=ast.Call(name="sum", args=[ast.Field(chain=["conversion_data", "conversion_value"])]),
-            ),
-        ]
-
-        # STEP 3E: Build FROM clause with subquery joins
-        # Start with conversion data (this has all the conversion events)
-        conversion_from = ast.JoinExpr(table=conversion_subquery, alias="conversion_data")
-
-        # LEFT JOIN person UTM data for fallback attribution
-        # LEFT JOIN because not every person may have UTM history
-        # Join on BOTH person_id AND conversion_timestamp to prevent Cartesian product
-        utm_join = ast.JoinExpr(
-            join_type="LEFT JOIN",
-            table=utm_attribution_subquery,
-            alias="utm_attribution",
-            constraint=ast.JoinConstraint(
-                expr=ast.And(
-                    exprs=[
-                        # Match person
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["conversion_data", "person_id"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=["utm_attribution", "person_id"]),
-                        ),
-                        # Match specific conversion timestamp (prevents Cartesian product)
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["conversion_data", "conversion_timestamp"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=["utm_attribution", "conversion_timestamp"]),
-                        ),
+                expr=ast.Call(
+                    name="uniq" if self.goal.math in [BaseMathType.DAU, "dau"] else "sum",
+                    args=[
+                        ast.Field(chain=["person_id"]) if self.goal.math in [BaseMathType.DAU, "dau"] 
+                        else ast.Call(name="toFloat", args=[ast.Call(name="tupleElement", args=[ast.Field(chain=["result_tuple"]), ast.Constant(value=3)])])
                     ]
-                ),
-                constraint_type="ON",
+                )
             ),
-        )
-
-        # STEP 3F: Chain the joins: conversion_data LEFT JOIN utm_attribution
-        conversion_from.next_join = utm_join
-        from_expr = conversion_from
-
-        # STEP 3G: GROUP BY the final attribution results
-        # This aggregates all conversions by their final campaign/source attribution
-        # Multiple conversion events can roll up to the same campaign/source pair
-        group_by_exprs = [
-            campaign_coalesce,  # Group by final campaign attribution
-            source_coalesce,  # Group by final source attribution
         ]
 
-        return ast.SelectQuery(select=select_columns, select_from=from_expr, group_by=group_by_exprs)
+        return ast.SelectQuery(
+            select=final_select,
+            select_from=ast.JoinExpr(table=attribution_query, alias="attribution_data"),
+            array_join_op="ARRAY JOIN",
+            array_join_list=[ast.Alias(alias="result_tuple", expr=ast.Field(chain=["attribution_results"]))],
+            group_by=[
+                ast.Call(name="tupleElement", args=[ast.Field(chain=["result_tuple"]), ast.Constant(value=1)]),  # campaign
+                ast.Call(name="tupleElement", args=[ast.Field(chain=["result_tuple"]), ast.Constant(value=2)])   # source
+            ]
+        )
 
     def generate_conversion_data_with_utm_subquery(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """

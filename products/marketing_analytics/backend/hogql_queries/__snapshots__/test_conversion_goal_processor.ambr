@@ -3,68 +3,39 @@
   '''
   
   SELECT
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
-      sum(conversion_data.conversion_value) AS conversion_0
+      tupleElement(result_tuple, 1) AS campaign,
+      tupleElement(result_tuple, 2) AS source,
+      sum(toFloat(tupleElement(result_tuple, 3))) AS conversion_0
   
   FROM
       (
   SELECT
-          events.person_id AS person_id,
-          events.timestamp AS conversion_timestamp,
-          count('*') AS conversion_value,
-          events.properties.utm_campaign AS event_utm_campaign,
-          events.properties.utm_source AS event_utm_source
-      
-  FROM
-          events
-      
-  WHERE
-          and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
-      
-  GROUP BY
-          events.person_id,
-          events.timestamp,
-          events.properties.utm_campaign,
-          events.properties.utm_source) AS conversion_data
-      LEFT JOIN (
-  SELECT
-          conversions.person_id AS person_id,
-          conversions.conversion_timestamp AS conversion_timestamp,
-          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
-          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+          person_id AS person_id,
+          arrayMap(conversion_tuple -> tuple(if(notEmpty(tupleElement(conversion_tuple, 2)), tupleElement(conversion_tuple, 2), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 2), 'organic')), if(notEmpty(tupleElement(conversion_tuple, 3)), tupleElement(conversion_tuple, 3), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 3), 'organic')), tupleElement(conversion_tuple, 4)), conversion_events) AS attribution_results
       
   FROM
           (
   SELECT
               events.person_id AS person_id,
-              events.timestamp AS conversion_timestamp
+              groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), ''), toString(1)), equals(event, 'sign_up')) AS conversion_events,
+              arraySort(x -> tuple(tupleElement(x, 1), tupleElement(x, 2)), groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), '')), and(equals(events.event, '$pageview'), isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, '')))) AS utm_events
           
   FROM
               events
           
   WHERE
-              and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
-          LEFT JOIN (
-  SELECT
-              events.person_id AS person_id,
-              events.timestamp AS timestamp,
-              events.properties.utm_campaign AS utm_campaign,
-              events.properties.utm_source AS utm_source
+              greaterOrEquals(timestamp, toDate('2023-01-01'))
           
-  FROM
-              events
-          
-  WHERE
-              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
-      
   GROUP BY
-          conversions.person_id,
-          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
+              events.person_id
+          
+  HAVING
+              greater(length(conversion_events), 0)) AS person_data) AS attribution_data
+  ARRAY JOIN attribution_results AS result_tuple
   
   GROUP BY
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
+      tupleElement(result_tuple, 1),
+      tupleElement(result_tuple, 2)
   
   LIMIT 100
   '''
@@ -73,68 +44,39 @@
   '''
   
   SELECT
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
-      sum(conversion_data.conversion_value) AS conversion_0
+      tupleElement(result_tuple, 1) AS campaign,
+      tupleElement(result_tuple, 2) AS source,
+      sum(toFloat(tupleElement(result_tuple, 3))) AS conversion_0
   
   FROM
       (
   SELECT
-          events.person_id AS person_id,
-          events.timestamp AS conversion_timestamp,
-          count('*') AS conversion_value,
-          events.properties.utm_campaign AS event_utm_campaign,
-          events.properties.utm_source AS event_utm_source
-      
-  FROM
-          events
-      
-  WHERE
-          and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
-      
-  GROUP BY
-          events.person_id,
-          events.timestamp,
-          events.properties.utm_campaign,
-          events.properties.utm_source) AS conversion_data
-      LEFT JOIN (
-  SELECT
-          conversions.person_id AS person_id,
-          conversions.conversion_timestamp AS conversion_timestamp,
-          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
-          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+          person_id AS person_id,
+          arrayMap(conversion_tuple -> tuple(if(notEmpty(tupleElement(conversion_tuple, 2)), tupleElement(conversion_tuple, 2), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 2), 'organic')), if(notEmpty(tupleElement(conversion_tuple, 3)), tupleElement(conversion_tuple, 3), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 3), 'organic')), tupleElement(conversion_tuple, 4)), conversion_events) AS attribution_results
       
   FROM
           (
   SELECT
               events.person_id AS person_id,
-              events.timestamp AS conversion_timestamp
+              groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), ''), toString(1)), equals(events.event, 'sign_up')) AS conversion_events,
+              arraySort(x -> tuple(tupleElement(x, 1), tupleElement(x, 2)), groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), '')), and(equals(events.event, '$pageview'), isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, '')))) AS utm_events
           
   FROM
               events
           
   WHERE
-              and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
-          LEFT JOIN (
-  SELECT
-              events.person_id AS person_id,
-              events.timestamp AS timestamp,
-              events.properties.utm_campaign AS utm_campaign,
-              events.properties.utm_source AS utm_source
+              greaterOrEquals(timestamp, toDate('2023-01-01'))
           
-  FROM
-              events
-          
-  WHERE
-              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
-      
   GROUP BY
-          conversions.person_id,
-          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
+              events.person_id
+          
+  HAVING
+              greater(length(conversion_events), 0)) AS person_data) AS attribution_data
+  ARRAY JOIN attribution_results AS result_tuple
   
   GROUP BY
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
+      tupleElement(result_tuple, 1),
+      tupleElement(result_tuple, 2)
   
   LIMIT 100
   '''
@@ -143,68 +85,39 @@
   '''
   
   SELECT
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic') AS campaign,
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic') AS source,
-      sum(conversion_data.conversion_value) AS conversion_0
+      tupleElement(result_tuple, 1) AS campaign,
+      tupleElement(result_tuple, 2) AS source,
+      sum(toFloat(tupleElement(result_tuple, 3))) AS conversion_0
   
   FROM
       (
   SELECT
-          events.person_id AS person_id,
-          events.timestamp AS conversion_timestamp,
-          round(sum(toFloat(events.properties.revenue)), 2) AS conversion_value,
-          events.properties.utm_campaign AS event_utm_campaign,
-          events.properties.utm_source AS event_utm_source
-      
-  FROM
-          events
-      
-  WHERE
-          and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
-      
-  GROUP BY
-          events.person_id,
-          events.timestamp,
-          events.properties.utm_campaign,
-          events.properties.utm_source) AS conversion_data
-      LEFT JOIN (
-  SELECT
-          conversions.person_id AS person_id,
-          conversions.conversion_timestamp AS conversion_timestamp,
-          argMax(utm_events.utm_campaign, utm_events.timestamp) AS utm_campaign,
-          argMax(utm_events.utm_source, utm_events.timestamp) AS utm_source
+          person_id AS person_id,
+          arrayMap(conversion_tuple -> tuple(if(notEmpty(tupleElement(conversion_tuple, 2)), tupleElement(conversion_tuple, 2), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 2), 'organic')), if(notEmpty(tupleElement(conversion_tuple, 3)), tupleElement(conversion_tuple, 3), if(and(greater(length(utm_events), 0), greater(arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events), 0)), tupleElement(arrayElement(utm_events, arrayLastIndex(utm_tuple -> lessOrEquals(tupleElement(utm_tuple, 1), tupleElement(conversion_tuple, 1)), utm_events)), 3), 'organic')), tupleElement(conversion_tuple, 4)), conversion_events) AS attribution_results
       
   FROM
           (
   SELECT
               events.person_id AS person_id,
-              events.timestamp AS conversion_timestamp
+              groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), ''), toString(ifNull(events.properties.revenue, '0'))), equals(events.event, 'purchase')) AS conversion_events,
+              arraySort(x -> tuple(tupleElement(x, 1), tupleElement(x, 2)), groupArrayIf(tuple(events.timestamp, ifNull(toString(events.properties.utm_campaign), ''), ifNull(toString(events.properties.utm_source), '')), and(equals(events.event, '$pageview'), isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, '')))) AS utm_events
           
   FROM
               events
           
   WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))) AS conversions
-          LEFT JOIN (
-  SELECT
-              events.person_id AS person_id,
-              events.timestamp AS timestamp,
-              events.properties.utm_campaign AS utm_campaign,
-              events.properties.utm_source AS utm_source
+              greaterOrEquals(timestamp, toDate('2023-01-01'))
           
-  FROM
-              events
-          
-  WHERE
-              and(isNotNull(events.properties.utm_campaign), isNotNull(events.properties.utm_source), notEquals(events.properties.utm_campaign, ''), notEquals(events.properties.utm_source, ''), equals(events.event, '$pageview'))) AS utm_events ON and(equals(conversions.person_id, utm_events.person_id), lessOrEquals(utm_events.timestamp, conversions.conversion_timestamp))
-      
   GROUP BY
-          conversions.person_id,
-          conversions.conversion_timestamp) AS utm_attribution ON and(equals(conversion_data.person_id, utm_attribution.person_id), equals(conversion_data.conversion_timestamp, utm_attribution.conversion_timestamp))
+              events.person_id
+          
+  HAVING
+              greater(length(conversion_events), 0)) AS person_data) AS attribution_data
+  ARRAY JOIN attribution_results AS result_tuple
   
   GROUP BY
-      coalesce(conversion_data.event_utm_campaign, utm_attribution.utm_campaign, 'organic'),
-      coalesce(conversion_data.event_utm_source, utm_attribution.utm_source, 'organic')
+      tupleElement(result_tuple, 1),
+      tupleElement(result_tuple, 2)
   
   LIMIT 100
   '''

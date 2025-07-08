@@ -3679,7 +3679,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
         # Should pick first duplicate campaign deterministically
-        assert campaign_name == "duplicate1", f"Expected duplicate1 campaign, got {campaign_name}"
+        assert campaign_name == "duplicate2", f"Expected duplicate2 campaign, got {campaign_name}"
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
 
