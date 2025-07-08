@@ -97,8 +97,6 @@ export function InsightMeta({
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
-            refresh={refresh}
-            refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}

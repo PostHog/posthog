@@ -3,7 +3,7 @@ import './CardMeta.scss'
 import { IconPieChart } from '@posthog/icons'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -25,8 +25,6 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
-    refresh?: () => void
-    refreshDisabledReason?: string
     content?: JSX.Element | null
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
@@ -38,8 +36,6 @@ export function CardMeta({
     ribbonColor,
     showEditingControls,
     showDetailsControls,
-    refresh,
-    refreshDisabledReason,
     content: meta,
     metaDetails,
     moreButtons,
@@ -88,14 +84,6 @@ export function CardMeta({
                                 >
                                     {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                 </LemonButton>
-                            )}
-                            {showEditingControls && refresh && (
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    size="small"
-                                    onClick={() => refresh()}
-                                    disabledReason={refreshDisabledReason}
-                                />
                             )}
                             {showEditingControls && <More overlay={moreButtons} />}
                         </div>
