@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -224,3 +224,54 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(response.status_code, 204, response.content)
 
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
+
+    def test_list(self):
+        join1 = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person_field",
+            configuration=None,
+        )
+
+        join2 = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="uuid",
+            joining_table_name="groups",
+            joining_table_key="group_id",
+            field_name="group_field",
+            configuration={"experiments_optimized": True},
+        )
+
+        join3 = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="id",
+            joining_table_name="cohorts",
+            joining_table_key="person_id",
+            field_name="cohort_field",
+            configuration=None,
+        )
+
+        # Test that listing joins uses efficient querying
+
+        with self.assertNumQueries(
+            FuzzyInt(16, 17)
+        ):  # depends when team revenue analytisc config cache is hit in a test
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+
+        self.assertEqual(response.status_code, 200)
+
+        view_links = response.json()
+        self.assertIsInstance(view_links, dict)
+        self.assertIn("results", view_links)
+        self.assertIsInstance(view_links["results"], list)
+        self.assertEqual(len(view_links["results"]), 3)
+
+        # Verify the joins are returned with correct data
+        join_ids = {join["id"] for join in view_links["results"]}
+        expected_ids = {str(join1.id), str(join2.id), str(join3.id)}
+        self.assertEqual(join_ids, expected_ids)
