@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+import posthoganalytics
 from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
@@ -20,7 +21,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_internal, new_capture_internal, CaptureInternalError
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import (
@@ -552,22 +553,56 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        capture_internal(
-            distinct_id=person.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "properties": {
-                    "$unset": [request.data["$unset"]],
+        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", person.distinct_ids[0]):
+            try:
+                event = {
+                    "event": "$delete_person_property",
+                    "properties": {
+                        "$unset": [request.data["$unset"]],
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+                resp = new_capture_internal(
+                    self.team.api_token,
+                    person.distinct_ids[0],
+                    event,
+                    True,
+                )
+                if resp.status_code > 299:
+                    return response.Response(
+                        {
+                            "success": False,
+                            "detail": "Unable to delete property",
+                        },
+                        status=resp.status_code,
+                    )
+
+            except CaptureInternalError:
+                return response.Response(
+                    {
+                        "success": False,
+                        "detail": "Unable to delete property",
+                    },
+                    status=400,
+                )
+
+        else:
+            capture_internal(
+                distinct_id=person.distinct_ids[0],
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=datetime.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_person_property",
+                    "properties": {
+                        "$unset": [request.data["$unset"]],
+                    },
+                    "distinct_id": person.distinct_ids[0],
+                    "timestamp": datetime.now().isoformat(),
                 },
-                "distinct_id": person.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+            )
 
         log_activity(
             organization_id=self.organization.id,
@@ -657,22 +692,44 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=instance.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {
-                    "$set": properties,
+        distinct_id = instance.distinct_ids[0]
+
+        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", distinct_id):
+            try:
+                event = {
+                    "event": "$set",
+                    "properties": {
+                        "$set": properties,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+                new_capture_internal(
+                    instance.team.api_token,
+                    distinct_id,
+                    event,
+                    True,
+                )
+            except CaptureInternalError:
+                # inputs validated w/this error are checked by the callers
+                pass
+
+        else:
+            capture_internal(
+                distinct_id=distinct_id,
+                ip=None,
+                site_url=None,
+                token=instance.team.api_token,
+                now=datetime.now(),
+                sent_at=None,
+                event={
+                    "event": "$set",
+                    "properties": {
+                        "$set": properties,
+                    },
+                    "distinct_id": distinct_id,
+                    "timestamp": datetime.now().isoformat(),
                 },
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+            )
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(
