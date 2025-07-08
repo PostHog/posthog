@@ -33,7 +33,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_TOLERANCE_PCT = 1.0
 DEFAULT_DAYS_BACK = 7
-DEFAULT_ACCURACY_CHECK_TOLERANCE = 0.5
 MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
@@ -254,7 +253,7 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
 
 
 def compare_web_overview_metrics(
-    team_id: int, date_from: str, date_to: str, tolerance_pct: float = 1.0
+    team_id: int, date_from: str, date_to: str, tolerance_pct: float = DEFAULT_TOLERANCE_PCT, context=None
 ) -> tuple[bool, dict[str, Any]]:
     """
     Compare pre-aggregated vs regular WebOverview metrics for accuracy.
@@ -286,10 +285,14 @@ def compare_web_overview_metrics(
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
+        if context:
+            context.log.info(f"Pre-aggregated SQL: {runner_pre_agg.to_hogql()}")
         start_time = time.time()
         response_pre_agg = runner_pre_agg.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         pre_agg_time = time.time() - start_time
 
+        if context:
+            context.log.info(f"Regular SQL: {runner_regular.to_hogql()}")
         start_time = time.time()
         response_regular = runner_regular.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         regular_time = time.time() - start_time
@@ -375,8 +378,11 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     context.log.info(f"Starting accuracy validation for team {team_id}, tolerance: {tolerance_pct}%")
 
     try:
+        context.log.info(
+            f"Running accuracy validation for team {team_id}, date range: {date_from} to {date_to}, tolerance: {tolerance_pct}%"
+        )
         is_valid, comparison_data = compare_web_overview_metrics(
-            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
+            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct, context=context
         )
 
         validation_results.append(comparison_data)
@@ -465,7 +471,7 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
+                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
                         "days_back": DEFAULT_DAYS_BACK,
                     }
                 }
