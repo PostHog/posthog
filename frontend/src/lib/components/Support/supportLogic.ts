@@ -735,6 +735,7 @@ export const supportLogic = kea<supportLogicType>([
         ensureZendeskOrganization: async () => {
             try {
                 const currentOrganization = organizationLogic.values.currentOrganization
+
                 if (!currentOrganization?.id || !currentOrganization?.name) {
                     return
                 }
@@ -743,8 +744,14 @@ export const supportLogic = kea<supportLogicType>([
                     organization_id: currentOrganization.id,
                     organization_name: currentOrganization.name,
                 })
-            } catch {
-                // Silent failure
+            } catch (error) {
+                posthog.captureException(error, {
+                    context: 'zendesk_organization_creation',
+                    organization_id: organizationLogic.values.currentOrganization?.id,
+                    organization_name: organizationLogic.values.currentOrganization?.name,
+                    error_message: error.message,
+                    error_status: error.status,
+                })
             }
         },
     })),

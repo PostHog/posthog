@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from posthog.utils import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -29,11 +30,39 @@ def ensure_zendesk_organization(request: Request) -> Response:
         org_id = data.get("organization_id")
         org_name = data.get("organization_name")
 
+        # Validate that the user can only submit for their own organization
+        if request.user.current_organization_id and str(org_id) != str(request.user.current_organization_id):
+            capture_exception(
+                Exception("User attempted to create Zendesk organization for different organization"),
+                {
+                    "user_org_id": request.user.current_organization_id,
+                    "requested_org_id": org_id,
+                    "user_email": request.user.email,
+                },
+            )
+            return Response({"status": "success"})
+
         if not org_id or not org_name:
+            capture_exception(
+                Exception("Missing organization_id or organization_name in Zendesk org creation request"),
+                {
+                    "org_id": org_id,
+                    "org_name": org_name,
+                    "user_email": request.user.email,
+                },
+            )
             return Response({"status": "success"})
 
         subdomain = settings.ZENDESK_SUBDOMAIN
         if not subdomain:
+            capture_exception(
+                Exception("ZENDESK_SUBDOMAIN not configured for Zendesk org creation"),
+                {
+                    "org_id": org_id,
+                    "org_name": org_name,
+                    "user_email": request.user.email,
+                },
+            )
             return Response({"status": "success"})
 
         base_url = f"https://{subdomain}.zendesk.com/api/v2"
@@ -46,7 +75,8 @@ def ensure_zendesk_organization(request: Request) -> Response:
 
         if search_response.status_code == 200:
             search_data = search_response.json()
-            if search_data.get("organizations") and len(search_data["organizations"]) > 0:
+            organizations = search_data.get("organizations", [])
+            if organizations and len(organizations) > 0:
                 return Response({"status": "success"})
 
         create_url = f"{base_url}/organizations.json"
@@ -65,9 +95,17 @@ def ensure_zendesk_organization(request: Request) -> Response:
         return Response({"status": "success"})
 
     except Exception as e:
+        capture_exception(
+            e,
+            {
+                "org_id": org_id,
+                "org_name": org_name,
+                "user_email": request.user.email,
+            },
+        )
         logger.warning(
             "ZenDesk organization creation failed",
             error=str(e),
-            org_id=data.get("organization_id") if "data" in locals() else None,
+            org_id=org_id,
         )
         return Response({"status": "success"})
