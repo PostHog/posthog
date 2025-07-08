@@ -47,7 +47,7 @@ export function ContextTable({ entries }: { entries: [string, unknown][] }): JSX
                             <div>{dataValue}</div>
                             <LemonButton
                                 size="xsmall"
-                                tooltip="Copy"
+                                tooltip="Copy value"
                                 className="invisible group-hover:visible"
                                 onClick={() =>
                                     copyToClipboard(record.value).catch((error) => {
@@ -67,7 +67,7 @@ export function ContextTable({ entries }: { entries: [string, unknown][] }): JSX
                     className: 'whitespace-nowrap',
                 },
             ]}
-            rowClassName="even:bg-fill-tertiary group"
+            rowClassName="even:bg-fill-tertiary odd:bg-surface-primary group"
             firstColumnSticky
         />
     )
