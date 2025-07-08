@@ -13,10 +13,21 @@
             --ph-survey-primary-color: #2563eb;
             --ph-survey-border-color: #e5e7eb;
             --ph-survey-border-radius: 8px;
+            --ph-survey-card-border-radius: 16px;
+            --ph-survey-body-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --ph-survey-header-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --ph-survey-header-text-color: white;
             --ph-survey-background-color: #ffffff;
             --ph-survey-text-primary-color: #111827;
             --ph-survey-text-subtle-color: #6b7280;
             --ph-survey-input-background: #ffffff;
+            --ph-survey-submit-button-color: #2563eb;
+            --ph-survey-submit-button-text-color: white;
+            --ph-survey-rating-button-color: #f8fafc;
+            --ph-survey-rating-button-active-color: #2563eb;
+            --ph-survey-rating-button-text-color: #374151;
+            --ph-survey-rating-button-active-text-color: white;
+            --ph-survey-disabled-button-opacity: 0.6;
             --ph-survey-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.1);
             --ph-survey-box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
@@ -30,7 +41,7 @@
             font-family: var(--ph-survey-font-family);
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: aliceblue;
             min-height: 100vh;
             line-height: 1.6;
             color: var(--ph-survey-text-primary-color);
@@ -49,7 +60,7 @@
 
         .survey-card {
             background: white;
-            border-radius: 16px;
+            border-radius: var(--ph-survey-card-border-radius);
             box-shadow: var(--ph-survey-box-shadow);
             max-width: 720px;
             width: 100%;
@@ -62,8 +73,8 @@
 
         /* Survey Header */
         .survey-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--ph-survey-header-background);
+            color: var(--ph-survey-header-text-color);
             padding: 1.75rem 2rem 1.5rem;
             text-align: center;
             flex-shrink: 0;
@@ -304,11 +315,11 @@
         .ratings-number {
             padding: 0.875rem 0;
             border: none;
-            background-color: #f8fafc;
+            background-color: var(--ph-survey-rating-button-color);
             border-right: 1px solid var(--ph-survey-border-color);
             text-align: center;
             cursor: pointer;
-            color: #374151;
+            color: var(--ph-survey-rating-button-text-color);
             font-weight: 600;
             transition: all 0.2s ease;
             font-family: var(--ph-survey-font-family);
@@ -319,23 +330,23 @@
         }
 
         .ratings-number:hover {
-            background: #f3f4f6;
+            filter: brightness(0.95);
         }
 
         .ratings-number.rating-active {
-            background: var(--ph-survey-primary-color);
-            color: white;
+            background: var(--ph-survey-rating-button-active-color);
+            color: var(--ph-survey-rating-button-active-text-color);
         }
 
         /* Button Styling */
         .form-submit {
-            background: var(--ph-survey-primary-color);
+            background: var(--ph-survey-submit-button-color);
             border: none;
             border-radius: var(--ph-survey-border-radius);
             padding: 0.875rem 2rem;
             font-size: 1rem;
             font-weight: 600;
-            color: white;
+            color: var(--ph-survey-submit-button-text-color);
             cursor: pointer;
             transition: all 0.2s ease;
             width: 100%;
@@ -344,7 +355,7 @@
         }
 
         .form-submit:hover:not([disabled]) {
-            background: #1d4ed8;
+            filter: brightness(0.9);
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
         }
@@ -354,7 +365,7 @@
         }
 
         .form-submit[disabled] {
-            opacity: 0.6;
+            opacity: var(--ph-survey-disabled-button-opacity);
             cursor: not-allowed;
         }
 
@@ -578,50 +589,256 @@
         window.surveyId = "{{ id }}";
         window.surveyAppearance = {{ appearance | safe }};
 
+        const BLACK_TEXT_COLOR = '#020617'
+
+        function hex2rgb(c) {
+            if (c[0] === '#') {
+                const hexColor = c.replace(/^#/, '')
+                const r = parseInt(hexColor.slice(0, 2), 16)
+                const g = parseInt(hexColor.slice(2, 4), 16)
+                const b = parseInt(hexColor.slice(4, 6), 16)
+                return 'rgb(' + r + ',' + g + ',' + b + ')'
+            }
+            return 'rgb(255, 255, 255)'
+        }
+
+
+        function nameToHex(name) {
+            return {
+                aliceblue: '#f0f8ff',
+                antiquewhite: '#faebd7',
+                aqua: '#00ffff',
+                aquamarine: '#7fffd4',
+                azure: '#f0ffff',
+                beige: '#f5f5dc',
+                bisque: '#ffe4c4',
+                black: '#000000',
+                blanchedalmond: '#ffebcd',
+                blue: '#0000ff',
+                blueviolet: '#8a2be2',
+                brown: '#a52a2a',
+                burlywood: '#deb887',
+                cadetblue: '#5f9ea0',
+                chartreuse: '#7fff00',
+                chocolate: '#d2691e',
+                coral: '#ff7f50',
+                cornflowerblue: '#6495ed',
+                cornsilk: '#fff8dc',
+                crimson: '#dc143c',
+                cyan: '#00ffff',
+                darkblue: '#00008b',
+                darkcyan: '#008b8b',
+                darkgoldenrod: '#b8860b',
+                darkgray: '#a9a9a9',
+                darkgreen: '#006400',
+                darkkhaki: '#bdb76b',
+                darkmagenta: '#8b008b',
+                darkolivegreen: '#556b2f',
+                darkorange: '#ff8c00',
+                darkorchid: '#9932cc',
+                darkred: '#8b0000',
+                darksalmon: '#e9967a',
+                darkseagreen: '#8fbc8f',
+                darkslateblue: '#483d8b',
+                darkslategray: '#2f4f4f',
+                darkturquoise: '#00ced1',
+                darkviolet: '#9400d3',
+                deeppink: '#ff1493',
+                deepskyblue: '#00bfff',
+                dimgray: '#696969',
+                dodgerblue: '#1e90ff',
+                firebrick: '#b22222',
+                floralwhite: '#fffaf0',
+                forestgreen: '#228b22',
+                fuchsia: '#ff00ff',
+                gainsboro: '#dcdcdc',
+                ghostwhite: '#f8f8ff',
+                gold: '#ffd700',
+                goldenrod: '#daa520',
+                gray: '#808080',
+                green: '#008000',
+                greenyellow: '#adff2f',
+                honeydew: '#f0fff0',
+                hotpink: '#ff69b4',
+                'indianred ': '#cd5c5c',
+                indigo: '#4b0082',
+                ivory: '#fffff0',
+                khaki: '#f0e68c',
+                lavender: '#e6e6fa',
+                lavenderblush: '#fff0f5',
+                lawngreen: '#7cfc00',
+                lemonchiffon: '#fffacd',
+                lightblue: '#add8e6',
+                lightcoral: '#f08080',
+                lightcyan: '#e0ffff',
+                lightgoldenrodyellow: '#fafad2',
+                lightgrey: '#d3d3d3',
+                lightgreen: '#90ee90',
+                lightpink: '#ffb6c1',
+                lightsalmon: '#ffa07a',
+                lightseagreen: '#20b2aa',
+                lightskyblue: '#87cefa',
+                lightslategray: '#778899',
+                lightsteelblue: '#b0c4de',
+                lightyellow: '#ffffe0',
+                lime: '#00ff00',
+                limegreen: '#32cd32',
+                linen: '#faf0e6',
+                magenta: '#ff00ff',
+                maroon: '#800000',
+                mediumaquamarine: '#66cdaa',
+                mediumblue: '#0000cd',
+                mediumorchid: '#ba55d3',
+                mediumpurple: '#9370d8',
+                mediumseagreen: '#3cb371',
+                mediumslateblue: '#7b68ee',
+                mediumspringgreen: '#00fa9a',
+                mediumturquoise: '#48d1cc',
+                mediumvioletred: '#c71585',
+                midnightblue: '#191970',
+                mintcream: '#f5fffa',
+                mistyrose: '#ffe4e1',
+                moccasin: '#ffe4b5',
+                navajowhite: '#ffdead',
+                navy: '#000080',
+                oldlace: '#fdf5e6',
+                olive: '#808000',
+                olivedrab: '#6b8e23',
+                orange: '#ffa500',
+                orangered: '#ff4500',
+                orchid: '#da70d6',
+                palegoldenrod: '#eee8aa',
+                palegreen: '#98fb98',
+                paleturquoise: '#afeeee',
+                palevioletred: '#d87093',
+                papayawhip: '#ffefd5',
+                peachpuff: '#ffdab9',
+                peru: '#cd853f',
+                pink: '#ffc0cb',
+                plum: '#dda0dd',
+                powderblue: '#b0e0e6',
+                purple: '#800080',
+                red: '#ff0000',
+                rosybrown: '#bc8f8f',
+                royalblue: '#4169e1',
+                saddlebrown: '#8b4513',
+                salmon: '#fa8072',
+                sandybrown: '#f4a460',
+                seagreen: '#2e8b57',
+                seashell: '#fff5ee',
+                sienna: '#a0522d',
+                silver: '#c0c0c0',
+                skyblue: '#87ceeb',
+                slateblue: '#6a5acd',
+                slategray: '#708090',
+                snow: '#fffafa',
+                springgreen: '#00ff7f',
+                steelblue: '#4682b4',
+                tan: '#d2b48c',
+                teal: '#008080',
+                thistle: '#d8bfd8',
+                tomato: '#ff6347',
+                turquoise: '#40e0d0',
+                violet: '#ee82ee',
+                wheat: '#f5deb3',
+                white: '#ffffff',
+                whitesmoke: '#f5f5f5',
+                yellow: '#ffff00',
+                yellowgreen: '#9acd32',
+            }[name.toLowerCase()]
+        }
+
+        function getContrastingTextColor(color) {
+            let rgb
+            if (color[0] === '#') {
+                rgb = hex2rgb(color)
+            }
+            if (color.startsWith('rgb')) {
+                rgb = color
+            }
+            // otherwise it's a color name
+            const nameColorToHex = nameToHex(color)
+            if (nameColorToHex) {
+                rgb = hex2rgb(nameColorToHex)
+            }
+            if (!rgb) {
+                return BLACK_TEXT_COLOR
+            }
+            const colorMatch = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*(\d+(?:\.\d+)?))?\)$/)
+            if (colorMatch) {
+                const r = parseInt(colorMatch[1])
+                const g = parseInt(colorMatch[2])
+                const b = parseInt(colorMatch[3])
+                const hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
+                return hsp > 127.5 ? BLACK_TEXT_COLOR : 'white'
+            }
+            return BLACK_TEXT_COLOR
+        }
+
+
         // Apply survey appearance settings as CSS variables
         function applySurveyAppearance(appearance) {
             if (!appearance) return;
 
             const root = document.documentElement;
 
-            // Helper function to get contrasting text color
-            function getContrastingTextColor(backgroundColor) {
-                // Convert hex to RGB
-                const hex = backgroundColor.replace('#', '');
-                const r = parseInt(hex.substring(0, 2), 16);
-                const g = parseInt(hex.substring(2, 4), 16);
-                const b = parseInt(hex.substring(4, 6), 16);
-
-                // Calculate luminance
-                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-
-                return luminance > 0.5 ? '#020617' : '#ffffff';
-            }
-
             // Apply custom appearance settings
             if (appearance.backgroundColor) {
-                root.style.setProperty('--ph-survey-background-color', appearance.backgroundColor);
-                root.style.setProperty('--ph-survey-text-primary-color', getContrastingTextColor(appearance.backgroundColor));
+                // Apply to body and header instead of survey container
+                root.style.setProperty('--ph-survey-body-background', appearance.backgroundColor);
+                root.style.setProperty('--ph-survey-header-background', appearance.backgroundColor);
+                root.style.setProperty('--ph-survey-header-text-color', getContrastingTextColor(appearance.backgroundColor));
             }
+
             if (appearance.submitButtonColor) {
-                root.style.setProperty('--ph-survey-primary-color', appearance.submitButtonColor);
+                root.style.setProperty('--ph-survey-submit-button-color', appearance.submitButtonColor);
                 root.style.setProperty('--ph-survey-submit-button-text-color',
                     appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor));
             }
+
             if (appearance.ratingButtonColor) {
-                root.style.setProperty('--ph-survey-rating-bg-color', appearance.ratingButtonColor);
-                root.style.setProperty('--ph-survey-rating-text-color', getContrastingTextColor(appearance.ratingButtonColor));
+                root.style.setProperty('--ph-survey-rating-button-color', appearance.ratingButtonColor);
+                root.style.setProperty('--ph-survey-rating-button-text-color', getContrastingTextColor(appearance.ratingButtonColor));
             }
+
             if (appearance.ratingButtonActiveColor) {
-                root.style.setProperty('--ph-survey-rating-active-bg-color', appearance.ratingButtonActiveColor);
-                root.style.setProperty('--ph-survey-rating-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
+                root.style.setProperty('--ph-survey-rating-button-active-color', appearance.ratingButtonActiveColor);
+                root.style.setProperty('--ph-survey-rating-button-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
             }
+
             if (appearance.borderColor) {
                 root.style.setProperty('--ph-survey-border-color', appearance.borderColor);
             }
-            if (appearance.maxWidth) {
-                root.style.setProperty('--ph-survey-max-width', appearance.maxWidth);
+
+            if (appearance.borderRadius) {
+                root.style.setProperty('--ph-survey-border-radius', appearance.borderRadius);
+                root.style.setProperty('--ph-survey-card-border-radius', appearance.borderRadius);
             }
+
+            if (appearance.inputBackground) {
+                root.style.setProperty('--ph-survey-input-background', appearance.inputBackground);
+            }
+
+            if (appearance.textSubtleColor) {
+                root.style.setProperty('--ph-survey-text-subtle-color', appearance.textSubtleColor);
+            }
+
+            if (appearance.disabledButtonOpacity) {
+                root.style.setProperty('--ph-survey-disabled-button-opacity', appearance.disabledButtonOpacity);
+            }
+
+            // Properties not suitable for external surveys (ignored):
+            // - zIndex: not relevant for full page
+            // - maxWidth: we manage our own layout
+            // - position: not relevant for full page
+            // - boxShadow: we have our own design
+            // - boxPadding: we have our own padding
+            // - fontFamily: we have our own font stack
+            // - whiteLabel: not relevant for this context
+            // - placeholder: handled by PostHog survey rendering
+            // - shuffleQuestions: behavioral setting, not appearance
+            // - thankYouMessageHeader/thankYouMessageDescription: handled by PostHog survey rendering
+            // - displayThankYouMessage: handled by PostHog survey rendering
         }
 
         console.log('Applying survey appearance');
@@ -665,13 +882,6 @@
             try {
                 posthog.renderSurvey(window.surveyId, '#posthog-survey-container');
                 surveyRendered = true;
-
-                // Track survey view
-                posthog.capture('survey_shown', {
-                    survey_id: window.surveyId,
-                    survey_name: window.surveyName,
-                    source: 'external_link'
-                });
             } catch (error) {
                 console.error('Error rendering survey:', error);
                 retryCount++;

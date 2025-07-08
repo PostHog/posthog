@@ -8,6 +8,7 @@ import json
 
 import nh3
 import posthoganalytics
+from posthoganalytics import capture_exception
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
@@ -57,6 +58,7 @@ from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
 )
+import structlog
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -1437,6 +1439,13 @@ def surveys(request: Request, survey_id: str | None = None):
     return cors_response(request, JsonResponse(get_surveys_response(team)))
 
 
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+SURVEY_ID_MAX_LENGTH = 50
+SURVEY_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-_]+$")
+CACHE_TIMEOUT_SECONDS = 300
+
+
 @csrf_exempt
 @axes_dispatch
 def public_survey_page(request, survey_id: str):
@@ -1446,93 +1455,77 @@ def public_survey_page(request, survey_id: str):
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
 
-    # Simple rate limiting - skip in DEBUG mode for development
-    if not settings.DEBUG:
-        client_ip = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", ""))
-        if client_ip:
-            client_ip = client_ip.split(",")[0].strip()
-            rate_limit_key = f"survey_page_rate_limit:{client_ip}:{survey_id}"
-
-            # Check rate limit - 500 requests per IP per hour
-            request_count = cache.get(rate_limit_key, 0)
-            if request_count >= 500:
-                return render(
-                    request,
-                    "surveys/error.html",
-                    {
-                        "error_title": "Too Many Requests",
-                        "error_message": "You have made too many requests. Please try again later.",
-                    },
-                    status=429,
-                )
-
-            # Increment counter with 1 hour expiration
-            cache.set(rate_limit_key, request_count + 1, 3600)
-
-    # Validate survey_id format for security
-    if not re.match(r"^[a-zA-Z0-9-_]+$", survey_id) or len(survey_id) > 50:
+    # Input validation
+    if not SURVEY_ID_PATTERN.match(survey_id) or len(survey_id) > SURVEY_ID_MAX_LENGTH:
+        logger.warning("survey_page_invalid_id", survey_id=survey_id)
         return render(
             request,
             "surveys/error.html",
             {
-                "error_title": "Invalid Survey",
-                "error_message": "The survey identifier is invalid.",
+                "error_title": "Invalid Request",
+                "error_message": "The requested survey is not available.",
             },
             status=400,
         )
 
+    # Database query with minimal fields and timeout protection
     try:
-        survey = Survey.objects.select_related("team", "linked_flag", "targeting_flag", "internal_targeting_flag").get(
-            id=survey_id
+        survey = (
+            Survey.objects.select_related("team")
+            .only("id", "name", "appearance", "archived", "is_publicly_shareable", "team__id", "team__api_token")
+            .get(id=survey_id)
         )
     except Survey.DoesNotExist:
-        return render(
-            request,
-            "surveys/error.html",
-            {
-                "error_title": "Survey Not Found",
-                "error_message": "This survey could not be found.",
-            },
-            status=404,
-        )
-
-    # Check if survey is archived
-    if survey.archived:
-        return render(
-            request,
-            "surveys/error.html",
-            {
-                "error_title": "Survey Unavailable",
-                "error_message": "This survey is no longer available.",
-            },
-            status=404,
-        )
-
-    # Only full_screen surveys can be accessed publicly
-    is_shareable = survey.is_publicly_shareable or False
-    if is_shareable is False:
+        logger.info("survey_page_not_found", survey_id=survey_id)
+        # Use generic error message to prevent survey ID enumeration
         return render(
             request,
             "surveys/error.html",
             {
                 "error_title": "Survey Not Available",
-                "error_message": "This survey is not available for public access.",
+                "error_message": "The requested survey is not available.",
             },
-            status=403,
+            status=404,
+        )
+    except Exception as e:
+        logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
+        capture_exception(e)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Service Unavailable",
+                "error_message": "The service is temporarily unavailable. Please try again later.",
+            },
+            status=503,
         )
 
-    # Get the team from the survey
-    team = survey.team
+    # Check survey availability (combine checks for consistent error message)
+    if survey.archived or not survey.is_publicly_shareable:
+        logger.info(
+            "survey_page_access_denied",
+            survey_id=survey_id,
+            archived=survey.archived,
+            publicly_shareable=survey.is_publicly_shareable,
+        )
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey Not Available",
+                "error_message": "The requested survey is not available.",
+            },
+            status=404,  # Use 404 instead of 403 to prevent information leakage
+        )
 
-    # Only send minimal data needed for PostHog SDK initialization
+    # Build project config
     project_config = {
         "api_host": request.build_absolute_uri("/").rstrip("/"),
-        "token": team.api_token,
+        "token": survey.team.api_token,
     }
 
-    # Add ui_host if the team has reverse proxy setup
-    if hasattr(team, "ui_host") and team.ui_host:
-        project_config["ui_host"] = team.ui_host
+    if hasattr(survey.team, "ui_host") and survey.team.ui_host:
+        project_config["ui_host"] = survey.team.ui_host
 
     context = {
         "name": survey.name,
@@ -1542,16 +1535,20 @@ def public_survey_page(request, survey_id: str):
         "debug": settings.DEBUG,
     }
 
+    logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
+
     response = render(request, "surveys/public_survey.html", context)
 
-    # Add security headers
+    # Security headers
     response["X-Frame-Options"] = "DENY"
     response["X-Content-Type-Options"] = "nosniff"
     response["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response["Permissions-Policy"] = "accelerometer=(), camera=(), microphone=(), geolocation=()"
+    response["X-XSS-Protection"] = "1; mode=block"
 
-    # Cache for 5 minutes to reduce server load
-    response["Cache-Control"] = "public, max-age=300"
+    # Cache headers
+    response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
+    response["Vary"] = "Accept-Encoding"  # Enable compression caching
 
     return response
 
