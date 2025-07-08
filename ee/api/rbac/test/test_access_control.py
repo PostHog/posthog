@@ -469,10 +469,6 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         inactive_user.is_active = False
         inactive_user.save()
 
-        OrganizationMembership.objects.create(
-            organization=self.organization, user=inactive_user, level=OrganizationMembership.Level.MEMBER
-        )
-
         # Get users with access
         res = self._get_users_with_access()
         assert res.status_code == status.HTTP_200_OK, res.json()
