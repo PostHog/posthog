@@ -61,7 +61,7 @@ export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
 ])
 
 export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: OrganizationMembershipLevel): boolean {
-    return !!(org.membership_level && org.membership_level >= role)
+    return org.membership_level !== null && org.membership_level >= role
 }
 
 export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
