@@ -471,7 +471,11 @@ class APIScopePermission(ScopeBasePermission):
         try:
             org = get_organization_from_view(view)
         except ValueError:
-            pass
+            # Indicates this is not an organization scoped view
+            return
+
+        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+            return
 
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
@@ -482,7 +486,7 @@ class APIScopePermission(ScopeBasePermission):
                     f"Contact an admin to enable personal API keys for this organization."
                 )
         except OrganizationMembership.DoesNotExist:
-            pass
+            return
 
 
 class AccessControlPermission(ScopeBasePermission):
