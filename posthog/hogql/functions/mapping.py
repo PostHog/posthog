@@ -433,7 +433,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         tz_aware=True,
         overloads=[
             ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
-            ((ast.StringType,), "parseDateTime64"),
+            # ((ast.StringType,), "parseDateTime64"),
         ],
         signatures=[
             ((StringType(),), DateTimeType()),
