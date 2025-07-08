@@ -36,7 +36,7 @@ def get_internal_logger():
 
 
 def get_logger(name: str | None = None):
-    logger = logging.getLogger(name)
+    logger = logging.getLogger(name or __name__)
     logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
 
     handler = logging.StreamHandler()
