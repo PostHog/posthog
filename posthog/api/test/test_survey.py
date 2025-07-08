@@ -8,6 +8,7 @@ import uuid
 import pytest
 from django.core.cache import cache
 from django.test.client import Client
+from django.utils import timezone
 from freezegun.api import freeze_time
 from nanoid import generate
 from rest_framework import status
@@ -3557,3 +3558,126 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 )
 def test_nh3_clean_configuration(test_input, expected):
     assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")
+
+
+class TestPublicSurveyPage(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test Public Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+            is_publicly_shareable=True,
+            archived=False,
+            start_date=timezone.now() - timedelta(days=1),  # Survey is running
+        )
+
+    def test_valid_survey_returns_200(self):
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Test Public Survey")
+        self.assertContains(response, f'window.surveyId = "{self.survey.id}"')
+
+    def test_invalid_survey_id_returns_400(self):
+        # Test with special characters
+        response = self.client.get("/surveys/invalid@id/")
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Invalid Request", status_code=400)
+
+        # Test with numeric string (original issue)
+        response = self.client.get("/surveys/999999/")
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Invalid Request", status_code=400)
+
+        # Test with too long ID
+        long_id = "a" * 51
+        response = self.client.get(f"/surveys/{long_id}/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_nonexistent_survey_returns_404(self):
+        response = self.client.get(f"/surveys/{uuid.uuid4()}/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "Survey Not Available", status_code=404)
+
+    def test_archived_survey_returns_404(self):
+        self.survey.archived = True
+        self.survey.save()
+
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "The requested survey is not receiving responses", status_code=404)
+
+    def test_non_publicly_shareable_survey_returns_404(self):
+        self.survey.is_publicly_shareable = False
+        self.survey.save()
+
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "The requested survey is not receiving responses", status_code=404)
+
+    def test_context_variables_are_properly_set(self):
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+
+        # Check that template context contains expected variables
+        self.assertContains(response, f'"token": "{self.team.api_token}"')
+        self.assertContains(response, f'"api_host": "http://testserver"')
+        self.assertContains(response, f'window.surveyId = "{self.survey.id}"')
+        self.assertContains(response, 'window.surveyName = "Test Public Survey"')
+
+    def test_security_headers_are_set(self):
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+
+        # X-Frame-Options might be overridden by Django middleware in tests
+        self.assertIn(response["X-Frame-Options"], ["DENY", "SAMEORIGIN"])
+        self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response["Referrer-Policy"], "strict-origin-when-cross-origin")
+        self.assertEqual(response["X-XSS-Protection"], "1; mode=block")
+        self.assertIn("accelerometer=()", response["Permissions-Policy"])
+
+    def test_cache_headers_are_set(self):
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+
+        self.assertIn("public", response["Cache-Control"])
+        self.assertIn("max-age=300", response["Cache-Control"])
+        self.assertIn("Accept-Encoding", response["Vary"])
+
+    def test_survey_appearance_is_properly_serialized(self):
+        appearance = {"backgroundColor": "#ff0000", "submitButtonColor": "#00ff00", "borderRadius": "10px"}
+        self.survey.appearance = appearance
+        self.survey.save()
+
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        self.assertContains(response, '"backgroundColor": "#ff0000"')
+        self.assertContains(response, '"submitButtonColor": "#00ff00"')
+
+    def test_options_request_succeeds(self):
+        response = self.client.options(f"/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, 200)
+        # OPTIONS requests should succeed (CORS headers are handled by cors_response in production)
+        self.assertEqual(response.content, b"")
+
+    @patch("posthog.api.survey.Survey.objects")
+    def test_database_error_returns_503(self, mock_survey_objects):
+        # Mock the entire chain to cause a database error
+        mock_survey_objects.select_related.return_value.only.return_value.get.side_effect = Exception("Database error")
+
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        self.assertEqual(response.status_code, 503)
+        self.assertContains(response, "Service Unavailable", status_code=503)
+
+    def test_json_serialization_is_safe(self):
+        # Test that potentially dangerous content is properly escaped
+        self.survey.name = '<script>alert("xss")</script>'
+        self.survey.save()
+
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        # Should be escaped in both the template and JSON
+        self.assertNotContains(response, '<script>alert("xss")</script>')
+        self.assertContains(response, "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;")
+
+    def test_ui_host_is_not_included_by_default(self):
+        # By default, teams don't have ui_host set
+        response = self.client.get(f"/surveys/{self.survey.id}/")
+        # Check that ui_host is not included in the project config JSON
+        self.assertNotContains(response, '"ui_host":')
