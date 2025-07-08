@@ -48,6 +48,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    flag_value,
     hog,
     hog_function,
     hog_function_template,
@@ -314,6 +315,12 @@ projects_router.register(
     r"property_definitions",
     property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
+    ["project_id"],
+)
+projects_router.register(
+    r"flag_value",
+    flag_value.FlagValueViewSet,
+    "project_flag_value",
     ["project_id"],
 )
 
