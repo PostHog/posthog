@@ -343,25 +343,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
+                id: 'replay-triggers',
+                title: 'Replay start & stop rules',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Masking',
+                title: 'Privacy controls',
                 component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
                 allowForTeam: (t) => !!t?.recording_domains?.length,
-            },
-            {
-                id: 'replay-triggers',
-                title: 'Replay triggers',
-                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ai-config',
