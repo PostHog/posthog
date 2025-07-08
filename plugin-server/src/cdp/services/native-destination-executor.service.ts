@@ -54,7 +54,7 @@ export class NativeDestinationExecutorService {
         return fetch(...args)
     }
 
-    public async execute(
+    public execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
@@ -89,7 +89,7 @@ export class NativeDestinationExecutorService {
                 addLog('debug', 'config', config)
             }
 
-            await nativeDestination.perform(
+            nativeDestination.perform(
                 async (endpoint, options) => {
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
