@@ -16,10 +16,18 @@ let payload := {
   'method': inputs.method
 }
 
+if (inputs.debug) {
+  print('Request', inputs.url, payload)
+}
+
 let res := fetch(inputs.url, payload);
 
 if (res.status >= 400) {
   throw Error(f'Webhook failed with status {res.status}: {res.body}');
+}
+
+if (inputs.debug) {
+  print('Response', res.status, res.body);
 }
 `,
     inputs_schema: [
@@ -79,6 +87,15 @@ if (res.status >= 400) {
             required: false,
             default: { 'Content-Type': 'application/json' },
             description: 'HTTP headers to send in the request.',
+        },
+        {
+            key: 'debug',
+            type: 'boolean',
+            label: 'Log responses',
+            description: 'Logs the response of http calls for debugging.',
+            secret: false,
+            required: false,
+            default: false,
         },
     ],
 }
