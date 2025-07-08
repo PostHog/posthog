@@ -18,7 +18,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
-        pageUrl: urls.projectHomepage(),
+        pageUrl: urls.dashboards(),
         testOptions: {
             includeNavigationInSnapshot: true,
         },
