@@ -179,7 +179,7 @@ export const extractValidationError = (error: Error | null | undefined): string 
         // We use 512 for query timeouts
         // Async queries put the error message on data.error_message, while synchronous ones use detail
         return error?.status === 400 || error?.status === 512
-            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
             : null
     }
 
