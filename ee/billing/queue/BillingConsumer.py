@@ -124,7 +124,10 @@ class BillingConsumer(SQSConsumer):
             organization = Organization.objects.get(id=organization_id)
         except Organization.DoesNotExist:
             logger.exception(f"Organization {organization_id} does not exist")
-            capture_exception(Exception(f"Organization {organization_id} does not exist"))
+            capture_exception(
+                Exception(f"Organization being consumed does not exist"),
+                {"organization_id": organization_id, "body": body},
+            )
             return
 
         license = get_cached_instance_license()
