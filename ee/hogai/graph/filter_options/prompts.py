@@ -1,6 +1,5 @@
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
-import json
 from datetime import datetime
+
 GROUP_PROPERTY_FILTER_TYPES = """
 Properties can orginate from the following sources:
 
@@ -44,8 +43,7 @@ PostHog (posthog.com) offers a Session Replay feature that supports various filt
 
 <general_knowledge>
 PostHog users can filter their data using various properties and values.
-Properties are classified into groups based on the source of the property or a user defined group. 
-Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
+Properties are classified into groups based on the source of the property or a user defined group. Each project has its own set of custom property groups, but there are also some core property groups that are available to all projects.
 For example, properties can of events, persons, actions, cohorts, sessions properties and more custom groups.
 
 {GROUP_PROPERTY_FILTER_TYPES}
@@ -414,7 +412,7 @@ INSTRUCTIONS:
 1. You MUST use tools to explore available properties before creating filters about properties.
 2. TOOL USAGE IS REQUIRED FOR PROPERTY FILTERS - Don't guess property names or values. Use the tools to discover them first.
 3. You MUST call `final_answer` ONLY when you have a complete filter structure do not call if if you're asking for clarification. You MUST provide both fields:
-   - result: "filter" 
+   - result: "filter"
    - data: The complete updated filter object (including date_from, date_to, filter_group, and all the other fields that are present in the current filter).
 """.strip()
 
@@ -453,6 +451,6 @@ Current filters: {{{current_filters}}}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 
-BE CAREFUL WITH THE OPERATORS. USE THE CORRECT OPERATORS FOR THE PROPERTY TYPE. 
-Always use the enum format. For example PropertyOperator.Exact or directly 'exact' DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
+BE CAREFUL WITH THE OPERATORS. USE THE CORRECT OPERATORS FOR THE PROPERTY TYPE.
+Always use the enum format. For example PropertyOperator.Exact or directly 'exact'. DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
 """

@@ -1,13 +1,10 @@
-from typing import Iterable, Literal
+from typing import Literal
+from collections.abc import Iterable
 from posthog.models import Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from functools import cached_property
-from collections.abc import Iterable
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models import Team
-from posthog.models.property_definition import PropertyDefinition
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import ActorsPropertyTaxonomyQuery, CachedActorsPropertyTaxonomyQueryResponse
@@ -23,28 +20,36 @@ class ask_user_for_help(BaseModel):
 
     request: str = Field(..., description="The question you want to ask the user.")
 
+
 class retrieve_entity_properties(BaseModel):
     """
-    Use this tool to retrieve property names for a property group or entity when you know the entity type but you cannot correctly infer the property name. 
+    Use this tool to retrieve property names for a property group or entity when you know the entity type but you cannot correctly infer the property name.
     You get back a list of properties containing their name, value type, and description, or a message that properties have not been found.
     If you can't find any properties ask for clarification.
     If you find properties for the entity then infer which one is relevant to the user's question, use the property name in the `retrieve_entity_property_values` tool to get possible values for that property.
     """
 
     # This is not really correct I think for other entities  this might be wrong.
-    entity: Literal["person", "session", "event"] = Field(..., description="The name of the entity that you want to retrieve properties for.")
+    entity: Literal["person", "session", "event"] = Field(
+        ..., description="The name of the entity that you want to retrieve properties for."
+    )
+
 
 class retrieve_entity_property_values(BaseModel):
     """
-    Use this tool to retrieve property values for an entity when you know the entity type and the property name. 
+    Use this tool to retrieve property values for an entity when you know the entity type and the property name.
     You get back a list of property values, or a message that property values have not been found.
     If you can't find any values, tell the user that you couldn't find any values and ask for clarification.
     If you find property values that are relevant to the user's question, use one of the values in the `final_answer` tool to build the filter.
     If the values are not relevant to the user's question, use the value that the user has provided in the query.
     """
+
     # This might fail for other entities, but we don't use this tool for other entities.
-    entity: Literal["person", "session", "event"] = Field(..., description="The name of the entity that you want to retrieve properties for.")
+    entity: Literal["person", "session", "event"] = Field(
+        ..., description="The name of the entity that you want to retrieve properties for."
+    )
     property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
+
 
 class final_answer(BaseModel):
     """
@@ -52,6 +57,7 @@ class final_answer(BaseModel):
     You MUST use this tool ONLY when you have all the information you need to build the filter.
     If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
     """
+
     result: str = Field(description="Should be 'filter' for filter responses.")
     data: dict = Field(description="Complete filter object as defined in the prompts")
 
@@ -84,21 +90,21 @@ class FilterOptionsToolkit:
 
     def _generate_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
         import yaml
-        
+
         properties_by_type = {}
 
         for name, property_type, description in children:
             # Do not include properties that are ambiguous.
             if property_type is None:
                 continue
-            
+
             if property_type not in properties_by_type:
                 properties_by_type[property_type] = []
 
             prop_dict = {"name": name}
             if description:
                 prop_dict["description"] = description
-            
+
             properties_by_type[property_type].append(prop_dict)
 
         result = {"properties": properties_by_type}
@@ -240,7 +246,7 @@ class FilterOptionsToolkit:
             return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
 
         return self._generate_properties_yaml(props)
-    
+
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """
         No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.

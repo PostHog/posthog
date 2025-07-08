@@ -14,8 +14,9 @@ from .prompts import (
 )
 from posthog.schema import AssistantToolCallMessage
 
+
 class FilterOptionsToolsNode(AssistantNode, ABC):
-    MAX_ITERATIONS = 5 # Maximum number of iterations for the ReAct agent
+    MAX_ITERATIONS = 5  # Maximum number of iterations for the ReAct agent
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = FilterOptionsToolkit(self._team)
@@ -25,9 +26,8 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         output = ""
 
         try:
-            print(f"DEBUG: action: {action}")
             input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input})
-            print(f"DEBUG: Successfully validated tool: {input.name}")
+
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -43,9 +43,9 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                     # Extract the full response structure
                     full_response = {
                         "result": input.arguments.result,  # type: ignore
-                        "data": input.arguments.data  # type: ignore
+                        "data": input.arguments.data,  # type: ignore
                     }
-                    print(f"DEBUG: final_answer full_response: {full_response}")
+
                     return PartialAssistantState(
                         filter_options_dict=full_response,
                         filter_options_previous_response_id=state.root_tool_call_id or "",
@@ -81,12 +81,12 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
             else:
                 output = toolkit.handle_incorrect_response(input)
-            
+
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
         )
 
-    def router(self, state: AssistantState):        
+    def router(self, state: AssistantState):
         # If we have a final answer, end the process
         if state.filter_options_dict:
             return "end"
@@ -110,4 +110,4 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 content=output,
             )
         ]
-        return reset_state 
+        return reset_state
