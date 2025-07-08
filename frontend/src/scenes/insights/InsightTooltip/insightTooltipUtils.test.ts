@@ -43,7 +43,7 @@ describe('getFormattedDate', () => {
 
     describe('with week intervals', () => {
         it('formats full week ranges correctly', () => {
-            expect(getFormattedDate('2024-04-28', { interval: 'week' })).toEqual('28 Apr - 04 May 2024')
+            expect(getFormattedDate('2024-04-28', { interval: 'week' })).toEqual('28 Apr - 4 May 2024')
         })
 
         it('handles Monday as start of week', () => {
@@ -65,7 +65,7 @@ describe('getFormattedDate', () => {
                     interval: 'week',
                     dateRange: { date_from: '2024-04-29', date_to: '2024-05-05' },
                 })
-            ).toEqual('29 Apr - 04 May 2024')
+            ).toEqual('29 Apr - 4 May 2024')
         })
 
         it('handles ranges across year boundaries', () => {
@@ -74,7 +74,7 @@ describe('getFormattedDate', () => {
                     interval: 'week',
                     dateRange: { date_from: '2024-12-29', date_to: '2025-01-04' },
                 })
-            ).toEqual('29 Dec 2024 - 04 Jan 2025')
+            ).toEqual('29 Dec 2024 - 4 Jan 2025')
         })
 
         it('respects date range boundaries', () => {
@@ -83,7 +83,7 @@ describe('getFormattedDate', () => {
                     interval: 'week',
                     dateRange: { date_from: '2024-04-30', date_to: '2024-05-02' },
                 })
-            ).toEqual('30 Apr - 02 May 2024')
+            ).toEqual('30 Apr - 2 May 2024')
         })
 
         it('handles week boundaries within the date range', () => {
@@ -92,7 +92,7 @@ describe('getFormattedDate', () => {
                     interval: 'week',
                     dateRange: { date_from: '2024-04-01', date_to: '2024-05-29' },
                 })
-            ).toEqual('28 Apr - 04 May 2024')
+            ).toEqual('28 Apr - 4 May 2024')
         })
 
         it('handles timezone-specific week boundaries', () => {
@@ -100,7 +100,7 @@ describe('getFormattedDate', () => {
             const dateRange = { date_from: '2024-04-28T00:00:00-07:00', date_to: '2024-05-04T23:59:59-07:00' }
             expect(
                 getFormattedDate(timestamp, { interval: 'week', dateRange, timezone: 'America/Los_Angeles' })
-            ).toEqual('28 Apr - 04 May 2024')
+            ).toEqual('28 Apr - 4 May 2024')
         })
     })
 
