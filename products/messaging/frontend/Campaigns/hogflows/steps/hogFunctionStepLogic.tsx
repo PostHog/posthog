@@ -36,7 +36,7 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
                         return null
                     }
 
-                    const res = await api.hogFunctions.getTemplate(templateId, true)
+                    const res = await api.hogFunctions.getTemplate(templateId)
 
                     if (!res) {
                         throw new Error('Template not found')
