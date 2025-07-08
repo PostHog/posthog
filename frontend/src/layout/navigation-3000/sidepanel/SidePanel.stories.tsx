@@ -1,8 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -14,11 +12,13 @@ import { SidePanelTab } from '~/types'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/SidePanels',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
+        pageUrl: urls.dashboards(),
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -45,7 +45,6 @@ export default meta
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     useEffect(() => {
-        router.actions.push(urls.dashboards())
         openSidePanel(props.panel)
     }, [])
 
@@ -70,9 +69,6 @@ export const SidePanelNotebooks: StoryFn = () => {
 
 export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
-}
-SidePanelMax.parameters = {
-    featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
 }
 
 export const SidePanelFeaturePreviews: StoryFn = () => {
@@ -142,6 +138,7 @@ export const SidePanelSupportNoEmail: StoryFn = () => {
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
     const { openEmailForm } = useActions(supportLogic)
+
     useStorybookMocks({
         get: {
             // TODO: setting available featues should be a decorator to make this easy
@@ -163,8 +160,10 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
             ],
         },
     })
+
     useEffect(() => {
         openEmailForm()
     }, [])
+
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
