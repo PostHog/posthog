@@ -33,6 +33,8 @@ import type { notebookLogicType } from './notebookLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
 import { EditorRange, JSONContent, NotebookEditor } from './utils'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { TableOfContentData } from '@tiptap/extension-table-of-contents'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -78,6 +80,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookSettingsLogic,
+            ['showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -131,6 +135,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeId?: string
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
@@ -219,6 +224,12 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setShowHistory: (_, { showHistory }) => showHistory,
+            },
+        ],
+        tableOfContents: [
+            [] as TableOfContentData,
+            {
+                setTableOfContents: (_, { tableOfContents }) => tableOfContents,
             },
         ],
         containerSize: [
@@ -451,9 +462,9 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
-            (editingNodeId, showHistory, containerSize) => {
-                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
+            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
+                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
             },
         ],
 

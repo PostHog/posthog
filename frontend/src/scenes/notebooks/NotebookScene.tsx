@@ -14,7 +14,7 @@ import { NotebookTarget } from '~/types'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
-import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
@@ -112,6 +112,7 @@ export function NotebookScene(): JSX.Element {
                             : ''}
                         Guide
                     </LemonButton>
+                    <NotebookTableOfContentsButton type="secondary" size="small" />
                     <NotebookExpandButton type="secondary" size="small" />
                     <LemonButton
                         type="secondary"
