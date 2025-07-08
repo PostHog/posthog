@@ -652,7 +652,6 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await asyncio.gather(operation_1(), operation_1())
 
         # After operations complete, the thread lock should be cleaned up
-        # This will currently fail due to the bug where cleanup happens while lock is held
         self.assertEqual(
             len(saver._thread_locks),
             0,
