@@ -125,7 +125,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async flush(): Promise<void> {
+    async flush(): Promise<TopicMessage[]> {
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
@@ -140,15 +140,16 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (batchSize === 0) {
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, 0)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
-            return
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
+        const allKafkaMessages: TopicMessage[] = []
 
         try {
-            await Promise.all(
+            const results = await Promise.all(
                 updateEntries.map(([cacheKey, update]) =>
-                    limit(async () => {
+                    limit(async (): Promise<TopicMessage[]> => {
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
@@ -156,9 +157,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 outcome: 'attempt',
                             })
 
+                            let kafkaMessages: TopicMessage[] = []
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT':
-                                    await this.updatePersonNoAssert(update, 'batch')
+                                    const [_, messages] = await this.updatePersonNoAssert(update, 'batch')
+                                    kafkaMessages = messages
                                     break
                                 case 'ASSERT_VERSION':
                                     await promiseRetry(
@@ -169,6 +172,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
+                                    // ASSERT_VERSION updates the DB directly via updatePersonAssertVersion
+                                    // which creates Kafka messages internally, so we don't get messages back
+                                    kafkaMessages = []
                                     break
                                 case 'WITH_TRANSACTION':
                                     await promiseRetry(
@@ -179,6 +185,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
+                                    // WITH_TRANSACTION updates the DB directly via updatePerson
+                                    // which creates Kafka messages internally, so we don't get messages back
+                                    kafkaMessages = []
                                     break
                             }
 
@@ -187,6 +196,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 method: this.options.dbWriteMode,
                                 outcome: 'success',
                             })
+
+                            return kafkaMessages
                         } catch (error) {
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
                             if (error instanceof MessageSizeTooLarge) {
@@ -204,7 +215,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     method: this.options.dbWriteMode,
                                     outcome: 'error',
                                 })
-                                return
+                                return []
                             }
 
                             logger.warn('⚠️', 'Falling back to direct update after max retries', {
@@ -218,13 +229,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 fallback_reason: 'max_retries',
                             })
 
-                            await this.updatePersonNoAssert(update, 'conflictRetry')
+                            const [_, fallbackMessages] = await this.updatePersonNoAssert(update, 'conflictRetry')
 
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
                                 method: 'fallback',
                                 outcome: 'success',
                             })
+
+                            return fallbackMessages
                         }
                     }).catch((error) => {
                         logger.error('Failed to update person after max retries and direct update fallback', {
@@ -247,10 +260,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 )
             )
 
+            // Flatten all Kafka messages from all operations
+            results.forEach((messages) => allKafkaMessages.push(...messages))
+
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
+
+            return allKafkaMessages
         } catch (error) {
             // Record failed flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
