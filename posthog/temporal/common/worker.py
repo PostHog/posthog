@@ -6,7 +6,6 @@ import structlog
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
@@ -49,7 +48,6 @@ async def create_worker(
         max_concurrent_activities: Maximum number of concurrent activity tasks the
             worker can handle. Defaults to 50.
     """
-    initialize_otel()
 
     runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(

@@ -24,6 +24,7 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async
@@ -175,6 +176,7 @@ class Command(BaseCommand):
         faulthandler.enable()
 
         logger.info(f"Starting Temporal Worker with options: {options}")
+        initialize_otel()
 
         metrics_port = int(options["metrics_port"])
 
