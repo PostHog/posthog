@@ -1,5 +1,5 @@
 import { IconLetter } from '@posthog/icons'
-import { LemonButtonProps, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -9,7 +9,6 @@ import { InsightShortId } from '~/types'
 export interface SubscriptionBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
-    buttonProps?: Omit<LemonButtonProps, 'children'>
 }
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {

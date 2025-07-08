@@ -63,7 +63,6 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
     return (
         <LemonButtonWithDropdown
             fullWidth
-            {...props.buttonProps}
             dropdown={{
                 actionable: true,
                 closeParentPopoverOnClickInside: true,
