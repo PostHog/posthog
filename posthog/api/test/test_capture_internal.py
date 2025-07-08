@@ -8,6 +8,8 @@ from posthog.test.base import BaseTest
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
 )
 
 
@@ -72,7 +74,7 @@ class TestCaptureInternal(BaseTest):
 
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 1
-        assert CAPTURE_INTERNAL_URL in spied_calls[0]["url"]
+        assert f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}" in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
@@ -113,7 +115,7 @@ class TestCaptureInternal(BaseTest):
 
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 1
-        assert CAPTURE_INTERNAL_URL in spied_calls[0]["url"]
+        assert f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}" in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
@@ -246,7 +248,7 @@ class TestCaptureInternal(BaseTest):
 
         spied_calls = spy.get_calls()
         assert len(spied_calls) == 1
-        assert CAPTURE_REPLAY_INTERNAL_URL in spied_calls[0]["url"]
+        assert f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}" in spied_calls[0]["url"]
         assert spied_calls[0]["event_payload"]["event"] == event_name
         assert spied_calls[0]["event_payload"]["distinct_id"] == distinct_id
         assert spied_calls[0]["event_payload"]["api_key"] == token
@@ -370,7 +372,7 @@ class TestCaptureInternal(BaseTest):
         spied_calls = sorted(spied_calls, key=lambda evt: evt["event_payload"]["event"])
 
         for i in range(10):
-            assert CAPTURE_INTERNAL_URL in spied_calls[i]["url"]
+            assert f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}" in spied_calls[i]["url"]
             assert spied_calls[i]["event_payload"]["event"] == f"{base_event_name}_{i}"
             assert spied_calls[i]["event_payload"]["distinct_id"] == test_events[i]["distinct_id"]
             assert spied_calls[i]["event_payload"]["api_key"] == token
