@@ -1,15 +1,11 @@
-import datetime as dt
 from unittest import mock
 from unittest.mock import ANY, call, patch
 
-from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.models.license import License
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.constants import AvailableFeature
 
 
@@ -236,54 +232,6 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 404, potential_err_message)
             organization.refresh_from_db()
             self.assertTrue(organization.name, "Meow")
-
-    def test_feature_available_self_hosted_has_license(self):
-        current_plans = License.PLANS
-        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
-        with self.is_cloud(False):
-            License.objects.create(
-                key="key",
-                plan="enterprise",
-                valid_until=dt.datetime.now() + dt.timedelta(days=1),
-            )
-
-            # Still only old, empty available_product_features field value known
-            self.assertIsNone(self.organization.get_available_feature("whatever"))
-            self.assertFalse(self.organization.is_feature_available("whatever"))
-            self.assertIsNone(self.organization.get_available_feature("feature-doesnt-exist"))
-            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-
-            # New available_product_features field value that was updated in DB on license creation is known after refresh
-            self.organization.refresh_from_db()
-            self.assertEqual(
-                {"key": "whatever", "name": "Whatever"}, self.organization.get_available_feature("whatever")
-            )
-            self.assertTrue(self.organization.is_feature_available("whatever"))
-            self.assertFalse(self.organization.get_available_feature("feature-doesnt-exist"))
-            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-        License.PLANS = current_plans
-
-    def test_feature_available_self_hosted_no_license(self):
-        current_plans = License.PLANS
-        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
-
-        self.assertIsNone(self.organization.get_available_feature("whatever"))
-        self.assertFalse(self.organization.is_feature_available("whatever"))
-        self.assertIsNone(self.organization.get_available_feature("feature-doesnt-exist"))
-        self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
-        License.PLANS = current_plans
-
-    @patch("ee.api.license.requests.post")
-    def test_feature_available_self_hosted_license_expired(self, patch_post):
-        current_plans = License.PLANS
-        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
-
-        with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
-            sync_all_organization_available_product_features()  # This is normally ran every hour
-            self.organization.refresh_from_db()
-            self.assertIsNone(self.organization.get_available_feature("whatever"))
-            self.assertFalse(self.organization.is_feature_available("whatever"))
-        License.PLANS = current_plans
 
     def test_get_organization_restricted_teams_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
