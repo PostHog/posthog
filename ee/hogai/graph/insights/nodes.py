@@ -105,7 +105,7 @@ class InsightSearchNode(AssistantNode):
                     "query_length": len(search_query) if search_query else 0,
                     "results_count": len(results),
                     "execution_time_ms": round(execution_time * 1000, 2),
-                    "used_semantic_filtering": self._should_semantic_filter(search_query),
+                    "used_semantic_filtering": bool(search_query),
                     "cache_hit_rate": cache_hit_rate,
                     "cache_hits": cache_hits,
                     "cache_misses": cache_misses,
@@ -156,7 +156,7 @@ class InsightSearchNode(AssistantNode):
         """Optimized insight search with improved data pipeline and cache tracking."""
 
         # Step 1: Get basic insight data with optimized query size
-        initial_fetch_size = 1500 if self._should_semantic_filter(root_to_search_insights) else 3
+        initial_fetch_size = 1500 if root_to_search_insights else 3
 
         insights_qs = (
             InsightViewed.objects.filter(team=self._team)
@@ -179,8 +179,8 @@ class InsightSearchNode(AssistantNode):
             cache_stats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
             return [], cache_stats
 
-        # Step 2: Apply semantic filtering if needed
-        if self._should_semantic_filter(root_to_search_insights):
+        # Step 2: Apply semantic filtering if query exists
+        if root_to_search_insights:
             filtered_results = self._semantic_filter_insights(raw_results, root_to_search_insights)
 
             if filtered_results:
@@ -209,12 +209,6 @@ class InsightSearchNode(AssistantNode):
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         return "end"
-
-    def _should_semantic_filter(self, query: str | None) -> bool:
-        """Only run semantic filtering for "meaningful" queries."""
-        if not query:
-            return False
-        return len(query.strip()) > 3 and not query.strip().isdigit()
 
     def _semantic_filter_insights(self, insights: list, query: str | None) -> list:
         """Filter insights by semantic relevance using hybrid keyword + LLM classification."""

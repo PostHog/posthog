@@ -54,18 +54,6 @@ class TestInsightSearchNode(BaseTest):
         result = self.node.router(AssistantState(messages=[]))
         self.assertEqual(result, "end")
 
-    def test_should_semantic_filter_with_valid_query(self):
-        """Test semantic filtering is enabled for valid queries."""
-        self.assertTrue(self.node._should_semantic_filter("pageview insights"))
-        self.assertTrue(self.node._should_semantic_filter("funnel analysis"))
-
-    def test_should_semantic_filter_with_invalid_query(self):
-        """Test semantic filtering is disabled for invalid queries."""
-        self.assertFalse(self.node._should_semantic_filter(None))
-        self.assertFalse(self.node._should_semantic_filter(""))
-        self.assertFalse(self.node._should_semantic_filter("abc"))  # too short
-        self.assertFalse(self.node._should_semantic_filter("123"))  # digits only
-
     def test_search_insights_returns_unique_insights(self):
         """Test that search returns unique insights without duplicates."""
         # Create multiple views of same insight by updating existing record
