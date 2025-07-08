@@ -43,7 +43,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.client import WorkflowFailureError
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.tests.ai.conftest import RedisTestContext
+from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext, SyncRedisTestContext
 
 pytestmark = pytest.mark.django_db
 
@@ -91,7 +91,7 @@ class TestFetchSessionDataActivity:
         mock_raw_metadata: dict[str, Any],
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
     ):
         """Test that fetch_session_data_activity stores compressed data correctly in Redis."""
         key_base = "fetch-session-data-activity-standalone"
@@ -173,7 +173,7 @@ class TestStreamLlmSummaryActivity:
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
         mock_session_id: str,
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
     ):
         llm_input_data = mock_single_session_summary_llm_inputs(mock_session_id)
         compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input_data)))
@@ -263,7 +263,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_session_id: str,
         mock_single_session_summary_llm_inputs: Callable,
         mock_single_session_summary_inputs: Callable,
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
         mock_enriched_llm_json_response: dict[str, Any],
     ) -> tuple[str, str, SingleSessionSummaryInputs, str, str]:
         # Prepare test data
@@ -301,7 +301,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_user: MagicMock,
         mock_team: MagicMock,
         mock_single_session_summary_llm_inputs: Callable,
-        redis_test_setup: RedisTestContext,
+        sync_redis_test_setup: SyncRedisTestContext,
     ):
         # Prepare input data
         sample_session_summary_data = SingleSessionSummaryData(
@@ -324,7 +324,7 @@ class TestSummarizeSingleSessionWorkflow:
         # Track Redis calls to properly mock responses
         redis_call_count = 0
 
-        def mock_redis_get(key):
+        def mock_redis_get(key: str) -> str | None:
             nonlocal redis_call_count
             # Return None for first poll, then intermediate data, then final data
             if "session_summary" in key:
@@ -364,9 +364,9 @@ class TestSummarizeSingleSessionWorkflow:
                 "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
                 return_value=mock_workflow_handle,
             ),
-            patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
-            patch.object(redis_test_setup.redis_client, "setex"),  # Does nothing
-            patch.object(redis_test_setup.redis_client, "delete"),  # Does nothing
+            patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
+            patch.object(sync_redis_test_setup.redis_client, "setex"),  # Does nothing
+            patch.object(sync_redis_test_setup.redis_client, "delete"),  # Does nothing
         ):
             result = list(
                 execute_summarize_session_stream(
@@ -399,7 +399,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
     ):
         """
         Test that the workflow completes successfully and returns the expected result. Also verifies that Redis operations are performed as expected.
@@ -450,7 +450,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
     ):
         """Test that the workflow retries when stream_llm_summary_activity fails initially, but succeeds eventually."""
         _, workflow_id, workflow_input, expected_final_summary, _ = await self.setup_workflow_test(
@@ -507,7 +507,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         """Test that the workflow retries when stream_llm_summary_activity and fails, as it exceeds the retries limit."""
@@ -572,7 +572,7 @@ class TestSummarizeSingleSessionWorkflow:
         mock_raw_events_columns: list[str],
         mock_raw_events: list[tuple[Any, ...]],
         mock_valid_event_ids: list[str],
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
         mock_enriched_llm_json_response: dict[str, Any],
     ):
         """Test that the workflow properly handles incorrect argument types by failing or timing out during argument processing."""

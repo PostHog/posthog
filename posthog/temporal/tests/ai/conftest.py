@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from typing import Any
-from posthog.redis import get_async_client
+from posthog.redis import get_async_client, get_client
 from redis import asyncio as aioredis
+from redis import Redis
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionGroupSummaryInputs
 from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -132,12 +133,29 @@ def mock_patterns_assignment_yaml_response() -> str:
 """
 
 
-class RedisTestContext:
+class RedisTestContextBase:
+    """Base class for Redis test contexts with shared functionality."""
+
     def __init__(self):
         # Clear cache to ensure we get the right client type
         TEST_clear_clients()
-        self.redis_client: aioredis.Redis = get_async_client()
         self.keys_to_cleanup = []
+
+    def _get_keys_for_cleanup(self, input_key: str, output_key: str | None = None) -> list[str]:
+        """Get list of keys to track for cleanup."""
+        return [input_key] if not output_key else [input_key, output_key]
+
+    def _clear_clients(self):
+        """Clear client cache so subsequent tests get fresh clients."""
+        TEST_clear_clients()
+
+
+class AsyncRedisTestContext(RedisTestContextBase):
+    """Async Redis test context for tests using async Redis operations."""
+
+    def __init__(self):
+        super().__init__()
+        self.redis_client: aioredis.Redis = get_async_client()
 
     async def setup_input_data(self, input_data: bytes, input_key: str, output_key: str | None = None):
         """Set up Redis input data and track keys for cleanup."""
@@ -146,22 +164,55 @@ class RedisTestContext:
             SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
             input_data,
         )
-        keys = [input_key] if not output_key else [input_key, output_key]
+        keys = self._get_keys_for_cleanup(input_key, output_key)
         self.keys_to_cleanup.extend(keys)
 
     async def cleanup(self):
         """Clean up all tracked Redis keys and clear client cache."""
         for key in self.keys_to_cleanup:
             await self.redis_client.delete(key)
-        # Clear client cache so subsequent tests get fresh clients
-        TEST_clear_clients()
+        self._clear_clients()
+
+
+class SyncRedisTestContext(RedisTestContextBase):
+    """Sync Redis test context for tests using sync Redis operations."""
+
+    def __init__(self):
+        super().__init__()
+        self.redis_client: Redis = get_client()
+
+    def setup_input_data(self, input_data: bytes, input_key: str, output_key: str | None = None):
+        """Set up Redis input data and track keys for cleanup."""
+        self.redis_client.setex(
+            input_key,
+            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
+            input_data,
+        )
+        keys = self._get_keys_for_cleanup(input_key, output_key)
+        self.keys_to_cleanup.extend(keys)
+
+    def cleanup(self):
+        """Clean up all tracked Redis keys and clear client cache."""
+        for key in self.keys_to_cleanup:
+            self.redis_client.delete(key)
+        self._clear_clients()
 
 
 @pytest_asyncio.fixture
-async def redis_test_setup() -> AsyncGenerator[RedisTestContext, None]:
+async def redis_test_setup() -> AsyncGenerator[AsyncRedisTestContext, None]:
     """Async context manager for Redis test setup and cleanup."""
-    context = RedisTestContext()
+    context = AsyncRedisTestContext()
     try:
         yield context
     finally:
         await context.cleanup()
+
+
+@pytest.fixture
+def sync_redis_test_setup():
+    """Sync context manager for Redis test setup and cleanup."""
+    context = SyncRedisTestContext()
+    try:
+        yield context
+    finally:
+        context.cleanup()

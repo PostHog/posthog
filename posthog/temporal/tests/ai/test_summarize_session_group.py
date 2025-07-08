@@ -33,7 +33,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
 )
 from posthog import constants
 from collections.abc import AsyncGenerator
-from posthog.temporal.tests.ai.conftest import RedisTestContext
+from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
 from datetime import datetime
 from temporalio.testing import WorkflowEnvironment
@@ -71,7 +71,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
     mock_single_session_summary_llm_inputs: Callable,
     mock_single_session_summary_inputs: Callable,
     mock_call_llm: Callable,
-    redis_test_setup: RedisTestContext,
+    redis_test_setup: AsyncRedisTestContext,
 ):
     # Prepare input data
     llm_input = mock_single_session_summary_llm_inputs(mock_session_id)
@@ -120,7 +120,7 @@ async def test_extract_session_group_patterns_activity_standalone(
     mock_single_session_summary_inputs: Callable,
     mock_session_group_summary_of_summaries_inputs: Callable,
     mock_patterns_extraction_yaml_response: str,
-    redis_test_setup: RedisTestContext,
+    redis_test_setup: AsyncRedisTestContext,
 ):
     """Test extract_session_group_patterns activity in a standalone mode"""
     # Prepare input data
@@ -187,7 +187,7 @@ async def test_assign_events_to_patterns_activity_standalone(
     mock_single_session_summary_llm_inputs: Callable,
     mock_session_group_summary_of_summaries_inputs: Callable,
     mock_patterns_assignment_yaml_response: str,
-    redis_test_setup: RedisTestContext,
+    redis_test_setup: AsyncRedisTestContext,
 ):
     """Test assign_events_to_patterns_activity standalone"""
     # Prepare input data
@@ -424,7 +424,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_group_summary_inputs: Callable,
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
-        redis_test_setup: RedisTestContext,
+        redis_test_setup: AsyncRedisTestContext,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input = self.setup_workflow_test(
