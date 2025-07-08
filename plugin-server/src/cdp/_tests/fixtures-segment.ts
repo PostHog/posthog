@@ -3,10 +3,10 @@ import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
 import { createHogFunction, SAMPLE_GLOBALS } from './fixtures'
 
 export const createExampleSegmentInvocation = (
-    _hogFunction: Partial<HogFunctionType> = {},
+    hogFunctionOverrides: Partial<HogFunctionType> = {},
     inputs: Record<string, any> = {}
 ): CyclotronJobInvocationHogFunction => {
-    const hogFunction = createHogFunction(_hogFunction)
+    const hogFunction = createHogFunction(hogFunctionOverrides)
 
     return {
         id: new UUIDT().toString(),
