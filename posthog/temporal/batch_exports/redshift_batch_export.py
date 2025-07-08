@@ -54,7 +54,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_contextvars, get_external_logger, get_logger
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -358,7 +359,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",

@@ -73,7 +73,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "MissingRequiredPermissionsError",
 ]
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -177,7 +178,7 @@ class BigQueryClient(bigquery.Client):
         super().__init__(*args, **kwargs)
 
         self.logger = LOGGER.bind(project=self.project)
-        self.external_logger = get_external_logger(project_id=self.project)
+        self.external_logger = EXTERNAL_LOGGER.bind(project_id=self.project)
 
     async def acreate_table(
         self,
@@ -655,7 +656,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",

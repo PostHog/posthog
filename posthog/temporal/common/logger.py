@@ -20,7 +20,6 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
-EXTERNAL_LOGGER = structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
 
 def get_internal_logger():
@@ -41,21 +40,47 @@ def bind_contextvars(**kwargs):
     structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
 
+def get_external_logger():
+    """Return an external logger to log user-facing logs.
+
+    This method is intended to be called once at the top level of a module.
+    Afterwards, call `bind()` to bind any variables to this logger, or use
+    `bind_contextvars()` to bind variables directly in the context.
+    """
+    logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
+
+    if not logger.hasHandlers() or logger.propagate:
+        # We use `logger.propagate` as a roundabout way to see if this has been
+        # configured already or not.
+        logger.handlers.clear()
+
+        # Set 'DEBUG' as log level to display all logs from external to user.
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.DEBUG)
+
+        formatter = logging.Formatter("%(message)s")
+        handler.setFormatter(formatter)
+
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+
+    return structlog.get_logger(EXTERNAL_LOGGER_NAME)
+
+
 def get_logger(name: str | None = None):
+    """Return an internal logger after configuring if necessary.
+
+    This method is intended to be called once at the top level of a module.
+    Afterwards, call `bind()` to bind any variables to this logger, or use
+    `bind_contextvars()` to bind variables directly in the context.
+    """
     logger = logging.getLogger(name or __name__)
 
+    logger.handlers.clear()
     configure_stdlib_logger(logger)
 
     return structlog.get_logger(name or __name__)
-
-
-def get_external_logger(**kwargs) -> logging.Logger:
-    """Return a bound logger to log user-facing logs."""
-    logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
-
-    configure_stdlib_logger(logger)
-
-    return EXTERNAL_LOGGER.bind(**kwargs)
 
 
 def configure_stdlib_logger(logger: logging.Logger) -> None:

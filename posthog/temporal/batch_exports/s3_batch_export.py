@@ -112,7 +112,8 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -745,7 +746,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to S3: %s",
@@ -971,7 +972,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to S3: %s",

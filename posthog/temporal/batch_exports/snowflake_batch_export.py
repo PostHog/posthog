@@ -58,7 +58,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_contextvars, get_external_logger, get_logger
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 # One batch export allowed to connect at a time (in theory) per worker.
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
@@ -788,7 +789,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",

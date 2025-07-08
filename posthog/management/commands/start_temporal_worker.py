@@ -85,7 +85,7 @@ ACTIVITIES_DICT = {
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
 
 
 class Command(BaseCommand):

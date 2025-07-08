@@ -61,7 +61,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_external_logger, get_logger
 from posthog.warehouse.util import database_sync_to_async
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -207,7 +208,7 @@ class Consumer:
         self.data_interval_end = data_interval_end
         self.writer_format = writer_format
         self.logger = LOGGER.bind(writer_format=writer_format)
-        self.external_logger = get_external_logger(writer_format=writer_format)
+        self.external_logger = EXTERNAL_LOGGER.bind(writer_format=writer_format)
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -1181,7 +1182,7 @@ class ConsumerFromStage:
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.logger = LOGGER.bind()
-        self.external_logger = get_external_logger()
+        self.external_logger = EXTERNAL_LOGGER.bind()
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:

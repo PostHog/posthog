@@ -69,7 +69,8 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
     rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
 )
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 class PostgreSQLConnectionError(Exception):
@@ -601,7 +602,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
