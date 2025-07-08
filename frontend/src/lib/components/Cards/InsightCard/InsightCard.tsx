@@ -30,7 +30,12 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
-import { InsightErrorState, InsightLoadingState, InsightValidationError } from 'scenes/insights/EmptyStates'
+import {
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from 'scenes/insights/EmptyStates'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -171,6 +176,10 @@ function InsightCardInternal(
         if (apiErrored) {
             return <InsightErrorState />
         }
+        if (timedOut) {
+            return <InsightTimeoutState />
+        }
+
         return null
     })()
 
