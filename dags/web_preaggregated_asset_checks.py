@@ -1,5 +1,6 @@
 import chdb
 import structlog
+import time
 from datetime import datetime, UTC, timedelta
 from typing import Any
 
@@ -15,10 +16,13 @@ from dags.common import JobOwners
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
 from posthog.settings.base_variables import DEBUG
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_url,
     get_s3_web_stats_structure,
@@ -31,7 +35,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_TOLERANCE_PCT = 1.0
 DEFAULT_DAYS_BACK = 7
-DEFAULT_ACCURACY_CHECK_TOLERANCE = 0.5
 MAX_TEAMS_PER_BATCH = 10
 CHDB_QUERY_TIMEOUT = 60
 
@@ -251,8 +254,26 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
     return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
 
 
+def log_query_sql(runner, query_name: str, context, team: Team, use_pre_agg: bool = False) -> None:
+    if not context:
+        return
+
+    try:
+        if use_pre_agg:
+            query_ast = runner.preaggregated_query_builder.get_query()
+        else:
+            query_ast = runner.to_query()
+
+        executor = HogQLQueryExecutor(query=query_ast, team=team, modifiers=runner.modifiers)
+        sql_with_placeholders, sql_context = executor.generate_clickhouse_sql()
+        raw_sql = substitute_params(sql_with_placeholders, sql_context.values)
+        context.log.info(f"{query_name}:\n {raw_sql}")
+    except Exception as e:
+        context.log.warning(f"Failed to log {query_name}: {e}")
+
+
 def compare_web_overview_metrics(
-    team_id: int, date_from: str, date_to: str, tolerance_pct: float = 1.0
+    team_id: int, date_from: str, date_to: str, tolerance_pct: float = DEFAULT_TOLERANCE_PCT, context=None
 ) -> tuple[bool, dict[str, Any]]:
     """
     Compare pre-aggregated vs regular WebOverview metrics for accuracy.
@@ -272,22 +293,34 @@ def compare_web_overview_metrics(
     )
 
     modifiers_pre_agg = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=True,
-        convertToProjectTimezone=False,  # Pre-agg tables are in UTC
+        useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False, debug=True
     )
 
+    modifiers_regular = HogQLQueryModifiers(
+        useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False, debug=True
+    )
+
+    # Force fresh execution by using CALCULATE_BLOCKING_ALWAYS (bypasses all caches)
     runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
-
-    # Query without pre-aggregated tables
-    # We have an known issue that the buckets are always in UTC, so we need to query in UTC to make sure we're comparing apples to apples
-    # This can be improved if we change to hourly buckets but right now this fits our scope
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False)
-
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
-        response_pre_agg = runner_pre_agg.calculate()
-        response_regular = runner_regular.calculate()
+        log_query_sql(runner_pre_agg, "Pre-aggregated SQL", context, team, use_pre_agg=True)
+        start_time = time.time()
+        response_pre_agg = runner_pre_agg.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        pre_agg_time = time.time() - start_time
+
+        log_query_sql(runner_regular, "Regular SQL", context, team, use_pre_agg=False)
+        start_time = time.time()
+        response_regular = runner_regular.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        regular_time = time.time() - start_time
+
+        logger.info(
+            "Query execution completed",
+            team_id=team_id,
+            pre_agg_time=round(pre_agg_time, 3),
+            regular_time=round(regular_time, 3),
+        )
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
@@ -300,10 +333,10 @@ def compare_web_overview_metrics(
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
-            "pre_aggregated_used": response_pre_agg.usedPreAggregatedTables,
             "metrics": {},
             "all_within_tolerance": True,
             "tolerance_pct": tolerance_pct,
+            "timing": {"pre_aggregated": pre_agg_time, "regular": regular_time},
         }
 
         for metric_key in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
@@ -363,13 +396,19 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     context.log.info(f"Starting accuracy validation for team {team_id}, tolerance: {tolerance_pct}%")
 
     try:
+        context.log.info(
+            f"Running accuracy validation for team {team_id}, date range: {date_from} to {date_to}, tolerance: {tolerance_pct}%"
+        )
         is_valid, comparison_data = compare_web_overview_metrics(
-            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct
+            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct, context=context
         )
 
         validation_results.append(comparison_data)
 
-        context.log.info(f"Comparison is valid: {is_valid}, comparison data: {comparison_data}")
+        timing = comparison_data.get("timing", {})
+        context.log.info(
+            f"Valid?: {is_valid}. Pre-agg: {timing.get('pre_aggregated', 0):.2f}s, Regular: {timing.get('regular', 0):.2f}s"
+        )
     except Exception as e:
         context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
         validation_results.append(
@@ -398,18 +437,29 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
         severity = AssetCheckSeverity.ERROR
         description = f"Team {team_id} failed accuracy validation."
 
+    metadata = {
+        "success_rate": MetadataValue.float(success_rate),
+        "failed_metrics": MetadataValue.int(failed_metrics),
+        "total_metrics": MetadataValue.int(total_metrics_checked),
+        "tolerance_pct": MetadataValue.float(tolerance_pct),
+        "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
+        "detailed_results": MetadataValue.json(validation_results),
+    }
+
+    # Add timing metadata if available
+    if validation_results and not validation_results[0].get("skipped"):
+        metadata.update(
+            {
+                "pre_agg_time": MetadataValue.float(round(validation_results[0]["timing"]["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(validation_results[0]["timing"]["regular"], 3)),
+            }
+        )
+
     return AssetCheckResult(
         passed=passed,
         severity=severity,
         description=description,
-        metadata={
-            "success_rate": MetadataValue.float(success_rate),
-            "failed_metrics": MetadataValue.int(failed_metrics),
-            "total_metrics": MetadataValue.int(total_metrics_checked),
-            "tolerance_pct": MetadataValue.float(tolerance_pct),
-            "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
-            "detailed_results": MetadataValue.json(validation_results),
-        },
+        metadata=metadata,
     )
 
 
@@ -439,7 +489,7 @@ def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluati
             "ops": {
                 "web_analytics_accuracy_check": {
                     "config": {
-                        "tolerance_pct": DEFAULT_ACCURACY_CHECK_TOLERANCE,
+                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
                         "days_back": DEFAULT_DAYS_BACK,
                     }
                 }
