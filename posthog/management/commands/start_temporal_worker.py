@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import faulthandler
 import functools
+import logging
 import signal
 
 import structlog
@@ -198,6 +199,7 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+                logging.getLogger(__name__).setLevel(settings.TEMPORAL_LOG_LEVEL)
                 configure_logger_async(loop=runner.get_loop())
 
             logger.info(f"Starting Temporal Worker with options: {options}")
