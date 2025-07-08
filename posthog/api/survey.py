@@ -14,6 +14,7 @@ from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from rest_framework import request, serializers, status, viewsets, exceptions, filters
@@ -1437,12 +1438,48 @@ def surveys(request: Request, survey_id: str | None = None):
 
 
 @csrf_exempt
+@axes_dispatch
 def public_survey_page(request, survey_id: str):
     """
-    Server-side rendered public survey page
+    Server-side rendered public survey page with security and performance optimizations
     """
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
+
+    # Simple rate limiting - skip in DEBUG mode for development
+    if not settings.DEBUG:
+        client_ip = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", ""))
+        if client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+            rate_limit_key = f"survey_page_rate_limit:{client_ip}:{survey_id}"
+
+            # Check rate limit - 500 requests per IP per hour
+            request_count = cache.get(rate_limit_key, 0)
+            if request_count >= 500:
+                return render(
+                    request,
+                    "surveys/error.html",
+                    {
+                        "error_title": "Too Many Requests",
+                        "error_message": "You have made too many requests. Please try again later.",
+                    },
+                    status=429,
+                )
+
+            # Increment counter with 1 hour expiration
+            cache.set(rate_limit_key, request_count + 1, 3600)
+
+    # Validate survey_id format for security
+    if not re.match(r"^[a-zA-Z0-9-_]+$", survey_id) or len(survey_id) > 50:
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Invalid Survey",
+                "error_message": "The survey identifier is invalid.",
+            },
+            status=400,
+        )
 
     try:
         survey = Survey.objects.select_related("team", "linked_flag", "targeting_flag", "internal_targeting_flag").get(
@@ -1491,7 +1528,6 @@ def public_survey_page(request, survey_id: str):
     project_config = {
         "api_host": request.build_absolute_uri("/").rstrip("/"),
         "token": team.api_token,
-        "survey_id": str(survey.id),
     }
 
     # Add ui_host if the team has reverse proxy setup
@@ -1499,15 +1535,25 @@ def public_survey_page(request, survey_id: str):
         project_config["ui_host"] = team.ui_host
 
     context = {
-        "survey": {
-            "id": str(survey.id),
-            "name": survey.name,
-        },
+        "name": survey.name,
+        "id": survey.id,
+        "appearance": json.dumps(survey.appearance),
         "project_config_json": json.dumps(project_config),
         "debug": settings.DEBUG,
     }
 
-    return render(request, "surveys/public_survey.html", context)
+    response = render(request, "surveys/public_survey.html", context)
+
+    # Add security headers
+    response["X-Frame-Options"] = "DENY"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response["Permissions-Policy"] = "accelerometer=(), camera=(), microphone=(), geolocation=()"
+
+    # Cache for 5 minutes to reduce server load
+    response["Cache-Control"] = "public, max-age=300"
+
+    return response
 
 
 @contextmanager

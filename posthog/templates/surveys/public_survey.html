@@ -4,71 +4,456 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ survey.name }}</title>
-    <meta name="description" content="Take our survey: {{ survey.name }}">
+    <title>{{ name }}</title>
+    <meta name="description" content="Take our survey: {{ name }}">
     <style>
+        /* CSS Variables */
+        :root {
+            --ph-survey-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
+            --ph-survey-primary-color: #2563eb;
+            --ph-survey-border-color: #e5e7eb;
+            --ph-survey-border-radius: 8px;
+            --ph-survey-background-color: #ffffff;
+            --ph-survey-text-primary-color: #111827;
+            --ph-survey-text-subtle-color: #6b7280;
+            --ph-survey-input-background: #ffffff;
+            --ph-survey-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            --ph-survey-box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        /* Base Layout */
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: var(--ph-survey-font-family);
             margin: 0;
             padding: 0;
-            background-color: #f9f9f9;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
             line-height: 1.6;
+            color: var(--ph-survey-text-primary-color);
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem 1rem;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 2rem;
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .survey-title {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-            color: #333;
-        }
-
-        .survey-description {
-            color: #666;
-            font-size: 1.1rem;
-        }
-
-        .survey-container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            min-height: 400px;
+        .main-container {
+            min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            padding: 1rem;
+            box-sizing: border-box;
         }
 
+        .survey-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: var(--ph-survey-box-shadow);
+            max-width: 720px;
+            width: 100%;
+            overflow: hidden;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        /* Survey Header */
+        .survey-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.75rem 2rem 1.5rem;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .survey-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .survey-description {
+            font-size: 1rem;
+            margin: 0;
+            opacity: 0.9;
+            line-height: 1.4;
+        }
+
+        /* Survey Content */
+        .survey-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .survey-box {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .bottom-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .survey-form,
+        .thank-you-message {
+            width: 100%;
+            margin: 0;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            background: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 0;
+        }
+
+        /* Question Styling */
+        .survey-question {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--ph-survey-text-primary-color);
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        .survey-question-description {
+            font-size: 1rem;
+            color: var(--ph-survey-text-subtle-color);
+            margin-top: 0.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .question-container,
+        .thank-you-message {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .response-choice {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+
+        /* Input Styling */
+        textarea,
+        input[type='text'] {
+            border: 2px solid var(--ph-survey-border-color);
+            border-radius: var(--ph-survey-border-radius);
+            padding: 1rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            transition: all 0.2s ease;
+            background: var(--ph-survey-input-background);
+            color: var(--ph-survey-text-primary-color);
+            width: 100%;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        textarea:focus,
+        input[type='text']:focus {
+            outline: none;
+            border-color: var(--ph-survey-primary-color);
+            box-shadow: var(--ph-survey-focus-ring);
+        }
+
+        textarea:hover:not(:focus),
+        input[type='text']:hover:not(:focus) {
+            border-color: var(--ph-survey-primary-color);
+        }
+
+        /* Multiple Choice Options */
+        .multiple-choice-options {
+            display: flex;
+            flex-direction: column;
+            gap: 0.625rem;
+            flex: 1;
+            justify-content: flex-start;
+            overflow-y: auto;
+            max-height: 400px;
+            padding-right: 0.5rem;
+            margin: 0;
+            padding-left: 0;
+            border: none;
+        }
+
+        /* Fieldset styling */
+        fieldset {
+            border: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .multiple-choice-options label {
+            border: 2px solid var(--ph-survey-border-color);
+            border-radius: var(--ph-survey-border-radius);
+            padding: 0.875rem 1.25rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: white;
+            font-size: 1rem;
+            min-height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+            color: var(--ph-survey-text-primary-color);
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .choice-option-open {
+            flex-wrap: wrap;
+        }
+
+        .multiple-choice-options label:hover:not(:has(input:checked)) {
+            border-color: #d1d5db;
+            background: #f9fafb;
+        }
+
+        .multiple-choice-options label:has(input:checked) {
+            border-color: var(--ph-survey-primary-color);
+            background: #eff6ff;
+        }
+
+        .multiple-choice-options input[type='checkbox'],
+        .multiple-choice-options input[type='radio'] {
+            appearance: none;
+            width: 1rem;
+            height: 1rem;
+            background: var(--ph-survey-input-background);
+            border: 1.5px solid var(--ph-survey-border-color);
+            cursor: pointer;
+            border-radius: 3px;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+            position: relative;
+            margin: 0;
+        }
+
+        .multiple-choice-options input[type='radio'] {
+            border-radius: 50%;
+        }
+
+        .multiple-choice-options input[type='checkbox']:hover,
+        .multiple-choice-options input[type='radio']:hover {
+            border-color: var(--ph-survey-primary-color);
+            transform: scale(1.05);
+        }
+
+        .multiple-choice-options input[type='checkbox']:checked,
+        .multiple-choice-options input[type='radio']:checked {
+            background: var(--ph-survey-primary-color);
+            border-color: var(--ph-survey-primary-color);
+        }
+
+        .multiple-choice-options input[type='checkbox']:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            width: 4px;
+            height: 8px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .multiple-choice-options input[type='radio']:checked::after {
+            content: '';
+            position: absolute;
+            left: 3.5px;
+            top: 3.5px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: white;
+        }
+
+        /* Rating Styles */
+        .rating-text {
+            display: flex;
+            flex-direction: row;
+            font-size: 0.8rem;
+            justify-content: space-between;
+            opacity: 0.7;
+        }
+
+        .rating-options-number {
+            display: grid;
+            grid-auto-columns: 1fr;
+            grid-auto-flow: column;
+            border-radius: var(--ph-survey-border-radius);
+            overflow: hidden;
+            border: 2px solid var(--ph-survey-border-color);
+        }
+
+        .ratings-number {
+            padding: 0.875rem 0;
+            border: none;
+            background-color: #f8fafc;
+            border-right: 1px solid var(--ph-survey-border-color);
+            text-align: center;
+            cursor: pointer;
+            color: #374151;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .ratings-number:last-of-type {
+            border-right: 0;
+        }
+
+        .ratings-number:hover {
+            background: #f3f4f6;
+        }
+
+        .ratings-number.rating-active {
+            background: var(--ph-survey-primary-color);
+            color: white;
+        }
+
+        /* Button Styling */
+        .form-submit {
+            background: var(--ph-survey-primary-color);
+            border: none;
+            border-radius: var(--ph-survey-border-radius);
+            padding: 0.875rem 2rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            margin-top: 1rem;
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .form-submit:hover:not([disabled]) {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+
+        .form-submit:active:not([disabled]) {
+            transform: translateY(0);
+        }
+
+        .form-submit[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Footer Branding */
+        .footer-branding {
+            font-size: 11px;
+            font-weight: 500;
+            display: flex;
+            justify-content: center;
+            gap: 4px;
+            align-items: center;
+            text-decoration: none;
+            opacity: 0.6;
+            transition: all 0.2s ease;
+            color: var(--ph-survey-text-subtle-color);
+            font-family: var(--ph-survey-font-family);
+        }
+
+        .footer-branding:hover {
+            opacity: 1;
+        }
+
+        .footer-branding a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        /* Thank You Message */
+        .thank-you-message {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .thank-you-message-header {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--ph-survey-text-primary-color);
+            margin: 0 0 1rem 0;
+        }
+
+        .thank-you-message-body {
+            font-size: 1rem;
+            color: var(--ph-survey-text-subtle-color);
+            opacity: 0.8;
+        }
+
+        /* Scrollbar Styling */
+        .multiple-choice-options::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 3px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .multiple-choice-options::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Loading State */
         .loading {
             text-align: center;
-            padding: 3rem;
-            color: #666;
+            padding: 3rem 2rem;
+            color: var(--ph-survey-text-subtle-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
         }
 
         .loading-spinner {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #333;
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid var(--ph-survey-primary-color);
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-right: 10px;
+            margin-bottom: 1rem;
         }
 
+        .loading-text {
+            font-size: 1.125rem;
+            font-weight: 500;
+        }
+
+        /* Hide loading when survey is rendered */
+        #posthog-survey-container:has(.ph-survey) .loading {
+            display: none;
+        }
+
+        /* Animations */
         @keyframes spin {
             0% {
                 transform: rotate(0deg);
@@ -79,39 +464,108 @@
             }
         }
 
-        /* Hide the loading message once PostHog survey is rendered */
-        .survey-container:has(.ph-survey) .loading {
-            display: none;
-        }
-
-        /* Responsive design */
-        @media (max-width: 768px) {
-            .container {
-                padding: 1rem 0.5rem;
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
             }
 
-            .header {
-                padding: 1.5rem;
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .main-container {
+                padding: 0.5rem;
+            }
+
+            .survey-header {
+                padding: 1.5rem 1.5rem 1.25rem;
             }
 
             .survey-title {
                 font-size: 1.5rem;
+            }
+
+            .survey-description {
+                font-size: 0.9rem;
+            }
+
+            .survey-form,
+            .thank-you-message {
+                padding: 1.25rem 1.5rem;
+            }
+
+            .multiple-choice-options {
+                max-height: 256px;
+            }
+        }
+
+        @media (max-height: 700px) {
+            .main-container {
+                padding: 0.75rem;
+            }
+
+            .survey-header {
+                padding: 1.25rem 2rem 1rem;
+            }
+
+            .survey-title {
+                font-size: 1.5rem;
+                margin-bottom: 0.25rem;
+            }
+
+            .survey-description {
+                font-size: 0.9rem;
+            }
+
+            .survey-form,
+            .thank-you-message {
+                padding: 1.25rem 2rem;
+            }
+        }
+
+        /* Utility classes */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        /* Motion preferences */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <div class="header">
-            <h1 class="survey-title">{{ survey.name }}</h1>
-            <p class="survey-description">Please take a moment to share your feedback</p>
-        </div>
+    <div class="main-container">
+        <div class="survey-card">
+            <div class="survey-header">
+                <h1 class="survey-title">{{ name }}</h1>
+            </div>
 
-        <div class="survey-container" id="posthog-survey-container">
-            <div class="loading">
-                <div class="loading-spinner"></div>
-                Loading survey...
+            <div class="survey-content">
+                <div id="posthog-survey-container">
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">Loading survey...</div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -120,6 +574,71 @@
     <script>
         // Project configuration from Django context
         window.projectConfig = {{ project_config_json | safe }};
+        window.surveyName = "{{ name }}";
+        window.surveyId = "{{ id }}";
+        window.surveyAppearance = {{ appearance | safe }};
+
+        // Apply survey appearance settings as CSS variables
+        function applySurveyAppearance(appearance) {
+            if (!appearance) return;
+
+            const root = document.documentElement;
+
+            // Helper function to get contrasting text color
+            function getContrastingTextColor(backgroundColor) {
+                // Convert hex to RGB
+                const hex = backgroundColor.replace('#', '');
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+
+                // Calculate luminance
+                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+                return luminance > 0.5 ? '#020617' : '#ffffff';
+            }
+
+            // Apply custom appearance settings
+            if (appearance.backgroundColor) {
+                root.style.setProperty('--ph-survey-background-color', appearance.backgroundColor);
+                root.style.setProperty('--ph-survey-text-primary-color', getContrastingTextColor(appearance.backgroundColor));
+            }
+            if (appearance.submitButtonColor) {
+                root.style.setProperty('--ph-survey-primary-color', appearance.submitButtonColor);
+                root.style.setProperty('--ph-survey-submit-button-text-color',
+                    appearance.submitButtonTextColor || getContrastingTextColor(appearance.submitButtonColor));
+            }
+            if (appearance.ratingButtonColor) {
+                root.style.setProperty('--ph-survey-rating-bg-color', appearance.ratingButtonColor);
+                root.style.setProperty('--ph-survey-rating-text-color', getContrastingTextColor(appearance.ratingButtonColor));
+            }
+            if (appearance.ratingButtonActiveColor) {
+                root.style.setProperty('--ph-survey-rating-active-bg-color', appearance.ratingButtonActiveColor);
+                root.style.setProperty('--ph-survey-rating-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
+            }
+            if (appearance.borderColor) {
+                root.style.setProperty('--ph-survey-border-color', appearance.borderColor);
+            }
+            if (appearance.fontFamily) {
+                const fontFamily = appearance.fontFamily === 'inherit' ?
+                    '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif' :
+                    appearance.fontFamily;
+                root.style.setProperty('--ph-survey-font-family', fontFamily);
+            }
+            if (appearance.maxWidth) {
+                root.style.setProperty('--ph-survey-max-width', appearance.maxWidth);
+            }
+        }
+
+        console.log('Applying survey appearance');
+        console.log({
+            appearance: window.surveyAppearance,
+        })
+
+        // Apply survey appearance if available
+        if (window.surveyAppearance) {
+            applySurveyAppearance(window.surveyAppearance);
+        }
 
         // Load PostHog from CDN
         !function (t, e) { var o, n, p, r; e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) { function g(t, e) { var o = e.split("."); 2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () { t.push([e].concat(Array.prototype.slice.call(arguments, 0))) } } (p = t.createElement("script")).type = "text/javascript", p.crossOrigin = "anonymous", p.async = !0, p.src = s.api_host.replace(".i.posthog.com", "-assets.i.posthog.com") + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r); var u = e; for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) { var e = "posthog"; return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e }, u.people.toString = function () { return u.toString(1) + ".people (stub)" }, o = "init Ie Ts Ms Ee Es Rs capture Ge calculateEventProperties Os register register_once register_for_session unregister unregister_for_session js getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Ds Fs createPersonProfile Ls Ps opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Cs debug I As getPageViewId captureTraceFeedback captureTraceMetric".split(" "), n = 0; n < o.length; n++)g(u, o[n]); e._i.push([i, s, a]) }, e.__SV = 1) }(document, window.posthog || []);
@@ -127,9 +646,12 @@
         // Initialize PostHog with project configuration
         const config = {
             api_host: window.projectConfig.api_host,
-            disable_popup_surveys: true,
-            debug: true,
-            advanced_disable_toolbar_metrics: true
+            disable_surveys_automatic_display: true,
+            debug: false,
+            advanced_disable_toolbar_metrics: true,
+            persistence: 'localStorage',
+            capture_pageview: false, // Don't capture pageviews for survey pages
+            capture_pageleave: false
         };
 
         // Add ui_host if available (for reverse proxy setups)
@@ -139,17 +661,48 @@
 
         posthog.init(window.projectConfig.token, config);
 
-        posthog.onSurveysLoaded(() => {
-            // Once PostHog is loaded, render the survey
-            console.log('PostHog loaded, rendering survey id: ', window.projectConfig.survey_id);
+        let surveyRendered = false;
+        let retryCount = 0;
+        const maxRetries = 5;
+
+        function renderSurveyWithRetry() {
+            if (surveyRendered) return;
+
             try {
-                posthog.renderSurvey(window.projectConfig.survey_id, '#posthog-survey-container');
+                posthog.renderSurvey(window.surveyId, '#posthog-survey-container');
+                surveyRendered = true;
+
+                // Track survey view
+                posthog.capture('survey_shown', {
+                    survey_id: window.surveyId,
+                    survey_name: window.surveyName,
+                    source: 'external_link'
+                });
             } catch (error) {
                 console.error('Error rendering survey:', error);
-                document.getElementById('posthog-survey-container').innerHTML =
-                    '<div style="text-align: center; padding: 2rem; color: #666;">Sorry, there was an error loading this survey.</div>';
+                retryCount++;
+
+                if (retryCount < maxRetries) {
+                    // Retry after a delay
+                    setTimeout(renderSurveyWithRetry, 1000 * retryCount);
+                } else {
+                    // Show error message after max retries
+                    document.getElementById('posthog-survey-container').innerHTML =
+                        '<div class="error-message">Sorry, there was an error loading this survey. Please try refreshing the page.</div>';
+                }
             }
+        }
+
+        posthog.onSurveysLoaded(() => {
+            renderSurveyWithRetry();
         });
+
+        // Fallback timeout in case onSurveysLoaded doesn't fire
+        setTimeout(() => {
+            if (!surveyRendered) {
+                renderSurveyWithRetry();
+            }
+        }, 5000);
 
     </script>
 </body>
