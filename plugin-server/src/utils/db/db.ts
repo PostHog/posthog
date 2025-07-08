@@ -698,10 +698,11 @@ export class DB {
             'updatePersonAssertVersion'
         )
 
-        const updatedPerson = this.toPerson(rows[0])
         if (rows.length === 0) {
             return [undefined, []]
         }
+
+        const updatedPerson = this.toPerson(rows[0])
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
