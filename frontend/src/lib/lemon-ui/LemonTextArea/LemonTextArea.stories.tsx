@@ -30,7 +30,7 @@ export const WithMaxLength: Story = Template.bind({})
 WithMaxLength.args = { maxLength: 100, value: '1234567890' }
 
 export const WithMaxLengthExceeded: Story = Template.bind({})
-WithMaxLength.args = { maxLength: 5, value: '1234567890' }
+WithMaxLengthExceeded.args = { maxLength: 5, value: '1234567890' }
 
 export const LemonTextMarkdown = (): JSX.Element => {
     const [value, setValue] = useState('# Title\n\n**bold** _italic_')
