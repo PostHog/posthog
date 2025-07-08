@@ -17,7 +17,7 @@ import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
-import { UpstreamGraph } from './UpstreamGraph'
+import { UpstreamGraph } from './graph/UpstreamGraph'
 
 interface QueryInfoProps {
     codeEditorKey: string

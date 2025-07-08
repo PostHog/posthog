@@ -23,24 +23,29 @@ import { useEffect, useMemo } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
-import { LineageNode } from '~/types'
+import { LineageNode as LineageNodeType } from '~/types'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { multitabEditorLogic } from '../../multitabEditorLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { EmptyState } from './EmptyState'
 
 interface UpstreamGraphProps {
     codeEditorKey: string
 }
 
-interface LineageNodeComponentProps {
-    data: LineageNode & { isCurrentView?: boolean }
+interface Props {
+    data: LineageNodeType & { isCurrentView?: boolean }
     edges: { source: string; target: string }[]
 }
 
 const MAT_VIEW_HEIGHT = 92
 const TABLE_HEIGHT = 68
+const NODE_WIDTH = 240
+const MARKER_SIZE = 20
+const NODE_SEP = 80
+const RANK_SEP = 160
 
-function LineageNodeComponent({ data, edges }: LineageNodeComponentProps): JSX.Element {
+function LineageNode({ data, edges }: Props): JSX.Element {
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
             return lastRunAt ? 'Mat. View' : 'View'
@@ -65,7 +70,7 @@ function LineageNodeComponent({ data, edges }: LineageNodeComponentProps): JSX.E
 
     return (
         <div
-            className="bg-bg-light border border-border rounded-lg p-3 min-w-[200px] shadow-sm"
+            className={`bg-bg-light border border-border rounded-lg p-3 min-w-[${NODE_WIDTH}px] shadow-sm`}
             style={{ minHeight: nodeHeight }}
         >
             {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
@@ -104,25 +109,24 @@ function LineageNodeComponent({ data, edges }: LineageNodeComponentProps): JSX.E
     )
 }
 
-// We'll inject edges as a prop to each node
 const getNodeTypes = (edges: { source: string; target: string }[]): NodeTypes => ({
-    lineageNode: (props) => <LineageNodeComponent {...props} edges={edges} />,
+    lineageNode: (props) => <LineageNode {...props} edges={edges} />,
 })
 
 // Layout the graph using dagre
 const getLayoutedElements = (
-    nodes: LineageNode[],
+    nodes: LineageNodeType[],
     edges: { source: string; target: string }[],
     currentViewName?: string
 ): { nodes: Node[]; edges: Edge[] } => {
     const dagreGraph = new dagre.graphlib.Graph()
     dagreGraph.setDefaultEdgeLabel(() => ({}))
-    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 68, ranksep: 160 })
+    dagreGraph.setGraph({ rankdir: 'LR', nodesep: NODE_SEP, ranksep: RANK_SEP })
 
     // Add nodes and edges to dagre
     nodes.forEach((node) => {
         const isMatView = node.type === 'view' && !!node.last_run_at
-        dagreGraph.setNode(node.id, { width: 240, height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT })
+        dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT })
     })
     edges.forEach((edge) => {
         dagreGraph.setEdge(edge.source, edge.target)
@@ -146,7 +150,7 @@ const getLayoutedElements = (
                 ...node,
                 isCurrentView: node.name === currentViewName,
             },
-            width: 240,
+            width: NODE_WIDTH,
             height: isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT,
         }
     })
@@ -159,8 +163,8 @@ const getLayoutedElements = (
         animated: false,
         markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 20,
-            height: 20,
+            width: MARKER_SIZE,
+            height: MARKER_SIZE,
         },
     }))
 
@@ -189,12 +193,10 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
     if (!upstream || upstream.nodes.length === 0) {
         return (
-            <div className="w-full h-full flex items-center justify-center text-muted">
-                <div className="text-center">
-                    <div className="text-lg mb-2">No tables or views found</div>
-                    <div className="text-sm">This query doesn't depend on any other tables or views</div>
-                </div>
-            </div>
+            <EmptyState
+                heading="No tables or views found"
+                detail="This query doesn't depend on any other tables or views"
+            />
         )
     }
 
