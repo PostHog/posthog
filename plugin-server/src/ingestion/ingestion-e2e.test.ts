@@ -820,6 +820,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
             expect(persons.length).toEqual(2)
@@ -880,6 +882,8 @@ describe('Event Pipeline E2E tests', () => {
         const event2 = new EventBuilder(team, secondDistinctId).withEvent('custom event 2').withProperties({}).build()
 
         await ingester.handleKafkaBatch(createKafkaMessages([event1, event2]))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
