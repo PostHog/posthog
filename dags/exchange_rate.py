@@ -234,7 +234,7 @@ def daily_exchange_rates_in_clickhouse(
 
     # Store the rates in ClickHouse
     rows, values = store_exchange_rates_in_clickhouse(
-        context=dagster.build_op_context(), date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
+        context=context, date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
     )
 
     # Calculate some statistics for metadata
@@ -275,7 +275,7 @@ def hourly_exchange_rates_in_clickhouse(
 
     # Store the rates in ClickHouse
     rows, values = store_exchange_rates_in_clickhouse(
-        context=dagster.build_op_context(), date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
+        context=context, date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
     )
 
     # Calculate some statistics for metadata
