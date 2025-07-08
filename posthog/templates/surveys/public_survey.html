@@ -10,7 +10,6 @@
         /* CSS Variables */
         :root {
             --ph-survey-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
-            --ph-survey-primary-color: #2563eb;
             --ph-survey-border-color: #e5e7eb;
             --ph-survey-border-radius: 8px;
             --ph-survey-card-border-radius: 16px;
@@ -24,7 +23,7 @@
             --ph-survey-submit-button-color: #2563eb;
             --ph-survey-submit-button-text-color: white;
             --ph-survey-rating-button-color: #f8fafc;
-            --ph-survey-rating-button-active-color: #2563eb;
+            --ph-survey-rating-active-bg-color: #2563eb;
             --ph-survey-rating-button-text-color: #374151;
             --ph-survey-rating-button-active-text-color: white;
             --ph-survey-disabled-button-opacity: 0.6;
@@ -179,13 +178,13 @@
         textarea:focus,
         input[type='text']:focus {
             outline: none;
-            border-color: var(--ph-survey-primary-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
             box-shadow: var(--ph-survey-focus-ring);
         }
 
         textarea:hover:not(:focus),
         input[type='text']:hover:not(:focus) {
-            border-color: var(--ph-survey-primary-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
         }
 
         /* Multiple Choice Options */
@@ -237,7 +236,7 @@
         }
 
         .multiple-choice-options label:has(input:checked) {
-            border-color: var(--ph-survey-primary-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
             background: #eff6ff;
         }
 
@@ -262,14 +261,14 @@
 
         .multiple-choice-options input[type='checkbox']:hover,
         .multiple-choice-options input[type='radio']:hover {
-            border-color: var(--ph-survey-primary-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
             transform: scale(1.05);
         }
 
         .multiple-choice-options input[type='checkbox']:checked,
         .multiple-choice-options input[type='radio']:checked {
-            background: var(--ph-survey-primary-color);
-            border-color: var(--ph-survey-primary-color);
+            background: var(--ph-survey-rating-active-bg-color);
+            border-color: var(--ph-survey-rating-active-bg-color);
         }
 
         .multiple-choice-options input[type='checkbox']:checked::after {
@@ -334,7 +333,7 @@
         }
 
         .ratings-number.rating-active {
-            background: var(--ph-survey-rating-button-active-color);
+            background: var(--ph-survey-rating-active-bg-color);
             color: var(--ph-survey-rating-button-active-text-color);
         }
 
@@ -448,7 +447,7 @@
             width: 32px;
             height: 32px;
             border: 3px solid #e5e7eb;
-            border-top: 3px solid var(--ph-survey-primary-color);
+            border-top: 3px solid var(--ph-survey-rating-active-bg-color);
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin-bottom: 1rem;
@@ -837,7 +836,7 @@
             }
 
             if (appearance.ratingButtonActiveColor) {
-                root.style.setProperty('--ph-survey-rating-button-active-color', appearance.ratingButtonActiveColor);
+                root.style.setProperty('--ph-survey-rating-active-bg-color', appearance.ratingButtonActiveColor);
                 root.style.setProperty('--ph-survey-rating-button-active-text-color', getContrastingTextColor(appearance.ratingButtonActiveColor));
             }
 
