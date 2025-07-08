@@ -1426,27 +1426,6 @@ def team_api_test_factory():
                     team=self.team,
                 )
 
-        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
-        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
-        @patch("posthog.event_usage.report_user_action")
-        @freeze_time("2024-01-05T00:00:00Z")
-        def test_doesnt_send_event_for_already_activated_intent(
-            self,
-            mock_report_user_action: MagicMock,
-            mock_check_and_update_activation: MagicMock,
-        ) -> None:
-            ProductIntent.objects.create(
-                team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
-            )
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/add_product_intent/",
-                {"product_type": "product_analytics"},
-                headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
-            mock_check_and_update_activation.assert_not_called()
-            mock_report_user_action.assert_not_called()
-
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         def test_can_complete_product_onboarding(

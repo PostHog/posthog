@@ -1,5 +1,5 @@
-import { DataWarehouseNode } from '~/queries/schema/schema-general'
-import { ExternalDataSourceType, ManualLinkSourceType } from '~/types'
+import { DataWarehouseNode, ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import { googleAdsCostTile } from './marketingCostTile'
