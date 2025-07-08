@@ -35,7 +35,7 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         showLegend,
         hiddenLegendIndexes,
         querySource,
@@ -121,7 +121,7 @@ export function ActionsLineGraph({
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !isDataWarehouseSeries)
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
                     ? (payload) => {
                           const { index, points } = payload
 

@@ -75,7 +75,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'lifecycleFilter',
                 'stickinessFilter',
                 'isTrends',
-                'isDataWarehouseSeries',
+                'hasDataWarehouseSeries',
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',

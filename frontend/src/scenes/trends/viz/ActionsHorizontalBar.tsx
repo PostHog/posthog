@@ -29,7 +29,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         trendsFilter,
         formula,
         showValuesOnSeries,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
@@ -91,7 +91,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             onClick={
-                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !isDataWarehouseSeries)
+                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
                     ? (point) => {
                           const { index, points } = point
 

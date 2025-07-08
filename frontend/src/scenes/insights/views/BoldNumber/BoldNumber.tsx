@@ -88,7 +88,7 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, compareFilter, querySource, isDataWarehouseSeries } = useValues(
+    const { insightData, trendsFilter, compareFilter, querySource, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
 
@@ -105,7 +105,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
-                        : showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries // != is intentional to catch undefined too
+                        : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
                         ? () => {
                               openPersonsModal({
                                   title: resultSeries.label,
