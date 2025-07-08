@@ -1,13 +1,7 @@
-import {
-    type ExperimentVariantResult,
-    isBayesianResult,
-    getNiceTickValues,
-    valueToXCoordinate,
-    formatTickValue,
-} from '../shared/utils'
+import { type ExperimentVariantResult, isBayesianResult } from '../shared/utils'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } from './constants'
-import { COLORS } from '../shared/colors'
+import { ChartAxis } from '../shared/axis'
 
 interface TableHeaderProps {
     results: NewExperimentQueryResponse[]
@@ -44,43 +38,20 @@ export function TableHeader({ results, chartRadius }: TableHeaderProps): JSX.Ele
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
-                                className="w-full"
+                                className="w-full max-w-[1000px]"
                                 style={{ minHeight: `${TICK_PANEL_HEIGHT + 10}px` }}
                             >
-                                {/* Grid lines */}
-                                {getNiceTickValues(chartRadius).map((value) => {
-                                    const x = valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-                                    return (
-                                        <line
-                                            key={value}
-                                            x1={x}
-                                            y1={0}
-                                            x2={x}
-                                            y2={TICK_PANEL_HEIGHT + 10}
-                                            stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
-                                            strokeWidth={value === 0 ? 1 : 0.5}
-                                            opacity={0.3}
-                                        />
-                                    )
-                                })}
-                                {/* Tick values */}
-                                {getNiceTickValues(chartRadius).map((value) => {
-                                    const x = valueToXCoordinate(value, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-                                    return (
-                                        <text
-                                            key={`text-${value}`}
-                                            x={x}
-                                            y={TICK_PANEL_HEIGHT / 2 + 2}
-                                            textAnchor="middle"
-                                            dominantBaseline="middle"
-                                            fontSize={TICK_FONT_SIZE}
-                                            fill={COLORS.TICK_TEXT_COLOR}
-                                            fontWeight="600"
-                                        >
-                                            {formatTickValue(value)}
-                                        </text>
-                                    )
-                                })}
+                                <ChartAxis
+                                    chartRadius={chartRadius}
+                                    height={TICK_PANEL_HEIGHT + 10}
+                                    viewBoxWidth={VIEW_BOX_WIDTH}
+                                    edgeMargin={SVG_EDGE_MARGIN}
+                                    tickLabelsY={TICK_PANEL_HEIGHT / 2 + 2}
+                                    tickLabelsProps={{
+                                        fontSize: TICK_FONT_SIZE,
+                                        fontWeight: '600',
+                                    }}
+                                />
                             </svg>
                         </div>
                     ) : (

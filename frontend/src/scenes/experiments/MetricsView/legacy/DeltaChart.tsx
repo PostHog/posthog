@@ -377,7 +377,7 @@ function ChartSVG({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement>
                 {/* Create a group for the background elements */}
                 <g className="grid-lines-layer">
                     {/* Vertical grid lines */}
-                    <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                    <GridLines tickValues={tickValues} scale={valueToX} height={chartHeight} />
                 </g>
 
                 {/* Create a group for the variant bars with higher priority */}

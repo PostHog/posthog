@@ -2,15 +2,34 @@ import { COLORS } from './colors'
 
 interface GridLinesProps {
     tickValues: number[]
-    valueToX: (value: number) => number
+    scale: (value: number) => number
     height: number
+    zeroLineColor?: string
+    gridLineColor?: string
+    zeroLineWidth?: number
+    gridLineWidth?: number
+    opacity?: number
 }
 
-export function GridLines({ tickValues, valueToX, height }: GridLinesProps): JSX.Element {
+/**
+ * Renders vertical grid lines for experiment charts.
+ * Zero line is rendered with different styling to emphasize the baseline.
+ */
+export function GridLines({
+    tickValues,
+    scale,
+    height,
+    zeroLineColor = COLORS.ZERO_LINE,
+    gridLineColor = COLORS.BOUNDARY_LINES,
+    zeroLineWidth = 1,
+    gridLineWidth = 0.5,
+    opacity = 0.3,
+}: GridLinesProps): JSX.Element {
     return (
         <>
             {tickValues.map((value) => {
-                const x = valueToX(value)
+                const x = scale(value)
+                const isZeroLine = value === 0
                 return (
                     <line
                         key={value}
@@ -18,8 +37,9 @@ export function GridLines({ tickValues, valueToX, height }: GridLinesProps): JSX
                         y1={0}
                         x2={x}
                         y2={height}
-                        stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
-                        strokeWidth={value === 0 ? 1 : 0.5}
+                        stroke={isZeroLine ? zeroLineColor : gridLineColor}
+                        strokeWidth={isZeroLine ? zeroLineWidth : gridLineWidth}
+                        opacity={opacity}
                     />
                 )
             })}
