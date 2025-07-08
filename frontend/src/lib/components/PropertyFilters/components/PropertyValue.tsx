@@ -62,7 +62,7 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
-
+    const propertyOptions = options[propertyKey]
     const isFlagDependencyProperty = type === PropertyFilterType.FlagDependency
 
     const isMultiSelect = operator && !isFlagDependencyProperty && isOperatorMulti(operator)
@@ -100,7 +100,7 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty])
 
-    const displayOptions = options[propertyKey]?.values || []
+    const displayOptions = propertyOptions?.values || []
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -205,10 +205,10 @@ export function PropertyValue({
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={options[propertyKey]?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
