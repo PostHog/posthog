@@ -535,6 +535,7 @@ def _create_tile_for_insight(
         is_sample=True,
         query=query,
         created_by=user,
+        last_modified_by=user,
     )
     DashboardTile.objects.create(
         insight=insight,
