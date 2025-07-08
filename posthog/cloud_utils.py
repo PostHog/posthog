@@ -55,7 +55,7 @@ def get_cached_instance_license() -> Optional["License"]:
 
     # No license found locally, create one for dev mode
     if not license and is_dev_mode():
-        dev_uuid = "i-will-add-it-before-merging"
+        dev_uuid = "69004a5f-a7da-499a-a63a-338f996b6f7a"
         license = License.objects.create(
             key=f"{dev_uuid}::{settings.LICENSE_SECRET_KEY}",
             plan="enterprise",
