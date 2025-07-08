@@ -1291,7 +1291,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        self.external_logger.info("Starting multipart upload for file number %s", self._get_current_key())
+        self.external_logger.info(
+            "Starting multipart upload to '%s' for file number %d", self._get_current_key(), self.current_file_index
+        )
 
     async def _finalize_current_file(self):
         """Finalize the current file before starting a new one"""
@@ -1317,9 +1319,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                 await self._complete_multipart_upload()
 
             self.files_uploaded.append(self._get_current_key())
-            self.external_logger.info(
-                "Completed multipart upload for file number %s", self.upload_id, self.current_file_index
-            )
+            self.external_logger.info("Completed multipart upload for file number %d", self.current_file_index)
 
         except Exception:
             # Cleanup on error
@@ -1388,7 +1388,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             manifest_key = get_manifest_key(self.s3_inputs)
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await upload_manifest_file(self.s3_inputs, self.files_uploaded, manifest_key)
-            self.external_logger.info("All uploads completed. Number of files uploaded = %d", len(self.files_uploaded))
+            self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
