@@ -36,8 +36,7 @@ HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(
         2025, 3, 10
     ),  # Start in March 2025 because that's when we started using hourly updates
     minute_offset=45,  # Run at XX:45 to avoid peak load at the top of the hour
-    end_offset=12,
-    # Generate 12 partitions after the current hour to be safe (1 should be enough, 0 breaks our workflow)
+    end_offset=12,  # Generate 12 partitions after the current hour to be safe (1 should be enough, 0 breaks our workflow)
 )
 
 
@@ -180,7 +179,8 @@ def store_exchange_rates_in_clickhouse(
         def insert(client: Client) -> bool:
             try:
                 client.execute(
-                    EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values), settings=settings_with_log_comment(context)
+                    EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values),
+                    settings=settings_with_log_comment(context),
                 )
                 context.log.info("Successfully inserted exchange rates")
                 return True
