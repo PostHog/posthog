@@ -4695,12 +4695,17 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         .await
         .unwrap();
 
+    const LEAF_FLAG_ID: i32 = 1;
+    const INTERMEDIATE_FLAG_ID: i32 = 2;
+    const PARENT_FLAG_ID: i32 = 3;
+    const INDEPENDENT_FLAG_ID: i32 = 4;
+
     // Create a dependency chain: parent_flag -> intermediate_flag -> leaf_flag
     // parent_flag depends on intermediate_flag being true
     // intermediate_flag depends on leaf_flag being true
     let flag_json = json!([
         {
-            "id": 1,
+            "id": LEAF_FLAG_ID,
             "key": "leaf_flag",
             "name": "Leaf Flag",
             "active": true,
@@ -4723,7 +4728,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             }
         },
         {
-            "id": 2,
+            "id": INTERMEDIATE_FLAG_ID,
             "key": "intermediate_flag",
             "name": "Intermediate Flag",
             "active": true,
@@ -4734,7 +4739,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                     {
                         "properties": [
                             {
-                                "key": "1", // This references leaf_flag's ID
+                                "key": LEAF_FLAG_ID.to_string(),
                                 "value": true,
                                 "operator": "exact",
                                 "type": "flag"
@@ -4746,7 +4751,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             }
         },
         {
-            "id": 3,
+            "id": PARENT_FLAG_ID,
             "key": "parent_flag",
             "name": "Parent Flag",
             "active": true,
@@ -4757,7 +4762,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                     {
                         "properties": [
                             {
-                                "key": "2", // This references intermediate_flag's ID
+                                "key": INTERMEDIATE_FLAG_ID.to_string(),
                                 "value": true,
                                 "operator": "exact",
                                 "type": "flag"
@@ -4769,7 +4774,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
             }
         },
         {
-            "id": 4,
+            "id": INDEPENDENT_FLAG_ID,
             "key": "independent_flag",
             "name": "Independent Flag",
             "active": true,
