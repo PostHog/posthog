@@ -2,8 +2,19 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
 
 type Action = Extract<HogFlowAction, { type: 'random_cohort_branch' }>
+
+export class RandomCohortBranchHandler implements ActionHandler {
+    execute(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'random_cohort_branch' }>
+    ): ActionHandlerResult {
+        const nextAction = getRandomCohort(invocation, action)
+        return { nextAction }
+    }
+}
 
 export function getRandomCohort(invocation: CyclotronJobInvocationHogFlow, action: Action): HogFlowAction {
     const random = Math.random() * 100 // 0-100
