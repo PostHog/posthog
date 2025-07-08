@@ -439,10 +439,24 @@ class FeatureFlagSerializer(
 
         validated_data["last_modified_by"] = request.user
 
-        if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
-            raise exceptions.ValidationError(
-                "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
-            )
+        if "deleted" in validated_data and validated_data["deleted"] is True:
+            # Check for early access features first
+            if instance.features.count() > 0:
+                raise exceptions.ValidationError(
+                    "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
+                )
+
+            # Check for active (non-deleted) experiments
+            active_experiments = instance.experiment_set.filter(deleted=False)
+            if active_experiments.exists():
+                experiment_ids = list(active_experiments.values_list("id", flat=True))
+                raise exceptions.ValidationError(
+                    f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
+                )
+
+            # If all experiments are soft-deleted, rename the key to free it up
+            if instance.experiment_set.filter(deleted=True).exists():
+                validated_data["key"] = f"{instance.key}_deleted_{instance.id}"
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
@@ -468,11 +482,8 @@ class FeatureFlagSerializer(
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
-            if validated_key:
-                # Delete any soft deleted feature flags with the same key to prevent conflicts
-                FeatureFlag.objects.filter(
-                    key=validated_key, team__project_id=instance.team.project_id, deleted=True
-                ).delete()
+            # Note: We no longer need to delete soft-deleted flags with the same key
+            # because we handle key reuse proactively when soft-deleting flags
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
