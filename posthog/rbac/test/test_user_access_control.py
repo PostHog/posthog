@@ -650,7 +650,7 @@ class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
     def test_access_source_without_access_controls_supported(self):
         """Test access source when access controls are not supported"""
         # Disable access controls
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
         # Create a dashboard by another user

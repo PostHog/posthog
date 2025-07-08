@@ -125,7 +125,7 @@ class UserAccessControl:
         self._organization_id = organization_id
 
     def _clear_cache(self):
-        """Clear all cached properties"""
+        self._cache = {}
         if hasattr(self, "_cached_access_controls"):
             delattr(self, "_cached_access_controls")
         if hasattr(self, "_organization_membership"):
@@ -427,6 +427,9 @@ class UserAccessControl:
             return AccessSource.EXPLICIT_ROLE
 
         # Check for project-level access
+        if self._team is None:
+            return AccessSource.DEFAULT
+
         project_filters = self._access_controls_filters_for_object("project", str(self._team.id))
         project_access_controls = self._get_access_controls(project_filters)
         if any(
