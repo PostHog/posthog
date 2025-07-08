@@ -63,7 +63,9 @@ export function PropertyValue({
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isFlagDependencyProperty = type === PropertyFilterType.FlagDependency
+
+    const isMultiSelect = operator && !isFlagDependencyProperty && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
