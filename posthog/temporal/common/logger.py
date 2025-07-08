@@ -179,6 +179,7 @@ def configure_logger_async(
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
     cache_logger_on_first_use: bool = True,
+    loop: None | asyncio.AbstractEventLoop = None,
 ) -> None:
     """Configure a StructLog logger for temporal workflows.
 
@@ -219,7 +220,9 @@ def configure_logger_async(
     log_producer_error = None
 
     try:
-        log_producer = KafkaLogProducerFromQueueAsync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
+        log_producer = KafkaLogProducerFromQueueAsync(
+            queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+        )
     except Exception as e:
         # Skip putting logs in queue if we don't have a producer that can consume the queue.
         # We save the error to log it later as the logger hasn't yet been configured at this time.
@@ -254,7 +257,7 @@ def configure_logger_async(
         logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    listen_task = create_logger_background_task(log_producer.listen())
+    listen_task = create_logger_background_task(log_producer.listen(), loop=loop)
 
     async def worker_shutdown_handler():
         """Gracefully handle a Temporal Worker shutting down.
@@ -269,16 +272,20 @@ def configure_logger_async(
 
         await asyncio.wait([listen_task])
 
-    create_logger_background_task(worker_shutdown_handler())
+    create_logger_background_task(worker_shutdown_handler(), loop=loop)
 
 
-def create_logger_background_task(task) -> asyncio.Task:
+def create_logger_background_task(task, loop: None | asyncio.AbstractEventLoop = None) -> asyncio.Task:
     """Create an asyncio.Task and add them to BACKGROUND_LOGGER_TASKS.
 
     Adding them to BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they won't
     be garbage collected and disappear mid execution.
     """
-    new_task = asyncio.create_task(task)
+    if loop:
+        new_task = loop.create_task(task)
+    else:
+        new_task = asyncio.create_task(task)
+
     BACKGROUND_LOGGER_TASKS.add(new_task)
     new_task.add_done_callback(BACKGROUND_LOGGER_TASKS.discard)
 
@@ -425,6 +432,7 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         key: str | None = None,
         producer: aiokafka.AIOKafkaProducer | None = None,
+        loop: None | asyncio.AbstractEventLoop = None,
     ):
         self.queue = queue
         self.topic = topic
@@ -438,6 +446,7 @@ class KafkaLogProducerFromQueueAsync:
                 acks="all",
                 api_version="2.5.0",
                 ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+                loop=loop,
             )
         )
         self.logger = structlog.get_logger()

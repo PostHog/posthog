@@ -184,11 +184,7 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-            logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
-            configure_logger_async()
-
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
@@ -202,6 +198,12 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
+            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+                logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
+                configure_logger_async(loop=runner.get_loop())
+
+            logger.info(f"Starting Temporal Worker with options: {options}")
+
             worker = runner.run(
                 create_worker(
                     temporal_host,
