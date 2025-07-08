@@ -7,35 +7,11 @@ import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
-import { HogFunctionTemplate } from '../templates/types'
+import { Response } from '../templates/types'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
-
-export type Response = {
-    status: number
-    data: any
-    content: string
-    headers: Record<string, any>
-}
-
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
-    perform: (
-        request: (
-            url: string,
-            options: {
-                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
-                headers: Record<string, any>
-                json?: any
-                body?: string | URLSearchParams
-                throwHttpErrors?: boolean
-                searchParams?: Record<string, any>
-            }
-        ) => Promise<Response>,
-        inputs: Record<string, any>
-    ) => Promise<Response> | void
-}
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
