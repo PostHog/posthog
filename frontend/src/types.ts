@@ -970,6 +970,12 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface FlagDependencyPropertyFilter extends Omit<BasePropertyFilter, 'value'> {
+    type: PropertyFilterType.FlagDependency
+    operator: PropertyOperator
+    value?: PropertyFilterBaseValue | boolean | (PropertyFilterBaseValue | boolean)[] | null
+}
+
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
@@ -1000,6 +1006,7 @@ export type AnyPropertyFilter =
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | FlagDependencyPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3584,6 +3591,7 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    FlagValue = 'flag_value',
 }
 
 export interface PropertyDefinition {
@@ -5134,6 +5142,7 @@ export type CyclotronJobFilterPropertyFilter =
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | FlagDependencyPropertyFilter
     | HogQLPropertyFilter
 
 export interface CyclotronJobFiltersType {
