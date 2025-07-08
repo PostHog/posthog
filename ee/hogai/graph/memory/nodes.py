@@ -297,7 +297,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
-        core_memory = await self._aget_core_memory()
+        core_memory = self.core_memory
         if core_memory is None:
             raise ValueError("No core memory found.")
         if state.onboarding_question and core_memory.answers_left > 0:
