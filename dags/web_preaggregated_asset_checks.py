@@ -21,6 +21,8 @@ from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, Web
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
 from posthog.settings.base_variables import DEBUG
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_url,
     get_s3_web_stats_structure,
@@ -252,6 +254,24 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
     return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
 
 
+def log_query_sql(runner, query_name: str, context, team: Team, use_pre_agg: bool = False) -> None:
+    if not context:
+        return
+
+    try:
+        if use_pre_agg:
+            query_ast = runner.preaggregated_query_builder.get_query()
+        else:
+            query_ast = runner.to_query()
+
+        executor = HogQLQueryExecutor(query=query_ast, team=team, modifiers=runner.modifiers)
+        sql_with_placeholders, sql_context = executor.generate_clickhouse_sql()
+        raw_sql = substitute_params(sql_with_placeholders, sql_context.values)
+        context.log.info(f"{query_name}:\n {raw_sql}")
+    except Exception as e:
+        context.log.warning(f"Failed to log {query_name}: {e}")
+
+
 def compare_web_overview_metrics(
     team_id: int, date_from: str, date_to: str, tolerance_pct: float = DEFAULT_TOLERANCE_PCT, context=None
 ) -> tuple[bool, dict[str, Any]]:
@@ -285,14 +305,12 @@ def compare_web_overview_metrics(
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
-        if context:
-            context.log.info(f"Pre-aggregated SQL: {runner_pre_agg.to_hogql()}")
+        log_query_sql(runner_pre_agg, "Pre-aggregated SQL", context, team, use_pre_agg=True)
         start_time = time.time()
         response_pre_agg = runner_pre_agg.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         pre_agg_time = time.time() - start_time
 
-        if context:
-            context.log.info(f"Regular SQL: {runner_regular.to_hogql()}")
+        log_query_sql(runner_regular, "Regular SQL", context, team, use_pre_agg=False)
         start_time = time.time()
         response_regular = runner_regular.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         regular_time = time.time() - start_time
