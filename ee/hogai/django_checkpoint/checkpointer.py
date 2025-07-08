@@ -21,7 +21,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -217,7 +217,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         async with self._lock:
             return await self._put(config, checkpoint, metadata, new_versions)
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def _put(
         self,
         config: RunnableConfig,
@@ -296,7 +296,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         async with self._lock:
             return await self._put_writes(config, writes, task_id, task_path)
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=False)
     def _put_writes(
         self,
         config: RunnableConfig,
