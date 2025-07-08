@@ -143,7 +143,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
         return
 
     exc = task.exception()
-    await LOGGER.aexception("%s task failed", task.get_name(), exc_info=exc)
+    LOGGER.exception("%s task failed", task.get_name(), exc_info=exc)
     raise RecordBatchTaskError(repr(exc)) from exc
 
 
@@ -321,7 +321,7 @@ class Consumer:
         record_batches_count_total = 0
         records_count = 0
 
-        self.logger.debug("Consuming record batches")
+        self.logger.info("Consuming record batches directly from ClickHouse")
 
         writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
@@ -333,7 +333,7 @@ class Consumer:
             await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
             if writer.should_flush() or writer.should_hard_flush():
-                self.logger.debug(
+                self.logger.info(
                     "Flushing %d records from %d record batches", writer.records_since_last_flush, record_batches_count
                 )
 
@@ -352,7 +352,7 @@ class Consumer:
 
         records_count += writer.records_since_last_flush
 
-        self.logger.debug(
+        self.logger.info(
             "Finished consuming %d records from %d record batches, will flush any pending data",
             records_count,
             record_batches_count_total,
@@ -839,23 +839,23 @@ class Producer:
             # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
             # may not be able to handle the load from all batch exports
             if is_5_min_batch_export(full_range=full_range) and not is_backfill:
-                self.logger.info("Using events_recent table for 5 min batch export")
+                self.logger.debug("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
             elif use_distributed_events_recent_table(
                 is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
             ):
-                self.logger.info("Using distributed_events_recent table for batch export")
+                self.logger.debug("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                self.logger.info("Using events_batch_export_unbounded view for batch export")
+                self.logger.debug("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
-                self.logger.info("Using events_batch_export_backfill view for batch export")
+                self.logger.debug("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
-                self.logger.info("Using events_batch_export view for batch export")
+                self.logger.debug("Using events_batch_export view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW
                 lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
                     team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
@@ -950,7 +950,7 @@ class Producer:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_id = uuid.uuid4()
-                self.logger.info(f"Executing query with ID = {query_id}")
+                self.logger.debug("Executing query with ID '%s'", query_id)
 
                 if isinstance(query_or_model, RecordBatchModel):
                     query, query_parameters = await query_or_model.as_query_with_parameters(
@@ -1260,7 +1260,7 @@ class ConsumerFromStage:
 
                 yield record_batch
 
-        self.logger.debug("Starting consumer")
+        self.logger.info("Starting consumer from internal S3 stage")
 
         try:
             async for chunk, is_eof in transformer.iter(
@@ -1270,7 +1270,7 @@ class ConsumerFromStage:
                 chunk_size = len(chunk)
                 total_file_bytes_count += chunk_size
 
-                self.logger.debug(
+                self.logger.info(
                     f"Consuming transformed chunk. Record batch num rows: {num_records_in_batch:,}, "
                     f"record batch MiB: {num_bytes_in_batch / 1024**2:.2f}, "
                     f"data chunk MiB: {chunk_size / 1024**2:.2f}. "
@@ -1289,7 +1289,7 @@ class ConsumerFromStage:
             self.logger.exception("Unexpected error occurred while consuming record batches")
             raise
 
-        self.logger.debug(
+        self.logger.info(
             f"Finished consuming {total_records_count:,} records, {total_record_batch_bytes_count / 1024**2:.2f} MiB "
             f"from {total_record_batches_count:,} record batches. "
             f"Total file MiB: {total_file_bytes_count / 1024**2:.2f}"

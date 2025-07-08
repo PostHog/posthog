@@ -275,8 +275,7 @@ class SnowflakeClient:
         Methods that require a connection should be ran within this block.
         """
         self.logger.debug("Initializing Snowflake connection")
-        # TODO: Revert this back to 'INFO'
-        self.ensure_snowflake_logger_level("DEBUG")
+        self.ensure_snowflake_logger_level("INFO")
 
         try:
             async with CONNECTION_SEMAPHORE:

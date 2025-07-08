@@ -315,7 +315,9 @@ class RedshiftConsumer(Consumer):
             async with self.redshift_client.connection.transaction():
                 await cursor.execute(batch_export_file.read())
 
-        self.logger.info("Loaded %d records to Redshift table '%s'", records_since_last_flush, self.redshift_table)
+        self.external_logger.info(
+            "Loaded %d records to Redshift table '%s'", records_since_last_flush, self.redshift_table
+        )
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 

@@ -483,7 +483,7 @@ class S3MultiPartUpload:
                     error_code = err.response.get("Error", {}).get("Code", None)
                     attempt += 1
 
-                    self.logger.info("Caught ClientError while uploading part %s: %s", next_part_number, error_code)
+                    self.logger.warning("Caught ClientError while uploading part %s: %s", next_part_number, error_code)
 
                     if error_code is not None and error_code == "RequestTimeout":
                         if attempt >= max_attempts:
@@ -626,7 +626,7 @@ class S3Consumer(Consumer):
             self.s3_upload = initialize_upload(self.s3_inputs, self.file_number)
 
         async with self.s3_upload as s3_upload:
-            self.logger.info(
+            self.logger.debug(
                 "Uploading part %d for file number %d containing %d records with size %d bytes",
                 s3_upload.part_number + 1,
                 self.file_number,
@@ -1135,7 +1135,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             await self._initialize_multipart_upload()
 
         if final:
-            self.logger.info(
+            self.logger.debug(
                 "Uploading final part of file %s with upload id %s", self._get_current_key(), self.upload_id
             )
             # take all the data
@@ -1184,7 +1184,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise NoUploadInProgressError()
 
         try:
-            self.logger.info(
+            self.logger.debug(
                 "Uploading file number %s part %s with upload id %s",
                 self.current_file_index,
                 part_number,
@@ -1229,7 +1229,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                         error_code = err.response.get("Error", {}).get("Code", None)
                         attempt += 1
 
-                        self.logger.info(
+                        self.logger.warning(
                             "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
                             self.current_file_index,
                             part_number,
@@ -1245,7 +1245,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                             retry_delay = min(
                                 max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
                             )
-                            self.logger.info("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                            self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
                             await asyncio.sleep(retry_delay)
                             continue
                         else:
@@ -1259,7 +1259,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             return part_info
 
         except Exception:
-            await self.logger.aexception(
+            self.logger.exception(
                 "Failed to upload file number %s part %s with upload id %s",
                 self.current_file_index,
                 part_number,
@@ -1345,7 +1345,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             **optional_kwargs,  # type: ignore
         )
         self.upload_id = response["UploadId"]
-        self.logger.info("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
+        self.logger.debug("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
 
     async def finalize(self):
         """Finalize upload with proper cleanup"""
