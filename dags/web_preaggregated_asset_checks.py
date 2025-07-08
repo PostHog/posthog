@@ -1,5 +1,6 @@
 import chdb
 import structlog
+import time
 from datetime import datetime, UTC, timedelta
 from typing import Any
 
@@ -15,6 +16,7 @@ from dags.common import JobOwners
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
@@ -272,22 +274,32 @@ def compare_web_overview_metrics(
     )
 
     modifiers_pre_agg = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=True,
-        convertToProjectTimezone=False,  # Pre-agg tables are in UTC
+        useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False, debug=True
     )
 
+    modifiers_regular = HogQLQueryModifiers(
+        useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False, debug=True
+    )
+
+    # Force fresh execution by using CALCULATE_BLOCKING_ALWAYS (bypasses all caches)
     runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
-
-    # Query without pre-aggregated tables
-    # We have an known issue that the buckets are always in UTC, so we need to query in UTC to make sure we're comparing apples to apples
-    # This can be improved if we change to hourly buckets but right now this fits our scope
-    modifiers_regular = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False)
-
     runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
-        response_pre_agg = runner_pre_agg.calculate()
-        response_regular = runner_regular.calculate()
+        start_time = time.time()
+        response_pre_agg = runner_pre_agg.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        pre_agg_time = time.time() - start_time
+
+        start_time = time.time()
+        response_regular = runner_regular.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        regular_time = time.time() - start_time
+
+        logger.info(
+            "Query execution completed",
+            team_id=team_id,
+            pre_agg_time=round(pre_agg_time, 3),
+            regular_time=round(regular_time, 3),
+        )
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
@@ -300,10 +312,10 @@ def compare_web_overview_metrics(
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
-            "pre_aggregated_used": response_pre_agg.usedPreAggregatedTables,
             "metrics": {},
             "all_within_tolerance": True,
             "tolerance_pct": tolerance_pct,
+            "timing": {"pre_aggregated": pre_agg_time, "regular": regular_time},
         }
 
         for metric_key in set(pre_agg_metrics.keys()) | set(regular_metrics.keys()):
@@ -369,7 +381,10 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
 
         validation_results.append(comparison_data)
 
-        context.log.info(f"Comparison is valid: {is_valid}, comparison data: {comparison_data}")
+        timing = comparison_data.get("timing", {})
+        context.log.info(
+            f"Valid?: {is_valid}. Pre-agg: {timing.get('pre_aggregated', 0):.2f}s, Regular: {timing.get('regular', 0):.2f}s"
+        )
     except Exception as e:
         context.log.exception(f"Failed to validate team {team_id}: {str(e)}")
         validation_results.append(
@@ -398,18 +413,29 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
         severity = AssetCheckSeverity.ERROR
         description = f"Team {team_id} failed accuracy validation."
 
+    metadata = {
+        "success_rate": MetadataValue.float(success_rate),
+        "failed_metrics": MetadataValue.int(failed_metrics),
+        "total_metrics": MetadataValue.int(total_metrics_checked),
+        "tolerance_pct": MetadataValue.float(tolerance_pct),
+        "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
+        "detailed_results": MetadataValue.json(validation_results),
+    }
+
+    # Add timing metadata if available
+    if validation_results and not validation_results[0].get("skipped"):
+        metadata.update(
+            {
+                "pre_agg_time": MetadataValue.float(round(validation_results[0]["timing"]["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(validation_results[0]["timing"]["regular"], 3)),
+            }
+        )
+
     return AssetCheckResult(
         passed=passed,
         severity=severity,
         description=description,
-        metadata={
-            "success_rate": MetadataValue.float(success_rate),
-            "failed_metrics": MetadataValue.int(failed_metrics),
-            "total_metrics": MetadataValue.int(total_metrics_checked),
-            "tolerance_pct": MetadataValue.float(tolerance_pct),
-            "date_range": MetadataValue.text(f"{date_from} to {date_to}"),
-            "detailed_results": MetadataValue.json(validation_results),
-        },
+        metadata=metadata,
     )
 
 
