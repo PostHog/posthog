@@ -1,7 +1,8 @@
+import asyncio
 import datetime
 from abc import ABC
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, final
 from uuid import UUID
 
 from django.utils import timezone
@@ -13,7 +14,6 @@ from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
-from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -33,15 +33,14 @@ class AssistantNode(ABC):
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+        return await self.arun(state, config)
 
-    # DEPRECATED: Use `arun` instead
+    @final
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        """DEPRECATED. Use `arun` instead."""
-        raise NotImplementedError
+        """
+        Deprecated: Use arun() instead. This method will be removed.
+        """
+        return asyncio.run(self.arun(state, config))
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError

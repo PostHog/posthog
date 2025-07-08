@@ -2,8 +2,8 @@ from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
+TOutput = TypeVar("TOutput")
 
 
-class SchemaGeneratorOutput(BaseModel, Generic[T]):
-    query: Optional[T] = None
+class SchemaGeneratorOutput(BaseModel, Generic[TOutput]):
+    query: Optional[TOutput] = None

@@ -179,7 +179,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
 
     @patch(
-        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.arun",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
@@ -187,7 +187,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run",
+        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
         return_value=PartialAssistantState(
             messages=[AssistantMessage(content="Foobar")],
         ),
@@ -228,7 +228,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(output, expected_output)
 
     @patch(
-        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+        "ee.hogai.graph.trends.nodes.TrendsPlannerNode.arun",
         return_value=PartialAssistantState(
             intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
@@ -298,7 +298,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
 
         with patch(
-            "ee.hogai.graph.trends.nodes.TrendsPlannerNode.run",
+            "ee.hogai.graph.trends.nodes.TrendsPlannerNode.arun",
             return_value=PartialAssistantState(
                 intermediate_steps=[
                     (
@@ -605,10 +605,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.funnels.nodes.FunnelPlannerToolsNode.arun")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_funnel_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+        self, memory_collector_mock, root_mock, funnel_tools_mock, planner_mock, generator_mock, title_generator_mock
     ):
         res1 = FakeChatOpenAI(
             responses=[
@@ -628,6 +629,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             responses=[messages.AIMessage(content="The results indicate a great future for you.")],
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
+
+        funnel_tools_mock.return_value = PartialAssistantState(
+            plan="Plan",
+            intermediate_steps=[],
+        )
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -679,10 +685,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.retention.nodes.RetentionPlannerToolsNode.arun")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     async def test_full_retention_flow(
-        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+        self, memory_collector_mock, root_mock, retention_tools_mock, planner_mock, generator_mock, title_generator_mock
     ):
         action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
 
@@ -702,6 +709,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
+
+        retention_tools_mock.return_value = PartialAssistantState(
+            plan="Plan",
+            intermediate_steps=[],
+        )
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -753,7 +765,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     async def test_insights_tool_mode_flow(self, query_executor_mock, planner_mock, generator_mock, mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
@@ -814,7 +826,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     async def test_insights_tool_mode_invalid_insight_type(self, query_executor_mock, planner_mock, generator_mock):
         """Test that insights tool mode handles invalid insight types correctly."""
         tool_call_state = AssistantState(
@@ -1025,10 +1037,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         second_message = human_messages[1]
         self.assertEqual(second_message.ui_context, ui_context_2)
 
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
+    @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.arun")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     async def test_create_and_query_insight_contextual_tool(
         self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock

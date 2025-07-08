@@ -284,64 +284,6 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tokens allowed in the conversation window.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from ee.hogai.tool import get_contextual_tool_class
-
-        history, new_window_id = self._construct_and_update_messages_window(state, config)
-
-        prompt = (
-            ChatPromptTemplate.from_messages(
-                [
-                    ("system", ROOT_SYSTEM_PROMPT),
-                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
-                    *[
-                        (
-                            "system",
-                            f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                            f"</{tool_name}>",
-                        )
-                        for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if get_contextual_tool_class(tool_name) is not None
-                    ],
-                ],
-                template_format="mustache",
-            )
-            + history
-        )
-        chain = prompt | self._get_model(state, config)
-
-        ui_context = self._format_ui_context(self._get_ui_context(state))
-
-        message = chain.invoke(
-            {
-                "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
-                "ui_context": ui_context,
-            },
-            config,
-        )
-        message = cast(LangchainAIMessage, message)
-
-        return PartialAssistantState(
-            root_conversation_start_id=new_window_id,
-            messages=[
-                AssistantMessage(
-                    content=str(message.content),
-                    tool_calls=[
-                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
-                        for tool_call in message.tool_calls
-                    ],
-                    id=str(uuid4()),
-                ),
-            ],
-        )
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from ee.hogai.tool import get_contextual_tool_class
 

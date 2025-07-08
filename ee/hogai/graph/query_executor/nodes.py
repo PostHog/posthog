@@ -14,6 +14,7 @@ from posthog.schema import (
     FunnelVizType,
     VisualizationMessage,
 )
+from asgiref.sync import sync_to_async
 
 from ..base import AssistantNode
 from .query_executor import AssistantQueryExecutor
@@ -33,7 +34,7 @@ from .prompts import (
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
@@ -46,7 +47,7 @@ class QueryExecutorNode(AssistantNode):
 
         query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         try:
-            results, used_fallback = query_runner.run_and_format_query(viz_message.answer)
+            results, used_fallback = await sync_to_async(query_runner.run_and_format_query)(viz_message.answer)
             example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else self._get_example_prompt(viz_message)
         except Exception as err:
             if isinstance(err, NotImplementedError):
@@ -94,7 +95,3 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantHogQLQuery):
             return SQL_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
-
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        """Async version of run method - same logic as sync version since it doesn't use Django ORM in async context"""
-        return self.run(state, config)

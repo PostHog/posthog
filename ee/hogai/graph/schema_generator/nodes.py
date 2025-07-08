@@ -37,7 +37,6 @@ from posthog.schema import (
     FailureMessage,
     VisualizationMessage,
 )
-from posthog.warehouse.util import database_sync_to_async
 
 
 Q = TypeVar("Q", bound=BaseModel)
@@ -217,20 +216,17 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     async def _aget_group_mapping_prompt(self) -> str:
         """Async cached version of _group_mapping_prompt"""
 
-        def get_group_mapping():
-            groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-            if not groups:
-                return "The user has not defined any groups."
+        groups = (
+            GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index").aiterator()
+        )
+        if not groups:
+            return "The user has not defined any groups."
 
-            root = ET.Element("list of defined groups")
-            root.text = (
-                "\n"
-                + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups])
-                + "\n"
-            )
-            return ET.tostring(root, encoding="unicode")
-
-        return await database_sync_to_async(get_group_mapping)()
+        root = ET.Element("list of defined groups")
+        root.text = (
+            "\n" + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups]) + "\n"
+        )
+        return ET.tostring(root, encoding="unicode")
 
     def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None

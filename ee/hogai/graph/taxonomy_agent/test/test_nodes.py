@@ -1,3 +1,5 @@
+from collections.abc import Coroutine
+from typing import Any
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -26,8 +28,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+    async def _get_tools(self) -> Coroutine[Any, Any, list[ToolkitTool]]:
+        return await self._get_default_tools()
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -38,10 +40,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def _get_node(self):
         class Node(TaxonomyAgentPlannerNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+            async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
                 prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
                 toolkit = DummyToolkit(self._team)
-                return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+                return await super()._arun_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
 
         return Node(self.team, self.user)
 
@@ -133,23 +135,23 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[0].type, "human")
         self.assertIn("Reminder", history[0].content)
 
-    def test_agent_filters_out_low_count_events(self):
+    async def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
         for i in range(26):
             _create_event(event=f"event{i}", distinct_id="test", team=self.team)
             _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
         self.assertEqual(
-            node._format_events_prompt([]),
+            await node._aformat_events_prompt([]),
             "<defined_events><event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
-    def test_agent_preserves_low_count_events_for_smaller_teams(self):
+    async def test_agent_preserves_low_count_events_for_smaller_teams(self):
         _create_person(distinct_ids=["test"], team=self.team)
         _create_event(event="distinctevent", distinct_id="test", team=self.team)
         node = self._get_node()
-        self.assertIn("distinctevent", node._format_events_prompt([]))
-        self.assertIn("all events", node._format_events_prompt([]))
+        self.assertIn("distinctevent", await node._aformat_events_prompt([]))
+        self.assertIn("all events", await node._aformat_events_prompt([]))
 
     def test_agent_scratchpad(self):
         node = self._get_node()
@@ -162,13 +164,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("log1", prompt)
         self.assertIn("log3", prompt)
 
-    def test_agent_handles_output_without_action_block(self):
+    async def test_agent_handles_output_without_action_block(self):
         with patch(
             "ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
         ):
             node = self._get_node()
-            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
+            state_update = await node.arun(AssistantState(messages=[HumanMessage(content="Question")]), {})
             self.assertEqual(len(state_update.intermediate_steps or []), 1)
             action, obs = (state_update.intermediate_steps or [])[0]
             self.assertIsNone(obs)
@@ -190,18 +192,18 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("action", action.tool_input)
             self.assertIn("action_input", action.tool_input)
 
-    def test_node_outputs_all_events_prompt(self):
+    async def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
-        self.assertIn("All events", node._format_events_prompt([]))
+        self.assertIn("All events", await node._aformat_events_prompt([]))
         self.assertIn(
             "<event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event>",
-            node._format_events_prompt([]),
+            await node._aformat_events_prompt([]),
         )
 
-    def test_format_prompt(self):
+    async def test_format_prompt(self):
         node = self._get_node()
-        self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertNotIn("Human:", await node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn("retrieve_event_properties,", await node._get_react_format_prompt(DummyToolkit(self.team)))
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -267,7 +269,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(final_msg.type, "human")
         self.assertIn("Final Question", final_msg.content)
 
-    def test_events_in_context_adds_events_to_prompt(self):
+    async def test_events_in_context_adds_events_to_prompt(self):
         """Test that events from context are added to the events list"""
         _create_person(distinct_ids=["test"], team=self.team)
         _create_event(event="existing_event", distinct_id="test", team=self.team)
@@ -278,13 +280,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             MaxEventContext(id="2", name="another_context_event", description=None),
         ]
 
-        prompt = node._format_events_prompt(events_in_context)
+        prompt = await node._aformat_events_prompt(events_in_context)
 
         self.assertIn("context_event", prompt)
         self.assertIn("another_context_event", prompt)
         self.assertIn("Event from context", prompt)
 
-    def test_events_in_context_overwrites_system_event_filtering(self):
+    async def test_events_in_context_overwrites_system_event_filtering(self):
         """Test that system events are not filtered out if they're in context"""
         node = self._get_node()
 
@@ -303,12 +305,12 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 MaxEventContext(id="1", name="test_system_event", description="System event from context"),
             ]
 
-            prompt = node._format_events_prompt(events_in_context)
+            prompt = await node._aformat_events_prompt(events_in_context)
 
             # Should include the system event because it's in context
             self.assertIn("test_system_event", prompt)
 
-    def test_events_in_context_duplicates_are_handled(self):
+    async def test_events_in_context_duplicates_are_handled(self):
         """Test that duplicate events between context and taxonomy are handled correctly"""
         _create_person(distinct_ids=["test"], team=self.team)
         _create_event(event="duplicate_event", distinct_id="test", team=self.team)
@@ -318,13 +320,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             MaxEventContext(id="1", name="duplicate_event", description="Context description"),
         ]
 
-        prompt = node._format_events_prompt(events_in_context)
+        prompt = await node._aformat_events_prompt(events_in_context)
 
         # Should only appear once in the prompt
         event_count = prompt.count("<name>duplicate_event</name>")
         self.assertEqual(event_count, 1)
 
-    def test_events_in_context_mixed_with_core_definitions(self):
+    async def test_events_in_context_mixed_with_core_definitions(self):
         """Test events from context mixed with core event definitions"""
         node = self._get_node()
 
@@ -341,7 +343,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 MaxEventContext(id="2", name="context_only_event", description="Only in context"),
             ]
 
-            prompt = node._format_events_prompt(events_in_context)
+            prompt = await node._aformat_events_prompt(events_in_context)
 
             # Should include both events
             self.assertIn("core_event", prompt)

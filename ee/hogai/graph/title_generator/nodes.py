@@ -11,7 +11,7 @@ from posthog.schema import HumanMessage
 
 
 class TitleGeneratorNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
         if not human_message:
             return None

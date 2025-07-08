@@ -118,7 +118,7 @@ def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> 
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
-    def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
 
@@ -169,7 +169,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     Scrapes the product description from the given origin or app bundle IDs with Perplexity.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         retrieved_properties = self._retrieve_context()
         # No host or app bundle ID found, continue.
@@ -235,7 +235,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
     Prompts the user to confirm or reject the scraped memory. Since Perplexity doesn't guarantee the quality of the scraped data, we need to verify it with the user.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NodeInterrupt(
             AssistantMessage(
                 content=SCRAPING_VERIFICATION_MESSAGE,
@@ -257,7 +257,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     Prompts the user to give more information about the product, feature, business, etc.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
         if not human_message:
             raise ValueError("No human message found.")
@@ -317,7 +317,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
 
 class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not state.onboarding_question:
             raise ValueError("No onboarding question found.")
@@ -327,7 +327,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         core_memory = self.core_memory
         if core_memory is None:
             raise ValueError("No core memory found.")
@@ -388,7 +388,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
             return None
 
@@ -451,7 +451,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
 
 class MemoryCollectorToolsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages
         if not node_messages:
             raise ValueError("No memory collection messages found.")

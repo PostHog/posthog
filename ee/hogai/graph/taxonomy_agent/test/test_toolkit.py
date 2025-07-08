@@ -13,7 +13,7 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 
 class DummyToolkit(TaxonomyAgentToolkit):
     def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+        return self._get_default_tools
 
 
 class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
@@ -197,7 +197,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         toolkit = DummyToolkit(self.team)
-        self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
+        self.assertEqual(toolkit._get_entity_names, ["person", "session", "proj", "org"])
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
         toolkit = DummyToolkit(self.team)

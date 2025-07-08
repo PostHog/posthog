@@ -20,11 +20,11 @@ from langchain_core.prompts import ChatPromptTemplate
 class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
     """Node for searching PostHog documentation using Inkeep."""
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
         prompt = ChatPromptTemplate(self._construct_messages(state))
         chain = prompt | self._get_model()
-        message: LangchainAIMessage = chain.invoke({}, config)
+        message: LangchainAIMessage = await chain.ainvoke({}, config)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
@@ -73,19 +73,3 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             #    output message (doesn't quite work to tell it to output an empty message, or to call an "end" tool)
             return "root"
         return "end"
-
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        """Async version of run method"""
-        prompt = ChatPromptTemplate(self._construct_messages(state))
-        chain = prompt | self._get_model()
-        message: LangchainAIMessage = await chain.ainvoke({}, config)
-        return PartialAssistantState(
-            messages=[
-                AssistantToolCallMessage(
-                    content="Checking PostHog documentation...", tool_call_id=state.root_tool_call_id, id=str(uuid4())
-                ),
-                AssistantMessage(content=message.content, id=str(uuid4())),
-            ],
-            # Resetting values to empty strings because Nones are not supported by LangGraph.
-            root_tool_call_id="",
-        )

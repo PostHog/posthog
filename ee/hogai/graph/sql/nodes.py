@@ -15,6 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
+from asgiref.sync import sync_to_async
 
 
 class SQLPlannerNode(TaxonomyAgentPlannerNode):
@@ -50,16 +51,9 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
     hogql_context: HogQLContext
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from posthog.warehouse.util import database_sync_to_async
-
-        # Create database and context in sync context since it makes database queries
-        def create_database_and_context():
-            database = create_hogql_database(team=self._team)
-            hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
-            serialized_database = serialize_database(hogql_context)
-            return database, hogql_context, serialized_database
-
-        database, self.hogql_context, serialized_database = await database_sync_to_async(create_database_and_context)()
+        database = create_hogql_database(team=self._team)
+        hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
+        serialized_database = await sync_to_async(serialize_database)(hogql_context)
 
         schema_description = "\n\n".join(
             (

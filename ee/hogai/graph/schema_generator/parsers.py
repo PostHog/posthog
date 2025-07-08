@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 from typing import TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 
 class PydanticOutputParserException(ValueError):
@@ -17,11 +17,11 @@ class PydanticOutputParserException(ValueError):
         self.validation_message = validation_message
 
 
-TOutput = TypeVar("TOutput")
+T = TypeVar("T", bound=BaseModel)
 
 
-def parse_pydantic_structured_output(model: type[TOutput]) -> Callable[[dict], TOutput]:
-    def parser(output: dict) -> TOutput:
+def parse_pydantic_structured_output(model: type[T]) -> Callable[[dict], T]:
+    def parser(output: dict) -> T:
         try:
             return model.model_validate(output)
         except ValidationError as e:

@@ -17,7 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
-
+from asgiref.sync import sync_to_async
 from .parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -56,7 +56,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.warehouse.util import database_sync_to_async
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
@@ -102,7 +101,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
-                        "events": self._format_events_prompt(events_in_context),
+                        "events": self._aformat_events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -185,7 +184,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "react_property_filters": react_property_filters_prompt,
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": team_group_types,
-                        "events": self._format_events_prompt(events_in_context),
+                        "events": await self._aformat_events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -256,8 +255,9 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    def _format_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+    async def _aformat_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
+        query_runner = await sync_to_async(TeamTaxonomyQueryRunner)(TeamTaxonomyQuery(), self._team)
+        response = await sync_to_async(query_runner.run)(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
@@ -316,16 +316,13 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @alru_cache(maxsize=1)
     async def _aget_team_group_types(self) -> list[str]:
-        """Async cached version of _team_group_types"""
-
-        def get_team_group_types():
-            return list(
-                GroupTypeMapping.objects.filter(project_id=self._team.project_id)
-                .order_by("group_type_index")
-                .values_list("group_type", flat=True)
-            )
-
-        return await database_sync_to_async(get_team_group_types)()
+        return [
+            group_type
+            async for group_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id)
+            .order_by("group_type_index")
+            .values_list("group_type", flat=True)
+            .aiterator()
+        ]
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
