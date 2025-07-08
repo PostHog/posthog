@@ -10,10 +10,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
+import { useValues } from 'kea'
+import { groupsModel } from '~/models/groupsModel'
 
 import { ActionStepStringMatching, ActionStepType } from '~/types'
 
 import { LemonEventName } from './EventName'
+import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -31,6 +34,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     const sendStep = (stepToSend: ActionStepType): void => {
         onChange(stepToSend)
     }
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <div className="bg-surface-primary rounded border p-3 relative">
@@ -102,6 +106,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                         propertyFilters={step.properties}
                         pageKey={identifier}
                         eventNames={step.event ? [step.event] : []}
+                        taxonomicGroupTypes={[...DEFAULT_TAXONOMIC_GROUP_TYPES, ...groupsTaxonomicTypes]}
                         onChange={(properties) => {
                             sendStep({
                                 ...step,

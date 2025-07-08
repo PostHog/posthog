@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -1760,18 +1759,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Surveys',
-                        callback: (folder) =>
-                            actions.createSurvey(
-                                typeof folder === 'string'
-                                    ? {
-                                          ...payload,
-                                          _create_in_folder: folder,
-                                      }
-                                    : payload
-                            ),
-                    })
+                    actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }
             },
         },

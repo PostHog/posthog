@@ -1,5 +1,6 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    RevenueAnalyticsCustomerCountNode,
     RevenueAnalyticsGrowthRateNode,
     RevenueAnalyticsOverviewNode,
     RevenueAnalyticsRevenueNode,
@@ -36,6 +37,7 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsCustomerCountQuery,
     isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsOverviewQuery,
     isRevenueAnalyticsRevenueQuery,
@@ -151,6 +153,14 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
                 variablesOverride={variablesOverride}
+            />
+        )
+    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
+        component = (
+            <RevenueAnalyticsCustomerCountNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
             />
         )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
