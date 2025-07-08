@@ -624,6 +624,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags],
                     },
                     {
                         name: 'Experiments',
