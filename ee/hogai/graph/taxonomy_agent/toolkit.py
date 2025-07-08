@@ -21,6 +21,7 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
+from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
@@ -121,11 +122,6 @@ class TaxonomyAgentToolkit(ABC):
             )
         ]
 
-    @property
-    def _groups_sync(self):
-        """Sync fallback for backward compatibility"""
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-
     @alru_cache(maxsize=1)
     async def _entity_names(self) -> list[str]:
         """
@@ -139,16 +135,6 @@ class TaxonomyAgentToolkit(ABC):
             "person",
             "session",
             *[group.group_type for group in groups],
-        ]
-        return entities
-
-    @property
-    def _entity_names_sync(self) -> list[str]:
-        """Sync fallback for backward compatibility"""
-        entities = [
-            "person",
-            "session",
-            *[group.group_type for group in self._groups_sync],
         ]
         return entities
 
@@ -323,18 +309,18 @@ class TaxonomyAgentToolkit(ABC):
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
-    def retrieve_entity_properties(self, entity: str) -> str:
+    async def retrieve_entity_properties(self, entity: str) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in self._groups_sync]):
+        if entity not in ("person", "session", *[group.group_type for group in await self._groups()]):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = self._enrich_props_with_descriptions("person", qs)
+            props = self._enrich_props_with_descriptions("person", [prop_def async for prop_def in qs.aiterator()])
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -347,20 +333,21 @@ class TaxonomyAgentToolkit(ABC):
             )
         else:
             group_type_index = next(
-                (group.group_type_index for group in self._groups_sync if group.group_type == entity), None
+                (group.group_type_index for group in await self._groups() if group.group_type == entity), None
             )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")
-            props = self._enrich_props_with_descriptions(entity, qs)
+            props = self._enrich_props_with_descriptions(entity, [prop_def async for prop_def in qs.aiterator()])
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
         return self._generate_properties_xml(props)
 
+    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as the I/O here is our still-sync QueryRunner
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
@@ -373,12 +360,12 @@ class TaxonomyAgentToolkit(ABC):
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
-    def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
+    async def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
         """
         try:
-            response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+            response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
             project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
             if not project_actions:
@@ -394,7 +381,9 @@ class TaxonomyAgentToolkit(ABC):
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        property_to_type = {
+            property_definition.name: property_definition.property_type async for property_definition in qs.aiterator()
+        }
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -435,15 +424,17 @@ class TaxonomyAgentToolkit(ABC):
 
         return prop_values
 
-    def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
+    async def retrieve_event_or_action_property_values(
+        self, event_name_or_action_id: str | int, property_name: str
+    ) -> str:
         try:
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
         if not response.results:
@@ -485,9 +476,11 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
+    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as the I/O here is our still-sync QueryRunner
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        if entity not in self._entity_names_sync:
-            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names_sync)}."
+        entity_names = await self._entity_names()
+        if entity not in entity_names:
+            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(entity_names)}."
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
@@ -496,7 +489,7 @@ class TaxonomyAgentToolkit(ABC):
             query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
         else:
             group_index = next(
-                (group.group_type_index for group in self._groups_sync if group.group_type == entity), None
+                (group.group_type_index for group in await self._groups() if group.group_type == entity), None
             )
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."

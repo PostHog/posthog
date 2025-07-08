@@ -18,6 +18,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 from asgiref.sync import sync_to_async
+
 from .parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -343,19 +344,19 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         from posthog.warehouse.util import database_sync_to_async
 
         if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
-            output = await database_sync_to_async(toolkit.retrieve_event_or_action_properties)(input.arguments)
+            output = await toolkit.retrieve_event_or_action_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = await database_sync_to_async(toolkit.retrieve_event_or_action_property_values)(
+            output = await toolkit.retrieve_event_or_action_property_values(
                 input.arguments.event_name, input.arguments.property_name
             )
         elif input.name == "retrieve_action_property_values":
-            output = await database_sync_to_async(toolkit.retrieve_event_or_action_property_values)(
+            output = await toolkit.retrieve_event_or_action_property_values(
                 input.arguments.action_id, input.arguments.property_name
             )
         elif input.name == "retrieve_entity_properties":
-            output = await database_sync_to_async(toolkit.retrieve_entity_properties)(input.arguments)
+            output = await toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":
-            output = await database_sync_to_async(toolkit.retrieve_entity_property_values)(
+            output = await toolkit.retrieve_entity_property_values(
                 input.arguments.entity, input.arguments.property_name
             )
         else:
