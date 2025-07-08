@@ -1,10 +1,7 @@
 use crate::{
-    cohorts::cohort_models::{Cohort, CohortId},
-    config::{Config, DEFAULT_TEST_CONFIG},
-    flags::flag_models::{
+    cohorts::cohort_models::{Cohort, CohortId}, config::{Config, DEFAULT_TEST_CONFIG}, flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
-    },
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+    }, properties::property_models::PropertyFilter, team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX}
 };
 use anyhow::Error;
 use axum::async_trait;
@@ -586,7 +583,7 @@ pub fn create_test_flag_with_properties(
     id: i32,
     team_id: TeamId,
     key: &str,
-    filters: Vec<crate::properties::property_models::PropertyFilter>,
+    filters: Vec<PropertyFilter>,
 ) -> FeatureFlag {
     create_test_flag(
         Some(id),
