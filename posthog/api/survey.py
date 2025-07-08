@@ -1509,8 +1509,9 @@ def public_survey_page(request, survey_id: str):
             status=503,
         )
 
-    # a survey is running if it has a start date, but it doesn't have an end date
-    survey_is_running = survey.start_date is not None and survey.end_date is None
+    survey_is_running = (
+        survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None
+    )
 
     # Check survey availability (combine checks for consistent error message)
     if survey.archived or not survey.is_publicly_shareable or not survey_is_running:

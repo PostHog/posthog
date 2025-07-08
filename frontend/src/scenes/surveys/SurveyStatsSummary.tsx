@@ -1,4 +1,4 @@
-import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
@@ -7,6 +7,7 @@ import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/survey
 
 import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
 
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from './surveyLogic'
 
 interface StatCardProps {
@@ -159,24 +160,30 @@ function SurveyStatsStackedBar({
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
-    const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
+    const { setFilterSurveyStatsByDistinctId, updateSurvey } = useActions(surveyLogic)
+
+    const isPubliclyShareable = !!survey.is_publicly_shareable
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 justify-between">
                 <h3 className="mb-0">Survey performance</h3>
-                {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
-                    <div className="flex items-center gap-2">
-                        <LemonLabel>
-                            Count each person once
-                            <LemonSwitch
-                                checked={filterSurveyStatsByDistinctId}
-                                onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                                tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                            />
-                        </LemonLabel>
-                    </div>
-                )}
+                <div className="flex items-center gap-2">
+                    {isPubliclyShareable && <CopySurveyLink surveyId={survey.id} />}
+                    <LemonSwitch
+                        checked={isPubliclyShareable}
+                        onChange={(checked) => updateSurvey({ is_publicly_shareable: checked })}
+                        label="Allow responses via external link"
+                    />
+                    {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
+                        <LemonSwitch
+                            checked={filterSurveyStatsByDistinctId}
+                            onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                            tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
+                            label="Count each person once"
+                        />
+                    )}
+                </div>
             </div>
             {survey.start_date && (
                 <div className="flex items-center text-sm text-secondary">

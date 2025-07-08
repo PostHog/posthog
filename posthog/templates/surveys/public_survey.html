@@ -875,11 +875,6 @@
             // - displayThankYouMessage: handled by PostHog survey rendering
         }
 
-        console.log('Applying survey appearance');
-        console.log({
-            appearance: window.surveyAppearance,
-        })
-
         // Apply survey appearance if available
         if (window.surveyAppearance) {
             applySurveyAppearance(window.surveyAppearance);
@@ -934,14 +929,6 @@
         posthog.onSurveysLoaded(() => {
             renderSurveyWithRetry();
         });
-
-        // Fallback timeout in case onSurveysLoaded doesn't fire
-        setTimeout(() => {
-            if (!surveyRendered) {
-                renderSurveyWithRetry();
-            }
-        }, 5000);
-
     </script>
 </body>
 
