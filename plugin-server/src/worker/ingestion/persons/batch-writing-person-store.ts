@@ -144,7 +144,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
-        const allKafkaMessages: TopicMessage[] = []
 
         try {
             const results = await Promise.all(
@@ -260,7 +259,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             )
 
             // Flatten all Kafka messages from all operations
-            results.forEach((messages) => allKafkaMessages.push(...messages))
+            const allKafkaMessages = results.flat()
 
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
