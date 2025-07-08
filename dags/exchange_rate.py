@@ -149,7 +149,6 @@ def hourly_exchange_rates(
     )
 
 
-@dagster.op
 def store_exchange_rates_in_clickhouse(
     context: dagster.OpExecutionContext,
     date_str: str,
