@@ -1,5 +1,4 @@
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function LLMInputOutput({
     inputDisplay,
@@ -16,7 +15,6 @@ export function LLMInputOutput({
 }): JSX.Element {
     return (
         <>
-            <LemonDivider className="my-3" />
             <div className={bordered ? 'bg-surface-primary rounded-lg border p-2' : undefined}>
                 <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
                     <IconArrowUp className="text-base" />

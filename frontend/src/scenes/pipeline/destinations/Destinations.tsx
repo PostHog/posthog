@@ -104,10 +104,12 @@ export function DestinationsTable({
     hideChangeOrderButton = false,
 }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
-    const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
+    const { loading, filteredDestinations, destinations, hiddenDestinations, rawHogFunctions } = useValues(
         pipelineDestinationsLogic({ types })
     )
-    const { toggleNode, deleteNode, openReorderTransformationsModal } = useActions(pipelineDestinationsLogic({ types }))
+    const { toggleNode, deleteNode, openReorderTransformationsModal, loadMore } = useActions(
+        pipelineDestinationsLogic({ types })
+    )
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
     const showMetricsHistory = types.includes('destination') || types.includes('transformation')
@@ -327,6 +329,20 @@ export function DestinationsTable({
                         },
                     },
                 ]}
+                footer={
+                    rawHogFunctions &&
+                    rawHogFunctions.count > rawHogFunctions.results.length && (
+                        <div className="flex justify-center p-1">
+                            <LemonButton
+                                onClick={loadMore}
+                                className="min-w-full text-center"
+                                disabledReason={loading ? 'Loading...' : ''}
+                            >
+                                <span className="flex-1 text-center">{loading ? 'Loading...' : 'Load more'}</span>
+                            </LemonButton>
+                        </div>
+                    )
+                }
                 emptyState={
                     destinations.length === 0 && !loading ? (
                         'No destinations found'
