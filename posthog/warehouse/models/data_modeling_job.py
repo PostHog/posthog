@@ -18,3 +18,4 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     last_run_at = models.DateTimeField(default=timezone.now)
+    rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
