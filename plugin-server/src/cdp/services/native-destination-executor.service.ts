@@ -56,7 +56,7 @@ export class NativeDestinationExecutorService {
 
     public execute(
         invocation: CyclotronJobInvocationHogFunction
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
 
