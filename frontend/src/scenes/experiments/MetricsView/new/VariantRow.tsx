@@ -163,7 +163,6 @@ export function VariantRow({
                     variantResult={variantResult as ExperimentVariantResult}
                     chartRadius={chartRadius}
                     metricIndex={metricIndex}
-                    isSecondary={isSecondary}
                 />
             )}
         </tr>
