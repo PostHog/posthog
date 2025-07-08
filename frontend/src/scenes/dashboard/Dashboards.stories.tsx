@@ -181,7 +181,7 @@ export const NewSelectVariables = (): JSX.Element => {
 
 export const Show: Story = {
     parameters: {
-        pageUrl: urls.dashboard(1),
+        pageUrl: urls.dashboard(BASE_DASHBOARD_ID),
     },
 }
 

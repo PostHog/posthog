@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +13,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
-        featureFlags: ['experiments-new-query-runner'],
+        featureFlags: [FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER],
         pageUrl: urls.experiment(EXPERIMENT_DRAFT.id),
     },
     decorators: [
