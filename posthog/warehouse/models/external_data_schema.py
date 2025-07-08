@@ -36,7 +36,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 from .external_data_source import ExternalDataSource
 

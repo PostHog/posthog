@@ -13,7 +13,7 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryProm
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
