@@ -60,7 +60,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
-    const [textLength, setTextLength] = useState(0)
+    const [textLength, setTextLength] = useState(props.value?.length || props.defaultValue?.length || 0)
 
     return (
         <div className="flex flex-col gap-y-1">
