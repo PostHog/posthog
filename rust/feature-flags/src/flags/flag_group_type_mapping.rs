@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
+use common_database::PostgresReader;
 use common_metrics::inc;
 use common_types::ProjectId;
 use sqlx::FromRow;
 use tracing::error;
 
 use crate::{api::errors::FlagError, metrics::consts::FLAG_EVALUATION_ERROR_COUNTER};
-
-use super::flag_matching::PostgresReader;
 
 pub type GroupTypeIndex = i32;
 

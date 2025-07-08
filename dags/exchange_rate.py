@@ -6,6 +6,7 @@ from typing import Any
 import dagster
 
 from clickhouse_driver import Client
+
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DICTIONARY_NAME,
@@ -13,7 +14,7 @@ from posthog.models.exchange_rate.sql import (
 )
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 
-from dags.common import JobOwners
+from dags.common import JobOwners, settings_with_log_comment
 
 OPEN_EXCHANGE_RATES_API_BASE_URL = "https://openexchangerates.org/api"
 
@@ -177,7 +178,10 @@ def store_exchange_rates_in_clickhouse(
         # Batch insert all values
         def insert(client: Client) -> bool:
             try:
-                client.execute(EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values))
+                client.execute(
+                    EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values),
+                    settings=settings_with_log_comment(context),
+                )
                 context.log.info("Successfully inserted exchange rates")
                 return True
             except Exception as e:
@@ -187,7 +191,10 @@ def store_exchange_rates_in_clickhouse(
         # Simply ask the dictionary to be reloaded with the new data
         def reload_dict(client: Client) -> bool:
             try:
-                client.execute(f"SYSTEM RELOAD DICTIONARY {EXCHANGE_RATE_DICTIONARY_NAME}")
+                client.execute(
+                    f"SYSTEM RELOAD DICTIONARY {EXCHANGE_RATE_DICTIONARY_NAME}",
+                    settings=settings_with_log_comment(context),
+                )
                 context.log.info("Successfully reloaded exchange_rate_dict dictionary")
                 return True
             except Exception as e:
