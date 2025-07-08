@@ -4,6 +4,7 @@ import faulthandler
 import functools
 import logging
 import signal
+import sys
 
 import structlog
 from temporalio import workflow
@@ -199,7 +200,7 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-                logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
+                logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.TEMPORAL_LOG_LEVEL)
                 configure_logger_async(loop=runner.get_loop())
 
             logger.info(f"Starting Temporal Worker with options: {options}")
