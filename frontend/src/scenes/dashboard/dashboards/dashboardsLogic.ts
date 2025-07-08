@@ -98,7 +98,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     haystack = haystack.filter((d) => d.is_shared)
                 }
                 if (currentTab === DashboardsTab.Yours) {
-                    haystack = haystack.filter((d) => d.created_by?.uuid === user.uuid)
+                    haystack = haystack.filter((d) => d.created_by?.uuid === user?.uuid)
                 } else if (filters.createdBy !== 'All users') {
                     haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
                 }
