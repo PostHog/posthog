@@ -41,6 +41,27 @@ Ratings:
 
 Your response:""")
 
+    _IMPROVED_SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
+Rate the relevance of each insight to the search query. Pay special attention to exact keyword matches in insight names (marked with ⭐ EXACT MATCH).
+
+Search Query: "{query}"
+
+Insights to rate:
+{insights_list}
+
+For each insight, respond with ONLY the number followed by relevance rating:
+Format: "1: high, 2: medium, 3: low, 4: none"
+
+Ratings:
+- high: Exact keyword match in name OR directly matches query intent
+- medium: Partial keyword match OR somewhat related to query
+- low: Generic connection to query topics
+- none: No meaningful connection
+
+IMPORTANT: Insights marked with ⭐ EXACT MATCH should generally be rated 'high' unless completely unrelated to the query context.
+
+Your response:""")
+
     # In-memory cache for semantic filtering results (TTL: 5 minutes)
     _semantic_cache = {}
     _cache_ttl = 300  # 5 minutes
@@ -242,21 +263,61 @@ Your response:""")
         return len(query.strip()) > 3 and not query.strip().isdigit()
 
     def _semantic_filter_insights(self, insights: list, query: str | None) -> list:
-        """Filter insights by semantic relevance using cached batch LLM classification."""
+        """Filter insights by semantic relevance using hybrid keyword + LLM classification."""
         if not query or not insights:
             return insights
 
+        # Step 1: Apply keyword matching for exact matches
+        insights_with_keyword_scores = self._apply_keyword_matching(insights, query)
+
+        # Step 2: Apply semantic filtering for nuanced matching
+        insights_with_semantic_scores = self._apply_semantic_filtering(insights_with_keyword_scores, query)
+
+        # Step 3: Combine scores and filter
+        return self._combine_and_filter_scores(insights_with_semantic_scores)
+
+    def _apply_keyword_matching(self, insights: list, query: str) -> list:
+        """Apply keyword matching to boost insights with exact matches in names."""
+        query_keywords = query.lower().split()
+
+        for insight in insights:
+            name = insight.get("insight__name") or insight.get("insight__derived_name") or ""
+            description = insight.get("insight__description") or ""
+
+            # Check for exact keyword matches in name (higher weight)
+            name_lower = name.lower()
+            name_matches = sum(1 for keyword in query_keywords if keyword in name_lower)
+
+            # Check for exact keyword matches in description (lower weight)
+            desc_lower = description.lower()
+            desc_matches = sum(1 for keyword in query_keywords if keyword in desc_lower)
+
+            # Calculate keyword score (0.0 to 1.0)
+            # Name matches are weighted 3x more than description matches
+            total_keywords = len(query_keywords)
+            keyword_score = min(1.0, (name_matches * 3 + desc_matches * 1) / (total_keywords * 3))
+
+            insight["keyword_score"] = keyword_score
+
+        return insights
+
+    def _apply_semantic_filtering(self, insights: list, query: str) -> list:
+        """Apply LLM-based semantic filtering with improved prompt."""
         # Create insight names for cache key
         insight_names = []
         insights_text = ""
         for i, insight in enumerate(insights, 1):
             name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
             description = insight.get("insight__description")
+            keyword_score = insight.get("keyword_score", 0.0)
             insight_names.append(name)
+
+            # Include keyword score in the prompt to help LLM make better decisions
+            score_indicator = "⭐ EXACT MATCH" if keyword_score > 0.5 else "📊"
             if description:
-                insights_text += f"{i}. {name} - {description}\n"
+                insights_text += f"{i}. {score_indicator} {name} - {description}\n"
             else:
-                insights_text += f"{i}. {name}\n"
+                insights_text += f"{i}. {score_indicator} {name}\n"
 
         # Check cache first
         cache_key = self._get_cache_key(query, insight_names)
@@ -272,10 +333,12 @@ Your response:""")
             ratings = cached_ratings
         else:
             self._current_cache_misses += 1
-            # Single LLM call for all insights
-            formatted_prompt = self._SEMANTIC_FILTER_PROMPT.format(query=query, insights_list=insights_text.strip())
+            # Single LLM call for all insights with improved prompt
+            formatted_prompt = self._IMPROVED_SEMANTIC_FILTER_PROMPT.format(
+                query=query, insights_list=insights_text.strip()
+            )
 
-            model = ChatOpenAI(model="gpt-4.1-nano", temperature=0.1, max_completion_tokens=50)
+            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=50)
 
             try:
                 response = model.invoke(formatted_prompt)
@@ -291,18 +354,54 @@ Your response:""")
                 self.logger.warning(
                     f"Batch semantic filtering failed: {e}, falling back to first {min(3, len(insights))} insights"
                 )
-                # Fallback: return first few insights with default scores
-                return [{**insight, "relevance_score": 0.5} for insight in insights[: min(3, len(insights))]]
+                # Fallback: return first few insights with keyword scores
+                return [{**insight, "semantic_score": 0.5} for insight in insights[: min(3, len(insights))]]
 
-        # Filter and score insights based on ratings
-        relevant_insights = []
+        # Add semantic scores to insights
         for i, insight in enumerate(insights):
             rating = ratings.get(i + 1, "none")
-            if rating in ["high", "medium"]:
-                relevance_score = 1.0 if rating == "high" else 0.7
-                relevant_insights.append({**insight, "relevance_score": relevance_score})
+            if rating == "high":
+                semantic_score = 1.0
+            elif rating == "medium":
+                semantic_score = 0.7
+            elif rating == "low":
+                semantic_score = 0.3
+            else:
+                semantic_score = 0.0
+            insight["semantic_score"] = semantic_score
 
-        # Sort by relevance score
+        return insights
+
+    def _combine_and_filter_scores(self, insights: list) -> list:
+        """Combine keyword and semantic scores, then filter relevant insights."""
+        relevant_insights = []
+
+        for insight in insights:
+            keyword_score = insight.get("keyword_score", 0.0)
+            semantic_score = insight.get("semantic_score", 0.0)
+
+            # Hybrid scoring: keyword matches get significant boost
+            if keyword_score >= 0.5:
+                # Exact keyword match gets high priority
+                if semantic_score >= 1.0:  # high semantic + exact keyword = perfect match
+                    final_score = 1.0
+                else:
+                    final_score = 0.8 + (keyword_score * 0.2)  # 0.8-1.0 range
+            elif keyword_score > 0.0:
+                # Partial keyword match gets medium priority
+                if semantic_score >= 1.0:  # high semantic + partial keyword = very good match
+                    final_score = 0.95
+                else:
+                    final_score = 0.6 + (keyword_score * 0.2) + (semantic_score * 0.2)  # 0.6-1.0 range
+            else:
+                # No keyword match - rely on semantic score
+                final_score = semantic_score  # Preserve original semantic score for backward compatibility
+
+            # Only include insights with reasonable relevance
+            if final_score > 0.3:
+                relevant_insights.append({**insight, "relevance_score": final_score})
+
+        # Sort by combined relevance score
         return sorted(relevant_insights, key=lambda x: x["relevance_score"], reverse=True)
 
     def _parse_batch_ratings(self, ratings_text: str, expected_count: int) -> dict[int, str]:
