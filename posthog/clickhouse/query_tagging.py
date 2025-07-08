@@ -158,6 +158,7 @@ class QueryTags(BaseModel):
         self.temporal = temporal_tags
 
     def with_dagster(self, dagster_tags: DagsterTags):
+        """Tags for dagster runs and activities."""
         self.kind = "dagster"
         self.dagster = dagster_tags
 
