@@ -41,11 +41,10 @@ def bind_contextvars(**kwargs):
     structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
 
-def get_logger(name: str | None = None) -> logging.Logger:
+def get_logger(name: str | None = None):
     logger = logging.getLogger(name or __name__)
 
-    if not logger.handlers:
-        configure_stdlib_logger(logger)
+    configure_stdlib_logger(logger)
 
     return structlog.get_logger(name or __name__)
 
@@ -54,8 +53,7 @@ def get_external_logger(**kwargs) -> logging.Logger:
     """Return a bound logger to log user-facing logs."""
     logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
 
-    if not logger.handlers:
-        configure_stdlib_logger(logger)
+    configure_stdlib_logger(logger)
 
     return EXTERNAL_LOGGER.bind(**kwargs)
 
