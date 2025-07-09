@@ -90,8 +90,15 @@ export function MetricsTable({
 
                         if (!result && !error) {
                             return (
-                                <tr key={metricIndex} style={{ height: `${CELL_HEIGHT}px` }}>
-                                    <td colSpan={5} style={{ height: `${CELL_HEIGHT}px` }}>
+                                <tr
+                                    key={metricIndex}
+                                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                                >
+                                    <td
+                                        colSpan={5}
+                                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                                        className="overflow-hidden"
+                                    >
                                         <ChartLoadingState height={CELL_HEIGHT} />
                                     </td>
                                 </tr>
@@ -100,8 +107,15 @@ export function MetricsTable({
 
                         if (error || !hasMinimumExposureForResults) {
                             return (
-                                <tr key={metricIndex} style={{ height: `${CELL_HEIGHT}px` }}>
-                                    <td colSpan={5} style={{ height: `${CELL_HEIGHT}px` }}>
+                                <tr
+                                    key={metricIndex}
+                                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                                >
+                                    <td
+                                        colSpan={5}
+                                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                                        className="overflow-hidden"
+                                    >
                                         <ChartEmptyState
                                             height={CELL_HEIGHT}
                                             experimentStarted={!!experiment.start_date}

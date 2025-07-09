@@ -70,15 +70,21 @@ export function VariantRow({
     }
 
     return (
-        <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={{ height: `${CELL_HEIGHT}px` }}>
+        <tr
+            className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
+            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+        >
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative ${
+                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
-                    style={{ height: `${CELL_HEIGHT * totalVariantRows}px` }}
+                    style={{
+                        height: `${CELL_HEIGHT * totalVariantRows}px`,
+                        maxHeight: `${CELL_HEIGHT * totalVariantRows}px`,
+                    }}
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -93,10 +99,10 @@ export function VariantRow({
 
             {/* Variant column - show variant key or "Baseline" */}
             <td
-                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                    isLastRow ? 'border-b border-border-bold' : ''
-                }`}
-                style={{ height: `${CELL_HEIGHT}px` }}
+                className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
                 {variantResult ? (
                     <div className="text-sm text-text-primary whitespace-nowrap">
@@ -109,10 +115,10 @@ export function VariantRow({
 
             {/* Value column - show conversion rate and raw counts */}
             <td
-                className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                    isLastRow ? 'border-b border-border-bold' : ''
-                }`}
-                style={{ height: `${CELL_HEIGHT}px` }}
+                className={`w-24 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
                 {isBaseline ? (
                     <div className="text-sm">
@@ -137,10 +143,10 @@ export function VariantRow({
 
             {/* Change column - show percentage change (empty for baseline) */}
             <td
-                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                    isLastRow ? 'border-b border-border-bold' : ''
-                }`}
-                style={{ height: `${CELL_HEIGHT}px` }}
+                className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
@@ -184,10 +190,10 @@ export function VariantRow({
             {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
                 <td
-                    className={`min-w-[400px] p-0 align-top text-center relative ${
+                    className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${isLastRow ? 'border-b border-border-bold' : ''}`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative h-full">

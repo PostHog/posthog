@@ -63,44 +63,49 @@ export function MetricRowGroup({
 
     if (allRows.length === 0) {
         return (
-            <tr className="hover:bg-bg-hover group" style={{ height: `${CELL_HEIGHT}px` }}>
+            <tr
+                className="hover:bg-bg-hover group"
+                style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+            >
                 <td
-                    className={`w-1/5 border-b border-r border-border-bold p-3 align-top text-left relative ${
+                    className={`w-1/5 border-b border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="p-4 text-muted text-sm">No data available</div>
+                    <div className="p-4 text-muted text-sm whitespace-nowrap overflow-hidden text-ellipsis">
+                        No data available
+                    </div>
                 </td>
                 <td
-                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
+                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
-                >
-                    —
-                </td>
-                <td
-                    className={`w-24 border-b border-r border-border-bold p-3 align-top text-left ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    }`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
                 <td
-                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
+                    className={`w-24 border-b border-r border-border-bold p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
                 <td
-                    className={`min-w-[400px] border-b border-border-bold p-2 align-top text-center ${
+                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
-                    style={{ height: `${CELL_HEIGHT}px` }}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    —
+                </td>
+                <td
+                    className={`min-w-[400px] border-b border-border-bold p-2 align-top text-center overflow-hidden ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
