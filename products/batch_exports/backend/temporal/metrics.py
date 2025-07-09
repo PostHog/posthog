@@ -6,7 +6,9 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.common.logger import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 def get_rows_exported_metric() -> MetricCounter:
@@ -109,8 +111,7 @@ class ExecutionTimeRecorder:
         try:
             hist.record(value=delta)
         except Exception:
-            logger = get_internal_logger()
-            logger.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
+            LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
 
         if self.log:
             log_execution_time(
@@ -201,8 +202,6 @@ def log_execution_time(
     extra_arguments: Attributes | None = None,
 ):
     """Log execution time."""
-    logger = get_internal_logger()
-
     duration_seconds = delta.total_seconds()
 
     if bytes_processed is not None:
@@ -232,9 +231,9 @@ def log_execution_time(
         arguments = {**arguments, **extra_arguments}
 
     try:
-        logger.info(log_message, arguments)
+        LOGGER.info(log_message, arguments)
     except:
-        logger.exception(
+        LOGGER.exception(
             "Failed to log execution time with attributes '%s' and configuration '%s'",
             arguments,
             structlog.get_config(),
