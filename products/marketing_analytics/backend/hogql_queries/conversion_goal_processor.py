@@ -585,55 +585,41 @@ class ConversionGoalProcessor:
         return ast.Alias(
             alias="last_utm_timestamp",
             expr=ast.Call(
-                name="arrayElement",
+                name="arrayMax",
                 args=[
                     ast.Call(
-                        name="arraySort",
+                        name="arrayFilter",
                         args=[
                             ast.Lambda(
                                 args=["x"],
-                                expr=ast.ArithmeticOperation(
-                                    left=ast.Constant(value=0),
-                                    op=ast.ArithmeticOperationOp.Sub,
-                                    right=ast.Field(chain=["x"]),
+                                expr=ast.And(
+                                    exprs=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["x"]),
+                                            op=ast.CompareOperationOp.LtEq,
+                                            right=ast.ArrayAccess(
+                                                array=ast.Field(chain=["conversion_timestamps"]),
+                                                property=ast.Field(chain=["i"]),
+                                            ),
+                                        ),
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["x"]),
+                                            op=ast.CompareOperationOp.GtEq,
+                                            right=ast.ArithmeticOperation(
+                                                left=ast.ArrayAccess(
+                                                    array=ast.Field(chain=["conversion_timestamps"]),
+                                                    property=ast.Field(chain=["i"]),
+                                                ),
+                                                op=ast.ArithmeticOperationOp.Sub,
+                                                right=ast.Constant(value=attribution_window_seconds),
+                                            ),
+                                        ),
+                                    ]
                                 ),
                             ),
-                            ast.Call(
-                                name="arrayFilter",
-                                args=[
-                                    ast.Lambda(
-                                        args=["x"],
-                                        expr=ast.And(
-                                            exprs=[
-                                                ast.CompareOperation(
-                                                    left=ast.Field(chain=["x"]),
-                                                    op=ast.CompareOperationOp.LtEq,
-                                                    right=ast.ArrayAccess(
-                                                        array=ast.Field(chain=["conversion_timestamps"]),
-                                                        property=ast.Field(chain=["i"]),
-                                                    ),
-                                                ),
-                                                ast.CompareOperation(
-                                                    left=ast.Field(chain=["x"]),
-                                                    op=ast.CompareOperationOp.GtEq,
-                                                    right=ast.ArithmeticOperation(
-                                                        left=ast.ArrayAccess(
-                                                            array=ast.Field(chain=["conversion_timestamps"]),
-                                                            property=ast.Field(chain=["i"]),
-                                                        ),
-                                                        op=ast.ArithmeticOperationOp.Sub,
-                                                        right=ast.Constant(value=attribution_window_seconds),
-                                                    ),
-                                                ),
-                                            ]
-                                        ),
-                                    ),
-                                    ast.Field(chain=["utm_timestamps"]),
-                                ],
-                            ),
+                            ast.Field(chain=["utm_timestamps"]),
                         ],
                     ),
-                    ast.Constant(value=1),
                 ],
             ),
         )

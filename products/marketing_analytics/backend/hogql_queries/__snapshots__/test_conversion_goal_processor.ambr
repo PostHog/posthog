@@ -23,7 +23,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayElement(arraySort(x -> minus(0, x), arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 15552000))), utm_timestamps)), 1) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 15552000))), utm_timestamps)) AS last_utm_timestamp,
               if(notEquals(last_utm_timestamp, NULL), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(notEquals(last_utm_timestamp, NULL), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -83,7 +83,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayElement(arraySort(x -> minus(0, x), arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 15552000))), utm_timestamps)), 1) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 15552000))), utm_timestamps)) AS last_utm_timestamp,
               if(notEquals(last_utm_timestamp, NULL), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(notEquals(last_utm_timestamp, NULL), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -143,7 +143,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayElement(arraySort(x -> minus(0, x), arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)), 1) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)) AS last_utm_timestamp,
               if(notEquals(last_utm_timestamp, NULL), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(notEquals(last_utm_timestamp, NULL), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -203,7 +203,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayElement(arraySort(x -> minus(0, x), arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)), 1) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)) AS last_utm_timestamp,
               if(notEquals(last_utm_timestamp, NULL), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(notEquals(last_utm_timestamp, NULL), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
@@ -263,7 +263,7 @@
               conversion_math_values[i] AS conversion_math_value,
               conversion_campaigns[i] AS conversion_campaign,
               conversion_sources[i] AS conversion_source,
-              arrayElement(arraySort(x -> minus(0, x), arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)), 1) AS last_utm_timestamp,
+              arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 259200000))), utm_timestamps)) AS last_utm_timestamp,
               if(notEquals(last_utm_timestamp, NULL), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
               if(notEquals(last_utm_timestamp, NULL), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
           
