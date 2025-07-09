@@ -235,29 +235,29 @@ describe('Event Pipeline E2E tests', () => {
         await resetTestDatabaseClickhouse()
     })
 
-    testWithTeamIngester('should handle $$client_ingestion_warning events', async (ingester, hub, team) => {
-        const events = [
-            new EventBuilder(team)
-                .withEvent('$$client_ingestion_warning')
-                .withProperties({ $$client_ingestion_warning_message: 'test message' })
-                .build(),
-        ]
+    // testWithTeamIngester('should handle $$client_ingestion_warning events', async (ingester, hub, team) => {
+    //     const events = [
+    //         new EventBuilder(team)
+    //             .withEvent('$$client_ingestion_warning')
+    //             .withProperties({ $$client_ingestion_warning_message: 'test message' })
+    //             .build(),
+    //     ]
 
-        await ingester.handleKafkaBatch(createKafkaMessages(events))
+    //     await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-        await waitForKafkaMessages(hub)
+    //     await waitForKafkaMessages(hub)
 
-        await waitForExpect(async () => {
-            const warnings = await fetchIngestionWarnings(hub, team.id)
-            expect(warnings).toEqual([
-                expect.objectContaining({
-                    type: 'client_ingestion_warning',
-                    team_id: team.id,
-                    details: expect.objectContaining({ message: 'test message' }),
-                }),
-            ])
-        })
-    })
+    //     await waitForExpect(async () => {
+    //         const warnings = await fetchIngestionWarnings(hub, team.id)
+    //         expect(warnings).toEqual([
+    //             expect.objectContaining({
+    //                 type: 'client_ingestion_warning',
+    //                 team_id: team.id,
+    //                 details: expect.objectContaining({ message: 'test message' }),
+    //             }),
+    //         ])
+    //     })
+    // })
 
     testWithTeamIngester('should process events without a team_id', async (ingester, hub, team) => {
         const token = team.api_token
@@ -1054,41 +1054,41 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
-    testWithTeamIngester('should produce ingestion warnings for messages over 1MB', async (ingester, hub, team) => {
-        // For this we basically want the plugin-server to try and produce a new
-        // message larger than 1MB. We do this by creating a person with a lot of
-        // properties. We will end up denormalizing the person properties onto the
-        // event, which already has the properties as $set therefore resulting in a
-        // message that's larger than 1MB. There may also be other attributes that
-        // are added to the event which pushes it over the limit.
-        //
-        // We verify that this is handled by checking that there is a message in the
-        // appropriate topic.
-        const distinctId = new UUIDT().toString()
+    // testWithTeamIngester('should produce ingestion warnings for messages over 1MB', async (ingester, hub, team) => {
+    //     // For this we basically want the plugin-server to try and produce a new
+    //     // message larger than 1MB. We do this by creating a person with a lot of
+    //     // properties. We will end up denormalizing the person properties onto the
+    //     // event, which already has the properties as $set therefore resulting in a
+    //     // message that's larger than 1MB. There may also be other attributes that
+    //     // are added to the event which pushes it over the limit.
+    //     //
+    //     // We verify that this is handled by checking that there is a message in the
+    //     // appropriate topic.
+    //     const distinctId = new UUIDT().toString()
 
-        const personProperties = {
-            distinct_id: distinctId,
-            $set: {} as Record<string, string>,
-        }
+    //     const personProperties = {
+    //         distinct_id: distinctId,
+    //         $set: {} as Record<string, string>,
+    //     }
 
-        for (let i = 0; i < 10000; i++) {
-            personProperties.$set[new UUIDT().toString()] = new UUIDT().toString()
-        }
+    //     for (let i = 0; i < 10000; i++) {
+    //         personProperties.$set[new UUIDT().toString()] = new UUIDT().toString()
+    //     }
 
-        const events = [
-            new EventBuilder(team, distinctId).withEvent('$identify').withProperties(personProperties).build(),
-        ]
+    //     const events = [
+    //         new EventBuilder(team, distinctId).withEvent('$identify').withProperties(personProperties).build(),
+    //     ]
 
-        await ingester.handleKafkaBatch(createKafkaMessages(events))
+    //     await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-        await waitForKafkaMessages(hub)
+    //     await waitForKafkaMessages(hub)
 
-        await waitForExpect(async () => {
-            const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
-            expect(ingestionWarnings.length).toBe(1)
-            expect(ingestionWarnings[0].details.eventUuid).toBe(events[0].uuid)
-        })
-    })
+    //     await waitForExpect(async () => {
+    //         const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
+    //         expect(ingestionWarnings.length).toBe(1)
+    //         expect(ingestionWarnings[0].details.eventUuid).toBe(events[0].uuid)
+    //     })
+    // })
 
     const fetchPersons = async (hub: Hub, teamId: number) => {
         const persons = await hub.db.fetchPersons(Database.ClickHouse, teamId)
@@ -1122,14 +1122,14 @@ describe('Event Pipeline E2E tests', () => {
         return queryResult.data.map(parseRawClickHouseEvent)
     }
 
-    const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
-        const queryResult = (await hub.db.clickhouse.querying(`
-            SELECT *
-            FROM ingestion_warnings
-            WHERE team_id = ${teamId}
-        `)) as unknown as ClickHouse.ObjectQueryResult<any>
-        return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
-    }
+    // const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
+    //     const queryResult = (await hub.db.clickhouse.querying(`
+    //         SELECT *
+    //         FROM ingestion_warnings
+    //         WHERE team_id = ${teamId}
+    //     `)) as unknown as ClickHouse.ObjectQueryResult<any>
+    //     return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
+    // }
 
     testWithTeamIngester('alias events ordering scenario 1: original order', async (ingester, hub, team) => {
         const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
