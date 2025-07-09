@@ -9904,10 +9904,6 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
-                "useRecentEventsTable": {
-                    "description": "Use recent_events table (last 7 days) for better performance when querying recent data",
-                    "type": "boolean"
-                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -12821,7 +12817,7 @@
                     "type": "string"
                 },
                 "ui_context": {
-                    "$ref": "#/definitions/MaxContextShape"
+                    "$ref": "#/definitions/MaxUIContext"
                 }
             },
             "required": ["type", "content"],
@@ -14473,62 +14469,27 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "number"
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "action",
+                    "type": "string"
                 }
             },
-            "required": ["id", "name"],
-            "type": "object"
-        },
-        "MaxContextShape": {
-            "additionalProperties": false,
-            "properties": {
-                "actions": {
-                    "items": {
-                        "$ref": "#/definitions/MaxActionContext"
-                    },
-                    "type": "array"
-                },
-                "dashboards": {
-                    "items": {
-                        "$ref": "#/definitions/MaxDashboardContext"
-                    },
-                    "type": "array"
-                },
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/MaxEventContext"
-                    },
-                    "type": "array"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
-                "insights": {
-                    "items": {
-                        "$ref": "#/definitions/MaxInsightContext"
-                    },
-                    "type": "array"
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "type": "object"
-                }
-            },
+            "required": ["type", "id", "name"],
             "type": "object"
         },
         "MaxDashboardContext": {
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "filters": {
                     "$ref": "#/definitions/DashboardFilter"
@@ -14543,26 +14504,34 @@
                     "type": "array"
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "dashboard",
                     "type": "string"
                 }
             },
-            "required": ["id", "insights", "filters"],
+            "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "string"
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "event",
                     "type": "string"
                 }
             },
-            "required": ["id"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -14585,19 +14554,23 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "$ref": "#/definitions/InsightShortId"
                 },
                 "name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
+                },
+                "type": {
+                    "const": "insight",
+                    "type": "string"
                 }
             },
-            "required": ["id", "query"],
+            "required": ["type", "id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -14643,6 +14616,45 @@
                 }
             },
             "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUIContext": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "$ref": "#/definitions/MaxActionContext"
+                    },
+                    "type": "array"
+                },
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MaxEventContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "MaxUniversalFilterValue": {
