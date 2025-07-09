@@ -14,6 +14,7 @@ from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
+    BatchExportInsertInputs,
     acount_failed_batch_export_runs,
     apause_batch_export,
     cancel_running_batch_export_backfill,
@@ -723,6 +724,9 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
+
+    if isinstance(inputs, BatchExportInsertInputs) and inputs.get_is_backfill():
+        start_to_close_timeout = dt.timedelta(days=1)
 
     retry_policy = RetryPolicy(
         initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
