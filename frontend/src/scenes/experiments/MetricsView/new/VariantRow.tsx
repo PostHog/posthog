@@ -2,6 +2,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
 import { type ExperimentVariantResult, formatPercentageChange, getNiceTickValues } from '../shared/utils'
+import { IconArrowUp, IconTrendingDown } from 'lib/lemon-ui/icons'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -134,7 +135,37 @@ export function VariantRow({
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
-                    <div className="text-sm text-text-primary">{formatPercentageChange(testVariantResult)}</div>
+                    (() => {
+                        const changeResult = formatPercentageChange(testVariantResult)
+                        return (
+                            <div className="flex items-center gap-1 text-sm">
+                                {changeResult.isSignificant && changeResult.isPositive !== null && (
+                                    <span
+                                        className={`flex-shrink-0 ${
+                                            changeResult.isPositive ? 'text-success' : 'text-danger'
+                                        }`}
+                                    >
+                                        {changeResult.isPositive ? (
+                                            <IconArrowUp className="w-4 h-4" />
+                                        ) : (
+                                            <IconTrendingDown className="w-4 h-4" />
+                                        )}
+                                    </span>
+                                )}
+                                <span
+                                    className={`${
+                                        changeResult.isSignificant
+                                            ? changeResult.isPositive
+                                                ? 'text-success font-semibold'
+                                                : 'text-danger font-semibold'
+                                            : 'text-text-primary'
+                                    }`}
+                                >
+                                    {changeResult.text}
+                                </span>
+                            </div>
+                        )
+                    })()
                 ) : (
                     <div className="text-xs text-muted">—</div>
                 )}
