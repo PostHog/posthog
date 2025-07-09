@@ -8,17 +8,14 @@ multi-session capabilities for session summary workflows.
 from __future__ import annotations
 
 from typing import Any, Literal, Optional
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventsQuery,
     EventsQueryResponse,
-    HogQLQueryModifiers,
-    QueryStatus,
-    QueryTiming,
 )
 from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
@@ -72,12 +69,7 @@ class SessionEventsItem(BaseModel):
 
 
 class SessionBatchEventsQueryResponse(EventsQueryResponse):
-    """
-    Extended EventsQueryResponse for session batch queries.
-
-    Maintains compatibility with standard EventsQueryResponse while adding
-    session-specific result organization and metadata.
-    """
+    """Extended EventsQueryResponse for session batch queries."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -91,47 +83,11 @@ class SessionBatchEventsQueryResponse(EventsQueryResponse):
     )
 
 
-class CachedSessionBatchEventsQueryResponse(BaseModel):
-    """
-    Cached version of SessionBatchEventsQueryResponse. Extends the session batch response with caching metadata, similar to CachedEventsQueryResponse.
-    """
+class CachedSessionBatchEventsQueryResponse(CachedEventsQueryResponse):
+    """Cached version of SessionBatchEventsQueryResponse."""
 
     model_config = ConfigDict(extra="forbid")
 
-    # Caching-related fields
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
-    timezone: str
-
-    # Base EventsQueryResponse fields
-    columns: list
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: str = Field(..., description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[list]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-    types: list[str]
-
-    # Session-specific fields
     session_events: Optional[list[SessionEventsItem]] = Field(
         default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
     )
