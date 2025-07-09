@@ -6,6 +6,7 @@ from freezegun import freeze_time
 
 from posthog.hogql_queries.ai.session_events_query_runner.runner import SessionBatchEventsQueryRunner
 from posthog.hogql_queries.ai.session_events_query_runner.schema import (
+    SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
     create_session_batch_query,
 )
@@ -202,71 +203,59 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     event_name_2 = session_1.events[1][0]
                     self.assertEqual(event_name_2, "$feature_flag_called")
 
-    # def test_group_by_session_false(self):
-    #     """Test that group_by_session=False returns ungrouped results."""
-    #     self._create_events_for_sessions(
-    #         [
-    #             ("user1", "2020-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
-    #             ("user2", "2020-01-11T13:00:01Z", self.session_2_id, {"page": "/about"}),
-    #         ]
-    #     )
+    def test_group_by_session_false(self):
+        """Test that group_by_session=False returns ungrouped results."""
+        self._create_events_for_sessions(
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+                ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/about"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            # Create query with group_by_session=False
+            query = SessionBatchEventsQuery(
+                session_ids=[self.session_1_id, self.session_2_id],
+                select=["event", "timestamp", "properties.$session_id"],
+                where=[f"properties.$session_id IN ['{self.session_1_id}', '{self.session_2_id}']"],
+                after="-24h",
+                group_by_session=False,  # This should return ungrouped results
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
+            # Should not have session_events populated
+            self.assertIsNone(response.session_events)
+            # Should have regular results instead
+            self.assertIsNotNone(response.results)
+            self.assertEqual(len(response.results), 2)  # 2 total events
 
-    #     flush_persons_and_events()
-
-    #     with freeze_time("2020-01-11T16:00:00"):
-    #         # Create query with group_by_session=False
-    #         query = SessionBatchEventsQuery(
-    #             session_ids=[self.session_1_id, self.session_2_id],
-    #             select=["event", "timestamp", "properties.$session_id"],
-    #             where=[f"properties.$session_id IN ['{self.session_1_id}', '{self.session_2_id}']"],
-    #             after="-24h",
-    #             group_by_session=False,  # This should return ungrouped results
-    #         )
-
-    #         runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-    #         response = runner.calculate()
-
-    #         # Should not have session_events populated
-    #         self.assertIsNone(response.session_events)
-
-    #         # Should have regular results instead
-    #         self.assertIsNotNone(response.results)
-    #         self.assertEqual(len(response.results), 2)  # 2 total events
-
-    # def test_custom_field_selection(self):
-    #     """Test custom field selection in session batch queries."""
-    #     self._create_events_for_sessions(
-    #         [
-    #             (
-    #                 "user1",
-    #                 "2020-01-11T12:00:01Z",
-    #                 self.session_1_id,
-    #                 {"page": "/home", "user_agent": "Chrome", "custom_field": "test_value"},
-    #             ),
-    #         ]
-    #     )
-
-    #     flush_persons_and_events()
-
-    #     with freeze_time("2020-01-11T16:00:00"):
-    #         # Query with custom field selection
-    #         query = create_session_batch_query(
-    #             session_ids=[self.session_1_id],
-    #             select=["event", "properties.page", "properties.custom_field"],
-    #             after="-24h",
-    #         )
-
-    #         runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-    #         response = runner.calculate()
-
-    #         # Verify custom columns are returned
-    #         expected_columns = ["event", "properties.page", "properties.custom_field"]
-    #         self.assertEqual(response.columns, expected_columns)
-
-    #         # Verify event data matches selected fields
-    #         session_1 = response.session_events[0]
-    #         event_row = session_1.events[0]
-
-    #         self.assertEqual(event_row[0], "$pageview")  # event
-    #         self.assertEqual(event_row[1], "/home")  # properties.page
-    #         self.assertEqual(event_row[2], "test_value")  # properties.custom_field
+    def test_custom_field_selection(self):
+        """Test custom field selection in session batch queries."""
+        self._create_events_for_sessions(
+            [
+                (
+                    "user1",
+                    "2025-01-11T12:00:01Z",
+                    self.session_1_id,
+                    {"page": "/home", "user_agent": "Chrome", "custom_field": "test_value"},
+                ),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            # Query with custom field selection
+            query = create_session_batch_query(
+                session_ids=[self.session_1_id],
+                select=["event", "properties.page", "properties.custom_field"],
+                after="2025-01-10T00:00:00",
+                before="2025-01-12T00:00:00",
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
+            # Verify custom columns are returned
+            expected_columns = ["event", "properties.page", "properties.custom_field"]
+            self.assertEqual(response.columns, expected_columns)
+            # Verify event data matches selected fields
+            session_1 = response.session_events[0]
+            event_row = session_1.events[0]
+            self.assertEqual(event_row[0], "$pageview")  # event
+            self.assertEqual(event_row[1], "/home")  # properties.page
+            self.assertEqual(event_row[2], "test_value")  # properties.custom_field
