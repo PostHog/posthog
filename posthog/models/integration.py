@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import hashlib
 import hmac
+import secrets
 import time
 import jwt
 from datetime import timedelta, datetime
@@ -67,6 +68,7 @@ class Integration(models.Model):
         EMAIL = "email"
         LINEAR = "linear"
         GITHUB = "github"
+        SHORTLINK = "shortlink"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -1030,3 +1032,142 @@ class GitHubIntegration:
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+
+class ShortlinkServiceError(Exception):
+    """Base exception for shortlink service errors."""
+
+    pass
+
+
+class DuplicateShortlinkError(ShortlinkServiceError):
+    """Raised when attempting to create a shortlink with a duplicate external ID."""
+
+    pass
+
+
+class ShortlinkIntegration:
+    """
+    Integration for creating shortlinks via dub.co API.
+
+    Handles authentication, deduplication, and error scenarios.
+    Uses team-based external IDs to prevent duplicates.
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "shortlink":
+            raise Exception("ShortlinkIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def create_shortlink(self, original_url: str, user_id: int) -> dict:
+        """
+        Create a shortlink with team-based external ID for deduplication.
+
+        Args:
+            original_url: The original long template URL
+            user_id: User ID for tracking
+
+        Returns:
+            Dict containing dub.co response with shortLink, key, etc.
+
+        Raises:
+            DuplicateShortlinkError: If external ID already exists
+            ShortlinkServiceError: For other API errors
+        """
+        team_id = self.integration.team_id
+
+        # Generate unique external ID: ph-team{id}-{timestamp}-{random}
+        external_id = f"ph-team{team_id}-{int(time.time())}-{secrets.token_urlsafe(6)}"
+
+        payload = {
+            "url": original_url,
+            "domain": settings.DUB_DOMAIN,
+            "externalId": external_id,
+            "tagNames": f"posthog,insights,team-{team_id},user-{user_id}",
+            "title": "PostHog Insight Template",
+        }
+
+        # Add folder if configured
+        if settings.DUB_FOLDER_ID:
+            payload["folderId"] = settings.DUB_FOLDER_ID
+
+        headers = {"Authorization": f"Bearer {settings.DUB_API_KEY}", "Content-Type": "application/json"}
+
+        try:
+            logger.info(
+                "creating_shortlink",
+                team_id=team_id,
+                user_id=user_id,
+                domain=settings.DUB_DOMAIN,
+                has_folder=bool(settings.DUB_FOLDER_ID),
+            )
+
+            response = requests.post("https://api.dub.co/links", json=payload, headers=headers, timeout=10)
+
+            if response.status_code == 409:
+                # Handle duplicate external ID - this shouldn't happen with our timestamp approach
+                # but dub.co returns 409 for duplicate external IDs
+                logger.warning(
+                    "duplicate_external_id", team_id=team_id, external_id=external_id, status_code=response.status_code
+                )
+                raise DuplicateShortlinkError(f"External ID {external_id} already exists")
+
+            response.raise_for_status()
+            result = response.json()
+
+            logger.info(
+                "shortlink_created",
+                team_id=team_id,
+                user_id=user_id,
+                short_code=result.get("key"),
+                short_url=result.get("shortLink"),
+            )
+
+            return result
+
+        except requests.exceptions.Timeout:
+            logger.exception("shortlink_timeout", team_id=team_id, timeout=10)
+            raise ShortlinkServiceError("Shortlink service timeout")
+
+        except requests.exceptions.RequestException as e:
+            logger.exception(
+                "shortlink_request_failed",
+                team_id=team_id,
+                error=str(e),
+                status_code=getattr(e.response, "status_code", None),
+            )
+            raise ShortlinkServiceError(f"Failed to create shortlink: {e}")
+
+        except Exception as e:
+            logger.exception("shortlink_unexpected_error", team_id=team_id, error=str(e))
+            raise ShortlinkServiceError(f"Unexpected error: {e}")
+
+    @classmethod
+    def integration_from_settings(cls, team_id: int, created_by: Optional[User] = None) -> Integration:
+        """
+        Create a shortlink integration using dub.co settings.
+        This is a convenience method since shortlinks don't use OAuth.
+        """
+        if not settings.DUB_API_KEY:
+            raise ShortlinkServiceError("DUB_API_KEY is required but not configured")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="shortlink",
+            integration_id="dub.co",
+            defaults={
+                "config": {
+                    "domain": settings.DUB_DOMAIN,
+                    "enabled": settings.DUB_ENABLED,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
