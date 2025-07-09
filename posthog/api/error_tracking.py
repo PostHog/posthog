@@ -48,6 +48,8 @@ ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
+PRESIGNED_SINGLE_UPLOAD_TIMEOUT = 60
+PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 logger = structlog.get_logger(__name__)
 
@@ -519,7 +521,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         presigned_url = object_storage.get_presigned_post(
             file_key=file_key,
             conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-            expiration=60,
+            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
         )
 
         symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
@@ -591,7 +593,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             presigned_url = object_storage.get_presigned_post(
                 file_key=file_key,
                 conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-                expiration=60,
+                expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
             )
             symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
             id_url_map[chunk_id] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}

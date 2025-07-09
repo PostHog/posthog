@@ -44,9 +44,6 @@ from posthog.temporal.data_imports.pipelines.google_sheets.source import (
     get_schemas as get_google_sheets_schemas,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
 )
-from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_hubspot_access_token_from_code,
-)
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -67,6 +64,7 @@ from posthog.temporal.data_imports.pipelines.zendesk import (
     validate_credentials as validate_zendesk_credentials,
 )
 from posthog.utils import get_instance_region, str_to_bool
+from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -555,19 +553,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for schema in schemas:
             sync_type = schema.get("sync_type")
-            is_incremental = sync_type == "incremental"
+            requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
 
-            if is_incremental and incremental_field is None:
+            if requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
-            if is_incremental and incremental_field_type is None:
+            if requires_incremental_fields and incremental_field_type is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -586,7 +584,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
                     }
-                    if is_incremental
+                    if requires_incremental_fields
                     else {}
                 ),
             )
@@ -817,12 +815,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        code = payload.get("code")
-        redirect_uri = payload.get("redirect_uri")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-
-        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
+        hubspot_integration_id = payload.get("hubspot_integration_id")
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
@@ -834,8 +829,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "hubspot_secret_key": access_token,
-                "hubspot_refresh_token": refresh_token,
+                "hubspot_integration_id": hubspot_integration_id,
             },
             prefix=prefix,
         )
@@ -1743,6 +1737,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             data=ExternalDataJobSerializers(
                 jobs, many=True, read_only=True, context=self.get_serializer_context()
             ).data,
+        )
+
+    @action(methods=["GET"], detail=False)
+    def wizard(self, request: Request, *arg: Any, **kwargs: Any):
+        return Response(
+            status=status.HTTP_200_OK,
+            data={str(key): value.model_dump() for key, value in AVAILABLE_SOURCES.items()},
         )
 
     def _expose_postgres_error(self, error: OperationalError) -> str | None:

@@ -10,7 +10,6 @@ import typing
 
 import psycopg
 import pyarrow as pa
-import structlog
 from django.conf import settings
 from psycopg import sql
 from temporalio import activity, workflow
@@ -56,7 +55,7 @@ from posthog.temporal.batch_exports.utils import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import bind_contextvars, get_external_logger
+from posthog.temporal.common.logger import bind_contextvars, get_external_logger, get_logger
 
 PostgreSQLField = tuple[str, typing.LiteralString]
 Fields = collections.abc.Iterable[PostgreSQLField]
@@ -70,7 +69,8 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
     rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
 )
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 
 class PostgreSQLConnectionError(Exception):
@@ -602,7 +602,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = get_external_logger()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
         "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
