@@ -46,14 +46,14 @@ export function ChartCell({
 
     if (!hasEnoughData) {
         return (
-            <td className="min-w-[400px] bg-bg-light p-0 align-top text-center relative">
+            <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
         )
     }
 
     return (
-        <td className="min-w-[400px] bg-bg-light p-0 align-top text-center relative">
+        <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
             <ChartCellTooltip variantResult={variantResult}>
                 <svg
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}

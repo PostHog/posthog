@@ -57,11 +57,11 @@ export function VariantRow({
     }
 
     return (
-        <tr className="hover:bg-bg-hover group">
+        <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className="w-1/5 min-h-[60px] border-r border-border bg-bg-light p-3 align-top text-left relative"
+                    className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative"
                     rowSpan={totalVariantRows}
                 >
                     <MetricHeader
@@ -76,7 +76,7 @@ export function VariantRow({
             )}
 
             {/* Variant column - show variant key or "Baseline" */}
-            <td className="w-20 bg-bg-light p-3 align-top text-left">
+            <td className="w-20 border-b border-border bg-bg-light p-3 align-top text-left">
                 {variantResult ? (
                     <div className="text-sm text-text-primary">{variantResult.key}</div>
                 ) : (
@@ -85,7 +85,7 @@ export function VariantRow({
             </td>
 
             {/* Value column - show conversion rate and raw counts */}
-            <td className="w-24 bg-bg-light p-3 align-top text-left">
+            <td className="w-24 border-b border-border bg-bg-light p-3 align-top text-left">
                 {isBaseline ? (
                     <div className="text-sm">
                         <div className="text-text-primary">
@@ -108,7 +108,7 @@ export function VariantRow({
             </td>
 
             {/* P-value column - show statistical significance (empty for baseline) */}
-            <td className="w-20 bg-bg-light p-3 align-top text-left">
+            <td className="w-20 border-b border-border bg-bg-light p-3 align-top text-left">
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
@@ -128,7 +128,7 @@ export function VariantRow({
 
             {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
-                <td className="min-w-[400px] bg-bg-light p-0 align-top text-center relative">
+                <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative">
                             <svg
