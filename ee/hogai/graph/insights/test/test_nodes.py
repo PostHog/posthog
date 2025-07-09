@@ -112,30 +112,32 @@ class TestInsightSearchNode(BaseTest):
     def test_summarize_query_data_with_new_format(self):
         """Test query data summarization for new query format."""
         query_data = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
-        filters_data = {}
 
-        result = self.node._summarize_query_data(query_data, filters_data)
+        result = self.node._summarize_query_data(query_data)
         self.assertEqual(result, "TrendsQuery analysis (InsightVizNode)")
 
     def test_summarize_query_data_with_legacy_format(self):
         """Test query data summarization for legacy filters format."""
         query_data = {}
-        filters_data = {"insight": "FUNNELS"}
 
-        result = self.node._summarize_query_data(query_data, filters_data)
-        self.assertEqual(result, "FUNNELS analysis (legacy format)")
+        result = self.node._summarize_query_data(query_data)
+        self.assertEqual(result, "No query data available")
 
     def test_summarize_query_data_with_no_data(self):
         """Test query data summarization with no data."""
-        result = self.node._summarize_query_data({}, {})
+        result = self.node._summarize_query_data({})
         self.assertEqual(result, "No query data available")
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_semantic_filter_insights(self, mock_openai):
         """Test semantic filtering with mocked LLM."""
-        # Mock structured output response
+        # Mock structured output response for single-pass selection
         mock_structured_model = MagicMock()
-        mock_structured_model.invoke.return_value = {"high": ["Daily Pageviews"], "medium": [], "low": [], "none": []}
+        mock_structured_model.invoke.return_value = {
+            "selected_insight": "Daily Pageviews",
+            "confidence": 0.9,
+            "reasoning": "Direct match for pageview analysis",
+        }
         mock_openai.return_value.with_structured_output.return_value = mock_structured_model
 
         insights = [
@@ -150,16 +152,17 @@ class TestInsightSearchNode(BaseTest):
         results = self.node._semantic_filter_insights(insights, "pageview analysis")
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["relevance_score"], 1.0)  # high rating
+        self.assertEqual(results[0]["relevance_score"], 0.9)  # confidence score
+        self.assertEqual(results[0]["semantic_score"], 0.9)
         mock_structured_model.invoke.assert_called_once()
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
-    def test_semantic_filter_insights_low_relevance(self, mock_openai):
-        """Test semantic filtering filters out low relevance insights."""
-        # Mock LLM response with low relevance in batch format
-        mock_response = MagicMock()
-        mock_response.content = "1: low"
-        mock_openai.return_value.invoke.return_value = mock_response
+    def test_semantic_filter_insights_fallback(self, mock_openai):
+        """Test semantic filtering fallback when LLM fails."""
+        # Mock LLM to raise an exception
+        mock_structured_model = MagicMock()
+        mock_structured_model.invoke.side_effect = Exception("LLM failed")
+        mock_openai.return_value.with_structured_output.return_value = mock_structured_model
 
         insights = [
             {
@@ -172,54 +175,8 @@ class TestInsightSearchNode(BaseTest):
 
         results = self.node._semantic_filter_insights(insights, "user signup")
 
-        self.assertEqual(len(results), 0)  # Should filter out low relevance
-
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
-    def test_select_best_insight_single_insight(self, mock_openai):
-        """Test selecting best insight when only one insight exists."""
-        insights = [{"id": self.insight1.id, "name": "Daily Pageviews"}]
-
-        result = self.node._select_best_insight(insights, "pageviews")
-
-        self.assertEqual(result, insights[0])
-        # Should not call LLM for single insight
-        mock_openai.return_value.invoke.assert_not_called()
-
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
-    def test_select_best_insight_multiple_insights(self, mock_openai):
-        """Test selecting best insight from multiple options."""
-        # Mock LLM response selecting second insight
-        mock_response = MagicMock()
-        mock_response.content = "2"
-        mock_openai.return_value.invoke.return_value = mock_response
-
-        insights = [
-            {"id": self.insight1.id, "name": "Daily Pageviews", "relevance_score": 0.8},
-            {"id": self.insight2.id, "name": "User Signup Funnel", "relevance_score": 0.9},
-        ]
-
-        result = self.node._select_best_insight(insights, "signup funnel")
-
-        self.assertEqual(result["id"], self.insight2.id)
-        mock_openai.return_value.invoke.assert_called_once()
-
-    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
-    def test_select_best_insight_fallback_on_error(self, mock_openai):
-        """Test fallback to highest relevance score when LLM fails."""
-        # Mock LLM to return invalid response
-        mock_response = MagicMock()
-        mock_response.content = "invalid_number"
-        mock_openai.return_value.invoke.return_value = mock_response
-
-        insights = [
-            {"id": self.insight1.id, "name": "Daily Pageviews", "relevance_score": 0.8},
-            {"id": self.insight2.id, "name": "User Signup Funnel", "relevance_score": 0.9},
-        ]
-
-        result = self.node._select_best_insight(insights, "test query")
-
-        # Should fallback to highest relevance score
-        self.assertEqual(result["id"], self.insight2.id)
+        self.assertEqual(len(results), 1)  # Should return fallback insight
+        self.assertEqual(results[0]["relevance_score"], 0.3)  # Fallback score
 
     def test_format_insight_results_no_results(self):
         """Test formatting when no results are found."""
@@ -368,20 +325,3 @@ class TestInsightSearchNode(BaseTest):
         """Test semantic filtering with empty input."""
         results = self.node._semantic_filter_insights([], "test query")
         self.assertEqual(results, [])
-
-    def test_select_best_insight_with_no_query(self):
-        """Test selecting best insight when no query provided."""
-        insights = [
-            {"id": 1, "relevance_score": 0.7},
-            {"id": 2, "relevance_score": 0.9},
-        ]
-
-        result = self.node._select_best_insight(insights, None)
-
-        # Should return highest relevance score
-        self.assertEqual(result["id"], 2)
-
-    def test_select_best_insight_with_empty_list(self):
-        """Test selecting best insight with empty list."""
-        result = self.node._select_best_insight([], "test query")
-        self.assertIsNone(result)

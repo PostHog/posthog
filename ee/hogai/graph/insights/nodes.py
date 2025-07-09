@@ -14,7 +14,7 @@ from posthog.schema import (
     AssistantMessage,
 )
 from ee.hogai.graph.base import AssistantNode
-from .prompts import STRUCTURED_SEMANTIC_FILTER_PROMPT
+from .prompts import SINGLE_PASS_INSIGHT_SELECTION_PROMPT
 
 from posthog.models import InsightViewed
 
@@ -66,13 +66,12 @@ class CacheStats(TypedDict):
     misses: int
 
 
-class SemanticRatings(TypedDict):
-    """Structured output from LLM semantic rating."""
+class BestInsightSelection(TypedDict):
+    """Structured output from LLM for selecting the single best insight."""
 
-    high: list[str]
-    medium: list[str]
-    low: list[str]
-    none: list[str]
+    selected_insight: str
+    confidence: float
+    reasoning: str
 
 
 class InsightSearchNode(AssistantNode):
@@ -96,7 +95,7 @@ class InsightSearchNode(AssistantNode):
         content = f"{query}::{len(cleaned_names)}::{names_hash}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    def _get_cached_semantic_result(self, cache_key: str) -> tuple[SemanticRatings | None, bool]:
+    def _get_cached_semantic_result(self, cache_key: str) -> tuple[BestInsightSelection | None, bool]:
         """
         Retrieve cached LLM semantic filtering results to avoid redundant API calls.
 
@@ -124,7 +123,7 @@ class InsightSearchNode(AssistantNode):
                 del self._semantic_cache[cache_key]
         return None, False
 
-    def _cache_semantic_result(self, cache_key: str, result: SemanticRatings) -> None:
+    def _cache_semantic_result(self, cache_key: str, result: BestInsightSelection) -> None:
         """Cache semantic filtering result with timestamp."""
         # Simple cache management - keep last 100 entries
         if len(self._semantic_cache) > 100:
@@ -329,7 +328,7 @@ class InsightSearchNode(AssistantNode):
         return enriched_insights
 
     def _apply_semantic_filtering(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
-        """Apply LLM-based semantic filtering with structured output."""
+        """Apply LLM-based semantic filtering to select the single best insight."""
         MAX_INSIGHTS_PER_BATCH = 50
         limited_insights = insights[:MAX_INSIGHTS_PER_BATCH]
 
@@ -352,144 +351,77 @@ class InsightSearchNode(AssistantNode):
 
         # Check cache first
         cache_key = self._get_cache_key(query, list(insight_by_name.keys()))
-        cached_ratings, was_cache_hit = self._get_cached_semantic_result(cache_key)
+        cached_selection, was_cache_hit = self._get_cached_semantic_result(cache_key)
 
         if was_cache_hit:
             self._current_cache_hits += 1
-            structured_ratings = cached_ratings
+            selection_result = cached_selection
         else:
             self._current_cache_misses += 1
             # Use structured output for reliable parsing
-            formatted_prompt = STRUCTURED_SEMANTIC_FILTER_PROMPT.format(
+            formatted_prompt = SINGLE_PASS_INSIGHT_SELECTION_PROMPT.format(
                 query=query, insights_list=insights_text.strip()
             )
 
             model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=1000)
-            structured_model = model.with_structured_output(SemanticRatings)
+            structured_model = model.with_structured_output(BestInsightSelection)
 
             try:
-                structured_ratings = structured_model.invoke(formatted_prompt)
+                selection_result = structured_model.invoke(formatted_prompt)
 
                 # Cache the structured results
-                self._cache_semantic_result(cache_key, structured_ratings)
+                self._cache_semantic_result(cache_key, selection_result)
 
             except Exception as e:
-                self.logger.warning(f"Structured semantic filtering failed: {e}, falling back to most recent insights")
-                # Fast fallback: return top insights with keyword scores (sorted by relevance)
-                fallback_insights = []
-
-                # Return the most recent insights as fallback
-                fallback_insights = [
+                self.logger.warning(f"Structured semantic filtering failed: {e}, falling back to most recent insight")
+                # Fast fallback: return the most recent insight
+                return [
                     {
-                        "insight_id": insight["insight_id"],
-                        "insight__name": insight["insight__name"],
-                        "insight__description": insight["insight__description"],
-                        "insight__derived_name": insight.get("insight__derived_name"),
-                        "insight__query": insight.get("insight__query"),
-                        "insight__short_id": insight.get("insight__short_id"),
+                        "insight_id": limited_insights[0]["insight_id"],
+                        "insight__name": limited_insights[0]["insight__name"],
+                        "insight__description": limited_insights[0]["insight__description"],
+                        "insight__derived_name": limited_insights[0].get("insight__derived_name"),
+                        "insight__query": limited_insights[0].get("insight__query"),
+                        "insight__short_id": limited_insights[0].get("insight__short_id"),
                         "keyword_score": 0.0,
                         "semantic_score": 0.3,
                         "relevance_score": 0.3,
                     }
-                    for insight in limited_insights[:3]  # Return top 3 most recent
                 ]
 
-                return fallback_insights
-
-        # Convert to InsightWithScores using only high and medium rated insights
-        relevant_insights: list[InsightWithScores] = []
-
-        for category, score in [("high", 1.0), ("medium", 0.7)]:
-            for insight_name in structured_ratings.get(category, []):
-                if insight_name in insight_by_name:
-                    insight = insight_by_name[insight_name]
-
-                    relevant_insights.append(
-                        {
-                            "insight_id": insight["insight_id"],
-                            "insight__name": insight["insight__name"],
-                            "insight__description": insight["insight__description"],
-                            "insight__derived_name": insight.get("insight__derived_name"),
-                            "insight__query": insight.get("insight__query"),
-                            "insight__short_id": insight.get("insight__short_id"),
-                            "keyword_score": 0.0,
-                            "semantic_score": score,
-                            "relevance_score": score,
-                        }
-                    )
-
-        # Sort by relevance score and return
-        return sorted(relevant_insights, key=lambda x: x["relevance_score"], reverse=True)
-
-    def _select_best_insight(self, insights: list[EnrichedInsight], query: str | None) -> EnrichedInsight | None:
-        """Select the single most relevant insight using LLM analysis."""
-
-        if not insights:
-            return None
-
-        if not query:
-            # return highest relevance score
-            return max(insights, key=lambda x: x.get("relevance_score", 0))
-
-        if len(insights) == 1:
-            return insights[0]
-
-        # Format for LLM evaluation
-        insights_text = ""
-        for i, insight in enumerate(insights, 1):
-            name = insight.get("name") or insight.get("derived_name", "Unnamed")
-            description = insight.get("description")
-            query_data = insight.get("query", {})
-
-            query_summary = self._summarize_query_data(query_data)
-
-            if description:
-                insights_text += f"""
-{i}. "{name}"
-   Description: {description}
-   Query: {query_summary}
-   Relevance Score: {insight.get('relevance_score', 'N/A')}
-"""
-            else:
-                insights_text += f"""
-{i}. "{name}"
-   Query: {query_summary}
-   Relevance Score: {insight.get('relevance_score', 'N/A')}
-"""
-
-        prompt = f"""You are helping a user find the most relevant PostHog insight for their search.
-
-User Search Query: "{query}"
-
-Available Insights:{insights_text}
-
-Select the single most relevant insight by responding with ONLY the number (1, 2, 3, etc.) that best matches the user's search intent.
-
-Most relevant insight number:"""
-
-        model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=5)
-
-        try:
-            response = model.invoke(prompt)
-            selection = response.content.strip()
-
-            try:
-                selected_index = int(selection) - 1  # Convert to 0-based index
-                if 0 <= selected_index < len(insights):
-                    self.logger.info(
-                        f"LLM selected insight {selected_index + 1}: {insights[selected_index].get('name')}"
-                    )
-                    return insights[selected_index]
-            except ValueError:
-                self.logger.warning(f"Could not parse LLM selection: {selection}")
-
-            # Fallback to highest relevance score
-            return max(insights, key=lambda x: x.get("relevance_score", 0))
-
-        except Exception as e:
-            self.logger.exception(f"Error in final insight selection: {e}")
-            # Fallback to highest relevance score
-            return max(insights, key=lambda x: x.get("relevance_score", 0))
+        # Convert the selected insight to InsightWithScores format
+        selected_insight_name = selection_result.get("selected_insight", "")
+        confidence = selection_result.get("confidence", 0.7)
+        if selected_insight_name in insight_by_name:
+            insight = insight_by_name[selected_insight_name]
+            return [
+                {
+                    "insight_id": insight["insight_id"],
+                    "insight__name": insight["insight__name"],
+                    "insight__description": insight["insight__description"],
+                    "insight__derived_name": insight.get("insight__derived_name"),
+                    "insight__query": insight.get("insight__query"),
+                    "insight__short_id": insight.get("insight__short_id"),
+                    "keyword_score": 0.0,
+                    "semantic_score": confidence,
+                    "relevance_score": confidence,
+                }
+            ]
+        else:
+            # Fallback to most recent if selected insight not found
+            return [
+                {
+                    "insight_id": limited_insights[0]["insight_id"],
+                    "insight__name": limited_insights[0]["insight__name"],
+                    "insight__description": limited_insights[0]["insight__description"],
+                    "insight__derived_name": limited_insights[0].get("insight__derived_name"),
+                    "insight__query": limited_insights[0].get("insight__query"),
+                    "insight__short_id": limited_insights[0].get("insight__short_id"),
+                    "keyword_score": 0.0,
+                    "semantic_score": 0.3,
+                    "relevance_score": 0.3,
+                }
+            ]
 
     def _summarize_query_data(self, query_data: dict[str, Any]) -> str:
         """Summarize query data for LLM readability."""

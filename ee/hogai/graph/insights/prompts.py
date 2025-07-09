@@ -57,3 +57,21 @@ Ratings:
 IMPORTANT: Insights marked with ⭐ EXACT MATCH should generally be rated 'high' unless completely unrelated to the query context.
 
 Your response:""")
+
+SINGLE_PASS_INSIGHT_SELECTION_PROMPT = """
+Find the single most relevant insight for the user's search query.
+
+Search Query: {query}
+
+Available Insights:
+{insights_list}
+
+First, analyze each insight's relevance to the query. Then select the single best match.
+
+Your analysis should consider:
+- Direct keyword matches in insight names
+- Semantic similarity to the query intent
+- Practical usefulness for the user's likely needs
+
+Return the exact insight name that best matches the query.
+"""
