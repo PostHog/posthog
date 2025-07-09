@@ -78,6 +78,7 @@ export const template: NativeTemplate = {
                         },
                         json: {
                             event: payload.eventName,
+                            eventId: payload.eventId,
                             properties: payload.eventProperties,
                         },
                     })
