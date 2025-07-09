@@ -10,7 +10,13 @@ import {
     ExperimentStatsBase,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
-import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, CHART_CELL_VIEW_BOX_HEIGHT, GRID_LINES_OPACITY } from './constants'
+import {
+    VIEW_BOX_WIDTH,
+    SVG_EDGE_MARGIN,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    GRID_LINES_OPACITY,
+    CELL_HEIGHT,
+} from './constants'
 import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
@@ -68,10 +74,11 @@ export function VariantRow({
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className={`w-1/5 min-h-[51px] border-r border-border-bold p-2 align-top text-left relative ${
+                    className={`w-1/5 border-r border-border-bold p-2 align-top text-left relative ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
+                    style={{ minHeight: `${CELL_HEIGHT}px` }}
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -184,7 +191,7 @@ export function VariantRow({
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                                 preserveAspectRatio="none"
                                 className="w-full max-w-[1000px]"
-                                style={{ height: '51px' }}
+                                style={{ height: `${CELL_HEIGHT}px` }}
                             >
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}

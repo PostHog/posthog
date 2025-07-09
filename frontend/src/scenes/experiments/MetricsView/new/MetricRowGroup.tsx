@@ -1,4 +1,5 @@
 import { VariantRow } from './VariantRow'
+import { CELL_HEIGHT } from './constants'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -64,9 +65,10 @@ export function MetricRowGroup({
         return (
             <tr className="hover:bg-bg-hover group">
                 <td
-                    className={`w-1/5 min-h-[51px] border-b border-r border-border-bold p-2 align-top text-left relative ${
+                    className={`w-1/5 border-b border-r border-border-bold p-2 align-top text-left relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ minHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="p-4 text-muted text-sm">No data available</div>
                 </td>

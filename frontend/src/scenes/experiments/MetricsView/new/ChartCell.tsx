@@ -6,7 +6,7 @@ import {
     VIEW_BOX_WIDTH,
     CHART_CELL_VIEW_BOX_HEIGHT,
     CHART_CELL_BAR_HEIGHT_PERCENT,
-    CHART_CELL_HEIGHT_PX,
+    CELL_HEIGHT,
     CHART_BAR_OPACITY,
     GRID_LINES_OPACITY,
 } from './constants'
@@ -71,7 +71,7 @@ export function ChartCell({
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                     preserveAspectRatio="none"
                     className="w-full max-w-[1000px]"
-                    style={{ height: `${CHART_CELL_HEIGHT_PX}px` }}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     {/* Grid lines for all ticks - spans full height */}
                     {showGridLines && (
