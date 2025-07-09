@@ -404,7 +404,6 @@ export const createOrganization = async (pg: PostgresRouter) => {
         domain_whitelist: [],
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
-        members_can_use_personal_api_keys: false,
         slug: new UUIDT().toString(),
     })
     return organizationId
