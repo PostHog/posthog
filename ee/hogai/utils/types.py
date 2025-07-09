@@ -169,6 +169,7 @@ class _SharedAssistantState(BaseModel):
     """
     The ID of the previous OpenAI Responses API response made by the query planner.
     """
+
     generated_filter_options: Optional[dict] = Field(default=None)
     """
     The filter options to apply to the product.
