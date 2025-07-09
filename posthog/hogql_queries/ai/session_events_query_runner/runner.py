@@ -2,6 +2,7 @@ from typing import Any
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from .schema import (
+    CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
     SessionEventsItem,
@@ -14,6 +15,7 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
 
     query: SessionBatchEventsQuery
     response: SessionBatchEventsQueryResponse
+    cached_response: CachedSessionBatchEventsQueryResponse
 
     def calculate(self) -> SessionBatchEventsQueryResponse:
         """
