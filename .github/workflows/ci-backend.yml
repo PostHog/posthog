@@ -624,7 +624,7 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm=least_duration \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
