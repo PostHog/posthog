@@ -7,6 +7,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 import { type ExperimentVariantResult } from '../shared/utils'
+import { CELL_HEIGHT } from './constants'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -62,11 +63,12 @@ export function MetricRowGroup({
 
     if (allRows.length === 0) {
         return (
-            <tr className="hover:bg-bg-hover group">
+            <tr className="hover:bg-bg-hover group" style={{ height: `${CELL_HEIGHT}px` }}>
                 <td
                     className={`w-1/5 border-b border-r border-border-bold p-3 align-top text-left relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     <div className="p-4 text-muted text-sm">No data available</div>
                 </td>
@@ -74,6 +76,7 @@ export function MetricRowGroup({
                     className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
@@ -81,6 +84,7 @@ export function MetricRowGroup({
                     className={`w-24 border-b border-r border-border-bold p-3 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
@@ -88,6 +92,7 @@ export function MetricRowGroup({
                     className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
@@ -95,6 +100,7 @@ export function MetricRowGroup({
                     className={`min-w-[400px] border-b border-border-bold p-2 align-top text-center ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     —
                 </td>
