@@ -16,10 +16,20 @@ import { DeepPartialHogFunctionInvocationGlobals } from './test-helpers'
 
 export class DestinationTester {
     private executor: NativeDestinationExecutorService
+    private mockFetch = jest.fn()
 
     constructor(private template: NativeTemplate) {
         this.template = template
         this.executor = new NativeDestinationExecutorService({} as any)
+
+        this.executor.fetch = this.mockFetch
+
+        this.mockFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({ status: 'OK' }),
+            text: () => Promise.resolve(JSON.stringify({ status: 'OK' })),
+            headers: { 'content-type': 'application/json' },
+        })
     }
 
     private async compileObject(obj: any): Promise<any> {

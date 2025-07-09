@@ -25,8 +25,6 @@ describe(`Testing snapshots for ${template.id} destination:`, () => {
                 required === 'required fields'
             )
 
-            // TODO: mock fetch
-
             const responses = await testDestination.invokeMapping(
                 mapping.name,
                 SAMPLE_GLOBALS,
