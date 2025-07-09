@@ -49,9 +49,6 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                         generated_filter_options=full_response,
                         filter_options_previous_response_id=state.root_tool_call_id or "",
                         intermediate_steps=[],
-                        # Preserve the original change and current_filters from the state
-                        # change=state.change,
-                        # current_filters=state.current_filters,
                         messages=[
                             AssistantToolCallMessage(
                                 tool_call_id=state.root_tool_call_id or "",  # Default to empty string if None

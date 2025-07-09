@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -92,7 +92,6 @@ class FilterOptionsNode(AssistantNode):
         # Always include the base system and conversation setup
         system_messages = [
             ("system", FILTER_INITIAL_PROMPT),
-            ("system", CORE_MEMORY_PROMPT),
             ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
         ]
