@@ -350,3 +350,53 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should have regular results
             self.assertIsNotNone(response.results)
             self.assertEqual(len(response.results), 1)
+
+    def test_pagination_with_offset(self):
+        """Test pagination functionality with offset parameter."""
+        session_id = self.session_1_id
+        self._create_events_for_sessions(  # Create 5 events for a single session
+            [
+                ("user1", "2025-01-11T12:00:01Z", session_id, {"page": "/page1"}),
+                ("user1", "2025-01-11T12:01:00Z", session_id, {"page": "/page2"}),
+                ("user1", "2025-01-11T12:02:00Z", session_id, {"page": "/page3"}),
+                ("user1", "2025-01-11T12:03:00Z", session_id, {"page": "/page4"}),
+                ("user1", "2025-01-11T12:04:00Z", session_id, {"page": "/page5"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            all_events = []
+            for iteration in range(3):  # 2 events per query max, iterate 3 times to get 5 events
+                offset = iteration * 2
+                query = create_session_batch_query(
+                    session_ids=[session_id],
+                    before="2025-01-12T00:00:00",
+                    after="2025-01-10T00:00:00",
+                    select=["event", "timestamp", "properties.page", "properties.$session_id"],
+                    max_total_events=2,
+                    offset=offset,
+                )
+                runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+                response = runner.calculate()
+
+                # Verify responses
+                self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+                self.assertIsNotNone(response.session_events)
+                if iteration < 2:  # First two iterations should have 2 events each
+                    self.assertEqual(len(response.session_events), 1)
+                    session_events = response.session_events[0]
+                    self.assertEqual(session_events.session_id, session_id)
+                    self.assertEqual(len(session_events.events), 2)
+                    all_events.extend(session_events.events)
+                else:  # Third iteration should have 1 event
+                    self.assertEqual(len(response.session_events), 1)
+                    session_events = response.session_events[0]
+                    self.assertEqual(session_events.session_id, session_id)
+                    self.assertEqual(len(session_events.events), 1)
+                    all_events.extend(session_events.events)
+
+            # Verify we collected all 5 events across the 3 iterations
+            self.assertEqual(len(all_events), 5)
+            # Verify the events are in chronological order and contain expected pages
+            expected_pages = ["/page1", "/page2", "/page3", "/page4", "/page5"]
+            actual_pages = [event[2] for event in all_events]  # properties.page is at index 2
+            self.assertEqual(actual_pages, expected_pages)
