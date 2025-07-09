@@ -42,6 +42,7 @@ from posthog.schema import (
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -301,6 +302,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
