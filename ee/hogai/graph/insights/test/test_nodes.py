@@ -6,7 +6,7 @@ from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import Insight, InsightViewed
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest
 
 
@@ -242,26 +242,30 @@ class TestInsightSearchNode(BaseTest):
         # Create a valid conversation
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
-        # Mock semantic filtering LLM
-        semantic_mock = MagicMock()
-        semantic_mock.content = "high"
-
-        # Mock best insight selection LLM
-        selection_mock = MagicMock()
-        selection_mock.content = "1"
-
-        mock_openai.return_value.invoke.side_effect = [semantic_mock, selection_mock]
+        # Mock structured output for single-pass selection
+        mock_structured_model = MagicMock()
+        mock_structured_model.invoke.return_value = {
+            "selected_insight": "Daily Pageviews",
+            "confidence": 0.9,
+            "reasoning": "Direct match for pageview insights",
+        }
+        mock_openai.return_value.with_structured_output.return_value = mock_structured_model
 
         state = AssistantState(
-            messages=[HumanMessage(content="Find pageview insights")], root_to_search_insights="pageview insights"
+            messages=[HumanMessage(content="Find pageview insights")],
+            root_to_search_insights="pageview insights",
+            root_tool_call_id="test_tool_call_id_3",  # Set the tool call ID for the test
         )
 
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantMessage)
-        self.assertIn("Found", result.messages[0].content)
+        self.assertEqual(len(result.messages), 2)
+        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_3")
+        self.assertEqual(result.messages[0].content, "Searching insights...")
+        self.assertIsInstance(result.messages[1], AssistantMessage)
+        self.assertIn("Found", result.messages[1].content)
         self.assertEqual(result.root_to_search_insights, "")  # Should reset state
 
     def test_run_without_semantic_filtering(self):
@@ -273,13 +277,17 @@ class TestInsightSearchNode(BaseTest):
         state = AssistantState(
             messages=[HumanMessage(content="abc")],
             root_to_search_insights="ab",  # Too short for semantic filtering
+            root_tool_call_id="test_tool_call_id",  # Set the tool call ID for the test
         )
 
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantMessage)
+        self.assertEqual(len(result.messages), 2)
+        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id")
+        self.assertEqual(result.messages[0].content, "Searching insights...")
+        self.assertIsInstance(result.messages[1], AssistantMessage)
         self.assertEqual(result.root_to_search_insights, "")
 
     def test_run_with_no_query(self):
@@ -288,12 +296,20 @@ class TestInsightSearchNode(BaseTest):
         # Create a valid conversation
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
-        state = AssistantState(messages=[HumanMessage(content="test")], root_to_search_insights=None)
+        state = AssistantState(
+            messages=[HumanMessage(content="test")],
+            root_to_search_insights=None,
+            root_tool_call_id="test_tool_call_id_2",  # Set the tool call ID for the test
+        )
 
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        self.assertEqual(len(result.messages), 2)
+        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+        self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_2")
+        self.assertEqual(result.messages[0].content, "Searching insights...")
+        self.assertIsInstance(result.messages[1], AssistantMessage)
         self.assertEqual(result.root_to_search_insights, "")
 
     def test_search_insights_team_filtering(self):

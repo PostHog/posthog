@@ -12,6 +12,7 @@ import structlog
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantMessage,
+    AssistantToolCallMessage,
 )
 from ee.hogai.graph.base import AssistantNode
 from .prompts import SINGLE_PASS_INSIGHT_SELECTION_PROMPT
@@ -171,10 +172,15 @@ class InsightSearchNode(AssistantNode):
 
             return PartialAssistantState(
                 messages=[
+                    AssistantToolCallMessage(
+                        content="Searching insights...",
+                        tool_call_id=state.root_tool_call_id,
+                        id=str(uuid4()),
+                    ),
                     AssistantMessage(
                         content=formatted_content,
                         id=str(uuid4()),
-                    )
+                    ),
                 ],
                 # Reset state values
                 root_to_search_insights="",
@@ -201,10 +207,15 @@ class InsightSearchNode(AssistantNode):
 
             return PartialAssistantState(
                 messages=[
+                    AssistantToolCallMessage(
+                        content="Searching insights...",
+                        tool_call_id=state.root_tool_call_id,
+                        id=str(uuid4()),
+                    ),
                     AssistantMessage(
                         content="Sorry, I encountered an issue while searching for insights. Please try again with a different search term.",
                         id=str(uuid4()),
-                    )
+                    ),
                 ],
                 root_to_search_insights="",
             )
