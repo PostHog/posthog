@@ -1,5 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { DeepPartial, forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import posthog from 'posthog-js'
@@ -50,7 +50,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectJoiningKey: (selectedKey: string) => ({ selectedKey, joiningTable: values.selectedJoiningTable }),
         toggleJoinTableModal: true,
         toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
-        toggleNewJoinModal: true,
+        toggleNewJoinModal: (join?: DeepPartial<DataWarehouseViewLink>) => ({ join }),
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
@@ -65,6 +65,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 submitViewLinkSuccess: () => null,
                 clearModalFields: () => null,
+                toggleNewJoinModal: () => null,
                 toggleEditJoinModal: (_, { join }) => join,
             },
         ],
@@ -82,6 +83,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectSourceTable: (_, { selectedTableName }) => selectedTableName,
+                toggleNewJoinModal: (_, { join }) => join?.source_table_name ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_name ?? null,
                 clearModalFields: () => null,
             },
@@ -90,6 +92,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                toggleNewJoinModal: (_, { join }) => join?.joining_table_name ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_name ?? null,
                 clearModalFields: () => null,
             },
@@ -98,6 +101,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectSourceKey: (_, { selectedKey }) => selectedKey,
+                toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
             },
         ],
@@ -105,6 +109,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
+                toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
             },
         ],
@@ -113,6 +118,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 setFieldName: (_, { fieldName }) => fieldName,
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName.replaceAll('.', '_'),
+                toggleNewJoinModal: (_, { join }) => join?.field_name ?? '',
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
             },
@@ -121,6 +127,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             false as boolean,
             {
                 setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
+                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_optimized ?? false,
                 toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_optimized ?? false,
                 clearModalFields: () => false,
             },
@@ -129,6 +136,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectExperimentsTimestampKey: (_, { experimentsTimestampKey }) => experimentsTimestampKey,
+                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_timestamp_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_key ?? null,
                 clearModalFields: () => null,
             },
@@ -212,6 +220,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
     listeners(({ actions }) => ({
+        toggleNewJoinModal: ({ join }) => {
+            actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+        },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
         },
