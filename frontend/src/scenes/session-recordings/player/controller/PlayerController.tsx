@@ -64,12 +64,20 @@ function FullScreen(): JSX.Element {
 }
 
 function CinemaMode(): JSX.Element {
-    const { isZenMode } = useValues(playerSettingsLogic)
-    const { setIsZenMode } = useActions(playerSettingsLogic)
+    const { isZenMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsZenMode, setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const handleCinemaMode = (): void => {
+        setIsZenMode(!isZenMode)
+        if (sidebarOpen) {
+            setSidebarOpen(false)
+        }
+    }
+
     return (
         <LemonButton
             size="xsmall"
-            onClick={() => setIsZenMode(!isZenMode)}
+            onClick={handleCinemaMode}
             tooltip={
                 <>
                     <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
