@@ -1,23 +1,18 @@
 import { dayjs } from 'lib/dayjs'
 
 export interface DayJSDateRange {
-    dateFrom: dayjs.Dayjs
-    dateTo: dayjs.Dayjs
-}
-
-export interface WeekBoundaries {
-    weekStart: dayjs.Dayjs
-    weekEnd: dayjs.Dayjs
+    start: dayjs.Dayjs
+    end: dayjs.Dayjs
 }
 
 /**
- * Calculate bounded start and end dates for a week interval
+ * Get week boundaries for a reference date constrained by a date range.
  */
-export function getWeekBoundaries(
+export function getConstrainedWeekRange(
     referenceDate: dayjs.Dayjs,
     dateRangeBoundary?: DayJSDateRange | null,
     weekStartDay: number = 0 // 0 for Sunday, 1 for Monday
-): WeekBoundaries {
+): DayJSDateRange {
     dayjs.updateLocale('en', {
         weekStart: weekStartDay,
     })
@@ -32,21 +27,21 @@ export function getWeekBoundaries(
     const weekStart = referenceDate.startOf('week')
     const weekEnd = referenceDate.endOf('week')
 
-    if (dateRangeBoundary) {
+    if (dateRangeBoundary && dateRangeBoundary.start.isValid() && dateRangeBoundary.end.isValid()) {
         return {
-            weekStart:
-                dateRangeBoundary.dateFrom.isAfter(weekStart) && dateRangeBoundary.dateFrom.isBefore(weekEnd)
-                    ? dateRangeBoundary.dateFrom
+            start:
+                dateRangeBoundary.start.isAfter(weekStart) && dateRangeBoundary.start.isBefore(weekEnd)
+                    ? dateRangeBoundary.start
                     : weekStart,
-            weekEnd:
-                dateRangeBoundary.dateTo.isBefore(weekEnd) && dateRangeBoundary.dateTo.isAfter(weekStart)
-                    ? dateRangeBoundary.dateTo
+            end:
+                dateRangeBoundary.end.isBefore(weekEnd) && dateRangeBoundary.end.isAfter(weekStart)
+                    ? dateRangeBoundary.end
                     : weekEnd,
         }
     }
 
     return {
-        weekStart,
-        weekEnd: weekEnd.isBefore(weekStart) ? weekStart : weekEnd, // Ensure weekEnd is not before weekStart
+        start: weekStart,
+        end: weekEnd.isBefore(weekStart) ? weekStart : weekEnd, // Ensure dateTo is not before dateFrom
     }
 }

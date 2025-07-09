@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { IntervalType } from '~/types'
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
-import { getWeekBoundaries } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 interface DateDisplayProps {
     date: string
@@ -57,16 +57,9 @@ export function DateDisplay({
     if (interval === 'week' && resolvedDateRange) {
         const dateFrom = dayjs.utc(resolvedDateRange.date_from)
         const dateTo = dayjs.utc(resolvedDateRange.date_to)
-        let boundaryDateRange = null
-        if (dateFrom && dateTo && dateFrom.isValid() && dateTo.isValid()) {
-            boundaryDateRange = {
-                dateFrom,
-                dateTo,
-            }
-        }
-        const weekBoundaries = getWeekBoundaries(parsedDate, boundaryDateRange, weekStartDay || 0)
-        parsedDate = weekBoundaries.weekStart
-        weekEnd = weekBoundaries.weekEnd
+        const weekBoundaries = getConstrainedWeekRange(parsedDate, { start: dateFrom, end: dateTo }, weekStartDay || 0)
+        parsedDate = weekBoundaries.start
+        weekEnd = weekBoundaries.end
     }
 
     return (

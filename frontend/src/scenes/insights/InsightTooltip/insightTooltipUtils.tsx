@@ -8,7 +8,7 @@ import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
-import { getWeekBoundaries } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -139,15 +139,11 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
     if (interval === 'week') {
         const dateFrom = dayjs.tz(dateRange?.date_from, timezone)
         const dateTo = dayjs.tz(dateRange?.date_to, timezone)
-        let boundaryDateRange = null
-        if (dateRange && dateTo && dateFrom.isValid() && dateTo.isValid()) {
-            boundaryDateRange = {
-                dateFrom,
-                dateTo,
-            }
-        }
-
-        const { weekStart, weekEnd } = getWeekBoundaries(day, boundaryDateRange, weekStartDay)
+        const { start: weekStart, end: weekEnd } = getConstrainedWeekRange(
+            day,
+            { start: dateFrom, end: dateTo },
+            weekStartDay
+        )
         return formatDateRange(weekStart, weekEnd)
     }
 
