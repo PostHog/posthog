@@ -112,18 +112,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 """
 
 MODIFY_QUERY_LOG_ARCHIVE_TABLE_V2 = [
-    """
-AlTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_access_method LowCardinality(String) AFTER lc_route_id;
-""",
-    """
-AlTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__job_name String;
-""",
-    """
-AlTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__run_id String;
-""",
-    """
-AlTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__owner LowCardinality(String);
-""",
+    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_access_method LowCardinality(String) AFTER lc_route_id",
+    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__job_name String",
+    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__run_id String",
+    "ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS lc_dagster__owner LowCardinality(String)",
 ]
 
 
