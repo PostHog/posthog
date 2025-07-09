@@ -11,7 +11,7 @@ def QUERY_LOG_ARCHIVE_TABLE_ENGINE():
 
 CREATE_QUERY_LOG_ARCHIVE_BASE_TABLE = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
-        hostname                              LowCardinality(String), -- comment 'Hostname of the server executing the query.',
+    hostname                              LowCardinality(String), -- comment 'Hostname of the server executing the query.',
     user                                  LowCardinality(String), -- comment 'Name of the user who initiated the current query.',
     query_id                              String, -- comment 'ID of the query.',
     type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4), -- comment 'Type of an event that occurred when executing the query.',
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_kind LowCardinality(String), -- comment 'log_comment[kind]',
     lc_id String, -- comment 'log_comment[id]',
     lc_route_id String, -- comment 'log_comment[route_id]',
-    --lc_access_method LowCardinality(String), -- comment 'log_comment[access_method]',
+    lc_access_method LowCardinality(String), -- comment 'log_comment[access_method]',
 
     lc_query_type LowCardinality(String), -- comment 'log_comment[query_type]',
     lc_product LowCardinality(String), -- comment 'log_comment[product]',
@@ -105,9 +105,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_temporal__attempt Int64--, -- comment 'JSONExtractString(log_comment, temporal, attempt)'
 
     -- dagster workflows
-    --lc_dagster__job_name String,  -- comment JSONExtractString(log_comment, 'dagster', 'job_name')
-    --lc_dagster__run_id String,  -- comment JSONExtractString(log_comment, 'dagster', 'run_id')
-    --lc_dagster__owner String  -- comment JSONExtractString(log_comment, 'dagster', 'tags', 'owner')
+    lc_dagster__job_name String,  -- comment JSONExtractString(log_comment, 'dagster', 'job_name')
+    lc_dagster__run_id String,  -- comment JSONExtractString(log_comment, 'dagster', 'run_id')
+    lc_dagster__owner String  -- comment JSONExtractString(log_comment, 'dagster', 'tags', 'owner')
 ) ENGINE = {engine}
 """
 
