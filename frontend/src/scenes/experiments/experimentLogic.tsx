@@ -82,7 +82,7 @@ import {
     getSignificanceDetails,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
-} from './experimentCalculations'
+} from './legacyExperimentCalculations'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
