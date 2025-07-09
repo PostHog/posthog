@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Union
 
 from posthog.hogql import ast
@@ -23,7 +24,13 @@ from .constants import (
     ORGANIC_SOURCE,
 )
 
-DEFAULT_ATTRIBUTION_WINDOW_DAYS = 3000
+MAX_ATTRIBUTION_WINDOW_DAYS = 365  # let's start with a year window for the conversions
+DAY_IN_SECONDS = 86400
+
+
+class AttributionModeOperator(Enum):
+    LAST_TOUCH = "arrayMax"
+    FIRST_TOUCH = "arrayMin"
 
 
 @dataclass
@@ -39,7 +46,8 @@ class ConversionGoalProcessor:
     goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]
     index: int
     team: Team
-    attribution_window_days: int = DEFAULT_ATTRIBUTION_WINDOW_DAYS
+    attribution_window_days: int = MAX_ATTRIBUTION_WINDOW_DAYS
+    attribution_mode: AttributionModeOperator = AttributionModeOperator.LAST_TOUCH.value
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -165,7 +173,7 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Build nested query structure for attribution
-        attribution_window_seconds = self.attribution_window_days * 86400  # 24 * 60 * 60 seconds in a day
+        attribution_window_seconds = self.attribution_window_days * DAY_IN_SECONDS
         array_collection = self._build_array_collection_subquery(conversion_event, where_conditions)
         array_join = self._build_array_join_subquery(array_collection, attribution_window_seconds)
         attribution = self._build_attribution_logic_subquery(array_join)
@@ -280,7 +288,7 @@ class ConversionGoalProcessor:
         ]
 
         # Apply extended date conditions for pageviews (attribution window)
-        attribution_window_seconds = self.attribution_window_days * 86400
+        attribution_window_seconds = self.attribution_window_days * DAY_IN_SECONDS
         for date_condition in date_conditions:
             if isinstance(date_condition, ast.CompareOperation):
                 if date_condition.op == ast.CompareOperationOp.GtEq:
@@ -585,7 +593,7 @@ class ConversionGoalProcessor:
         return ast.Alias(
             alias="last_utm_timestamp",
             expr=ast.Call(
-                name="arrayMax",
+                name=self.attribution_mode,
                 args=[
                     ast.Call(
                         name="arrayFilter",

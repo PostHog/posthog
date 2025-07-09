@@ -20,6 +20,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _cre
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
     ConversionGoalProcessor,
     add_conversion_goal_property_filters,
+    AttributionModeOperator,
 )
 
 
@@ -2064,6 +2065,78 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "early_bird", f"Should not attribute to first touch early_bird"
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_temporal_attribution_multiple_touchpoints_first_touch(self):
+        """
+        Test Case: Multiple touchpoints before conversion - First touch attribution
+
+        Scenario: User sees multiple ads before converting, test first-touch attribution
+        Timeline:
+        - March 10: Email campaign ad (first touch)
+        - April 15: Google search ad (last touch before conversion)
+        - May 10: Conversion
+
+        Expected: Attribution should go to March email ad (first touch)
+        Note: This tests first-touch attribution model using AttributionModeOperator.FIRST_TOUCH
+        """
+        with freeze_time("2023-03-10"):
+            _create_person(distinct_ids=["first_touch_user"], team=self.team)
+            _create_event(
+                distinct_id="first_touch_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "early_bird", "utm_source": "email"},  # First touch
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(
+                distinct_id="first_touch_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale", "utm_source": "google"},  # Last touch
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-05-10"):
+            _create_event(distinct_id="first_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="multi_touch_first",
+            conversion_goal_name="Multi Touch First",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        # Set attribution mode to first touch
+        processor.attribution_mode = AttributionModeOperator.FIRST_TOUCH.value
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Validation: First-touch attribution validation
+        # Expected: First ad in timeline (March "early_bird", not April "spring_sale")
+        first_result = response.results[0]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
+        assert campaign_name == "early_bird", f"Expected first-touch early_bird, got {campaign_name}"
+        assert source_name == "email", f"Expected email source, got {source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):
         """
         Test Case: Touchpoints both before AND after conversion
@@ -2203,7 +2276,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             index=0,
             team=self.team,
         )
-        processor.attribution_window_days = 365
 
         additional_conditions = [
             ast.CompareOperation(
@@ -4713,22 +4785,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # User2: Converts on June 5 (7 days after pageview - within 30-day window)
         with freeze_time("2024-06-05"):
-            _create_event(
-                distinct_id="user2",
-                event="user signed up",
-                team=self.team,
-                properties={"value": 1}
-            )
+            _create_event(distinct_id="user2", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events()
 
         # User1: Converts on July 1 (32 days after pageview - outside 30-day window)
         with freeze_time("2024-07-01"):
-            _create_event(
-                distinct_id="user1",
-                event="user signed up",
-                team=self.team,
-                properties={"value": 1}
-            )
+            _create_event(distinct_id="user1", event="user signed up", team=self.team, properties={"value": 1})
             flush_persons_and_events()
 
         goal = ConversionGoalFilter1(
@@ -4774,12 +4836,20 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert len(results_dict) == 2, f"Expected 2 results, got {len(results_dict)}: {results_dict}"
 
         # User2: Within 30-day window - should be attributed to UTM
-        assert "social_campaign/facebook" in results_dict, f"Missing social_campaign/facebook attribution. Results: {results_dict}"
-        assert results_dict["social_campaign/facebook"] == 1, f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+        assert (
+            "social_campaign/facebook" in results_dict
+        ), f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+        assert (
+            results_dict["social_campaign/facebook"] == 1
+        ), f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
 
         # User1: Outside 30-day window - should be organic
         assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
-        assert results_dict["organic/organic"] == 1, f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
+        assert (
+            results_dict["organic/organic"] == 1
+        ), f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
 
         # Validate that email_campaign is NOT present (it's outside attribution window)
-        assert "email_campaign/newsletter" not in results_dict, f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
+        assert (
+            "email_campaign/newsletter" not in results_dict
+        ), f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
