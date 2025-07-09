@@ -103,7 +103,8 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Create query for sessions 1, 2, and 3 (excluding session_4)
             query = create_session_batch_query(
                 session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
-                after="-24h",
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
                 select=["event", "timestamp", "properties.page", "properties.$session_id"],
             )
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
@@ -114,7 +115,6 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Should have session_events populated since group_by_session=True by default
             self.assertIsNotNone(response.session_events)
             # Should have 3 sessions in results
-            self.assertEqual(response.total_sessions, 3)
             self.assertEqual(len(response.session_events), 3)
             # Verify no sessions had missing events
             self.assertEqual(response.sessions_with_no_events, [])
@@ -124,17 +124,14 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Session 1 should have 3 events
             self.assertIn(self.session_1_id, session_events_by_id)
             session_1 = session_events_by_id[self.session_1_id]
-            self.assertEqual(session_1.event_count, 3)
             self.assertEqual(len(session_1.events), 3)
             # Session 2 should have 2 events
             self.assertIn(self.session_2_id, session_events_by_id)
             session_2 = session_events_by_id[self.session_2_id]
-            self.assertEqual(session_2.event_count, 2)
             self.assertEqual(len(session_2.events), 2)
             # Session 3 should have 1 event
             self.assertIn(self.session_3_id, session_events_by_id)
             session_3 = session_events_by_id[self.session_3_id]
-            self.assertEqual(session_3.event_count, 1)
             self.assertEqual(len(session_3.events), 1)
             # Verify all required columns are present
             self.assertIsNotNone(response.columns)
@@ -163,7 +160,6 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     #         response = runner.calculate()
 
     #         # Should have 1 session with events
-    #         self.assertEqual(response.total_sessions, 1)
     #         self.assertEqual(len(response.session_events), 1)
 
     #         # Should track sessions with no events
@@ -171,7 +167,6 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     #         # The one session with events should be session_1
     #         self.assertEqual(response.session_events[0].session_id, self.session_1_id)
-    #         self.assertEqual(response.session_events[0].event_count, 1)
 
     # def test_events_to_ignore_filter(self):
     #     """Test that events_to_ignore parameter properly filters out unwanted events."""
@@ -205,9 +200,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     #         response = runner.calculate()
 
     #         # Should have only 1 event (the $pageview), not the feature flag event
-    #         self.assertEqual(response.total_sessions, 1)
     #         session_1 = response.session_events[0]
-    #         self.assertEqual(session_1.event_count, 1)
 
     #         # Verify it's the pageview event, not the feature flag
     #         event_name = session_1.events[0][0]  # First column is event name
@@ -239,7 +232,6 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     #         # Should not have session_events populated
     #         self.assertIsNone(response.session_events)
-    #         self.assertIsNone(response.total_sessions)
 
     #         # Should have regular results instead
     #         self.assertIsNotNone(response.results)
