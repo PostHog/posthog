@@ -11,18 +11,29 @@ from django.conf import settings
 from django.db.models import Q
 
 from posthog.models import BatchExport, BatchExportDestination, BatchExportRun
-from posthog.temporal.batch_exports.bigquery_batch_export import bigquery_default_fields
-from posthog.temporal.batch_exports.postgres_batch_export import postgres_default_fields
-from posthog.temporal.batch_exports.pre_export_stage import _get_s3_staging_folder
-from posthog.temporal.batch_exports.redshift_batch_export import redshift_default_fields
-from posthog.temporal.batch_exports.s3_batch_export import s3_default_fields
-from posthog.temporal.batch_exports.snowflake_batch_export import snowflake_default_fields
-from posthog.temporal.batch_exports.spmc import (
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from products.batch_exports.backend.temporal.bigquery_batch_export import (
+    bigquery_default_fields,
+)
+from products.batch_exports.backend.temporal.postgres_batch_export import (
+    postgres_default_fields,
+)
+from products.batch_exports.backend.temporal.pre_export_stage import (
+    _get_s3_staging_folder,
+)
+from products.batch_exports.backend.temporal.redshift_batch_export import (
+    redshift_default_fields,
+)
+from products.batch_exports.backend.temporal.s3_batch_export import s3_default_fields
+from products.batch_exports.backend.temporal.snowflake_batch_export import (
+    snowflake_default_fields,
+)
+from products.batch_exports.backend.temporal.spmc import (
     BatchExportField,
     compose_filters_clause,
     use_distributed_events_recent_table,
 )
-from posthog.temporal.batch_exports.sql import (
+from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -31,7 +42,6 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_PERSONS,
     SELECT_FROM_PERSONS_BACKFILL,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
 
 
 @dataclasses.dataclass
