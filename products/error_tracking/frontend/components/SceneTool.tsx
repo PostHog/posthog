@@ -110,9 +110,10 @@ export function ErrorTrackingSceneTool(): JSX.Element {
             }}
             suggestions={[]}
             introOverride={{
-                headline: 'Find kind of issues are you looking for?',
+                headline: 'What kind of issues are you looking for?',
                 description: 'Search by message, file name, event properties, or stack trace.',
             }}
+            className="hidden"
         >
             <div className="relative" />
         </MaxTool>
