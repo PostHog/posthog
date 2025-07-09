@@ -1,4 +1,3 @@
-from typing import Literal
 from collections.abc import Iterable
 from posthog.models import Team
 from posthog.models.property_definition import PropertyDefinition
@@ -29,10 +28,7 @@ class retrieve_entity_properties(BaseModel):
     If you find properties for the entity then infer which one is relevant to the user's question, use the property name in the `retrieve_entity_property_values` tool to get possible values for that property.
     """
 
-    # This is not really correct I think for other entities  this might be wrong.
-    entity: Literal["person", "session", "event"] = Field(
-        ..., description="The name of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(..., description="The name of the entity that you want to retrieve properties for.")
 
 
 class retrieve_entity_property_values(BaseModel):
@@ -45,9 +41,7 @@ class retrieve_entity_property_values(BaseModel):
     """
 
     # This might fail for other entities, but we don't use this tool for other entities.
-    entity: Literal["person", "session", "event"] = Field(
-        ..., description="The name of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(..., description="The name of the entity that you want to retrieve properties for.")
     property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 
