@@ -3,6 +3,7 @@ from collections.abc import Generator
 from datetime import timedelta
 import json
 import time
+from typing import cast
 import uuid
 from redis import Redis
 import structlog
@@ -10,17 +11,20 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog import constants
-from posthog.redis import get_client
 from posthog.models.team.team import Team
-from posthog.temporal.ai.session_summary.shared import (
-    SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-    SingleSessionSummaryInputs,
-    get_single_session_summary_llm_input_from_redis,
-    fetch_session_data_activity,
+from posthog.redis import get_client
+from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
+from posthog.temporal.ai.session_summary.state import (
+    StateActivitiesEnum,
+    generate_state_key,
+    get_data_class_from_redis,
+    get_redis_state_client,
+    store_data_in_redis,
 )
+from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from temporalio.client import WorkflowHandle, WorkflowExecutionStatus
@@ -35,15 +39,31 @@ SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
 @temporalio.activity.defn
 async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummaryInputs) -> str:
     """Summarize a single session and stream the summary state as it becomes available"""
-    if not inputs.redis_output_key:
+    if not inputs.redis_key_base:
         raise ApplicationError(
-            f"Redis output key was not provided when summarizing session {inputs.session_id}: {inputs}",
+            f"Redis key base was not provided when summarizing session {inputs.session_id}: {inputs}",
             non_retryable=True,
         )
     # Creating client on each activity as we can't pass it in as an argument, and need it for both getting and storing data
-    redis_client = get_client()
-    llm_input = get_single_session_summary_llm_input_from_redis(
-        redis_client=redis_client, redis_input_key=inputs.redis_input_key
+    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
+        key_base=inputs.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
+        output_label=StateActivitiesEnum.SESSION_SUMMARY,
+        state_id=inputs.session_id,
+    )
+    if not redis_input_key or not redis_output_key:
+        raise ApplicationError(
+            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {inputs.session_id}: {inputs}",
+            non_retryable=True,
+        )
+    llm_input = cast(
+        SingleSessionSummaryLlmInputs,
+        await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        ),
     )
     last_summary_state = ""
     temporalio.activity.heartbeat()
@@ -65,6 +85,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         # Session metadata
         session_start_time_str=llm_input.session_start_time_str,
         session_duration=llm_input.session_duration,
+        trace_id=temporalio.activity.info().workflow_id,
     )
     async for current_summary_state in session_summary_generator:
         if current_summary_state == last_summary_state:
@@ -73,10 +94,10 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         last_summary_state = current_summary_state
         # Store the last summary state in Redis
         # The size of the output is limited to <20kb, so compressing is excessive
-        redis_client.setex(
-            inputs.redis_output_key,
-            SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
-            json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
         )
         # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
         if time.time() - last_heartbeat_timestamp > 5:
@@ -99,7 +120,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         summary = await temporalio.workflow.execute_activity(
             stream_llm_single_session_summary_activity,
@@ -112,6 +133,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
 
 async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> WorkflowHandle:
+    """Start the single-session workflow and return its handle."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
@@ -126,6 +148,7 @@ async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) 
 
 
 def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key: str) -> None:
+    """Remove temporary workflow data from Redis."""
     try:
         redis_client.delete(redis_input_key)
         redis_client.delete(redis_output_key)
@@ -139,6 +162,7 @@ def _clean_up_redis(redis_client: Redis, redis_input_key: str, redis_output_key:
 
 
 async def _check_handle_data(handle: WorkflowHandle) -> tuple[WorkflowExecutionStatus | None, str | None]:
+    """Return workflow status and result if completed."""
     desc = await handle.describe()
     final_result = None
     if not desc.status:
@@ -159,22 +183,33 @@ def execute_summarize_session_stream(
     Start the workflow and yield summary state from the stream as it becomes available.
     """
     # Use shared identifier to be able to construct all the ids to check/debug
-    shared_id = uuid.uuid4()
+    # Using session id instead of random UUID to be able to check the data in Redis
+    shared_id = session_id
     # Prepare the input data
+    redis_key_base = f"session-summary:single:{user_id}-{team.id}:{shared_id}"
+    # TODO: Write sync state client to use outside of asyncio
     redis_client = get_client()
-    redis_input_key = f"session-summary:single:stream-input:{session_id}:{user_id}-{team.id}:{shared_id}"
-    redis_output_key = f"session-summary:single:stream-output:{session_id}:{user_id}-{team.id}:{shared_id}"
+    redis_input_key = generate_state_key(
+        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_DB_DATA, state_id=session_id
+    )
+    redis_output_key = generate_state_key(
+        key_base=redis_key_base, label=StateActivitiesEnum.SESSION_SUMMARY, state_id=session_id
+    )
+    if not redis_input_key or not redis_output_key:
+        raise ApplicationError(
+            f"Redis input ({redis_input_key}) or output ({redis_output_key}) keys not provided when summarizing session {session_id}: {session_id}",
+            non_retryable=True,
+        )
     session_input = SingleSessionSummaryInputs(
         session_id=session_id,
         user_id=user_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
-        redis_input_key=redis_input_key,
-        redis_output_key=redis_output_key,
+        redis_key_base=redis_key_base,
     )
     # Connect to Temporal and start streaming the workflow
-    workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}"
+    workflow_id = f"session-summary:single:stream:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
     handle = asyncio.run(_start_workflow(inputs=session_input, workflow_id=workflow_id))
     last_summary_state = ""
     while True:
