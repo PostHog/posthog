@@ -1276,7 +1276,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // If filter value is not applied and preview, do not replace
                 if (!values.filtersUpdated) {
                     if (
-                        JSON.stringify(values.dashboard.filters ?? []) !==
+                        JSON.stringify(values.dashboard.filters.properties ?? []) !==
                         JSON.stringify(dashboard.filters.properties ?? [])
                     ) {
                         newDashboard.filters = values.dashboard.filters
