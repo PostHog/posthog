@@ -100,7 +100,7 @@ class CachedSessionBatchEventsQueryResponse(CachedEventsQueryResponse):
 SessionEventsResults = dict[str, list[list[Any]]]  # session_id -> events mapping
 
 
-def create_session_batch_query(
+def create_session_batch_events_query(
     session_ids: list[str],
     select: Optional[list[str]] = None,
     events_to_ignore: Optional[list[str]] = None,

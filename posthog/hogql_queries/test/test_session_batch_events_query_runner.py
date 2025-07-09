@@ -9,9 +9,10 @@ from posthog.hogql_queries.ai.session_events_query_runner.schema import (
     CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
-    create_session_batch_query,
+    create_session_batch_events_query,
 )
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.schema import EventsQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -94,7 +95,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         with freeze_time("2025-01-11T16:00:00"):
             # Create query for sessions 1, 2, and 3 (excluding session_4)
-            query = create_session_batch_query(
+            query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
                 before="2025-01-12T00:00:00",
                 after="2025-01-10T00:00:00",
@@ -140,7 +141,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         with freeze_time("2025-01-11T16:00:00"):
             # Query for multiple sessions, but only one has events
-            query = create_session_batch_query(
+            query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
                 before="2025-01-12T00:00:00",
                 after="2025-01-10T00:00:00",
@@ -181,7 +182,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 else:
                     # Don't ignore any events
                     events_to_ignore = []
-                query = create_session_batch_query(
+                query = create_session_batch_events_query(
                     session_ids=[self.session_1_id],
                     after="2025-01-10T00:00:00",
                     before="2025-01-12T00:00:00",
@@ -243,7 +244,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         with freeze_time("2025-01-11T16:00:00"):
             # Query with custom field selection
-            query = create_session_batch_query(
+            query = create_session_batch_events_query(
                 session_ids=[self.session_1_id],
                 select=["event", "properties.page", "properties.custom_field"],
                 after="2025-01-10T00:00:00",
@@ -269,7 +270,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         with freeze_time("2025-01-11T16:00:00"):
-            query = create_session_batch_query(
+            query = create_session_batch_events_query(
                 session_ids=[self.session_1_id],
                 before="2025-01-12T00:00:00",
                 after="2025-01-10T00:00:00",
@@ -304,7 +305,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         with freeze_time("2025-01-11T16:00:00"):
-            query = create_session_batch_query(
+            query = create_session_batch_events_query(
                 session_ids=[self.session_1_id, self.session_2_id],
                 before="2025-01-12T00:00:00",
                 after="2025-01-10T00:00:00",
@@ -367,7 +368,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             all_events = []
             for iteration in range(3):  # 2 events per query max, iterate 3 times to get 5 events
                 offset = iteration * 2
-                query = create_session_batch_query(
+                query = create_session_batch_events_query(
                     session_ids=[session_id],
                     before="2025-01-12T00:00:00",
                     after="2025-01-10T00:00:00",
@@ -400,3 +401,19 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             expected_pages = ["/page1", "/page2", "/page3", "/page4", "/page5"]
             actual_pages = [event[2] for event in all_events]  # properties.page is at index 2
             self.assertEqual(actual_pages, expected_pages)
+
+    def test_get_session_batch_query_runner(self):
+        """Test that get_query_runner correctly returns session batch runner."""
+        query = create_session_batch_events_query(
+            session_ids=[self.session_1_id],
+            select=["event", "timestamp"],
+            max_total_events=10,
+        )
+        # Get the runner via get_query_runner
+        runner = get_query_runner(query=query, team=self.team)
+        # Verify it returns the correct runner
+        self.assertIsInstance(runner, SessionBatchEventsQueryRunner)
+        self.assertEqual(runner.query.kind, "SessionBatchEventsQuery")
+        self.assertEqual(runner.query.session_ids, [self.session_1_id])
+        self.assertEqual(runner.query.limit, 10)
+        self.assertEqual(runner.team, self.team)
