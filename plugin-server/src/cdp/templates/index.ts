@@ -3,6 +3,7 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as nativeWebhookTemplate } from './_destinations/native-webhook/webhook.template'
 import { template as posthogTemplate } from './_destinations/posthog/posthog.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
@@ -47,7 +48,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate].map((plugin) => ({
+export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate, nativeWebhookTemplate].map((plugin) => ({
     ...plugin,
     hog: 'return event;',
     inputs_schema: [

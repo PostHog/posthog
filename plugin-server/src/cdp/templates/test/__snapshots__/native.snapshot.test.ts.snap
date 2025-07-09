@@ -1418,3 +1418,761 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
   "metrics": [],
 }
 `;
+
+exports[`Testing snapshots for native-webhook destination: Send a request mapping - all fields 1`] = `
+{
+  "capturedPostHogEvents": [],
+  "finished": true,
+  "invocation": {
+    "functionId": "native-webhook",
+    "hogFunction": {
+      "actions": {
+        "send": {
+          "perform": [Function],
+        },
+      },
+      "bytecode": [],
+      "category": [
+        "Analytics",
+      ],
+      "created_at": "2024-01-01T00:00:00Z",
+      "deleted": false,
+      "description": "Sends events to a native HTTP webhook",
+      "enabled": true,
+      "free": false,
+      "hog": "return event",
+      "icon_url": "/static/webhook-icon.svg",
+      "id": "native-webhook",
+      "inputs": {
+        "apiKey": {
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "PMiapflS1)",
+            38,
+          ],
+          "value": "PMiapflS1)",
+        },
+        "debug_mode": {
+          "bytecode": undefined,
+          "value": true,
+        },
+      },
+      "inputs_schema": [
+        {
+          "description": "API Key to authenticate the request.",
+          "key": "apiKey",
+          "label": "API Key",
+          "required": true,
+          "secret": false,
+          "type": "string",
+        },
+        {
+          "default": false,
+          "description": "Will log configuration and request details",
+          "key": "debug_mode",
+          "label": "Debug Mode",
+          "type": "boolean",
+        },
+      ],
+      "is_addon_required": false,
+      "mapping_templates": [
+        {
+          "associated_action": "send",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The URL to send the request to.",
+              "key": "url",
+              "label": "URL",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "choices": [
+                {
+                  "label": "POST",
+                  "value": "POST",
+                },
+                {
+                  "label": "GET",
+                  "value": "GET",
+                },
+                {
+                  "label": "PUT",
+                  "value": "PUT",
+                },
+                {
+                  "label": "DELETE",
+                  "value": "DELETE",
+                },
+                {
+                  "label": "PATCH",
+                  "value": "PATCH",
+                },
+              ],
+              "default": "POST",
+              "description": "The HTTP method to use.",
+              "key": "method",
+              "label": "Method",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+              "description": "The body of the request.",
+              "key": "body",
+              "label": "Body",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "send",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send a request",
+        },
+      ],
+      "mappings": [
+        {
+          "associated_action": "send",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs": {
+            "body": {
+              "bytecode": {
+                "event": [
+                  "_H",
+                  1,
+                  32,
+                  "event",
+                  32,
+                  "event",
+                  1,
+                  2,
+                  38,
+                ],
+                "person": [
+                  "_H",
+                  1,
+                  32,
+                  "id",
+                  32,
+                  "person",
+                  1,
+                  2,
+                  38,
+                ],
+              },
+              "value": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+            },
+            "internal_associated_mapping": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "send",
+                38,
+              ],
+              "value": "send",
+            },
+            "method": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "POST",
+                38,
+              ],
+              "value": "POST",
+            },
+            "url": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "PMiapflS1)",
+                38,
+              ],
+              "value": "PMiapflS1)",
+            },
+          },
+          "inputs_schema": [
+            {
+              "description": "The URL to send the request to.",
+              "key": "url",
+              "label": "URL",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "choices": [
+                {
+                  "label": "POST",
+                  "value": "POST",
+                },
+                {
+                  "label": "GET",
+                  "value": "GET",
+                },
+                {
+                  "label": "PUT",
+                  "value": "PUT",
+                },
+                {
+                  "label": "DELETE",
+                  "value": "DELETE",
+                },
+                {
+                  "label": "PATCH",
+                  "value": "PATCH",
+                },
+              ],
+              "default": "POST",
+              "description": "The HTTP method to use.",
+              "key": "method",
+              "label": "Method",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+              "description": "The body of the request.",
+              "key": "body",
+              "label": "Body",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "send",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send a request",
+        },
+      ],
+      "name": "Native HTTP Webhook",
+      "status": "hidden",
+      "team_id": 1,
+      "template_id": "native-webhook",
+      "type": "destination",
+      "updated_at": "2024-01-01T00:00:00Z",
+    },
+    "id": "invocation-id",
+    "queue": "native",
+    "queueMetadata": {
+      "tries": 1,
+    },
+    "queueParameters": undefined,
+    "queuePriority": 0,
+    "queueScheduledAt": undefined,
+    "queueSource": undefined,
+    "state": {
+      "attempts": 0,
+      "globals": {
+        "event": {
+          "distinct_id": "distinct_id",
+          "elements_chain": "",
+          "event": "test",
+          "properties": {
+            "email": "test@posthog.com",
+          },
+          "timestamp": "",
+          "url": "",
+          "uuid": "uuid",
+        },
+        "inputs": {
+          "apiKey": "PMiapflS1)",
+          "body": {
+            "event": "test",
+            "person": "person-id",
+          },
+          "debug_mode": true,
+          "internal_associated_mapping": "send",
+          "method": "POST",
+          "url": "PMiapflS1)",
+        },
+        "person": {
+          "id": "person-id",
+          "name": "person-name",
+          "properties": {
+            "email": "example@posthog.com",
+          },
+          "url": "https://us.posthog.com/projects/1/persons/1234",
+        },
+        "project": {
+          "id": 1,
+          "name": "project-name",
+          "url": "https://us.posthog.com/projects/1",
+        },
+        "source": {
+          "name": "hog-function-name",
+          "url": "https://us.posthog.com/hog_functions/1234",
+        },
+      },
+      "timings": [],
+    },
+    "teamId": 1,
+  },
+  "logs": [
+    {
+      "level": "debug",
+      "message": "config, {"debug_mode":true,"apiKey":"PMiapflS1)","url":"PMiapflS1)","method":"POST","body":{"event":"test","person":"person-id"},"internal_associated_mapping":"send"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "endpoint, PMiapflS1)",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json"},"json":{"event":"test","person":"person-id"}}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json"},"body":"{\\"event\\":\\"test\\",\\"person\\":\\"person-id\\"}"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "convertedResponse, 200, {"status":"OK"}, {"status":"OK"}, {"content-type":"application/json"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "info",
+      "message": "Function completed in [REPLACED]",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+  ],
+  "metrics": [],
+}
+`;
+
+exports[`Testing snapshots for native-webhook destination: Send a request mapping - required fields 1`] = `
+{
+  "capturedPostHogEvents": [],
+  "finished": true,
+  "invocation": {
+    "functionId": "native-webhook",
+    "hogFunction": {
+      "actions": {
+        "send": {
+          "perform": [Function],
+        },
+      },
+      "bytecode": [],
+      "category": [
+        "Analytics",
+      ],
+      "created_at": "2024-01-01T00:00:00Z",
+      "deleted": false,
+      "description": "Sends events to a native HTTP webhook",
+      "enabled": true,
+      "free": false,
+      "hog": "return event",
+      "icon_url": "/static/webhook-icon.svg",
+      "id": "native-webhook",
+      "inputs": {
+        "apiKey": {
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "PMiapflS1)",
+            38,
+          ],
+          "value": "PMiapflS1)",
+        },
+        "debug_mode": {
+          "bytecode": undefined,
+          "value": true,
+        },
+      },
+      "inputs_schema": [
+        {
+          "description": "API Key to authenticate the request.",
+          "key": "apiKey",
+          "label": "API Key",
+          "required": true,
+          "secret": false,
+          "type": "string",
+        },
+        {
+          "default": false,
+          "description": "Will log configuration and request details",
+          "key": "debug_mode",
+          "label": "Debug Mode",
+          "type": "boolean",
+        },
+      ],
+      "is_addon_required": false,
+      "mapping_templates": [
+        {
+          "associated_action": "send",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The URL to send the request to.",
+              "key": "url",
+              "label": "URL",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "choices": [
+                {
+                  "label": "POST",
+                  "value": "POST",
+                },
+                {
+                  "label": "GET",
+                  "value": "GET",
+                },
+                {
+                  "label": "PUT",
+                  "value": "PUT",
+                },
+                {
+                  "label": "DELETE",
+                  "value": "DELETE",
+                },
+                {
+                  "label": "PATCH",
+                  "value": "PATCH",
+                },
+              ],
+              "default": "POST",
+              "description": "The HTTP method to use.",
+              "key": "method",
+              "label": "Method",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+              "description": "The body of the request.",
+              "key": "body",
+              "label": "Body",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "send",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send a request",
+        },
+      ],
+      "mappings": [
+        {
+          "associated_action": "send",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs": {
+            "body": {
+              "bytecode": {
+                "event": [
+                  "_H",
+                  1,
+                  32,
+                  "event",
+                  32,
+                  "event",
+                  1,
+                  2,
+                  38,
+                ],
+                "person": [
+                  "_H",
+                  1,
+                  32,
+                  "id",
+                  32,
+                  "person",
+                  1,
+                  2,
+                  38,
+                ],
+              },
+              "value": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+            },
+            "internal_associated_mapping": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "send",
+                38,
+              ],
+              "value": "send",
+            },
+            "method": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "POST",
+                38,
+              ],
+              "value": "POST",
+            },
+            "url": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "PMiapflS1)",
+                38,
+              ],
+              "value": "PMiapflS1)",
+            },
+          },
+          "inputs_schema": [
+            {
+              "description": "The URL to send the request to.",
+              "key": "url",
+              "label": "URL",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "choices": [
+                {
+                  "label": "POST",
+                  "value": "POST",
+                },
+                {
+                  "label": "GET",
+                  "value": "GET",
+                },
+                {
+                  "label": "PUT",
+                  "value": "PUT",
+                },
+                {
+                  "label": "DELETE",
+                  "value": "DELETE",
+                },
+                {
+                  "label": "PATCH",
+                  "value": "PATCH",
+                },
+              ],
+              "default": "POST",
+              "description": "The HTTP method to use.",
+              "key": "method",
+              "label": "Method",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "event": "{event.event}",
+                "person": "{person.id}",
+              },
+              "description": "The body of the request.",
+              "key": "body",
+              "label": "Body",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "send",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send a request",
+        },
+      ],
+      "name": "Native HTTP Webhook",
+      "status": "hidden",
+      "team_id": 1,
+      "template_id": "native-webhook",
+      "type": "destination",
+      "updated_at": "2024-01-01T00:00:00Z",
+    },
+    "id": "invocation-id",
+    "queue": "native",
+    "queueMetadata": {
+      "tries": 1,
+    },
+    "queueParameters": undefined,
+    "queuePriority": 0,
+    "queueScheduledAt": undefined,
+    "queueSource": undefined,
+    "state": {
+      "attempts": 0,
+      "globals": {
+        "event": {
+          "distinct_id": "distinct_id",
+          "elements_chain": "",
+          "event": "test",
+          "properties": {
+            "email": "test@posthog.com",
+          },
+          "timestamp": "",
+          "url": "",
+          "uuid": "uuid",
+        },
+        "inputs": {
+          "apiKey": "PMiapflS1)",
+          "body": {
+            "event": "test",
+            "person": "person-id",
+          },
+          "debug_mode": true,
+          "internal_associated_mapping": "send",
+          "method": "POST",
+          "url": "PMiapflS1)",
+        },
+        "person": {
+          "id": "person-id",
+          "name": "person-name",
+          "properties": {
+            "email": "example@posthog.com",
+          },
+          "url": "https://us.posthog.com/projects/1/persons/1234",
+        },
+        "project": {
+          "id": 1,
+          "name": "project-name",
+          "url": "https://us.posthog.com/projects/1",
+        },
+        "source": {
+          "name": "hog-function-name",
+          "url": "https://us.posthog.com/hog_functions/1234",
+        },
+      },
+      "timings": [],
+    },
+    "teamId": 1,
+  },
+  "logs": [
+    {
+      "level": "debug",
+      "message": "config, {"debug_mode":true,"apiKey":"PMiapflS1)","url":"PMiapflS1)","method":"POST","body":{"event":"test","person":"person-id"},"internal_associated_mapping":"send"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "endpoint, PMiapflS1)",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json"},"json":{"event":"test","person":"person-id"}}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json"},"body":"{\\"event\\":\\"test\\",\\"person\\":\\"person-id\\"}"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "convertedResponse, 200, {"status":"OK"}, {"status":"OK"}, {"content-type":"application/json"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "info",
+      "message": "Function completed in [REPLACED]",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+  ],
+  "metrics": [],
+}
+`;
