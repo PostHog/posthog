@@ -124,24 +124,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             { equalityCheck: objectsEqual },
         ],
         appBreadcrumbs: [
-            (s) => [
-                s.preflight,
-                s.sceneConfig,
-                s.activeScene,
-                s.user,
-                s.currentProject,
-                s.currentTeam,
-                s.featureFlags,
-            ],
-            (
-                preflight,
-                sceneConfig,
-                activeScene,
-                user,
-                currentProject,
-                currentTeam,
-                featureFlags
-            ) => {
+            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentProject, s.currentTeam, s.featureFlags],
+            (preflight, sceneConfig, activeScene, user, currentProject, currentTeam, featureFlags) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
