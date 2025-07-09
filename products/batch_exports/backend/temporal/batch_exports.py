@@ -522,10 +522,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
     else:
         external_logger.info(
-            "Batch export for range %s - %s finished successfully with %d records exported",
+            "Batch export for range %s - %s finished successfully with %s records exported",
             batch_export_run.data_interval_start or "START",
             batch_export_run.data_interval_end or "END",
-            inputs.records_completed,
+            inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
 
