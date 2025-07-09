@@ -25,17 +25,17 @@ function getRecordingProps(sessionId: string): { playerKey: string; sessionRecor
 
 export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
+    const { sessionId } = useValues(errorPropertiesLogic)
     const recordingProps = useMemo(() => getRecordingProps(sessionId!), [sessionId])
     const { setPause, seekToTimestamp } = useActions(sessionRecordingPlayerLogic(recordingProps))
 
     useEffect(() => {
-        if (timestamp && mightHaveRecording) {
+        if (timestamp) {
             const five_seconds_before = dayjs(timestamp).valueOf() - 5000
             seekToTimestamp(five_seconds_before, true)
             setPause()
         }
-    }, [timestamp, mightHaveRecording, seekToTimestamp, setPause])
+    }, [timestamp, seekToTimestamp, setPause])
 
     return (
         <TabsPrimitiveContent {...props}>
