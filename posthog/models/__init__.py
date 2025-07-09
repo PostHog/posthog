@@ -92,6 +92,7 @@ from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
+from .shortlink import Shortlink
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -203,6 +204,7 @@ __all__ = [
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
     "SharingConfiguration",
+    "Shortlink",
     "Subscription",
     "Survey",
     "Tag",

@@ -24,3 +24,10 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
+
+# Dub.co shortlink integration
+DUB_API_KEY = get_from_env("DUB_API_KEY", "")
+DUB_WORKSPACE_ID = get_from_env("DUB_WORKSPACE_ID", "")
+DUB_DOMAIN = get_from_env("DUB_DOMAIN", "dub.sh")
+DUB_FOLDER_ID = get_from_env("DUB_FOLDER_ID", "")  # PostHog folder in dub.co
+DUB_ENABLED = get_from_env("DUB_ENABLED", "false").lower() == "true"

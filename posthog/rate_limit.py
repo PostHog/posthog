@@ -424,3 +424,13 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
+
+
+class ShortlinkRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Very conservative rate limiting for shortlink creation to protect dub.co quota.
+    Business plan: 1,200 req/min, so we limit to 3/minute per team to be safe.
+    """
+
+    scope = "shortlink"
+    rate = "3/minute"
