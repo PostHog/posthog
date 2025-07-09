@@ -510,7 +510,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                         <b>
                             <i>How do I filter by URL?</i>
                         </b>
-                        <p>Click "+ Add filter", type URL, then enter the page you're looking for.</p>
+                        <p>Click "+ Add filter" and paste in the URL</p>
 
                         <b>
                             <i>How do I find recordings for a specific user?</i>
@@ -518,7 +518,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                         <p>Click "+ Add filter" and paste the user's email into the search box.</p>
 
                         <b>
-                            <i>How do I see all recordings for a person?</i>
+                            <i>How do I see ALL recordings for a specific user?</i>
                         </b>
                         <p>
                             Go to People → <Link to={urls.persons()}>Persons</Link> , click on the user, then open the
