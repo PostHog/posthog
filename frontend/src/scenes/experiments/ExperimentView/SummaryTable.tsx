@@ -32,7 +32,7 @@ import {
     credibleIntervalForVariant,
     exposureCountDataForVariant,
     getHighestProbabilityVariant,
-} from '../experimentCalculations'
+} from '../legacyExperimentCalculations'
 import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
