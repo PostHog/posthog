@@ -389,7 +389,6 @@ export const createOrganization = async (pg: PostgresRouter) => {
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
         available_product_features: [],
-        members_can_use_personal_api_keys: true,
         domain_whitelist: [],
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
