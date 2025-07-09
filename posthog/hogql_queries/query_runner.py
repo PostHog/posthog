@@ -76,6 +76,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     MarketingAnalyticsTableQuery,
 )
+from posthog.hogql_queries.ai.session_events_query_runner.schema import SessionBatchEventsQuery
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
@@ -151,6 +152,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -254,6 +256,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionBatchEventsQuery":
+        from .ai.session_events_query_runner.runner import SessionBatchEventsQueryRunner
+
+        return SessionBatchEventsQueryRunner(
+            query=cast(SessionBatchEventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
