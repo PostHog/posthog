@@ -12,12 +12,14 @@ from posthog.temporal.proxy_service.create import (
     create_managed_proxy,
     wait_for_certificate,
     CreateManagedProxyWorkflow,
+    schedule_monitor_job,
 )
 from posthog.temporal.proxy_service.monitor import (
     check_certificate_status,
     check_dns,
     check_proxy_is_live,
     MonitorManagedProxyWorkflow,
+    cleanup_monitor_job,
 )
 
 from posthog.temporal.proxy_service.delete import delete_proxy_record, delete_managed_proxy, DeleteManagedProxyWorkflow
@@ -36,4 +38,6 @@ ACTIVITIES = [
     check_dns,
     check_proxy_is_live,
     activity_capture_event,
+    schedule_monitor_job,
+    cleanup_monitor_job,
 ]

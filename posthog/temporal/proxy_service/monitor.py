@@ -10,11 +10,12 @@ import grpc.aio
 import requests
 import temporalio.common
 from temporalio import activity, workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
@@ -227,6 +228,40 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
     )
 
 
+@dataclass
+class CleanupMonitorJobInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+        }
+
+
+@activity.defn
+async def cleanup_monitor_job(inputs: CleanupMonitorJobInputs):
+    from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
+
+    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger.info(
+        "Cleaning up monitoring job for proxy %s",
+        inputs.proxy_record_id,
+    )
+
+    temporal = await async_connect()
+    schedule_id = f"monitor-proxy-{inputs.proxy_record_id}"
+
+    # Check if schedule exists before trying to delete
+    if await a_schedule_exists(temporal, schedule_id):
+        await a_delete_schedule(temporal, schedule_id)
+        logger.info("Successfully deleted monitoring schedule for proxy %s", inputs.proxy_record_id)
+    else:
+        logger.info("No monitoring schedule found for proxy %s", inputs.proxy_record_id)
+
+
 @workflow.defn(name="monitor-proxy")
 class MonitorManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Managed reverse Proxy."""
@@ -375,6 +410,23 @@ Issues have been detected with the proxy
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=10,
                     non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                ),
+            )
+        except ActivityError as e:
+            if hasattr(e, "cause") and e.cause and e.cause.type != "RecordDeletedException":
+                raise
+
+            # cleanup the monitor schedule if the record's been deleted
+            await temporalio.workflow.execute_activity(
+                cleanup_monitor_job,
+                CleanupMonitorJobInputs(
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=60),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=10,
+                    non_retryable_error_types=["NonRetriableException"],
                 ),
             )
         except Exception as e:

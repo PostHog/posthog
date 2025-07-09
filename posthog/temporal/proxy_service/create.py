@@ -3,7 +3,7 @@ import ipaddress
 import json
 import typing as t
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import dns.resolver
 import grpc.aio
@@ -11,10 +11,22 @@ import requests
 import temporalio.common
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.client import (
+    Schedule,
+    ScheduleAlreadyRunningError,
+    ScheduleActionStartWorkflow,
+    ScheduleIntervalSpec,
+    ScheduleSpec,
+)
 
+
+from posthog.temporal.common.schedule import a_create_schedule
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
+from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
@@ -205,6 +217,66 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
         raise NonRetriableException("unknown exception in wait_for_certificate") from e
 
 
+@dataclass
+class ScheduleMonitorJobInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+        }
+
+
+@activity.defn
+async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
+    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    logger.info(
+        "Scheduling daily monitoring job for proxy %s",
+        inputs.proxy_record_id,
+    )
+
+    try:
+        temporal = await async_connect()
+        schedule = Schedule(
+            action=ScheduleActionStartWorkflow(
+                "monitor-proxy",
+                asdict(
+                    MonitorManagedProxyInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                    )
+                ),
+                id=f"monitor-proxy-{inputs.proxy_record_id}",
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=30),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                    backoff_coefficient=2.0,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                ),
+            ),
+            spec=ScheduleSpec(
+                intervals=[
+                    ScheduleIntervalSpec(
+                        every=dt.timedelta(hours=23),
+                    )
+                ],
+                jitter=dt.timedelta(hours=1),
+            ),
+        )
+
+        await a_create_schedule(temporal, id=f"monitor-proxy-{inputs.proxy_record_id}", schedule=schedule)
+        logger.info("Successfully scheduled monitoring job for proxy %s", inputs.proxy_record_id)
+
+    except ScheduleAlreadyRunningError:
+        logger.info("Monitor schedule already exists for proxy %s", inputs.proxy_record_id)
+        # This is not an error - the schedule already exists
+
+
 @workflow.defn(name="create-proxy")
 class CreateManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Managed reverse Proxy."""
@@ -332,7 +404,25 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-        except RecordDeletedException:
+            schedule_inputs = ScheduleMonitorJobInputs(
+                organization_id=inputs.organization_id,
+                proxy_record_id=inputs.proxy_record_id,
+            )
+
+            await temporalio.workflow.execute_activity(
+                schedule_monitor_job,
+                schedule_inputs,
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=2,
+                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                ),
+            )
+
+        except ActivityError as e:
+            if hasattr(e, "cause") and e.cause and e.cause.type != "RecordDeletedException":
+                raise
+
             logger.info(
                 "Record was deleted before completing provisioning for id %s (%s)",
                 inputs.proxy_record_id,
