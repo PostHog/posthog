@@ -80,7 +80,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                             <LemonField
                                 name="message"
                                 label="Custom confirmation message"
-                                help="Optional custom message to show in the confirmation modal. If empty, a default message will be used."
+                                help="Optional custom message to show in the confirmation modal. If empty, the default message will be: 'These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'"
                             >
                                 <LemonTextArea
                                     placeholder="Enter a custom message for your team (optional)"
