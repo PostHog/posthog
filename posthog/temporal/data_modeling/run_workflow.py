@@ -46,6 +46,7 @@ from posthog.warehouse.models import (
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.sync import database_sync_to_async
+from posthog.event_usage import report_team_action
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -554,6 +555,17 @@ async def materialize_model(
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
 
+    report_team_action(
+        team=team,
+        event="$materialized_view_success",
+        properties={
+            "model_label": model_label,
+            "saved_query_name": saved_query.name,
+            "job_id": str(job.id),
+            "row_count": row_count,
+        },
+    )
+
     return (saved_query.normalized_name, delta_table, job.id)
 
 
@@ -567,6 +579,15 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.error = error_message
     await database_sync_to_async(job.save)()
+
+    report_team_action(
+        team=job.team,
+        event="$materialized_view_failed",
+        properties={
+            "error_message": error_message,
+            "job_id": str(job.id),
+        },
+    )
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
