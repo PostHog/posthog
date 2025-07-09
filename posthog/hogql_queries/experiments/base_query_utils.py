@@ -70,6 +70,10 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
 
+    elif metric.source.math == ExperimentMetricMathType.FIRST_TIME_FOR_USER:
+        # For first time events, we just count them (value = 1)
+        return ast.Constant(value=1)
+
     # Else, we default to count
     # We then just emit 1 so we can easily sum it up
     return ast.Constant(value=1)
@@ -119,3 +123,71 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
         raise ValueError(f"Unsupported conversion window unit: {conversion_window_unit}")
 
     return conversion_window * multipliers[conversion_window_unit]
+
+
+def get_first_events_subquery(
+    team: Team,
+    metric_source: Union[EventsNode, ActionsNode],
+    entity_key: str,
+    exposure_query: ast.SelectQuery,
+) -> ast.SelectQuery:
+    """
+    Returns a subquery that selects only the first occurrence of events for each entity.
+    This uses a window function approach to return individual event rows (not aggregated).
+
+    Returns columns: timestamp, [entity_key], event, uuid, properties
+    """
+    # Create a subquery that ranks events by timestamp for each entity
+    ranked_events = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["timestamp"]),
+            ast.Field(chain=[entity_key]),
+            ast.Field(chain=["event"]),
+            ast.Field(chain=["uuid"]),
+            ast.Field(chain=["properties"]),
+            ast.Field(chain=["$session_id"]),
+            # Add row number to identify first occurrence
+            ast.Alias(
+                alias="rn",
+                expr=ast.WindowFunction(
+                    name="row_number",
+                    args=[],
+                    over_expr=ast.WindowExpr(
+                        partition_by=[ast.Field(chain=[entity_key]), ast.Field(chain=["event"])],
+                        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+                    ),
+                ),
+            ),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(
+            exprs=[
+                event_or_action_to_filter(team, metric_source),
+                # Early filtering: only look at entities that were exposed
+                ast.CompareOperation(
+                    left=ast.Field(chain=[entity_key]),
+                    right=ast.SelectQuery(
+                        select=[ast.Field(chain=["entity_id"])],
+                        select_from=ast.JoinExpr(table=exposure_query, alias="exp"),
+                    ),
+                    op=ast.CompareOperationOp.In,
+                ),
+            ]
+        ),
+    )
+
+    # Now select only the first occurrence (rn = 1)
+    return ast.SelectQuery(
+        select=[
+            ast.Field(chain=["timestamp"]),
+            ast.Field(chain=[entity_key]),
+            ast.Field(chain=["event"]),
+            ast.Field(chain=["uuid"]),
+            ast.Field(chain=["properties"]),
+            ast.Field(chain=["$session_id"]),
+        ],
+        select_from=ast.JoinExpr(table=ranked_events, alias="ranked"),
+        where=ast.CompareOperation(
+            left=ast.Field(chain=["ranked", "rn"]), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
+        ),
+    )

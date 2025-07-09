@@ -2370,3 +2370,114 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both should have 5 exposures each
         self.assertEqual(control_variant.absolute_exposure, 5)
         self.assertEqual(test_variant.absolute_exposure, 5)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_first_time_for_user_math_type(self):
+        """Test that first_time_for_user math type only counts events that are the first occurrence for each user."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Use first_time_for_user math type
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.FIRST_TIME_FOR_USER,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Create exposure events
+        for variant in ["control", "test"]:
+            for i in range(5):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+
+        # Create purchase events - some users make multiple purchases
+        # Only the first purchase for each user should be counted
+        purchase_events = [
+            # Control users
+            ("user_control_0", "2020-01-02T13:00:00Z"),  # First purchase - should count
+            ("user_control_0", "2020-01-03T13:00:00Z"),  # Second purchase - should NOT count
+            ("user_control_1", "2020-01-02T14:00:00Z"),  # First purchase - should count
+            ("user_control_1", "2020-01-04T14:00:00Z"),  # Second purchase - should NOT count
+            ("user_control_2", "2020-01-02T15:00:00Z"),  # First purchase - should count
+            # user_control_3 and user_control_4 never make a purchase
+            # Test users
+            ("user_test_0", "2020-01-02T13:30:00Z"),  # First purchase - should count
+            ("user_test_0", "2020-01-03T13:30:00Z"),  # Second purchase - should NOT count
+            ("user_test_1", "2020-01-02T14:30:00Z"),  # First purchase - should count
+            ("user_test_2", "2020-01-02T15:30:00Z"),  # First purchase - should count
+            ("user_test_2", "2020-01-05T15:30:00Z"),  # Second purchase - should NOT count
+            ("user_test_3", "2020-01-02T16:30:00Z"),  # First purchase - should count
+            # user_test_4 never makes a purchase
+        ]
+
+        for user_id, timestamp in purchase_events:
+            variant = "control" if "control" in user_id else "test"
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=user_id,
+                timestamp=timestamp,
+                properties={
+                    feature_flag_property: variant,
+                },
+            )
+
+        # Create some purchase events BEFORE the experiment started (should not be counted)
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_0",
+            timestamp="2019-12-01T12:00:00Z",  # Before experiment
+            properties={
+                feature_flag_property: "control",
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control should have 2 first-time purchases (users 1, 2)
+        # user_control_0 had a purchase before the experiment, so their experiment purchase doesn't count as first-time
+        self.assertEqual(control_variant.count, 2)
+
+        # Test should have 4 first-time purchases (users 0, 1, 2, 3)
+        self.assertEqual(test_variant.count, 4)
+
+        # Both should have 5 exposures each (all users were exposed)
+        self.assertEqual(control_variant.absolute_exposure, 5)
+        self.assertEqual(test_variant.absolute_exposure, 5)
