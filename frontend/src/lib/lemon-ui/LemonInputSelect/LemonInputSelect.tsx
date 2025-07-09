@@ -130,8 +130,8 @@ export function LemonInputSelect<T = string>({
 
             // For backwards compatibility: if value is string and exists as key, use it
             if (typeof value === 'string' && optionMaps.keyToOption.has(value)) {
-                const keyOption = optionMaps.keyToOption.get(value)!
-                if (keyOption.value === undefined) {
+                const keyOption = optionMaps.keyToOption.get(value)
+                if (keyOption?.value === undefined) {
                     return value as string
                 }
             }
@@ -231,7 +231,7 @@ export function LemonInputSelect<T = string>({
         }
 
         return ret
-    }, [allOptionsMap, allowCustomValues, inputValue, mode, stringKeys, getDisplayLabel])
+    }, [allOptionsMap, allowCustomValues, inputValue, mode, stringKeys, getDisplayLabel, getStringKey])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -410,7 +410,7 @@ export function LemonInputSelect<T = string>({
                 />
             </PopoverReferenceContext.Provider>
         )
-    }, [allOptionsMap, allowCustomValues, itemBeingEditedIndex])
+    }, [allOptionsMap, allowCustomValues, itemBeingEditedIndex, getStringKey])
 
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
@@ -447,7 +447,7 @@ export function LemonInputSelect<T = string>({
                 )}
             </PopoverReferenceContext.Provider>
         )
-    }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
+    }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue, getStringKey])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
     const countPlaceholder = useMemo(() => {

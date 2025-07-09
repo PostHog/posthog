@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
@@ -52,7 +52,7 @@ const meta: Meta<typeof LemonInputSelect> = {
 }
 export default meta
 
-const Template: StoryFn<typeof LemonInputSelect> = (props: LemonInputSelectProps<any>) => {
+const Template = (props: LemonInputSelectProps): JSX.Element => {
     const [value, setValue] = useState(props.value || [])
     const handleChange = (newValue: any): void => {
         setValue(newValue)
