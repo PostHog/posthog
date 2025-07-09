@@ -372,7 +372,9 @@ async def start_job_modeling_run(
         status=DataModelingJob.Status.RUNNING,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
-        created_by_id=saved_query.created_by_id if saved_query is not None else None,
+        created_by_id=saved_query.created_by.id
+        if saved_query is not None and saved_query.created_by is not None
+        else None,
     )
 
 
@@ -544,7 +546,7 @@ async def materialize_model(
     await logger.adebug("Copying query files in S3")
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
-    await update_table_row_count(saved_query, row_count, logger)
+    # await update_table_row_count(saved_query, row_count, logger)
 
     # Update the job record with the row count and completed status
     job.rows_materialized = row_count
@@ -618,7 +620,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     context = HogQLContext(
         team=team,
-        team_id=team.id,
+        team_id=team.pk,
         enable_select_queries=True,
         limit_top_select=False,
     )
@@ -684,7 +686,7 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
                 truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
                 cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
-                new_columns.append(pa.chunked_array([cast_column_reduced]))
+                new_columns.append(cast_column_reduced)
         else:
             new_fields.append(field)
             new_columns.append(batch[field.name])
@@ -1012,6 +1014,24 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     for model in inputs.models:
         await create_table_from_saved_query(model, inputs.team_id)
+
+        # Fetch team and saved_query
+        team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+        saved_query = await get_saved_query(team, model)
+
+        # Get the most recent DataModelingJob for this saved_query
+        job = await database_sync_to_async(
+            DataModelingJob.objects.filter(saved_query=saved_query).order_by("-created_at").first
+        )()
+
+        if job and job.rows_materialized is not None and saved_query.table:
+            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table.id)
+            table.row_count = job.rows_materialized
+            await database_sync_to_async(table.save)()
+            # Optionally log the update if logger is available
+            # If you want to log, you can get a logger as in other activities:
+            # logger = await bind_temporal_worker_logger(inputs.team_id)
+            # await logger.ainfo("Updated row count for table %s to %d", saved_query.name, job.rows_materialized)
 
 
 async def update_saved_query_status(
