@@ -2,6 +2,7 @@ import builtins
 import json
 from collections.abc import Callable
 from datetime import datetime
+from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
@@ -568,20 +569,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     event,
                     True,
                 )
-                if resp.status_code > 299:
-                    return response.Response(
-                        {
-                            "success": False,
-                            "detail": "Unable to delete property",
-                        },
-                        status=resp.status_code,
-                    )
+                resp.raise_for_status()
 
-            except CaptureInternalError:
+            except HTTPError as he:
                 return response.Response(
                     {
                         "success": False,
                         "detail": "Unable to delete property",
+                    },
+                    status=he.response.status_code,
+                )
+
+            except CaptureInternalError as cie:
+                return response.Response(
+                    {
+                        "success": False,
+                        "detail": f"Unable to delete property: {cie}",
                     },
                     status=400,
                 )
@@ -703,14 +706,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                     "timestamp": datetime.now().isoformat(),
                 }
-                new_capture_internal(
+                resp = new_capture_internal(
                     instance.team.api_token,
                     distinct_id,
                     event,
                     True,
                 )
-            except CaptureInternalError:
-                # inputs validated w/this error are checked by the callers
+                resp.raise_for_status()
+
+            # Failures in this codepath (old and new) are ignored for some reason :(
+            except (HTTPError, CaptureInternalError):
                 pass
 
         else:
