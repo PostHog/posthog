@@ -1,6 +1,4 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -12,11 +10,13 @@ import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
 
 const meta: Meta = {
+    component: App,
     title: 'Replay/Tabs/Home/Failure',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.replay(),
     },
     decorators: [
         // API is set up so that everything except the call to load session recording metadata succeeds
@@ -163,27 +163,19 @@ const meta: Meta = {
 }
 export default meta
 
-export function NotFound(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replay())
-    }, [])
-    return <App />
+type Story = StoryObj<typeof meta>
+export const NotFound: Story = {
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
+    },
 }
 
-NotFound.parameters = {
-    testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
-}
-
-export function PastTTL(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replaySingle('past-ttl'))
-    }, [])
-    return <App />
-}
-
-PastTTL.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-        waitForSelector: '[data-attr="session-recording-player-past-ttl"]',
+export const PastTTL: Story = {
+    parameters: {
+        pageUrl: urls.replaySingle('past-ttl'),
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="session-recording-player-past-ttl"]',
+        },
     },
 }

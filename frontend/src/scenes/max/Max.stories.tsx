@@ -27,6 +27,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -62,7 +63,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG, FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
     },
 }
 export default meta

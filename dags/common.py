@@ -92,7 +92,9 @@ job_status_metrics_sensors = [
 ]
 
 
-def dagster_tags(context: dagster.OpExecutionContext) -> DagsterTags:
+def dagster_tags(
+    context: dagster.OpExecutionContext | dagster.AssetCheckExecutionContext | dagster.AssetExecutionContext,
+) -> DagsterTags:
     r = context.run
     return DagsterTags(
         job_name=r.job_name,
@@ -105,7 +107,7 @@ def dagster_tags(context: dagster.OpExecutionContext) -> DagsterTags:
     )
 
 
-def settings_with_log_comment(context: dagster.OpExecutionContext) -> dict[str, str]:
+def settings_with_log_comment(context: dagster.OpExecutionContext | dagster.AssetExecutionContext) -> dict[str, str]:
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}

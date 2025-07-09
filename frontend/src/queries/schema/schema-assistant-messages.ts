@@ -122,6 +122,7 @@ export type AssistantContextualTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'navigate'
+    | 'search_error_tracking_issues'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

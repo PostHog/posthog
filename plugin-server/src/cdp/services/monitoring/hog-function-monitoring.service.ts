@@ -1,6 +1,5 @@
 import { Counter } from 'prom-client'
 
-import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Hub, TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
@@ -74,7 +73,7 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: KAFKA_APP_METRICS_2,
+            topic: this.hub.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
             value: appMetric,
             key: appMetric.app_source_id,
         })
@@ -94,7 +93,7 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: KAFKA_LOG_ENTRIES,
+                topic: this.hub.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC,
                 value: logEntry,
                 key: logEntry.instance_id,
             })
@@ -146,7 +145,7 @@ export class HogFunctionMonitoringService {
                                 continue
                             }
                             this.messagesToProduce.push({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                                topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
                                 value: convertToCaptureEvent(event, team),
                                 key: `${team.api_token}:${event.distinct_id}`,
                             })
