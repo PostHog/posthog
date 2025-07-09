@@ -148,7 +148,7 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/temporal|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
               if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
