@@ -6,43 +6,7 @@ import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
-
-// Import the standalone function for testing
-/**
- * Detects specific feature flag changes that warrant confirmation.
- *
- * NOTE: This function intentionally only detects a LIMITED SUBSET of possible changes:
- * - Active status (enabled/disabled)
- * - First group's rollout percentage
- *
- * Other changes like name, key, properties, payloads, variants, etc. are not detected.
- * This is a deliberate design choice to focus on the most impactful changes that could
- * immediately affect user experience.
- */
-function detectFeatureFlagChanges(
-    originalFlag: FeatureFlagType | null,
-    updatedFlag: Partial<FeatureFlagType>
-): string[] {
-    const changes: string[] = []
-
-    if (!originalFlag) {
-        return changes
-    }
-
-    // Check active status changes
-    if (originalFlag.active !== updatedFlag.active) {
-        changes.push('Flag enabled/disabled status changed')
-    }
-
-    // Check rollout percentage changes (only first group for simplicity)
-    const originalRollout = originalFlag.filters?.groups?.[0]?.rollout_percentage || 0
-    const updatedRollout = updatedFlag.filters?.groups?.[0]?.rollout_percentage || 0
-    if (originalRollout !== updatedRollout) {
-        changes.push('Release condition rollout percentage changed')
-    }
-
-    return changes
-}
+import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -181,115 +145,45 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('confirmation modal integration', () => {
-        it('detects changes when flag is modified', async () => {
-            // Load the flag first
-            await expectLogic(logic).toFinishAllListeners()
+    describe('change detection', () => {
+        it('detects active status changes', () => {
+            const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
+            const changedFlag = { ...originalFlag, active: true }
 
-            const originalFlag = logic.values.featureFlag
-            const changedFlag = {
-                ...originalFlag,
-                active: !originalFlag.active, // Toggle active state
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(changedFlag)
-            }).toMatchValues({
-                featureFlag: changedFlag,
-            })
-
-            // Test change detection
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
-            expect(changes.length).toBeGreaterThan(0)
-            expect(changes).toContain('Flag enabled/disabled status changed')
+            expect(changes).toContain('Enable the feature flag')
         })
 
-        it('shows confirmation modal for existing flag changes', async () => {
-            // Mock team with confirmation enabled
-            const mockTeam = { feature_flag_confirmation_enabled: true }
-
-            await expectLogic(logic).toFinishAllListeners()
-
-            const originalFlag = logic.values.featureFlag
+        it('detects rollout percentage changes', () => {
+            const originalFlag = {
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                },
+            }
             const changedFlag = {
                 ...originalFlag,
-                active: true,
                 filters: {
-                    ...originalFlag.filters,
-                    groups: [
-                        {
-                            properties: [],
-                            rollout_percentage: 50, // Change rollout
-                            variant: null,
-                        },
-                    ],
+                    groups: [{ properties: [], rollout_percentage: 50, variant: null }],
                 },
             }
 
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(changedFlag)
-            }).toMatchValues({
-                featureFlag: changedFlag,
-            })
-
-            // Test that changes are detected and modal would be shown
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
-            expect(changes.length).toBeGreaterThan(0)
-
-            // Mock the form submission to check behavior
-            const showConfirmationModalSpy = jest.spyOn(logic.actions, 'showConfirmationModal')
-
-            // Simulate the confirmation check that happens in form submit
-            if (changedFlag.id && mockTeam.feature_flag_confirmation_enabled && changes.length > 0) {
-                logic.actions.showConfirmationModal(changes, changedFlag)
-            }
-
-            expect(showConfirmationModalSpy).toHaveBeenCalledWith(changes, changedFlag)
+            expect(changes).toContain('Release condition rollout percentage changed')
         })
 
-        it('skips confirmation modal for new flags', async () => {
-            const newFlagLogic = featureFlagLogic({ id: 'new' })
-            newFlagLogic.mount()
-
+        it('returns no changes for new flags', () => {
             const newFlag = { ...NEW_FLAG, key: 'new-flag', name: 'New Flag' }
-
-            await expectLogic(newFlagLogic, () => {
-                newFlagLogic.actions.setFeatureFlag(newFlag)
-            }).toMatchValues({
-                featureFlag: newFlag,
-            })
-
-            const changes = detectFeatureFlagChanges(null, newFlag) // null original for new flags
-            expect(changes.length).toBe(0) // No changes detected for new flags
-
-            newFlagLogic.unmount()
+            const changes = detectFeatureFlagChanges(null, newFlag)
+            expect(changes.length).toBe(0)
         })
 
-        it('skips confirmation when team setting is disabled', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+        it('returns no changes when nothing meaningful changed', () => {
+            const originalFlag = MOCK_FEATURE_FLAG
+            const changedFlag = { ...originalFlag, name: 'Different Name' } // Name change doesn't trigger confirmation
 
-            const mockTeam = { feature_flag_confirmation_enabled: false }
-            const originalFlag = logic.values.featureFlag
-            const changedFlag = { ...originalFlag, active: !originalFlag.active }
-
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlag(changedFlag)
-            }).toMatchValues({
-                featureFlag: changedFlag,
-            })
-
-            const showConfirmationModalSpy = jest.spyOn(logic.actions, 'showConfirmationModal')
-
-            // Test that changes are detected but confirmation is skipped
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
-            expect(changes.length).toBeGreaterThan(0)
-
-            // Since team setting is disabled, confirmation modal should not be shown
-            if (changedFlag.id && mockTeam.feature_flag_confirmation_enabled && changes.length > 0) {
-                logic.actions.showConfirmationModal(changes, changedFlag)
-            }
-
-            expect(showConfirmationModalSpy).not.toHaveBeenCalled()
+            expect(changes.length).toBe(0)
         })
     })
 })
