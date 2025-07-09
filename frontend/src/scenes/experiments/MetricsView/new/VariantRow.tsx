@@ -82,11 +82,7 @@ export function VariantRow({
             )}
 
             {/* Variant column - show variant key or "Baseline" */}
-            <td
-                className={`w-20 border-b border-border-bold p-3 align-top text-left ${
-                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                }`}
-            >
+            <td className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 {variantResult ? (
                     <div className="text-sm text-text-primary">{variantResult.key}</div>
                 ) : (
@@ -95,11 +91,7 @@ export function VariantRow({
             </td>
 
             {/* Value column - show conversion rate and raw counts */}
-            <td
-                className={`w-24 border-b border-border-bold p-3 align-top text-left ${
-                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                }`}
-            >
+            <td className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 {isBaseline ? (
                     <div className="text-sm">
                         <div className="text-text-primary">
@@ -122,11 +114,7 @@ export function VariantRow({
             </td>
 
             {/* P-value column - show statistical significance (empty for baseline) */}
-            <td
-                className={`w-20 border-b border-border-bold p-3 align-top text-left ${
-                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                }`}
-            >
+            <td className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
@@ -147,7 +135,7 @@ export function VariantRow({
             {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
                 <td
-                    className={`min-w-[400px] border-b border-border-bold p-0 align-top text-center relative ${
+                    className={`min-w-[400px] p-0 align-top text-center relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
