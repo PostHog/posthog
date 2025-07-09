@@ -65,6 +65,42 @@ export const template: NativeTemplate = {
                 },
             ],
         },
+        {
+            name: 'Identify a person',
+            include_by_default: true,
+            filters: {
+                events: [
+                    {
+                        id: null,
+                        name: 'All events',
+                        order: 0,
+                        type: 'events',
+                    },
+                ],
+            },
+            associated_action: 'identify',
+            inputs_schema: [
+                {
+                    key: 'personId',
+                    type: 'string',
+                    label: 'Person ID',
+                    secret: false,
+                    required: true,
+                    description: 'The ID of the person to identify.',
+                },
+                {
+                    key: 'personProperties',
+                    type: 'dictionary',
+                    label: 'Person Properties',
+                    secret: false,
+                    default: {
+                        [EXTEND_OBJECT_KEY]: '{person.properties}',
+                    },
+                    required: false,
+                    description: 'Properties to send with the person.',
+                },
+            ],
+        },
     ],
     actions: {
         event: {
@@ -80,6 +116,25 @@ export const template: NativeTemplate = {
                             event: payload.eventName,
                             eventId: payload.eventId,
                             properties: payload.eventProperties,
+                        },
+                    })
+                } catch (error) {
+                    throw new Error(error.message)
+                }
+            },
+        },
+        identify: {
+            perform: (request, { payload }) => {
+                try {
+                    return request('http://localhost:2080/7c138c0e-e208-4bc0-8378-4bbbdedad5bf', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${payload.apiKey}`,
+                        },
+                        json: {
+                            distinctId: payload.personId,
+                            properties: payload.personProperties,
                         },
                     })
                 } catch (error) {

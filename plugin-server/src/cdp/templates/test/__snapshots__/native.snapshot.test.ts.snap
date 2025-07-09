@@ -1,5 +1,701 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`Testing snapshots for native-posthog destination: Identify a person mapping - all fields 1`] = `
+{
+  "capturedPostHogEvents": [],
+  "finished": true,
+  "invocation": {
+    "functionId": "native-posthog",
+    "hogFunction": {
+      "actions": {
+        "event": {
+          "perform": [Function],
+        },
+        "identify": {
+          "perform": [Function],
+        },
+      },
+      "bytecode": [],
+      "category": [
+        "Analytics",
+      ],
+      "created_at": "2024-01-01T00:00:00Z",
+      "deleted": false,
+      "description": "Sends events to PostHog",
+      "enabled": true,
+      "free": false,
+      "hog": "return event",
+      "icon_url": "/static/posthog-icon.svg",
+      "id": "native-posthog",
+      "inputs": {
+        "apiKey": {
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "sCjxt!t3j*",
+            38,
+          ],
+          "value": "sCjxt!t3j*",
+        },
+        "debug_mode": {
+          "bytecode": undefined,
+          "value": true,
+        },
+      },
+      "inputs_schema": [
+        {
+          "description": "API Key to authenticate the request.",
+          "key": "apiKey",
+          "label": "API Key",
+          "required": true,
+          "secret": false,
+          "type": "string",
+        },
+        {
+          "default": false,
+          "description": "Will log configuration and request details",
+          "key": "debug_mode",
+          "label": "Debug Mode",
+          "type": "boolean",
+        },
+      ],
+      "is_addon_required": false,
+      "mapping_templates": [
+        {
+          "associated_action": "event",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The name of the event to send.",
+              "key": "eventName",
+              "label": "Event Name",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "description": "The ID of the event to send.",
+              "key": "eventId",
+              "label": "Event ID",
+              "required": false,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{event.properties}",
+              },
+              "description": "Properties to send with the event.",
+              "key": "eventProperties",
+              "label": "Event Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "event",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send an event",
+        },
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
+        },
+      ],
+      "mappings": [
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs": {
+            "internal_associated_mapping": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "identify",
+                38,
+              ],
+              "value": "identify",
+            },
+            "personId": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "sCjxt!t3j*",
+                38,
+              ],
+              "value": "sCjxt!t3j*",
+            },
+            "personProperties": {
+              "bytecode": {
+                "$$_extend_object": [
+                  "_H",
+                  1,
+                  32,
+                  "properties",
+                  32,
+                  "person",
+                  1,
+                  2,
+                  38,
+                ],
+              },
+              "value": {
+                "$$_extend_object": "{person.properties}",
+              },
+            },
+          },
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
+        },
+      ],
+      "name": "PostHog",
+      "status": "hidden",
+      "team_id": 1,
+      "template_id": "native-posthog",
+      "type": "destination",
+      "updated_at": "2024-01-01T00:00:00Z",
+    },
+    "id": "invocation-id",
+    "queue": "native",
+    "queueMetadata": {
+      "tries": 1,
+    },
+    "queueParameters": undefined,
+    "queuePriority": 0,
+    "queueScheduledAt": undefined,
+    "queueSource": undefined,
+    "state": {
+      "attempts": 0,
+      "globals": {
+        "event": {
+          "distinct_id": "distinct_id",
+          "elements_chain": "",
+          "event": "test",
+          "properties": {
+            "email": "test@posthog.com",
+          },
+          "timestamp": "",
+          "url": "",
+          "uuid": "uuid",
+        },
+        "inputs": {
+          "apiKey": "sCjxt!t3j*",
+          "debug_mode": true,
+          "internal_associated_mapping": "identify",
+          "personId": "sCjxt!t3j*",
+          "personProperties": {
+            "email": "example@posthog.com",
+          },
+        },
+        "person": {
+          "id": "person-id",
+          "name": "person-name",
+          "properties": {
+            "email": "example@posthog.com",
+          },
+          "url": "https://us.posthog.com/projects/1/persons/1234",
+        },
+        "project": {
+          "id": 1,
+          "name": "project-name",
+          "url": "https://us.posthog.com/projects/1",
+        },
+        "source": {
+          "name": "hog-function-name",
+          "url": "https://us.posthog.com/hog_functions/1234",
+        },
+      },
+      "timings": [],
+    },
+    "teamId": 1,
+  },
+  "logs": [
+    {
+      "level": "debug",
+      "message": "config, {"debug_mode":true,"apiKey":"sCjxt!t3j*","personId":"sCjxt!t3j*","personProperties":{"email":"example@posthog.com"},"internal_associated_mapping":"identify"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "endpoint, http://localhost:2080/7c138c0e-e208-4bc0-8378-4bbbdedad5bf",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer sCjxt!t3j*"},"json":{"distinctId":"sCjxt!t3j*","properties":{"email":"example@posthog.com"}}}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer sCjxt!t3j*"},"body":"{\\"distinctId\\":\\"sCjxt!t3j*\\",\\"properties\\":{\\"email\\":\\"example@posthog.com\\"}}"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "convertedResponse, 200, {"status":"OK"}, {"status":"OK"}, {"content-type":"application/json"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "info",
+      "message": "Function completed in [REPLACED]",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+  ],
+  "metrics": [],
+}
+`;
+
+exports[`Testing snapshots for native-posthog destination: Identify a person mapping - required fields 1`] = `
+{
+  "capturedPostHogEvents": [],
+  "finished": true,
+  "invocation": {
+    "functionId": "native-posthog",
+    "hogFunction": {
+      "actions": {
+        "event": {
+          "perform": [Function],
+        },
+        "identify": {
+          "perform": [Function],
+        },
+      },
+      "bytecode": [],
+      "category": [
+        "Analytics",
+      ],
+      "created_at": "2024-01-01T00:00:00Z",
+      "deleted": false,
+      "description": "Sends events to PostHog",
+      "enabled": true,
+      "free": false,
+      "hog": "return event",
+      "icon_url": "/static/posthog-icon.svg",
+      "id": "native-posthog",
+      "inputs": {
+        "apiKey": {
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "sCjxt!t3j*",
+            38,
+          ],
+          "value": "sCjxt!t3j*",
+        },
+        "debug_mode": {
+          "bytecode": undefined,
+          "value": true,
+        },
+      },
+      "inputs_schema": [
+        {
+          "description": "API Key to authenticate the request.",
+          "key": "apiKey",
+          "label": "API Key",
+          "required": true,
+          "secret": false,
+          "type": "string",
+        },
+        {
+          "default": false,
+          "description": "Will log configuration and request details",
+          "key": "debug_mode",
+          "label": "Debug Mode",
+          "type": "boolean",
+        },
+      ],
+      "is_addon_required": false,
+      "mapping_templates": [
+        {
+          "associated_action": "event",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The name of the event to send.",
+              "key": "eventName",
+              "label": "Event Name",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "description": "The ID of the event to send.",
+              "key": "eventId",
+              "label": "Event ID",
+              "required": false,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{event.properties}",
+              },
+              "description": "Properties to send with the event.",
+              "key": "eventProperties",
+              "label": "Event Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "event",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Send an event",
+        },
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
+        },
+      ],
+      "mappings": [
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs": {
+            "internal_associated_mapping": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "identify",
+                38,
+              ],
+              "value": "identify",
+            },
+            "personId": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "sCjxt!t3j*",
+                38,
+              ],
+              "value": "sCjxt!t3j*",
+            },
+            "personProperties": {
+              "bytecode": {
+                "$$_extend_object": [
+                  "_H",
+                  1,
+                  32,
+                  "properties",
+                  32,
+                  "person",
+                  1,
+                  2,
+                  38,
+                ],
+              },
+              "value": {
+                "$$_extend_object": "{person.properties}",
+              },
+            },
+          },
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
+        },
+      ],
+      "name": "PostHog",
+      "status": "hidden",
+      "team_id": 1,
+      "template_id": "native-posthog",
+      "type": "destination",
+      "updated_at": "2024-01-01T00:00:00Z",
+    },
+    "id": "invocation-id",
+    "queue": "native",
+    "queueMetadata": {
+      "tries": 1,
+    },
+    "queueParameters": undefined,
+    "queuePriority": 0,
+    "queueScheduledAt": undefined,
+    "queueSource": undefined,
+    "state": {
+      "attempts": 0,
+      "globals": {
+        "event": {
+          "distinct_id": "distinct_id",
+          "elements_chain": "",
+          "event": "test",
+          "properties": {
+            "email": "test@posthog.com",
+          },
+          "timestamp": "",
+          "url": "",
+          "uuid": "uuid",
+        },
+        "inputs": {
+          "apiKey": "sCjxt!t3j*",
+          "debug_mode": true,
+          "internal_associated_mapping": "identify",
+          "personId": "sCjxt!t3j*",
+          "personProperties": {
+            "email": "example@posthog.com",
+          },
+        },
+        "person": {
+          "id": "person-id",
+          "name": "person-name",
+          "properties": {
+            "email": "example@posthog.com",
+          },
+          "url": "https://us.posthog.com/projects/1/persons/1234",
+        },
+        "project": {
+          "id": 1,
+          "name": "project-name",
+          "url": "https://us.posthog.com/projects/1",
+        },
+        "source": {
+          "name": "hog-function-name",
+          "url": "https://us.posthog.com/hog_functions/1234",
+        },
+      },
+      "timings": [],
+    },
+    "teamId": 1,
+  },
+  "logs": [
+    {
+      "level": "debug",
+      "message": "config, {"debug_mode":true,"apiKey":"sCjxt!t3j*","personId":"sCjxt!t3j*","personProperties":{"email":"example@posthog.com"},"internal_associated_mapping":"identify"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "endpoint, http://localhost:2080/7c138c0e-e208-4bc0-8378-4bbbdedad5bf",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer sCjxt!t3j*"},"json":{"distinctId":"sCjxt!t3j*","properties":{"email":"example@posthog.com"}}}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer sCjxt!t3j*"},"body":"{\\"distinctId\\":\\"sCjxt!t3j*\\",\\"properties\\":{\\"email\\":\\"example@posthog.com\\"}}"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "debug",
+      "message": "convertedResponse, 200, {"status":"OK"}, {"status":"OK"}, {"content-type":"application/json"}",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+    {
+      "level": "info",
+      "message": "Function completed in [REPLACED]",
+      "timestamp": "2025-01-01T01:00:00.000+01:00",
+    },
+  ],
+  "metrics": [],
+}
+`;
+
 exports[`Testing snapshots for native-posthog destination: Send an event mapping - all fields 1`] = `
 {
   "capturedPostHogEvents": [],
@@ -9,6 +705,9 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
     "hogFunction": {
       "actions": {
         "event": {
+          "perform": [Function],
+        },
+        "identify": {
           "perform": [Function],
         },
       },
@@ -112,6 +811,52 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
             },
           ],
           "name": "Send an event",
+        },
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
         },
       ],
       "mappings": [
@@ -329,6 +1074,9 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
         "event": {
           "perform": [Function],
         },
+        "identify": {
+          "perform": [Function],
+        },
       },
       "bytecode": [],
       "category": [
@@ -430,6 +1178,52 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
             },
           ],
           "name": "Send an event",
+        },
+        {
+          "associated_action": "identify",
+          "filters": {
+            "events": [
+              {
+                "id": null,
+                "name": "All events",
+                "order": 0,
+                "type": "events",
+              },
+            ],
+          },
+          "include_by_default": true,
+          "inputs_schema": [
+            {
+              "description": "The ID of the person to identify.",
+              "key": "personId",
+              "label": "Person ID",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+            {
+              "default": {
+                "$$_extend_object": "{person.properties}",
+              },
+              "description": "Properties to send with the person.",
+              "key": "personProperties",
+              "label": "Person Properties",
+              "required": false,
+              "secret": false,
+              "type": "dictionary",
+            },
+            {
+              "default": "identify",
+              "description": "The associated mapping to use",
+              "hidden": true,
+              "key": "internal_associated_mapping",
+              "label": "Associated Mapping",
+              "required": true,
+              "secret": false,
+              "type": "string",
+            },
+          ],
+          "name": "Identify a person",
         },
       ],
       "mappings": [
