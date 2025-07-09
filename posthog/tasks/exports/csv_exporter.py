@@ -189,11 +189,23 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
+
+                # Add breakdown column
+                if item.get("breakdown_value") is not None:
+                    if isinstance(item["breakdown_value"], list):
+                        line["breakdown"] = "::".join(str(x) for x in item["breakdown_value"])
+                    else:
+                        line["breakdown"] = str(item["breakdown_value"])
+
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
                     for index, data in enumerate(item["data"]):
                         line[label_item["labels"][index]] = data
+
+                    # Add total sum column for time-series data
+                    if item.get("data"):
+                        line["total"] = sum(item["data"])
 
                 yield line
 
