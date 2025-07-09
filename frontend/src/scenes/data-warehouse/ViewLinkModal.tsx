@@ -42,6 +42,8 @@ export function ViewLinkModal(): JSX.Element {
     )
 }
 
+const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
+
 export function ViewLinkForm(): JSX.Element {
     const {
         tableOptions,
@@ -125,6 +127,7 @@ export function ViewLinkForm(): JSX.Element {
                                         hogQLValue={selectedSourceKey ?? ''}
                                         onHogQLValueChange={selectSourceKey}
                                         tableName={selectedSourceTableName ?? ''}
+                                        hogQLEditorPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
                                     />
                                 )}
                             </>
@@ -151,6 +154,7 @@ export function ViewLinkForm(): JSX.Element {
                                         hogQLValue={selectedJoiningKey ?? ''}
                                         onHogQLValueChange={selectJoiningKey}
                                         tableName={selectedJoiningTableName ?? ''}
+                                        hogQLEditorPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
                                     />
                                 )}
                             </>
