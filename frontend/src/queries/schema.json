@@ -19129,6 +19129,7 @@
                     "type": "string"
                 }
             },
+            "required": ["date_from", "date_to"],
             "type": "object"
         },
         "ResultCustomization": {

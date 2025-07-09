@@ -54,9 +54,9 @@ export function DateDisplay({
     let parsedDate = dayjs.utc(date)
     let weekEnd = null
 
-    if (interval === 'week' && resolvedDateRange?.date_from && resolvedDateRange?.date_to) {
-        const dateFrom = dayjs.utc(resolvedDateRange?.date_from)
-        const dateTo = dayjs.utc(resolvedDateRange?.date_to)
+    if (interval === 'week' && resolvedDateRange) {
+        const dateFrom = dayjs.utc(resolvedDateRange.date_from)
+        const dateTo = dayjs.utc(resolvedDateRange.date_to)
         let boundaryDateRange = null
         if (dateFrom && dateTo && dateFrom.isValid() && dateTo.isValid()) {
             boundaryDateRange = {
@@ -83,8 +83,6 @@ export function DateDisplay({
             </span>
             {interval === 'week' && !hideWeekRange && weekEnd && (
                 <>
-                    {/* TODO: @EDsCODE will help validate; this should probably come from the backend  */}
-                    {/* A week ends on the 7th day of the week, so we add 6 days to the start date to get the end date */}
                     {' – '}
                     <DateDisplay interval="day" date={weekEnd.toJSON()} />
                 </>

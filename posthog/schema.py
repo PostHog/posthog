@@ -1945,8 +1945,8 @@ class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[datetime] = None
-    date_to: Optional[datetime] = None
+    date_from: datetime
+    date_to: datetime
 
 
 class ResultCustomizationBase(BaseModel):
