@@ -298,7 +298,7 @@ function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
     const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
 
     return (
-        <h1 className="TopBar3000__here truncate" data-attr="top-bar-name">
+        <h1 className="TopBar3000__here" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (
