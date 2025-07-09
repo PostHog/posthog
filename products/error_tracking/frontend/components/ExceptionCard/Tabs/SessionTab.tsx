@@ -14,9 +14,50 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { match, P } from 'ts-pattern'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string
+}
+
+export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
+    const { loading } = useValues(exceptionCardLogic)
+    const { sessionId } = useValues(errorPropertiesLogic)
+
+    return (
+        <TabsPrimitiveContent {...props}>
+            {match([loading, sessionId])
+                .with([true, P.any], () => <SessionTabContentEmpty />)
+                .with([false, P.nullish], () => <SessionTabContentEmpty />)
+                .with([false, P.string], ([_, sessionId]) => (
+                    <SessionTabContent sessionId={sessionId} timestamp={timestamp} />
+                ))
+                .otherwise(() => null)}
+        </TabsPrimitiveContent>
+    )
+}
+
+export function SessionTabContentLoading(): JSX.Element {
+    return (
+        <div className="flex justify-center w-full h-[300px] items-center">
+            <Spinner />
+        </div>
+    )
+}
+
+export function SessionTabContentEmpty(): JSX.Element {
+    return (
+        <div className="flex justify-center w-full h-[300px] items-center">
+            <EmptyMessage
+                title="No session available"
+                description="No session is associated with this exception"
+                buttonText="Check documentation"
+                buttonTo="https://posthog.com/docs/error-tracking/installation"
+                size="small"
+            />
+        </div>
+    )
 }
 
 function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
@@ -30,42 +71,35 @@ function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
     }
 }
 
-export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
-    const { loading } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
-    const recordingProps = useMemo(() => getRecordingProps(sessionId!), [sessionId])
+export function SessionTabContent({
+    timestamp,
+    sessionId,
+}: {
+    timestamp: string | undefined
+    sessionId: string
+}): JSX.Element {
+    const recordingProps = useMemo(() => getRecordingProps(sessionId), [sessionId])
     const playerLogic = sessionRecordingPlayerLogic(recordingProps)
-    const { seekToTimestamp, setPlay, setPause } = useActions(playerLogic)
+    const { seekToTimestamp, setPlay } = useActions(playerLogic)
 
     useLayoutEffect(() => {
-        if (timestamp && sessionId) {
+        if (timestamp) {
             const five_seconds_before = dayjs(timestamp).valueOf() - 5000
             seekToTimestamp(five_seconds_before, false)
-            setPlay()
-        } else {
-            setPause()
         }
-    }, [timestamp, seekToTimestamp, setPlay, sessionId])
+        setPlay()
+    }, [timestamp, seekToTimestamp, setPlay])
 
     return (
-        <TabsPrimitiveContent {...props}>
-            {loading && (
-                <div className="flex justify-center w-full h-32 items-center">
-                    <Spinner />
-                </div>
-            )}
-            {!loading && (
-                <div className="h-[500px]">
-                    <SessionRecordingPlayer
-                        {...recordingProps}
-                        mode={SessionRecordingPlayerMode.Standard}
-                        autoPlay={true}
-                        noMeta
-                        noBorder
-                        noInspector
-                    />
-                </div>
-            )}
-        </TabsPrimitiveContent>
+        <div className="h-[500px]">
+            <SessionRecordingPlayer
+                {...recordingProps}
+                mode={SessionRecordingPlayerMode.Standard}
+                autoPlay={false}
+                noMeta
+                noBorder
+                noInspector
+            />
+        </div>
     )
 }
