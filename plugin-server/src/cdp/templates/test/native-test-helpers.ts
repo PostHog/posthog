@@ -131,7 +131,7 @@ export class DestinationTester {
 
         const processedInputs = await Promise.all(
             compiledMappingInputs.inputs_schema
-                .filter((input) => typeof input.default !== 'undefined')
+                .filter((input) => mapping_inputs?.[input.key] !== undefined || typeof input.default !== 'undefined')
                 .map(async (input) => {
                     const value = mapping_inputs?.[input.key] ?? input.default
                     return {

@@ -129,6 +129,26 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
           },
           "include_by_default": true,
           "inputs": {
+            "eventId": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "9OSA[^iPUw",
+                38,
+              ],
+              "value": "9OSA[^iPUw",
+            },
+            "eventName": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "9OSA[^iPUw",
+                38,
+              ],
+              "value": "9OSA[^iPUw",
+            },
             "eventProperties": {
               "bytecode": {
                 "$$_extend_object": [
@@ -233,6 +253,8 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
         "inputs": {
           "apiKey": "9OSA[^iPUw",
           "debug_mode": true,
+          "eventId": "9OSA[^iPUw",
+          "eventName": "9OSA[^iPUw",
           "eventProperties": {
             "email": "test@posthog.com",
           },
@@ -263,7 +285,7 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
   "logs": [
     {
       "level": "debug",
-      "message": "config, {"debug_mode":true,"apiKey":"9OSA[^iPUw","eventProperties":{"email":"test@posthog.com"},"internal_associated_mapping":"event"}",
+      "message": "config, {"debug_mode":true,"apiKey":"9OSA[^iPUw","eventName":"9OSA[^iPUw","eventId":"9OSA[^iPUw","eventProperties":{"email":"test@posthog.com"},"internal_associated_mapping":"event"}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
@@ -273,12 +295,12 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
     },
     {
       "level": "debug",
-      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"json":{"properties":{"email":"test@posthog.com"}}}",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"json":{"event":"9OSA[^iPUw","eventId":"9OSA[^iPUw","properties":{"email":"test@posthog.com"}}}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
       "level": "debug",
-      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"body":"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}}"}",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"body":"{\\"event\\":\\"9OSA[^iPUw\\",\\"eventId\\":\\"9OSA[^iPUw\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}}"}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
@@ -425,6 +447,16 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
           },
           "include_by_default": true,
           "inputs": {
+            "eventName": {
+              "bytecode": [
+                "_H",
+                1,
+                32,
+                "9OSA[^iPUw",
+                38,
+              ],
+              "value": "9OSA[^iPUw",
+            },
             "eventProperties": {
               "bytecode": {
                 "$$_extend_object": [
@@ -529,6 +561,7 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
         "inputs": {
           "apiKey": "9OSA[^iPUw",
           "debug_mode": true,
+          "eventName": "9OSA[^iPUw",
           "eventProperties": {
             "email": "test@posthog.com",
           },
@@ -559,7 +592,7 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
   "logs": [
     {
       "level": "debug",
-      "message": "config, {"debug_mode":true,"apiKey":"9OSA[^iPUw","eventProperties":{"email":"test@posthog.com"},"internal_associated_mapping":"event"}",
+      "message": "config, {"debug_mode":true,"apiKey":"9OSA[^iPUw","eventName":"9OSA[^iPUw","eventProperties":{"email":"test@posthog.com"},"internal_associated_mapping":"event"}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
@@ -569,12 +602,12 @@ exports[`Testing snapshots for native-posthog destination: Send an event mapping
     },
     {
       "level": "debug",
-      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"json":{"properties":{"email":"test@posthog.com"}}}",
+      "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"json":{"event":"9OSA[^iPUw","properties":{"email":"test@posthog.com"}}}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
       "level": "debug",
-      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"body":"{\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}}"}",
+      "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer 9OSA[^iPUw"},"body":"{\\"event\\":\\"9OSA[^iPUw\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\"}}"}",
       "timestamp": "2025-01-01T01:00:00.000+01:00",
     },
     {
