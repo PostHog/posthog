@@ -48,10 +48,12 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     value={value}
                                     onChange={onChange}
                                     footer={
-                                        <div className="text-secondary inline-flex items-center gap-x-1 text-sm">
-                                            <IconMarkdown className="text-md" />
-                                            <span>Markdown formatting support</span>
-                                        </div>
+                                        editAreaProps.footer || (
+                                            <div className="text-secondary inline-flex items-center gap-x-1 text-sm">
+                                                <IconMarkdown className="text-md" />
+                                                <span>Markdown formatting support</span>
+                                            </div>
+                                        )
                                     }
                                 />
                                 {objectStorageAvailable ? (

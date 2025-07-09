@@ -57,6 +57,17 @@ export const LemonTextMarkdownWithMaxLength = (): JSX.Element => {
     return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} maxLength={12} />
 }
 
+export const LemonTextMarkdownWithFooter = (): JSX.Element => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return (
+        <_LemonTextMarkdown
+            value={value}
+            onChange={(newValue) => setValue(newValue)}
+            footer={<div className="text-xs">I am a custom footer</div>}
+        />
+    )
+}
+
 export const LemonTextMarkdownWithMaxLengthAndFooter = (): JSX.Element => {
     const [value, setValue] = useState('# Title\n\n**bold** _italic_')
     return (
