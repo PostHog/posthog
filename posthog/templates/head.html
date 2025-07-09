@@ -44,3 +44,20 @@
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
 </script>
+
+{% if debug %}
+    <!-- Vite development scripts -->
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:8234/node_modules/@vitejs/plugin-react/dist/client.js'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:8234/node_modules/vite/dist/client/client.mjs"></script>
+    <script type="module" src="http://localhost:8234/src/index.tsx"></script>
+{% else %}
+    <!-- Production build scripts -->
+    {% load static %}
+    <script type="module" src="{% static 'main.js' %}"></script>
+{% endif %}
