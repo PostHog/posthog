@@ -2377,6 +2377,45 @@ class TestCapture(BaseTest):
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
 
+    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
+    def test_submit_csp_report_to_new_internal_capture(self, _mock_feature_enabled, mock_new_capture) -> None:
+        payload = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "alert('hello')",
+            }
+        }
+
+        resp = self.client.post(
+            f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
+        )
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+        mock_new_capture.assert_called_once_with(
+            token=None,
+            distinct_id="test-user",
+            raw_event={
+                "$csp_violation": {
+                    "document_url": "https://example.com/foo/bar",
+                    "referrer": "https://www.google.com/",
+                    "violated_directive": "default-src self",
+                    "effective_directive": "img-src",
+                    "original_policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                }
+            },
+            process_person_profile=False,
+        )
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_csp_violation(self, kafka_produce):
         csp_report = {
