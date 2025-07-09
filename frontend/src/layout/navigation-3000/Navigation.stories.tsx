@@ -1,6 +1,4 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -59,6 +57,7 @@ const insightFetchMock = (req: any): [number, any] => {
 }
 
 const meta: Meta = {
+    component: App,
     title: 'PostHog 3000/Navigation',
     decorators: [
         mswDecorator({
@@ -90,14 +89,10 @@ const meta: Meta = {
         },
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.projectHomepage(),
     },
 }
 export default meta
 
-export function NavigationBase(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.projectHomepage())
-    }, [])
-
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const NavigationBase: Story = {}

@@ -243,6 +243,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
+        setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
     }),
     connect(() => ({
         values: [
@@ -303,8 +304,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 clearSearch: () => '',
             },
         ],
+        syncMoreNoticeDismissed: [
+            false,
+            { persist: true },
+            {
+                setSyncMoreNoticeDismissed: (_, { dismissed }) => dismissed,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
+        hasNonPosthogSources: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
+                return dataWarehouseTables.length > 0
+            },
+        ],
         relevantPosthogTables: [
             (s) => [s.posthogTables, s.searchTerm],
             (
@@ -453,7 +467,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
-                s.joinsLoading,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -463,8 +476,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 searchTerm: string,
                 searchTreeData: TreeDataItem[],
                 databaseLoading: boolean,
-                dataWarehouseSavedQueriesLoading: boolean,
-                joinsLoading: boolean
+                dataWarehouseSavedQueriesLoading: boolean
             ): TreeDataItem[] => {
                 if (searchTerm) {
                     return searchTreeData
@@ -473,10 +485,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const sourcesChildren: TreeDataItem[] = []
 
                 // Add loading indicator for sources if still loading
-                if (
-                    (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) ||
-                    joinsLoading
-                ) {
+                if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
                     sourcesChildren.push({
                         id: 'sources-loading/',
                         name: 'Loading...',
@@ -515,10 +524,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add loading indicator for views if still loading
                 if (
-                    (dataWarehouseSavedQueriesLoading &&
-                        dataWarehouseSavedQueries.length === 0 &&
-                        managedViews.length === 0) ||
-                    joinsLoading
+                    dataWarehouseSavedQueriesLoading &&
+                    dataWarehouseSavedQueries.length === 0 &&
+                    managedViews.length === 0
                 ) {
                     viewsChildren.push({
                         id: 'views-loading/',

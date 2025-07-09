@@ -1,6 +1,5 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -21,12 +20,14 @@ import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCus
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Revenue Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
         featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_MRR],
+        pageUrl: urls.revenueAnalytics(),
         testOptions: {
             waitForLoadersToDisappear: true,
         },
@@ -81,19 +82,11 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
         useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-
         setGrowthRateDisplayMode('table')
         setTopCustomersDisplayMode('table')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
         setGroupBy([RevenueAnalyticsGroupBy.PRODUCT])
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode, setRevenueAnalyticsFilters, setGroupBy])
-
-    useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-    }, [])
 
     return <App />
 }
@@ -117,9 +110,6 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     })
 
     useEffect(() => {
-        // Open the revenue analytics dashboard page
-        router.actions.push(urls.revenueAnalytics())
-
         setGrowthRateDisplayMode('line')
         setTopCustomersDisplayMode('line')
         setRevenueAnalyticsFilters([PRODUCT_A_PROPERTY_FILTER])
@@ -129,14 +119,6 @@ export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     return <App />
 }
 
-export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.revenueAnalytics())
-    }, [])
-
-    return <App />
-}
-RevenueAnalyticsDashboardWithoutFeatureFlag.parameters = {
-    ...meta.parameters,
-    featureFlags: [],
+export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryObj<typeof meta> = {
+    parameters: { featureFlags: [] },
 }

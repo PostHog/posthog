@@ -2250,30 +2250,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_invalid_token = self.client.get(f"/api/projects/@current/feature_flags?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
+    def test_soft_delete_flag_renames_key_and_allows_reuse(self):
+        # Create flag and experiment, then soft-delete experiment
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag1")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+        # Soft-delete flag: should rename key
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"flag1:deleted:{flag.id}"
+        # Should now be able to create a new flag with the original key
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "Flag1", "key": "flag1"})
+        assert response.status_code == 201
+        assert response.json()["key"] == "flag1"
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "Alpha feature", "key": "alpha-feature"},
+    def test_soft_delete_flag_blocked_with_active_experiment(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
-        self.assertEqual(instance.key, "alpha-feature")
-
-    def test_updating_a_feature_flag_with_same_team_and_key_of_a_deleted_one(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
-
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
-            {"key": "alpha-feature"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        instance.refresh_from_db()
-        self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
         self.client.post(
