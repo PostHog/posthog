@@ -250,7 +250,7 @@ class InsightSearchNode(AssistantNode):
 
         # Step 2: Apply semantic filtering if query exists
         if root_to_search_insights:
-            filtered_results = self._semantic_filter_insights(raw_results, root_to_search_insights)
+            filtered_results = self._apply_semantic_filtering(raw_results, root_to_search_insights)
 
             if filtered_results:
                 # Step 3: Convert to enriched insights (no additional DB call needed)
@@ -272,7 +272,7 @@ class InsightSearchNode(AssistantNode):
                 "insight__query": result["insight__query"],
                 "insight__short_id": result["insight__short_id"],
                 "keyword_score": 0.0,
-                "semantic_score": 0.0,
+                "semantic_score": 0.5,
                 "relevance_score": 0.5,
             }
             for result in raw_results[:1]  # Just get the most recent one
@@ -288,7 +288,7 @@ class InsightSearchNode(AssistantNode):
         return "end"
 
     def _semantic_filter_insights(self, insights: list[RawInsightData], query: str | None) -> list[InsightWithScores]:
-        """Filter insights by semantic relevance using hybrid keyword + LLM classification."""
+        """Filter insights by semantic relevance using LLM classification."""
         if not query or not insights:
             # Convert to InsightWithScores with default scores
             return [
@@ -300,42 +300,14 @@ class InsightSearchNode(AssistantNode):
                     "insight__query": insight["insight__query"],
                     "insight__short_id": insight["insight__short_id"],
                     "keyword_score": 0.0,
-                    "semantic_score": 0.0,
+                    "semantic_score": 0.5,
                     "relevance_score": 0.5,
                 }
                 for insight in insights
             ]
 
-        # Step 1: Apply keyword matching for exact matches
-        insights_with_keyword_scores = self._apply_keyword_matching(insights, query)
-
-        # Step 2: Apply semantic filtering with structured output (returns filtered results)
-        return self._apply_semantic_filtering(insights_with_keyword_scores, query)
-
-    def _apply_keyword_matching(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
-        """Apply keyword matching to boost insights with exact matches in names."""
-        query_keywords = query.lower().split()
-
-        for insight in insights:
-            name = insight.get("insight__name") or insight.get("insight__derived_name") or ""
-            description = insight.get("insight__description") or ""
-
-            # Check for exact keyword matches in name (higher weight)
-            name_lower = name.lower()
-            name_matches = sum(1 for keyword in query_keywords if keyword in name_lower)
-
-            # Check for exact keyword matches in description (lower weight)
-            desc_lower = description.lower()
-            desc_matches = sum(1 for keyword in query_keywords if keyword in desc_lower)
-
-            # Calculate keyword score (0.0 to 1.0)
-            # Name matches are weighted 3x more than description matches
-            total_keywords = len(query_keywords)
-            keyword_score = min(1.0, (name_matches * 3 + desc_matches * 1) / (total_keywords * 3))
-
-            insight["keyword_score"] = keyword_score
-
-        return insights
+        # Apply semantic filtering with structured output (returns filtered results)
+        return self._apply_semantic_filtering(insights, query)
 
     def _convert_to_enriched_insights(self, insights_with_scores: list[InsightWithScores]) -> list[EnrichedInsight]:
         """Convert InsightWithScores to EnrichedInsight format (no additional DB calls needed)."""
@@ -368,17 +340,15 @@ class InsightSearchNode(AssistantNode):
         for insight in limited_insights:
             name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
             description = insight.get("insight__description")
-            keyword_score = insight.get("keyword_score", 0.0)
 
             # Store insight by name for later lookup
             insight_by_name[name] = insight
 
-            # Include keyword score in the prompt to help LLM make better decisions
-            score_indicator = "⭐ EXACT MATCH" if keyword_score > 0.5 else "📊"
+            # Format insight for LLM
             if description:
-                insights_text += f"{score_indicator} {name} - {description}\n"
+                insights_text += f"📊 {name} - {description}\n"
             else:
-                insights_text += f"{score_indicator} {name}\n"
+                insights_text += f"📊 {name}\n"
 
         # Check cache first
         cache_key = self._get_cache_key(query, list(insight_by_name.keys()))
@@ -404,45 +374,25 @@ class InsightSearchNode(AssistantNode):
                 self._cache_semantic_result(cache_key, structured_ratings)
 
             except Exception as e:
-                self.logger.warning(f"Structured semantic filtering failed: {e}, falling back to keyword scoring only")
+                self.logger.warning(f"Structured semantic filtering failed: {e}, falling back to most recent insights")
                 # Fast fallback: return top insights with keyword scores (sorted by relevance)
                 fallback_insights = []
 
-                # Sort by keyword score and take top candidates
-                sorted_insights = sorted(limited_insights, key=lambda x: x.get("keyword_score", 0.0), reverse=True)
-
-                for insight in sorted_insights[:3]:  # Limit to top 3 for faster fallback
-                    keyword_score = insight.get("keyword_score", 0.0)
-                    if keyword_score > 0.2:  # Lower threshold for broader matching
-                        fallback_insights.append(
-                            {
-                                "insight_id": insight["insight_id"],
-                                "insight__name": insight["insight__name"],
-                                "insight__description": insight["insight__description"],
-                                "insight__derived_name": insight.get("insight__derived_name"),
-                                "insight__query": insight.get("insight__query"),
-                                "insight__short_id": insight.get("insight__short_id"),
-                                "keyword_score": keyword_score,
-                                "semantic_score": keyword_score,
-                                "relevance_score": keyword_score,
-                            }
-                        )
-
-                # If no good keyword matches, return the most recent insight
-                if not fallback_insights and limited_insights:
-                    fallback_insights = [
-                        {
-                            "insight_id": limited_insights[0]["insight_id"],
-                            "insight__name": limited_insights[0]["insight__name"],
-                            "insight__description": limited_insights[0]["insight__description"],
-                            "insight__derived_name": limited_insights[0].get("insight__derived_name"),
-                            "insight__query": limited_insights[0].get("insight__query"),
-                            "insight__short_id": limited_insights[0].get("insight__short_id"),
-                            "keyword_score": 0.3,
-                            "semantic_score": 0.3,
-                            "relevance_score": 0.3,
-                        }
-                    ]
+                # Return the most recent insights as fallback
+                fallback_insights = [
+                    {
+                        "insight_id": insight["insight_id"],
+                        "insight__name": insight["insight__name"],
+                        "insight__description": insight["insight__description"],
+                        "insight__derived_name": insight.get("insight__derived_name"),
+                        "insight__query": insight.get("insight__query"),
+                        "insight__short_id": insight.get("insight__short_id"),
+                        "keyword_score": 0.0,
+                        "semantic_score": 0.3,
+                        "relevance_score": 0.3,
+                    }
+                    for insight in limited_insights[:3]  # Return top 3 most recent
+                ]
 
                 return fallback_insights
 
@@ -453,13 +403,6 @@ class InsightSearchNode(AssistantNode):
             for insight_name in structured_ratings.get(category, []):
                 if insight_name in insight_by_name:
                     insight = insight_by_name[insight_name]
-                    keyword_score = insight.get("keyword_score", 0.0)
-
-                    # Combine keyword and semantic scores
-                    if keyword_score >= 0.5:  # Exact keyword match gets boost
-                        final_score = max(score, 0.8 + (keyword_score * 0.2))
-                    else:
-                        final_score = score
 
                     relevant_insights.append(
                         {
@@ -469,9 +412,9 @@ class InsightSearchNode(AssistantNode):
                             "insight__derived_name": insight.get("insight__derived_name"),
                             "insight__query": insight.get("insight__query"),
                             "insight__short_id": insight.get("insight__short_id"),
-                            "keyword_score": keyword_score,
+                            "keyword_score": 0.0,
                             "semantic_score": score,
-                            "relevance_score": final_score,
+                            "relevance_score": score,
                         }
                     )
 
