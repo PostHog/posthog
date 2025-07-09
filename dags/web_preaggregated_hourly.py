@@ -3,13 +3,14 @@ from collections.abc import Callable
 
 import dagster
 from dagster import Field
-from dags.common import JobOwners
+from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
 )
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -94,6 +95,7 @@ def web_bounces_hourly(
     """
     Hourly bounce rate data for web analytics with 24h TTL. Updates every 5 minutes.
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_hourly_data(
         context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL
     )
@@ -114,6 +116,7 @@ def web_stats_hourly(
     """
     Hourly aggregated dimensional data with pageviews and unique user counts with 24h TTL. Updates every 5 minutes.
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_hourly_data(
         context=context,
         table_name="web_stats_hourly",

@@ -3,6 +3,7 @@ from abc import ABC
 from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -52,11 +53,19 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def query_date_range(self):
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        timezone_info = (
+            ZoneInfo("UTC")
+            if self.modifiers and not self.modifiers.convertToProjectTimezone
+            else self.team.timezone_info
+        )
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            timezone_info=timezone_info,
             interval=None,
-            now=datetime.now(),
+            now=datetime.now(timezone_info),
         )
 
     @cached_property
@@ -284,9 +293,11 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             parse_expr(
                 "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                     "date_to": self.query_date_range.date_to_as_hogql(),
                 },
             ),
@@ -303,9 +314,11 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             parse_expr(
                 "min_timestamp >= {date_from}",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                 },
             )
         ]
@@ -329,9 +342,11 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             parse_expr(
                 "sessions.min_timestamp >= {date_from}",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                 },
             )
         ]
