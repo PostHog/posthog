@@ -1628,6 +1628,7 @@ class MaxActionContext(BaseModel):
     description: Optional[str] = None
     id: float
     name: str
+    type: Literal["action"] = "action"
 
 
 class MaxEventContext(BaseModel):
@@ -1637,6 +1638,7 @@ class MaxEventContext(BaseModel):
     description: Optional[str] = None
     id: str
     name: Optional[str] = None
+    type: Literal["event"] = "event"
 
 
 class MinimalHedgehogConfig(BaseModel):
@@ -12309,19 +12311,7 @@ class HumanMessage(BaseModel):
     content: str
     id: Optional[str] = None
     type: Literal["human"] = "human"
-    ui_context: Optional[MaxContextShape] = None
-
-
-class MaxContextShape(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actions: Optional[list[MaxActionContext]] = None
-    dashboards: Optional[list[MaxDashboardContext]] = None
-    events: Optional[list[MaxEventContext]] = None
-    filters_override: Optional[DashboardFilter] = None
-    insights: Optional[list[MaxInsightContext]] = None
-    variables_override: Optional[dict[str, HogQLVariable]] = None
+    ui_context: Optional[MaxUIContext] = None
 
 
 class MaxDashboardContext(BaseModel):
@@ -12333,6 +12323,7 @@ class MaxDashboardContext(BaseModel):
     id: float
     insights: list[MaxInsightContext]
     name: Optional[str] = None
+    type: Literal["dashboard"] = "dashboard"
 
 
 class MaxInsightContext(BaseModel):
@@ -12401,6 +12392,19 @@ class MaxInsightContext(BaseModel):
         TracesQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
+    type: Literal["insight"] = "insight"
+
+
+class MaxUIContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: Optional[list[MaxActionContext]] = None
+    dashboards: Optional[list[MaxDashboardContext]] = None
+    events: Optional[list[MaxEventContext]] = None
+    filters_override: Optional[DashboardFilter] = None
+    insights: Optional[list[MaxInsightContext]] = None
+    variables_override: Optional[dict[str, HogQLVariable]] = None
 
 
 class QueryRequest(BaseModel):
@@ -12843,7 +12847,6 @@ class SourceFieldSwitchGroupConfig(BaseModel):
 
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()
-MaxContextShape.model_rebuild()
 MaxDashboardContext.model_rebuild()
 MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()
