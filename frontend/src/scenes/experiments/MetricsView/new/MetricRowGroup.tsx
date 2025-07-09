@@ -64,35 +64,35 @@ export function MetricRowGroup({
         return (
             <tr className="hover:bg-bg-hover group">
                 <td
-                    className={`w-1/5 min-h-[60px] border-b border-r border-border-bold p-3 align-top text-left relative ${
+                    className={`w-1/5 min-h-[51px] border-b border-r border-border-bold p-2 align-top text-left relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
                     <div className="p-4 text-muted text-sm">No data available</div>
                 </td>
                 <td
-                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
+                    className={`w-20 border-b border-r border-border-bold p-2 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
                     —
                 </td>
                 <td
-                    className={`w-24 border-b border-r border-border-bold p-3 align-top text-left ${
+                    className={`w-24 border-b border-r border-border-bold p-2 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
                     —
                 </td>
                 <td
-                    className={`w-20 border-b border-r border-border-bold p-3 align-top text-left ${
+                    className={`w-20 border-b border-r border-border-bold p-2 align-top text-left ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
                     —
                 </td>
                 <td
-                    className={`min-w-[400px] border-b border-border-bold p-2 align-top text-center ${
+                    className={`min-w-[400px] border-b border-border-bold p-0 align-top text-center ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >
