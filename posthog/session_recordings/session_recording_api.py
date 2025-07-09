@@ -24,7 +24,6 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
-from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, viewsets, status
@@ -34,6 +33,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from ee.session_recordings.session_summary.llm.call import get_openai_client
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -73,7 +73,6 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-
 from ..models.product_intent.product_intent import ProductIntent
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
@@ -965,16 +964,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             content_type=ServerSentEventRenderer.media_type,
         )
 
-        # TODO: Calculate timings for stream, and track summarization events (follow-up)
-        # timings_header = summary.pop("timings_header", None)
-        # cache.set(cache_key, summary, timeout=30)
-        # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
-        # # let the browser cache for half the time we cache on the server
-        # r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        # if timings_header:
-        #     r.headers["Server-Timing"] = timings_header
-        # return r
-
     def _stream_blob_to_client(
         self, recording: SessionRecording, blob_key: str, if_none_match: str | None
     ) -> HttpResponse:
@@ -1134,7 +1123,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
-        client = _get_openai_client()
+        client = get_openai_client()
 
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
@@ -1354,21 +1343,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _get_openai_client() -> OpenAI:
-    """Get configured OpenAI client or raise appropriate error."""
-    if not settings.DEBUG and not is_cloud():
-        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise exceptions.ValidationError("OpenAI API key is not configured")
-
-    client = posthoganalytics.default_client
-    if not client:
-        raise exceptions.ValidationError("PostHog analytics client is not configured")
-
-    return OpenAI(posthog_client=client)
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

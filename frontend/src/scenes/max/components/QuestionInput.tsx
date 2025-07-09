@@ -22,6 +22,7 @@ interface QuestionInputProps {
     contextDisplaySize?: 'small' | 'default'
     isThreadVisible?: boolean
     topActions?: ReactNode
+    bottomActions?: ReactNode
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
@@ -36,6 +37,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         contextDisplaySize,
         isThreadVisible,
         topActions,
+        bottomActions,
         textAreaRef,
         containerClassName,
         onSubmit,
@@ -157,26 +159,29 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                {tools.length > 0 && (
-                    <div
-                        className={clsx(
-                            'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
-                            !isFloating
-                                ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                                : `w-full pb-1`
-                        )}
-                    >
-                        <span>Tools here:</span>
-                        {tools.map((tool) => (
-                            <Tooltip key={tool.name} title={tool.description}>
-                                <i className="flex items-center gap-1 cursor-help">
-                                    {tool.icon || <IconWrench />}
-                                    {tool.displayName}
-                                </i>
-                            </Tooltip>
-                        ))}
-                    </div>
-                )}
+                <div className="flex items-center w-full gap-1 justify-between">
+                    {tools.length > 0 && (
+                        <div
+                            className={clsx(
+                                'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
+                                !isFloating
+                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                                    : `w-full pb-1`
+                            )}
+                        >
+                            <span>Tools here:</span>
+                            {tools.map((tool) => (
+                                <Tooltip key={tool.name} title={tool.description}>
+                                    <i className="flex items-center gap-1 cursor-help">
+                                        {tool.icon || <IconWrench />}
+                                        {tool.displayName}
+                                    </i>
+                                </Tooltip>
+                            ))}
+                        </div>
+                    )}
+                    <div className="ml-auto">{bottomActions}</div>
+                </div>
             </div>
         </div>
     )

@@ -45,7 +45,8 @@ async def MaxEval(
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
-        timeout=60 * 5,
+        timeout=60 * 8,
+        max_concurrency=20,
         is_public=True,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
