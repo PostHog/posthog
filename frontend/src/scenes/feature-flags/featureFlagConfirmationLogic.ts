@@ -4,7 +4,20 @@ import { openConfirmationModal } from './ConfirmationModal'
 
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
 
-// Detect meaningful changes that require confirmation
+/**
+ * Detects feature flag changes that warrant confirmation.
+ *
+ * Detects the following types of changes:
+ * - Active status (enabled/disabled)
+ * - Rollout percentage changes
+ * - Variant changes (adding/removing/modifying variants)
+ * - Release condition changes (properties, targeting)
+ * - Payload changes
+ * - Other filter configuration changes
+ *
+ * Note: Some changes like name, description, and tags do NOT trigger confirmation
+ * as they don't directly impact user experience.
+ */
 function detectFeatureFlagChanges(
     originalFlag: FeatureFlagType | null,
     updatedFlag: Partial<FeatureFlagType>
@@ -53,6 +66,11 @@ function detectFeatureFlagChanges(
             )
         })
 
+        // Check for payload changes
+        const originalPayloads = originalFlag.filters?.payloads || {}
+        const updatedPayloads = updatedFlag.filters?.payloads || {}
+        const payloadsChanged = JSON.stringify(originalPayloads) !== JSON.stringify(updatedPayloads)
+
         // Add specific change messages
         if (rolloutChanged) {
             changes.push('Release condition rollout percentage changed')
@@ -69,9 +87,12 @@ function detectFeatureFlagChanges(
         if (conditionsChanged) {
             changes.push('Release conditions changed')
         }
+        if (payloadsChanged) {
+            changes.push('Payloads changed')
+        }
 
         // If we haven't caught the specific change, add a generic message
-        if (!rolloutChanged && !variantsChanged && !conditionsChanged) {
+        if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged) {
             changes.push('Feature flag configuration changed')
         }
     }
