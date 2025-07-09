@@ -8,7 +8,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -235,7 +234,6 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 }
 
 const Header = (): JSX.Element => {
-    const { user } = useValues(userLogic)
     const { isDev } = useValues(preflightLogic)
 
     const onClick = (): void => {
@@ -248,7 +246,7 @@ const Header = (): JSX.Element => {
         <PageHeader
             buttons={
                 <>
-                    {user?.is_staff && isDev ? (
+                    {isDev ? (
                         <>
                             <LemonButton
                                 onClick={() => {
