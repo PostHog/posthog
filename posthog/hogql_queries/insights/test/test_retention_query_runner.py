@@ -911,6 +911,50 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]]),
         )
 
+    def test_rolling_retention_with_minimum_occurrences(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person5"])
+        minimum_occurrences = 3
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(3)),
+                *[("person1", _date(4))] * minimum_occurrences,
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person3", _date(1)),
+                ("person3", _date(2)),
+                *[("person3", _date(3))] * minimum_occurrences,
+                ("person4", _date(3)),
+                ("person4", _date(4)),
+                ("person5", _date(4)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                # _date(0) is ignored
+                # day 0 is _date(1)
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "cumulative": True,
+                    "totalIntervals": 5,
+                    "minimumOccurrences": minimum_occurrences,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": None, "name": "All events"},
+                },
+            }
+        )
+        self.assertEqual(
+            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 1, 0], [3, 0], [0]]),
+            pluck(result, "values", "count"),
+        )
+
     def test_rolling_retention_doesnt_double_count_same_user(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
@@ -1053,6 +1097,56 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0],
                 ]
             ),
+        )
+
+    def test_all_events_with_minimum_occurrences(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
+                    "minimumOccurrences": 2,
+                },
+            }
+        )
+        self.assertEqual(
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+            pluck(result, "values", "count"),
         )
 
     def test_all_events_target_first_time(self):
@@ -2020,6 +2114,86 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_with_user_properties_and_minimum_occurrences(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1", "alias1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"email": "person2@test.com"},
+        )
+        minimum_occurrences = 2
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ]
+            * minimum_occurrences,
+        )
+
+        # Single event added to day 4 to ensure minimum occurrences check will exclude it.
+        _create_events(self.team, [("person1", _date(3))])
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(6, hour=0)},
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "operator": "exact",
+                                    "type": "person",
+                                    "value": ["person1@test.com"],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "retentionFilter": {
+                    "totalIntervals": 7,
+                    "minimumOccurrences": minimum_occurrences,
+                },
+            }
+        )
+
+        self.assertEqual(len(result), 7)
+        self.assertEqual(
+            pluck(result, "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+        self.assertEqual(
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [1, 1, 0, 0, 1, 1],
+                    [1, 0, 0, 1, 1],
+                    [1, 0, 1, 1],
+                    [0, 0, 0],
+                    [1, 1],
+                    [1],
+                ]
+            ),
+            pluck(result, "values", "count"),
+        )
+
     @snapshot_clickhouse_queries
     def test_retention_with_user_properties_via_action(self):
         action = Action.objects.create(
@@ -2590,6 +2764,70 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         person2_uk = next(r for r in result if "person2" in r[0]["distinct_ids"])
         self.assertEqual(person2_uk[1], [0, 1])
 
+    def test_retention_actor_query_with_breakdown_and_minimum_occurrences(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "UK"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"country": "US"})
+        minimum_occurrences = 2
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                *[("person1", _date(1))] * minimum_occurrences,
+                *[("person1", _date(2))] * minimum_occurrences,
+                ("person1", _date(3)),  # Shouldn't show up as as return event as it occurred < minimum_occurrences
+                ("person2", _date(0)),
+                *[("person2", _date(1))] * minimum_occurrences,
+                *[("person2", _date(2))] * minimum_occurrences,
+                ("person2", _date(3)),  # Shouldn't show up as occurred < minimum_occurrences
+                ("person3", _date(0)),
+                *[("person3", _date(1))] * minimum_occurrences,
+                ("person3", _date(3)),  # Shouldn't show up as as return event as it occurred < minimum_occurrences
+            ],
+        )
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                    "minimumOccurrences": minimum_occurrences,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "country", "type": "person"}]},
+            },
+            breakdown=["US"],
+        )
+
+        # Should only return the US persons
+        self.assertEqual(len(result), 2)
+
+        person1_us = next(r for r in result if "person1" in r[0]["distinct_ids"])
+        person3_us = next(r for r in result if "person3" in r[0]["distinct_ids"])
+
+        # counts are index 1
+        self.assertEqual(person1_us[1], [0, 1, 2])
+        self.assertEqual(person3_us[1], [0, 1])
+
+        result = self.run_actors_query(
+            interval=1,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                    "minimumOccurrences": minimum_occurrences,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "country", "type": "person"}]},
+            },
+            breakdown=["UK"],
+        )
+
+        person2_uk = next(r for r in result if "person2" in r[0]["distinct_ids"])
+        self.assertEqual(person2_uk[1], [0, 1])
+
     def test_retention_with_breakdown_event_properties(self):
         """Test retention with breakdown by event properties"""
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -2675,6 +2913,107 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [1, 0, 0, 0, 0, 0],
                 ]
             ),
+        )
+
+    def test_retention_with_breakdown_event_properties_and_minimum_occurrences(self):
+        """Test retention with breakdown by event properties"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        minimum_occurrences = 2
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                ("person3", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person3", _date(2), {"browser": "Chrome"}),  # Day 2
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(4), {"browser": "Safari"}),  # Day 4
+                # Firefox cohort
+                ("person4", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person4", _date(5), {"browser": "Firefox"}),  # Day 5
+            ]
+            * 2,
+        )
+
+        # Create events that happened a single time to ensure minimum occurrences filter is working
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(5), {"browser": "Chrome"}),
+                ("person2", _date(2), {"browser": "Safari"}),
+                ("person3", _date(3), {"browser": "Chrome"}),
+                ("person4", _date(3), {"browser": "Firefox"}),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "minimumOccurrences": minimum_occurrences,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+
+        self.assertEqual(
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+            chrome_cohorts,
+        )
+
+        safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
+        self.assertEqual(
+            pad(
+                [
+                    [1, 1, 0, 0, 1, 0],
+                    [1, 0, 0, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+            safari_cohorts,
+        )
+
+        firefox_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Firefox"], "values", "count")
+        self.assertEqual(
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+            firefox_cohorts,
         )
 
     def test_retention_actor_query_with_event_property_breakdown(self):

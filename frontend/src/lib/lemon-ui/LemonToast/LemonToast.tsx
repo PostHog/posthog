@@ -26,6 +26,7 @@ interface ToastButton {
 
 interface ToastOptionsWithButton extends ToastOptions {
     button?: ToastButton
+    hideButton?: boolean
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -96,7 +97,7 @@ export const lemonToast = {
             ...toastOptions,
         })
     },
-    error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}): void {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -106,12 +107,14 @@ export const lemonToast = {
                 toastId: toastOptions.toastId,
             })
         }
+
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent
                 type="error"
                 message={message}
-                button={button || GET_HELP_BUTTON}
+                // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
+                button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                 id={toastOptions.toastId}
             />,
             {

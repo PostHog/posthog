@@ -113,7 +113,13 @@ pub fn session_recording_config_response(
         event_triggers: team
             .session_recording_event_trigger_config
             .as_ref()
-            .map(|vec| Value::Array(vec.iter().map(|s| Value::String(s.clone())).collect())),
+            .map(|vec| {
+                Value::Array(
+                    vec.iter()
+                        .filter_map(|s| s.as_ref().map(|s| Value::String(s.clone())))
+                        .collect(),
+                )
+            }),
         trigger_match_type: team
             .session_recording_trigger_match_type_config
             .as_ref()

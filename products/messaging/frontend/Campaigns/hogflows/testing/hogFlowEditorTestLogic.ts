@@ -163,11 +163,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         shouldLoadSampleGlobals: [
             (s) => [s.campaign],
             (campaign: HogFlow): boolean => {
-                return (
-                    !!campaign.trigger?.filters?.events?.length ||
-                    !!campaign.trigger?.filters?.actions?.length ||
-                    !!campaign.trigger?.filters?.data_warehouse?.length
-                )
+                return !!campaign.trigger?.filters?.events?.length || !!campaign.trigger?.filters?.actions?.length
             },
         ],
         // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic

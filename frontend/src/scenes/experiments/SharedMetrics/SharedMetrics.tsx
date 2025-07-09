@@ -30,7 +30,7 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, showLegacyBadge } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -45,7 +45,7 @@ export function SharedMetrics(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
-                                {showLegacyBadge && isLegacySharedMetric(sharedMetric) && (
+                                {isLegacySharedMetric(sharedMetric) && (
                                     <Tooltip
                                         title="This metric uses the legacy engine, so some features and improvements may be missing."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"

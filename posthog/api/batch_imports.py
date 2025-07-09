@@ -5,12 +5,19 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 import posthoganalytics
 import uuid
+from datetime import timedelta
+from enum import Enum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
+
+
+class BatchImportKafkaTopic(str, Enum):
+    MAIN = "main"
+    HISTORICAL = "historical"
+    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -129,7 +136,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
         ).to_kafka(
-            topic=KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+            topic=BatchImportKafkaTopic.HISTORICAL,
             send_rate=1000,
             transaction_timeout_seconds=60,
         )
@@ -155,6 +162,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     )
     access_key = serializers.CharField(write_only=True, required=True)
     secret_key = serializers.CharField(write_only=True, required=True)
+    is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -173,6 +181,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "content_type",
             "access_key",
             "secret_key",
+            "is_eu_region",
         ]
         read_only_fields = [
             "id",
@@ -184,6 +193,25 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "display_status_message",
             "import_config",
         ]
+
+    def validate(self, data):
+        """Validate the date range doesn't exceed 1 year"""
+        data = super().validate(data)
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if start_date and end_date:
+            if end_date <= start_date:
+                raise serializers.ValidationError("End date must be after start date")
+
+            one_year_after_start = start_date + timedelta(days=365)
+            if end_date > one_year_after_start:
+                raise serializers.ValidationError(
+                    "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
+                )
+
+        return data
 
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
         """Create a new BatchImport from Date Range Source"""
@@ -202,8 +230,9 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 access_key=validated_data["access_key"],
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
+                is_eu_region=validated_data.get("is_eu_region", False),
             ).to_kafka(
-                topic=f"events_plugin_ingestion_historical",
+                topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,
                 transaction_timeout_seconds=60,
             )
@@ -341,8 +370,8 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         posthoganalytics.capture(
-            distinct_id,
             "batch import created",
+            distinct_id=distinct_id,
             properties={
                 "batch_import_id": migration.id,
                 "source_type": source_type,

@@ -116,9 +116,7 @@ export class LegacyPluginExecutorService {
         invocation: CyclotronJobInvocationHogFunction,
         options?: LegacyPluginExecutorOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'plugin',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

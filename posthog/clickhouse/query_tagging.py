@@ -20,10 +20,14 @@ class AccessMethod(StrEnum):
 
 
 class Product(StrEnum):
-    BATCH_EXPORT = "batch_export"
-    PRODUCT_ANALYTICS = "product_analytics"
-    FEATURE_FLAGS = "feature_flags"
     API = "api"
+    BATCH_EXPORT = "batch_export"
+    FEATURE_FLAGS = "feature_flags"
+    MAX_AI = "max_ai"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REPLAY = "replay"
+    SESSION_SUMMARY = "session_summary"
+    WAREHOUSE = "warehouse"
 
 
 class Feature(StrEnum):
@@ -31,6 +35,7 @@ class Feature(StrEnum):
     QUERY = "query"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
+    CACHE_WARMUP = "cache_warmup"
 
 
 class TemporalTags(BaseModel):
@@ -49,6 +54,22 @@ class TemporalTags(BaseModel):
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
 
+class DagsterTags(BaseModel):
+    """
+    Tags for Dagster runs
+
+    Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
+    """
+
+    job_name: str
+    run_id: str
+    tags: Optional[dict[str, str]]
+    root_run_id: Optional[str]
+    parent_run_id: Optional[str]
+    job_snapshot_id: Optional[str]
+    execution_plan_snapshot_id: Optional[str]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -61,6 +82,8 @@ class QueryTags(BaseModel):
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None
+    # dagster specific tags
+    dagster: Optional[DagsterTags] = None
 
     query: Optional[object] = None
     query_settings: Optional[object] = None
@@ -120,9 +143,9 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     # constant query tags
-    git_commit: str
-    container_hostname: str
-    service_name: str
+    git_commit: Optional[str] = None
+    container_hostname: Optional[str] = None
+    service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
@@ -133,6 +156,11 @@ class QueryTags(BaseModel):
     def with_temporal(self, temporal_tags: TemporalTags):
         self.kind = "temporal"
         self.temporal = temporal_tags
+
+    def with_dagster(self, dagster_tags: DagsterTags):
+        """Tags for dagster runs and activities."""
+        self.kind = "dagster"
+        self.dagster = dagster_tags
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)

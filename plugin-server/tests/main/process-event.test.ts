@@ -125,6 +125,8 @@ async function processEvent(
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
 
+    await groupStoreForBatch.flush()
+
     await delayUntilEventIngested(async () => {
         return await hub.db.fetchEvents()
     }, ++processEventCounter)

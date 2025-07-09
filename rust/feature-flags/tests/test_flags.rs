@@ -31,7 +31,7 @@ async fn it_gets_legacy_response_by_default_or_invalid_version(
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -106,7 +106,7 @@ async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) ->
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -191,7 +191,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -231,7 +231,7 @@ async fn it_rejects_invalid_headers_flag_request() -> Result<()> {
 #[tokio::test]
 async fn it_rejects_empty_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -263,7 +263,7 @@ async fn it_rejects_empty_distinct_id() -> Result<()> {
 #[tokio::test]
 async fn it_rejects_missing_distinct_id() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
     let server = ServerHandle::for_config(config).await;
@@ -428,7 +428,7 @@ async fn it_handles_multivariate_flags() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -520,7 +520,7 @@ async fn it_handles_flag_with_property_filter() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -622,7 +622,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
@@ -733,7 +733,7 @@ async fn it_matches_flags_to_a_request_with_group_property_overrides() -> Result
 async fn test_feature_flags_with_json_payloads() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
 
     // Insert a new team into Redis and retrieve the team details
@@ -822,7 +822,7 @@ async fn test_feature_flags_with_json_payloads() -> Result<()> {
 async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
@@ -998,7 +998,7 @@ async fn it_handles_not_contains_property_filter() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1074,7 +1074,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1226,7 +1226,7 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
 async fn test_complex_regex_and_name_match_flag() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_pg(pg_client.clone(), None).await?;
     insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
@@ -1369,7 +1369,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 async fn test_super_condition_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(redis_client.clone()).await?;
     insert_new_team_in_pg(pg_client.clone(), Some(team.id)).await?;
@@ -1478,7 +1478,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
 #[tokio::test]
 async fn test_flag_matches_with_no_person_profile() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1608,7 +1608,7 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1680,7 +1680,7 @@ async fn test_config_basic_fields() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1750,7 +1750,7 @@ async fn test_config_analytics_enabled() -> Result<()> {
     // default config has new_analytics_capture_excluded_team_ids as All (exclude nobody)
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1790,7 +1790,7 @@ async fn test_config_analytics_enabled_by_default() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1829,7 +1829,7 @@ async fn test_config_analytics_disabled_debug_mode() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
     let distinct_id = "user_distinct_id".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1865,7 +1865,7 @@ async fn test_config_capture_performance_combinations() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
 
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -1903,7 +1903,7 @@ async fn test_config_autocapture_exceptions() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1940,7 +1940,7 @@ async fn test_config_optional_team_features() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -1985,7 +1985,7 @@ async fn test_config_site_apps_empty_by_default() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -2022,7 +2022,7 @@ async fn test_config_included_in_legacy_response() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -2091,7 +2091,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2203,7 +2203,7 @@ async fn test_config_session_recording_with_rrweb_script() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2274,7 +2274,7 @@ async fn test_config_session_recording_team_not_allowed_for_script() -> Result<(
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2343,7 +2343,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     config.session_replay_rrweb_script_allowed_teams = "*".parse().unwrap();
 
     let distinct_id = "enterprise_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2517,7 +2517,7 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
     config.session_replay_rrweb_script = "".to_string(); // No script
 
     let distinct_id = "minimal_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2621,7 +2621,7 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     config.session_replay_rrweb_script = "console.log('Mixed script')".to_string();
 
     let distinct_id = "mixed_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2730,7 +2730,7 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
     config.new_analytics_capture_endpoint = "https://analytics.posthog.com".to_string();
 
     let distinct_id = "exclusion_test_user".to_string();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2817,7 +2817,7 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "consistency_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2908,7 +2908,7 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "error_tracking_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -2987,7 +2987,7 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "error_tracking_disabled_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token.clone();
@@ -3036,7 +3036,7 @@ async fn test_disable_flags_returns_empty_response() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3108,7 +3108,7 @@ async fn test_disable_flags_returns_empty_response_v2() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3179,7 +3179,7 @@ async fn test_disable_flags_false_still_returns_flags() -> Result<()> {
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3252,7 +3252,7 @@ async fn test_disable_flags_with_config_still_returns_config_data() -> Result<()
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3341,7 +3341,7 @@ async fn test_disable_flags_with_config_v2_still_returns_config_data() -> Result
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3429,7 +3429,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3506,7 +3506,7 @@ async fn test_disable_flags_without_config_param_has_minimal_response() -> Resul
 async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
-    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team_id = rand::thread_rng().gen_range(1..10_000_000);
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team_id))
@@ -3679,7 +3679,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -3873,7 +3873,7 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_real_bug".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4012,7 +4012,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "super_condition_cohort_user".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4197,7 +4197,7 @@ async fn test_returns_empty_flags_when_no_active_flags_configured() -> Result<()
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
@@ -4338,7 +4338,7 @@ async fn test_group_key_property_matching() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
-    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let team = insert_new_team_in_pg(pg_client.clone(), Some(team.id))
@@ -4457,6 +4457,455 @@ async fn test_group_key_property_matching() -> Result<()> {
             }
         })
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cohort_filter_with_regex_and_negation() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test.user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Insert person with the target email that should match the cohort
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({"email": "test.user@example.com"})),
+    )
+    .await
+    .unwrap();
+
+    // Create the cohort with the specified filters:
+    // OR condition with AND group that checks:
+    // - email matches regex ^.*@example.com$ (ends with @example.com)
+    // - email does NOT contain "excluded.user@example.com" (negation: true)
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "^.*@example.com$",
+                        "negation": false,
+                        "operator": "regex"
+                    },
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "excluded.user@example.com",
+                        "negation": true,
+                        "operator": "icontains"
+                    }
+                ]
+            }]
+        }
+    });
+
+    // Create the cohort in the database
+    let mut conn = pg_client.get_connection().await.unwrap();
+    let cohort_id: i32 = sqlx::query_scalar(
+        r#"INSERT INTO posthog_cohort 
+           (name, description, team_id, deleted, filters, is_calculating, created_by_id, created_at, is_static, last_calculation, errors_calculating, groups, version)
+           VALUES ($1, $2, $3, false, $4, false, NULL, NOW(), false, NOW(), 0, '[]', NULL)
+           RETURNING id"#,
+    )
+    .bind("Example Domain (excluding specific user)")
+    .bind("Test cohort for regex and negation conditions")
+    .bind(team.id)
+    .bind(cohort_filters)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+
+    // Create flag with cohort filter exactly as specified
+    let flag_json = json!([{
+        "id": 1,
+        "key": "example-cohort-flag",
+        "name": "Example Cohort Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "variant": null,
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort_id,
+                    "operator": "in",
+                    "cohort_name": "Example Domain (excluding specific user)"
+                }],
+                "rollout_percentage": 100
+            }],
+            "payloads": {},
+            "multivariate": null
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test with test.user@example.com - should match cohort and return true
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 0
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with excluded.user@example.com - should NOT match cohort due to negation condition
+    let excluded_distinct_id = "excluded.user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        excluded_distinct_id.clone(),
+        Some(json!({"email": "excluded.user@example.com"})),
+    )
+    .await
+    .unwrap();
+
+    let payload_excluded = json!({
+        "token": token,
+        "distinct_id": excluded_distinct_id,
+    });
+
+    let res_excluded = server
+        .send_flags_request(payload_excluded.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res_excluded.status());
+
+    let json_excluded = res_excluded.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_excluded,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    // Test with non-example.com email - should NOT match cohort due to regex condition
+    let non_example_distinct_id = "other.user".to_string();
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        non_example_distinct_id.clone(),
+        Some(json!({"email": "other.user@other.com"})),
+    )
+    .await
+    .unwrap();
+
+    let payload_non_example = json!({
+        "token": token,
+        "distinct_id": non_example_distinct_id,
+    });
+
+    let res_non_example = server
+        .send_flags_request(payload_non_example.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res_non_example.status());
+
+    let json_non_example = res_non_example.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_non_example,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "example-cohort-flag": {
+                    "key": "example-cohort-flag",
+                    "enabled": false,
+                    "reason": {
+                        "code": "no_condition_match"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
+    // This test is to ensure that when flag_keys is specified, the dependency graph is included in the response
+    // For example, if parent_flag -> intermediate_flag -> leaf_flag, and we only request parent_flag,
+    // we should get the response for parent_flag, intermediate_flag, and leaf_flag otherwise parent_flag can't be evaluated.
+
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    insert_person_for_team_in_pg(pg_client.clone(), team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    const LEAF_FLAG_ID: i32 = 1;
+    const INTERMEDIATE_FLAG_ID: i32 = 2;
+    const PARENT_FLAG_ID: i32 = 3;
+    const INDEPENDENT_FLAG_ID: i32 = 4;
+
+    // Create a dependency chain: parent_flag -> intermediate_flag -> leaf_flag
+    // parent_flag depends on intermediate_flag being true
+    // intermediate_flag depends on leaf_flag being true
+    let flag_json = json!([
+        {
+            "id": LEAF_FLAG_ID,
+            "key": "leaf_flag",
+            "name": "Leaf Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@example.com",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INTERMEDIATE_FLAG_ID,
+            "key": "intermediate_flag",
+            "name": "Intermediate Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": LEAF_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": PARENT_FLAG_ID,
+            "key": "parent_flag",
+            "name": "Parent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": INTERMEDIATE_FLAG_ID.to_string(),
+                                "value": true,
+                                "operator": "exact",
+                                "type": "flag"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ]
+            }
+        },
+        {
+            "id": INDEPENDENT_FLAG_ID,
+            "key": "independent_flag",
+            "name": "Independent Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50
+                    }
+                ]
+            }
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Request only parent_flag with flag_keys where the whole chain evaluates to true because the leaf_flag is true
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 1 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": true,
+                        "reason": {
+                            "code": "condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
+
+    // Test 2: Request only parent_flag with flag_keys where the whole chain evaluates to false because the leaf_flag is false
+    {
+        let payload = json!({
+            "token": token,
+            "distinct_id": distinct_id,
+            "flag_keys": ["parent_flag"],
+            "person_properties": {
+                "email": "not-test@example.com"
+            }
+        });
+        let res = server
+            .send_flags_request(payload.to_string(), Some("2"), None)
+            .await;
+        assert_eq!(StatusCode::OK, res.status());
+        let json_data = res.json::<Value>().await?;
+        println!(
+            "Test 2 - Actual response: {}",
+            serde_json::to_string_pretty(&json_data).unwrap()
+        );
+        assert_json_include!(
+            actual: json_data,
+            expected: json!({
+                "errorsWhileComputingFlags": false,
+                "flags": {
+                    "parent_flag": {
+                        "key": "parent_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "intermediate_flag": {
+                        "key": "intermediate_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    },
+                    "leaf_flag": {
+                        "key": "leaf_flag",
+                        "enabled": false,
+                        "reason": {
+                            "code": "no_condition_match",
+                            "condition_index": 0
+                        }
+                    }
+                }
+            })
+        );
+    }
 
     Ok(())
 }

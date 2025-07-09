@@ -9,7 +9,6 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
@@ -35,6 +34,7 @@ import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
 import { logger } from './utils/logger'
+import { NodeInstrumentation } from './utils/node-instrumentation'
 import { getObjectStorage } from './utils/object_storage'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
@@ -58,6 +58,7 @@ export class PluginServer {
     stopping = false
     hub?: Hub
     expressApp: express.Application
+    nodeInstrumentation: NodeInstrumentation
 
     constructor(
         config: Partial<PluginsServerConfig> = {},
@@ -71,12 +72,14 @@ export class PluginServer {
         }
 
         this.expressApp = express()
-        this.expressApp.use(express.json())
+        this.expressApp.use(express.json({ limit: '200kb' }))
+        this.nodeInstrumentation = new NodeInstrumentation(this.config)
     }
 
-    async start() {
+    async start(): Promise<void> {
         const startupTimer = new Date()
         this.setupListeners()
+        this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
@@ -89,7 +92,7 @@ export class PluginServer {
 
         let _initPluginsPromise: Promise<void> | undefined
 
-        const initPlugins = () => {
+        const initPlugins = (): Promise<void> => {
             if (!_initPluginsPromise) {
                 _initPluginsPromise = _initPlugins(hub)
             }
@@ -251,14 +254,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpCyclotronWorkerFetch) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerFetch(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
             if (capabilities.cdpCyclotronWorkerHogFlow) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerHogFlow(hub)
@@ -305,7 +300,7 @@ export class PluginServer {
         }
     }
 
-    private setupListeners() {
+    private setupListeners(): void {
         for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
             process.on(signal, async () => {
                 // This makes async exit possible with the process waiting until jobs are closed
@@ -339,6 +334,8 @@ export class PluginServer {
         }
 
         this.stopping = true
+
+        this.nodeInstrumentation.cleanup()
 
         logger.info('💤', ' Shutting down gracefully...')
 

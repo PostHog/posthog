@@ -10,7 +10,13 @@ const ContextMenu = ContextMenuPrimitive.Root
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
-const ContextMenuGroup = ContextMenuPrimitive.Group
+const ContextMenuGroup = React.forwardRef<
+    React.ElementRef<typeof ContextMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 
 const ContextMenuPortal = ContextMenuPrimitive.Portal
 

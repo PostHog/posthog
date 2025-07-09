@@ -182,7 +182,7 @@ impl Issue {
         let assignments = sqlx::query_as!(
             Assignment,
             r#"
-            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            SELECT id, issue_id, user_id, role_id, created_at FROM posthog_errortrackingissueassignment
             WHERE issue_id = $1
             "#,
             self.id

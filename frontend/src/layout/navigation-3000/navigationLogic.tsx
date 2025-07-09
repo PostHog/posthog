@@ -68,8 +68,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
-            ['playlists', 'playlistsLoading'],
+            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            ['savedFilters', 'savedFiltersLoading'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -354,10 +354,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.playlists,
-                s.playlistsLoading,
+                s.savedFilters,
+                s.savedFiltersLoading,
             ],
-            (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
+            (featureFlags, dashboardsLoading, pinnedDashboards, savedFilters, savedFiltersLoading): NavbarItem[][] => {
                 return [
                     [
                         {
@@ -477,18 +477,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                     overlay: (
                                         <LemonMenuOverlay
                                             items={
-                                                playlists.count > 0
+                                                savedFilters.count > 0
                                                     ? [
                                                           {
-                                                              title: 'Saved playlists',
-                                                              items: playlists.results.map((playlist) => ({
+                                                              title: 'Saved filters',
+                                                              items: savedFilters.results.map((savedFilter) => ({
                                                                   label:
-                                                                      playlist.name ||
-                                                                      playlist.derived_name ||
+                                                                      savedFilter.name ||
+                                                                      savedFilter.derived_name ||
                                                                       'Unnamed',
-                                                                  to: urls.replayPlaylist(playlist.short_id),
+                                                                  to: urls.replayPlaylist(savedFilter.short_id),
                                                               })),
-                                                              footer: playlistsLoading && (
+                                                              footer: savedFiltersLoading && (
                                                                   <div className="px-2 py-1 text-tertiary">
                                                                       <Spinner /> Loading…
                                                                   </div>
@@ -501,8 +501,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               to: urls.replay(ReplayTabs.Home),
                                                           },
                                                           {
-                                                              label: 'Playlists',
-                                                              to: urls.replay(ReplayTabs.Playlists),
+                                                              label: 'Saved filters',
+                                                              to: urls.replay(ReplayTabs.Home),
                                                           },
                                                       ]
                                             }

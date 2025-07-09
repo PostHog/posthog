@@ -21,6 +21,7 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -44,7 +45,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -168,6 +169,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     ancestor_failed = set()
     failed = set()
     queue: asyncio.Queue[QueueMessage] = asyncio.Queue()
+
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
 
     await logger.adebug(f"DAG size = {len(inputs.dag)}")
 
@@ -475,6 +478,7 @@ async def materialize_model(
     except Exception as e:
         error_message = str(e)
         if "Query exceeds memory limits" in error_message:
+            error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
@@ -483,30 +487,44 @@ async def materialize_model(
             ) from e
 
         elif "Cannot coerce type" in error_message:
+            error_message = f"Type coercion error. If you believe this is an error, please contact support."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
-
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
-
         elif "Invalid data type for Delta Lake" in error_message:
+            error_message = f"Data type not supported. If you believe this is an error, please contact support."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
-
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
         elif "Unknown table" in error_message:
-            error_message = f"Table reference no longer exists for model"
+            error_message = (
+                f"Table reference no longer exists for model. This is likely due to a table no longer being available."
+            )
             saved_query.latest_error = error_message
             await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
+        elif "no log files" in error_message:
+            error_message = f"Query did not return rows. Try changing your time range or query."
+            saved_query.latest_error = error_message
+            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
+            await revert_materialization(saved_query, logger)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
+        elif "Memory limit" in error_message:
+            error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
+            saved_query.latest_error = error_message
+            await logger.ainfo("Query exceeded memory limit for model %s", model_label)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         else:
-            saved_query.latest_error = f"Failed to materialize model {model_label}"
-            error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
+            error_message = f"Query failed to materialize. If this query ran for a long time, try optimizing it."
+            saved_query.latest_error = error_message
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
@@ -741,6 +759,7 @@ async def build_dag_activity(inputs: BuildDagActivityInputs) -> DAG:
     logger = await bind_temporal_worker_logger(inputs.team_id)
     await logger.adebug(f"starting build_dag_activity. selectors = {[select.label for select in inputs.select]}")
 
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     async with Heartbeater():
         selector_paths: SelectorPaths = {}
 
@@ -888,6 +907,33 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     return str(job.id)
 
 
+@dataclasses.dataclass
+class CleanupRunningJobsActivityInputs:
+    team_id: int
+
+
+@temporalio.activity.defn
+async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
+    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
+    Since only one job can run at a time per team, any existing RUNNING jobs
+    are orphaned when a new run starts.
+    """
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
+    orphaned_count = await database_sync_to_async(
+        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
+    )(
+        status=DataModelingJob.Status.FAILED,
+        error="Job was orphaned when a new data modeling run started",
+        updated_at=dt.datetime.now(dt.UTC),
+    )
+
+    if orphaned_count > 0:
+        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
+    else:
+        await logger.adebug("No orphaned jobs found")
+
+
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
@@ -963,6 +1009,7 @@ class CreateTableActivityInputs:
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Activity that creates tables for a list of saved queries."""
+    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     for model in inputs.models:
         await create_table_from_saved_query(model, inputs.team_id)
 
@@ -1060,6 +1107,13 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        await temporalio.workflow.execute_activity(
+            cleanup_running_jobs_activity,
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),

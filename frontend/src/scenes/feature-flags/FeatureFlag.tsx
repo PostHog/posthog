@@ -163,9 +163,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             {!featureFlag.is_remote_configuration && (
                                 <>
                                     {/* TODO: In a follow up, clean up super_groups and combine into regular ReleaseConditions component */}
-                                    {featureFlag.filters.super_groups && (
-                                        <FeatureFlagReleaseConditions readOnly isSuper filters={featureFlag.filters} />
-                                    )}
+                                    {featureFlag.filters.super_groups &&
+                                        featureFlag.filters.super_groups.length > 0 && (
+                                            <FeatureFlagReleaseConditions
+                                                readOnly
+                                                isSuper
+                                                filters={featureFlag.filters}
+                                            />
+                                        )}
 
                                     <div className="flex gap-x-8">
                                         <div className="grow">
@@ -1149,7 +1154,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads
-                                                ? 'getDecryptedFeatureFlagPayload'
+                                                ? 'getRemoteConfigPayload'
                                                 : 'getFeatureFlagPayload'}
                                         </span>
                                         . Using standard SDK methods such as{' '}

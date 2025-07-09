@@ -40,6 +40,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         className="max-w-[210px]"
                         iconOnly={isLayoutNavCollapsed ? true : false}
                         data-attr="tree-navbar-organization-dropdown-button"
+                        size="sm"
                     >
                         {currentOrganization ? (
                             <UploadedLogo
@@ -71,7 +72,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     className="w-[var(--project-panel-inner-width)] max-w-[var(--project-panel-inner-width)]"
                 >
                     <Combobox>
-                        <Combobox.Search placeholder="Search organizations..." />
+                        <Combobox.Search placeholder="Filter organizations..." />
                         <Combobox.Content className="max-h-[calc(90vh-100px)]">
                             <Label intent="menu" className="px-2">
                                 Organizations

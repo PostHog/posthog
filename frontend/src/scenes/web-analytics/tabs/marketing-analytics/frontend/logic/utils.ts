@@ -1,5 +1,5 @@
-import { DataWarehouseNode } from '~/queries/schema/schema-general'
-import { ExternalDataSourceType, ManualLinkSourceType } from '~/types'
+import { DataWarehouseNode, ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import { googleAdsCostTile } from './marketingCostTile'
@@ -39,3 +39,26 @@ export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNod
 }
 
 export const COST_MICROS_MULTIPLIER = 1 / 1000000
+
+/**
+ * Generates a unique name by adding a numeric suffix if the base name already exists in the given list.
+ * @param baseName The desired base name
+ * @param existingNames Array of names that already exist
+ * @returns A unique name, either the original or with a numeric suffix like "(1)", "(2)", etc.
+ */
+export function generateUniqueName(baseName: string, existingNames: string[]): string {
+    if (!existingNames.includes(baseName)) {
+        return baseName
+    }
+
+    // Find the next available number suffix
+    let counter = 1
+    let newName = `${baseName} (${counter})`
+
+    while (existingNames.includes(newName)) {
+        counter++
+        newName = `${baseName} (${counter})`
+    }
+
+    return newName
+}

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { campaignLogicType } from './campaignLogicType'
 import { campaignSceneLogic } from './campaignSceneLogic'
-import type { HogFlow, HogFlowAction, HogFlowEdge } from './hogflows/types'
+import { type HogFlow, type HogFlowAction, type HogFlowEdge } from './hogflows/types'
 
 export interface CampaignLogicProps {
     id?: string
@@ -50,7 +50,13 @@ const NEW_CAMPAIGN: HogFlow = {
             type: 'continue',
         },
     ],
-    trigger: { type: 'event' },
+    trigger: {
+        type: 'event',
+        filters: {
+            events: [],
+            actions: [],
+        },
+    },
     trigger_masking: { ttl: 0, hash: '', threshold: 0 },
     conversion: { window_minutes: 0, filters: [] },
     exit_condition: 'exit_only_at_end',
@@ -95,12 +101,26 @@ export const campaignLogic = kea<campaignLogicType>([
     forms(({ actions }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
+            errors: ({ name, trigger }) => {
+                return {
+                    name: name.length === 0 ? 'Name is required' : undefined,
+                    trigger: {
+                        filters:
+                            trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
+                                ? 'At least one event or action is required'
+                                : undefined,
+                    },
+                }
+            },
             submit: async (values) => {
                 if (!values) {
                     return
                 }
 
                 actions.saveCampaign(values)
+            },
+            options: {
+                showErrorsOnTouch: true,
             },
         },
     })),

@@ -115,6 +115,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
+    max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000

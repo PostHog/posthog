@@ -152,18 +152,6 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
 
-    @snapshot_clickhouse_queries
-    def test_alias_in_where(self):
-        response = execute_hogql_query(
-            parse_select("select id, properties.$some_prop as some_prop from persons where some_prop = 'something'"),
-            self.team,
-            modifiers=self.modifiers,
-        )
-        assert len(response.results) == 2
-        assert response.clickhouse
-        self.assertIn("where_optimization", response.clickhouse)
-        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
-
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}

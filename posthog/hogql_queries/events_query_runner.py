@@ -302,13 +302,18 @@ class EventsQueryRunner(QueryRunner):
                 # Make a query into postgres to fetch person
                 person_idx = person_indices[0]
                 distinct_ids = list({event[person_idx] for event in self.paginator.results})
-                persons = get_persons_by_distinct_ids(self.team.pk, distinct_ids)
-                persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+
                 distinct_to_person: dict[str, Person] = {}
-                for person in persons.iterator(chunk_size=1000):
-                    if person:
-                        for person_distinct_id in person.distinct_ids:
-                            distinct_to_person[person_distinct_id] = person
+                # Process distinct_ids in batches to avoid overwhelming PostgreSQL
+                batch_size = 1000
+                for i in range(0, len(distinct_ids), batch_size):
+                    batch_distinct_ids = distinct_ids[i : i + batch_size]
+                    persons = get_persons_by_distinct_ids(self.team.pk, batch_distinct_ids)
+                    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+                    for person in persons.iterator(chunk_size=1000):
+                        if person:
+                            for person_distinct_id in person.distinct_ids:
+                                distinct_to_person[person_distinct_id] = person
 
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
