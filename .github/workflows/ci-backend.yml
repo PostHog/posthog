@@ -604,7 +604,7 @@ jobs:
                   path: .test_durations
                   key: tests-durations-${{ github.sha }}
                   restore-keys: |
-                      tests-durations-${{ github.sha }}
+                      tests-durations-${{ github.sha }}-
                       tests-durations-
                   fail-on-cache-miss: false
 
@@ -861,7 +861,7 @@ jobs:
               continue-on-error: true
               with:
                   path: /tmp/.test_durations
-                  key: tests-durations-${{ github.sha }}
+                  key: tests-durations-${{ github.sha }}-${{ github.run_attempt }}
 
     posthog-analytics:
         name: PostHog CI analytics
