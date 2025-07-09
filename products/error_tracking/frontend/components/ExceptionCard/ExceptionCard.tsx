@@ -16,6 +16,7 @@ import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordi
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { match, P } from 'ts-pattern'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { SessionTab } from './Tabs/SessionTab'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
@@ -72,6 +73,9 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                             <TabsPrimitiveTrigger className="px-2" value="properties">
                                 Properties
                             </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2" value="session">
+                                Session
+                            </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-1 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
@@ -99,6 +103,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                 </div>
                 <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
+                <SessionTab value="session" timestamp={timestamp} />
             </TabsPrimitive>
         </LemonCard>
     )
