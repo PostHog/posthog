@@ -123,5 +123,5 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Flushes the batch
      */
-    flush(): Promise<void>
+    flush(): Promise<TopicMessage[]>
 }
