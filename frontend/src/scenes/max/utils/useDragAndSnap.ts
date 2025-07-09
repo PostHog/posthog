@@ -62,10 +62,8 @@ export function useDragAndSnap({
                 containerRef.current || (document.querySelector('[data-attr="floating-max-container"]') as HTMLElement)
             if (floatingMaxContainer) {
                 const computedStyle = getComputedStyle(floatingMaxContainer)
-                const marginBottom = parseFloat(computedStyle.marginBottom) || 0
-                const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0
                 const borderBottomWidth = parseFloat(computedStyle.borderBottomWidth) || 0
-                const bottomOffset = marginBottom + paddingBottom + borderBottomWidth
+                const bottomOffset = 8 + borderBottomWidth // 8px for mb-2
                 setCachedBottomOffset(bottomOffset)
             }
         }

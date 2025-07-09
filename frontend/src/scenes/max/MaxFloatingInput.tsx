@@ -85,11 +85,6 @@ export function MaxFloatingInput(): JSX.Element | null {
                         ? {
                               position: 'fixed',
                               zIndex: 1000,
-                              maxWidth: '20rem',
-                              border: '1px solid var(--border)',
-                              backdropFilter: 'blur(4px)',
-                              backgroundColor: 'var(--glass-bg-3000)',
-                              marginBottom: '0.5rem',
                               borderRadius: isFloatingMaxExpanded ? '8px' : '50%',
                               width: isFloatingMaxExpanded ? '20rem' : undefined,
                               marginRight: isFloatingMaxExpanded ? undefined : '1rem',
