@@ -1,17 +1,14 @@
 import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import {
-    ErrorTrackingExternalReferenceIntegration,
-    ErrorTrackingRelationalIssue,
-} from '~/queries/schema/schema-general'
-import { IntegrationType } from '~/types'
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { IntegrationKind, IntegrationType } from '~/types'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { ICONS } from 'lib/integrations/utils'
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
@@ -38,25 +35,41 @@ export const ConnectIssueButton = (): JSX.Element | null => {
     if (externalReferences.length > 0) {
         const reference = externalReferences[0]
         return (
-            <LemonButton type="secondary" to={reference.external_url} targetBlank loading={issueLoading}>
-                {integrationLabel(reference.integration)}
+            <LemonButton
+                type="secondary"
+                to={reference.external_url}
+                targetBlank
+                loading={issueLoading}
+                icon={<IntegrationIcon kind={reference.integration.kind} />}
+            >
+                {reference.integration.display_name}
             </LemonButton>
         )
     } else if (errorTrackingIntegrations.length == 1) {
         const integration = errorTrackingIntegrations[0]
         return (
-            <LemonButton type="secondary" onClick={() => onClickCreateIssue(integration)} loading={issueLoading}>
-                Create {getIntegrationNameFromKind(integration.kind)} issue
+            <LemonButton
+                type="secondary"
+                onClick={() => onClickCreateIssue(integration)}
+                loading={issueLoading}
+                icon={<IntegrationIcon kind={integration.kind} />}
+            >
+                {issue && issueLoading ? 'Creating issue...' : 'Create issue'}
             </LemonButton>
         )
     } else if (errorTrackingIntegrations.length >= 1) {
         const items = errorTrackingIntegrations.map((integration) => ({
-            label: integrationLabel(integration),
+            label: (
+                <div className="flex items-center gap-2">
+                    <IntegrationIcon kind={integration.kind} />
+                    <span>{integration.display_name}</span>
+                </div>
+            ),
             onClick: () => onClickCreateIssue(integration),
         }))
 
         return (
-            <LemonMenu items={items}>
+            <LemonMenu items={items} matchWidth>
                 <LemonButton type="secondary" loading={issueLoading}>
                     Create external issue
                 </LemonButton>
@@ -105,6 +118,6 @@ const createLinearIssueForm = (
     })
 }
 
-const integrationLabel = (i: ErrorTrackingExternalReferenceIntegration): string => {
-    return `${i.display_name} (${getIntegrationNameFromKind(i.kind)})`
+const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
+    return <img src={ICONS[kind]} className="w-5 h-5 rounded-sm" />
 }
