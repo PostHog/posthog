@@ -4,14 +4,16 @@ import pytest
 
 from freezegun import freeze_time
 
-from posthog.hogql_queries.ai.session_events_query_runner.runner import SessionBatchEventsQueryRunner
-from posthog.hogql_queries.ai.session_events_query_runner.schema import (
+from posthog.schema import (
     CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
+)
+from posthog.hogql_queries.events_query_runner import (
+    EventsQueryRunner,
+    SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
 )
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.schema import EventsQuery
 from posthog.test.base import (
