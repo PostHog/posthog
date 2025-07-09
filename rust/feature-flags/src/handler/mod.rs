@@ -70,8 +70,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
             let filtered_flags =
-                flags::fetch_and_filter(&flag_service, team.project_id, &request, &context.meta)
-                    .await?;
+                flags::fetch_and_filter(&flag_service, team.project_id, &context.meta).await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
@@ -90,6 +89,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
                 property_overrides.hash_key,
                 context.request_id,
                 request.is_flags_disabled(),
+                request.flag_keys.clone(),
             )
             .await;
 
