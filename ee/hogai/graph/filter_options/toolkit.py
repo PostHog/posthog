@@ -222,9 +222,6 @@ class FilterOptionsToolkit:
             )[:MAX_PROPERTIES]
             props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
-            # qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.SESSION).values_list(
-            #     "name", "property_type"
-            # )[:MAX_PROPERTIES]
             props = self._enrich_props_with_descriptions(
                 "session",
                 [
