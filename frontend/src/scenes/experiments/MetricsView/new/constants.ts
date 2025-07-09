@@ -7,7 +7,7 @@ export const BAR_SPACING = 12
 // ChartCell
 export const CHART_CELL_VIEW_BOX_HEIGHT = 100
 export const CHART_CELL_BAR_HEIGHT_PERCENT = 30
-export const CHART_CELL_HEIGHT_PX = 60
+export const CHART_CELL_HEIGHT_PX = 51
 export const CHART_BAR_OPACITY = 0.7
 export const GRID_LINES_OPACITY = 0.8
 
