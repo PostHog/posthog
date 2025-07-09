@@ -41,8 +41,15 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
                                 className="w-full max-w-[1000px]"
-                                style={{ minHeight: `${TICK_PANEL_HEIGHT + 10}px` }}
+                                style={{
+                                    minHeight: `${TICK_PANEL_HEIGHT + 10}px`,
+                                }}
                             >
+                                <defs>
+                                    <style>
+                                        {`.tick-label-fixed-size { font-size: ${TICK_FONT_SIZE}px !important; }`}
+                                    </style>
+                                </defs>
                                 <TickLabels
                                     tickValues={tickValues}
                                     scale={scale}

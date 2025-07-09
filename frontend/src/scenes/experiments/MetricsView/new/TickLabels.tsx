@@ -48,9 +48,12 @@ export function TickLabels({
                         y={y}
                         textAnchor={textAnchor}
                         dominantBaseline={dominantBaseline}
-                        fontSize={fontSize}
                         fill={textColor}
                         fontWeight={fontWeight}
+                        className="tick-label-fixed-size"
+                        style={{
+                            fontSize: `${fontSize}px`,
+                        }}
                     >
                         {formatTickValue(value)}
                     </text>
