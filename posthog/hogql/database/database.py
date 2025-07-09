@@ -45,6 +45,7 @@ from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
     create_initial_domain_type,
 )
+from posthog.hogql.database.schema.revenue_analytics import RawPersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -159,6 +160,9 @@ class Database(BaseModel):
     web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
+
+    # Revenue analytics tables
+    raw_persons_revenue_analytics: RawPersonsRevenueAnalyticsTable = RawPersonsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -369,7 +373,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
     poe = cast(VirtualTable, database.events.fields["poe"])
 
-    with timings.measure("initial_domain_type"):
+    with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
         database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
         poe.fields[field_name] = create_initial_domain_type(
@@ -388,6 +392,16 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+
+    # TODO: POE is not well supported yet, that part is a stub
+    with timings.measure("revenue"):
+        field_name = "$virt_revenue"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    with timings.measure("revenue_last_30_days"):
+        field_name = "$virt_revenue_last_30_days"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
 
 
 TableStore = dict[str, Table | TableGroup]

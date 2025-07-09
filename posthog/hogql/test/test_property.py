@@ -847,10 +847,17 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
         ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("person.$virt_revenue = 100")
 
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
