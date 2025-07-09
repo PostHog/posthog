@@ -597,6 +597,17 @@ jobs:
               run: |
                   bin/check_temporal_up
 
+            - name: Restore test durations from cache
+              if: ${{ needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/update-test-durations') }}
+              uses: actions/cache/restore@v4
+              with:
+                  path: .test_durations
+                  key: tests-durations-${{ github.sha }}
+                  restore-keys: |
+                      tests-durations-${{ github.sha }}
+                      tests-durations-
+                  fail-on-cache-miss: false
+
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
               # runs, as we want to ignore snapshots diverging there
@@ -623,7 +634,7 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=1000 --durations-min=1.0 --store-durations \
+                      --durations=1000 --durations-min=1.0 --store-durations --clean-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
                   exit_code=$?
@@ -684,14 +695,14 @@ jobs:
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
-            - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:24.8.7.41' }}
+            - name: Upload test durations
+              if: ${{ success() && needs.changes.outputs.backend == 'true' }}
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
               with:
-                  name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
+                  name: test-durations-after-partial-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
                   path: .test_durations
+                  if-no-files-found: error
                   include-hidden-files: true
-                  retention-days: 2
 
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
@@ -828,6 +839,29 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+    cache-test-durations:
+        name: Cache test durations
+        needs: [changes, django]
+        if: success() && needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/update-test-durations')
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download all partial test durations
+              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806
+              with:
+                  pattern: test-durations-after-partial-*
+
+            - name: Merge all partial test durations
+              run: |
+                  jq -s 'add' test-durations-after-partial-*/.test_durations \
+                  | jq 'to_entries | sort_by(.key) | from_entries' \
+                  > /tmp/.test_durations
+
+            - name: Cache final test durations
+              uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+              continue-on-error: true
+              with:
+                  path: /tmp/.test_durations
+                  key: tests-durations-${{ github.sha }}
 
     posthog-analytics:
         name: PostHog CI analytics
