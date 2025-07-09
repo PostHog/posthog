@@ -52,7 +52,7 @@ def migrate_playlist_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0786_add_is_emoji_to_annotation"),
+        ("posthog", "0788_organization_members_can_create_personal_api_keys"),
     ]
 
     operations = [
