@@ -26,6 +26,7 @@ interface VariantRowProps {
     chartRadius: number
     isSecondary: boolean
     totalVariantRows: number
+    isAlternatingRow: boolean
     onDuplicateMetric?: () => void
     canDuplicateMetric?: boolean
 }
@@ -42,6 +43,7 @@ export function VariantRow({
     chartRadius,
     isSecondary,
     totalVariantRows,
+    isAlternatingRow,
     onDuplicateMetric,
     canDuplicateMetric,
 }: VariantRowProps): JSX.Element {
@@ -63,9 +65,9 @@ export function VariantRow({
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className={`w-1/5 min-h-[60px] border-r border-border bg-bg-light p-3 align-top text-left relative ${
+                    className={`w-1/5 min-h-[60px] border-r border-border p-3 align-top text-left relative ${
                         !isLastMetric ? 'border-b' : ''
-                    }`}
+                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
                 >
                     <MetricHeader
@@ -80,7 +82,11 @@ export function VariantRow({
             )}
 
             {/* Variant column - show variant key or "Baseline" */}
-            <td className="w-20 border-b border-border bg-bg-light p-3 align-top text-left">
+            <td
+                className={`w-20 border-b border-border p-3 align-top text-left ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                }`}
+            >
                 {variantResult ? (
                     <div className="text-sm text-text-primary">{variantResult.key}</div>
                 ) : (
@@ -89,7 +95,11 @@ export function VariantRow({
             </td>
 
             {/* Value column - show conversion rate and raw counts */}
-            <td className="w-24 border-b border-border bg-bg-light p-3 align-top text-left">
+            <td
+                className={`w-24 border-b border-border p-3 align-top text-left ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                }`}
+            >
                 {isBaseline ? (
                     <div className="text-sm">
                         <div className="text-text-primary">
@@ -112,7 +122,11 @@ export function VariantRow({
             </td>
 
             {/* P-value column - show statistical significance (empty for baseline) */}
-            <td className="w-20 border-b border-border bg-bg-light p-3 align-top text-left">
+            <td
+                className={`w-20 border-b border-border p-3 align-top text-left ${
+                    isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                }`}
+            >
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
@@ -132,7 +146,11 @@ export function VariantRow({
 
             {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
-                <td className="min-w-[400px] border-b border-border bg-bg-light p-0 align-top text-center relative">
+                <td
+                    className={`min-w-[400px] border-b border-border p-0 align-top text-center relative ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative">
                             <svg
@@ -163,6 +181,7 @@ export function VariantRow({
                     variantResult={variantResult as ExperimentVariantResult}
                     chartRadius={chartRadius}
                     metricIndex={metricIndex}
+                    isAlternatingRow={isAlternatingRow}
                 />
             )}
         </tr>

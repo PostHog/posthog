@@ -16,6 +16,7 @@ interface MetricRowGroupProps {
     chartRadius: number
     isSecondary: boolean
     isLastMetric: boolean
+    isAlternatingRow: boolean
     onDuplicateMetric?: () => void
     canDuplicateMetric?: boolean
 }
@@ -28,6 +29,7 @@ export function MetricRowGroup({
     chartRadius,
     isSecondary,
     isLastMetric,
+    isAlternatingRow,
     onDuplicateMetric,
     canDuplicateMetric,
 }: MetricRowGroupProps): JSX.Element {
@@ -61,13 +63,41 @@ export function MetricRowGroup({
     if (allRows.length === 0) {
         return (
             <tr className="hover:bg-bg-hover group">
-                <td className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative">
+                <td
+                    className={`w-1/5 min-h-[60px] border-b border-r border-border p-3 align-top text-left relative ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
                     <div className="p-4 text-muted text-sm">No data available</div>
                 </td>
-                <td className="w-20 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="w-24 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="w-20 border-b border-r border-border p-3 align-top text-left">—</td>
-                <td className="min-w-[400px] border-b border-border p-2 align-top text-center">—</td>
+                <td
+                    className={`w-20 border-b border-r border-border p-3 align-top text-left ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
+                    —
+                </td>
+                <td
+                    className={`w-24 border-b border-r border-border p-3 align-top text-left ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
+                    —
+                </td>
+                <td
+                    className={`w-20 border-b border-r border-border p-3 align-top text-left ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
+                    —
+                </td>
+                <td
+                    className={`min-w-[400px] border-b border-border p-2 align-top text-center ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                >
+                    —
+                </td>
             </tr>
         )
     }
@@ -80,7 +110,6 @@ export function MetricRowGroup({
                     variantResult={variantResult}
                     testVariantResult={isBaseline ? null : (variantResult as ExperimentVariantResult)}
                     isFirstRow={index === 0}
-                    isLastRow={index === allRows.length - 1}
                     isLastMetric={isLastMetric}
                     isBaseline={isBaseline}
                     metric={metric}
@@ -89,6 +118,7 @@ export function MetricRowGroup({
                     chartRadius={chartRadius}
                     isSecondary={isSecondary}
                     totalVariantRows={totalRows}
+                    isAlternatingRow={isAlternatingRow}
                     onDuplicateMetric={index === 0 ? onDuplicateMetric : undefined}
                     canDuplicateMetric={index === 0 ? canDuplicateMetric : undefined}
                 />
