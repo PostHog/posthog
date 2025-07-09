@@ -28,6 +28,7 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
         clickhouse.querying('TRUNCATE plugin_log_entries'),
         clickhouse.querying('TRUNCATE events_dead_letter_queue'),
         clickhouse.querying('TRUNCATE groups'),
+        clickhouse.querying('TRUNCATE ingestion_warnings'),
         clickhouse.querying('TRUNCATE sharded_ingestion_warnings'),
         clickhouse.querying('TRUNCATE sharded_app_metrics'),
     ])
