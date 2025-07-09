@@ -15,6 +15,7 @@ interface MetricRowGroupProps {
     metricIndex: number
     chartRadius: number
     isSecondary: boolean
+    isLastMetric: boolean
     onDuplicateMetric?: () => void
     canDuplicateMetric?: boolean
 }
@@ -26,6 +27,7 @@ export function MetricRowGroup({
     metricIndex,
     chartRadius,
     isSecondary,
+    isLastMetric,
     onDuplicateMetric,
     canDuplicateMetric,
 }: MetricRowGroupProps): JSX.Element {
@@ -78,6 +80,8 @@ export function MetricRowGroup({
                     variantResult={variantResult}
                     testVariantResult={isBaseline ? null : (variantResult as ExperimentVariantResult)}
                     isFirstRow={index === 0}
+                    isLastRow={index === allRows.length - 1}
+                    isLastMetric={isLastMetric}
                     isBaseline={isBaseline}
                     metric={metric}
                     metricType={metricType}
