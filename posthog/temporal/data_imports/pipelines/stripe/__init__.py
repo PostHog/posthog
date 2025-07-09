@@ -56,8 +56,8 @@ def stripe_source(
             DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
             INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
             INVOICE_RESOURCE_NAME: StripeResource(
-                method=lambda params: InvoiceListWithAllLines(client, params, logger)
-            ),  # type: ignore
+                method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
+            ),
             PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
             PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
             PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
