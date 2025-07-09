@@ -168,7 +168,7 @@ class _SharedAssistantState(BaseModel):
     """
     The ID of the previous OpenAI Responses API response made by the filter options node.
     """
-    filter_options_dict: Optional[dict] = Field(default=None)
+    generated_filter_options: Optional[dict] = Field(default=None)
     """
     The filter options to apply to the product.
     """

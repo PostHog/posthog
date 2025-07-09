@@ -162,5 +162,5 @@ class FilterOptionsNode(AssistantNode):
         intermediate_steps = state.intermediate_steps or []
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps, (result, None)],
-            filter_options_dict=state.filter_options_dict,
+            generated_filter_options=state.generated_filter_options,
         )
