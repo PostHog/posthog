@@ -12,6 +12,7 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { RawTab } from './Tabs/RawTab'
+import { SessionTab } from './Tabs/SessionTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
 
 interface ExceptionCardContentProps {
@@ -73,6 +74,9 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             <TabsPrimitiveTrigger className="px-2" value="properties">
                                 Properties
                             </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2" value="session">
+                                Session
+                            </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
@@ -82,6 +86,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                 </div>
                 <StacktraceTab value="stacktrace" issue={issue} issueLoading={issueLoading} timestamp={timestamp} />
                 <PropertiesTab value="properties" />
+                <SessionTab value="session" timestamp={timestamp} />
                 <RawTab value="raw" />
             </TabsPrimitive>
         </LemonCard>
