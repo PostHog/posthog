@@ -30,7 +30,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
         # UNION ALL for all of the `RevenueAnalyticsChargeView`s
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsChargeView) and view.source_id is not None:
+            if isinstance(view, RevenueAnalyticsChargeView) and not view.is_event_view():
                 view = cast(RevenueAnalyticsChargeView, view)
 
                 queries.append(

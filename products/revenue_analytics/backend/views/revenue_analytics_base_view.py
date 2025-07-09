@@ -16,6 +16,9 @@ class RevenueAnalyticsBaseView(SavedQuery):
     source_id: Optional[str] = None
     prefix: str
 
+    def is_event_view(self) -> bool:
+        return self.source_id is None
+
     @classmethod
     def for_team(cls, team: "Team", timings: HogQLTimings) -> list["RevenueAnalyticsBaseView"]:
         with timings.measure("for_events"):
