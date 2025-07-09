@@ -40,7 +40,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                         key: 'write',
                         label: 'Write',
                         content: (
-                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col deprecated-space-y-1 rounded">
+                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col gap-y-1 rounded">
                                 <LemonTextArea
                                     ref={ref}
                                     {...editAreaProps}
@@ -48,7 +48,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     value={value}
                                     onChange={onChange}
                                 />
-                                <div className="text-secondary inline-flex items-center deprecated-space-x-1">
+                                <div className="text-secondary inline-flex items-center gap-x-1">
                                     <IconMarkdown className="text-2xl" />
                                     <span>Markdown formatting support</span>
                                 </div>
@@ -62,7 +62,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         value={filesToUpload}
                                     />
                                 ) : (
-                                    <div className="text-secondary inline-flex items-center deprecated-space-x-1">
+                                    <div className="text-secondary inline-flex items-center gap-x-1">
                                         <Tooltip title="Enable object storage to add images by dragging and dropping.">
                                             <span>
                                                 <IconTools className="text-xl mr-1" />

@@ -1,8 +1,9 @@
 import './LemonTextArea.scss'
 
 import clsx from 'clsx'
-import React, { useRef } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
+import { cn } from 'lib/utils/css-classes'
 
 interface LemonTextAreaPropsBase
     extends Pick<
@@ -47,37 +48,55 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
+    const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
+    useEffect(() => {
+        setTextLength(textProps.value?.length || 0)
+    }, [textProps.value])
+
     return (
-        <TextareaAutosize
-            minRows={minRows}
-            ref={textRef}
-            className={clsx('LemonTextArea', className)}
-            onKeyDown={(e) => {
-                if (stopPropagation) {
-                    e.stopPropagation()
-                }
-                if (e.key === 'Enter') {
-                    const target = e.currentTarget
-                    // When shift is pressed, we always just want to add a new line
-                    if (!e.shiftKey) {
-                        if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
-                            onPressCmdEnter(target.value)
-                            e.preventDefault()
-                        } else if (onPressEnter) {
-                            onPressEnter(target.value)
-                            e.preventDefault()
+        <div className="flex flex-col gap-y-1">
+            <TextareaAutosize
+                minRows={minRows}
+                ref={textRef}
+                className={clsx('LemonTextArea', className)}
+                onKeyDown={(e) => {
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
+                    if (e.key === 'Enter') {
+                        const target = e.currentTarget
+                        // When shift is pressed, we always just want to add a new line
+                        if (!e.shiftKey) {
+                            if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
+                                onPressCmdEnter(target.value)
+                                e.preventDefault()
+                            } else if (onPressEnter) {
+                                onPressEnter(target.value)
+                                e.preventDefault()
+                            }
                         }
                     }
-                }
-                onKeyDown?.(e)
-            }}
-            onChange={(event) => {
-                if (stopPropagation) {
-                    event.stopPropagation()
-                }
-                return onChange?.(event.currentTarget.value ?? '')
-            }}
-            {...textProps}
-        />
+                    onKeyDown?.(e)
+                }}
+                onChange={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
+                    setTextLength((event.currentTarget.value ?? '').length)
+                    return onChange?.(event.currentTarget.value ?? '')
+                }}
+                {...textProps}
+            />
+            {textProps.maxLength !== undefined ? (
+                <div
+                    className={cn(
+                        'flex flex-row justify-end text-sm',
+                        textLength >= textProps.maxLength && 'text-error'
+                    )}
+                >
+                    {textLength} / {textProps.maxLength}
+                </div>
+            ) : null}
+        </div>
     )
 })
