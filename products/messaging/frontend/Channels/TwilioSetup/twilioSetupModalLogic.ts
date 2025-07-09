@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { IntegrationType } from '~/types'
 
 import type { twilioSetupModalLogicType } from './twilioSetupModalLogicType'
+import { z } from 'zod'
 
 export interface TwilioSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -34,9 +35,16 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
                 phoneNumber: '',
             },
             errors: ({ accountSid, authToken, phoneNumber }) => ({
-                accountSid: accountSid ? undefined : 'Account SID is required',
-                authToken: authToken ? undefined : 'Auth Token is required',
-                phoneNumber: phoneNumber ? undefined : 'Phone Number is required',
+                accountSid: accountSid.trim() ? undefined : 'Account SID is required',
+                authToken: authToken.trim() ? undefined : 'Auth Token is required',
+                phoneNumber: !phoneNumber
+                    ? 'Phone Number is required'
+                    : z
+                          .string()
+                          .regex(/^\+[1-9]\d{1,14}$/, 'Invalid E.164 phone number format.')
+                          .safeParse(phoneNumber).error
+                    ? 'Invalid E.164 phone number format.'
+                    : undefined,
             }),
             submit: async () => {
                 try {
@@ -49,10 +57,10 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
                         },
                     })
                     actions.loadIntegrations()
-                    lemonToast.success('Twilio integration created successfully!')
+                    lemonToast.success('Twilio channel created successfully!')
                     props.onComplete(integration.id)
-                } catch (error) {
-                    lemonToast.error('Failed to create Twilio integration')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create Twilio channel')
                     throw error
                 }
             },

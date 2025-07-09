@@ -10,11 +10,13 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { IntegrationType } from '~/types'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
-import { messageChannelsLogic } from './messageChannelsLogic'
+import { ChannelType, messageChannelsLogic } from './messageChannelsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
+import { messageChannelLogic } from './messageChannelLogic'
 
 function MessageChannel({ integration }: { integration: IntegrationType }): JSX.Element {
     const { openNewChannelModal, deleteIntegration } = useActions(messageChannelsLogic)
+    const { displayName, isVerified, isVerificationRequired } = useValues(messageChannelLogic({ integration }))
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({
@@ -38,17 +40,17 @@ function MessageChannel({ integration }: { integration: IntegrationType }): JSX.
                 <div className="flex gap-4 items-center ml-2">
                     <div>
                         <div className="flex gap-2 items-center">
-                            <strong>{integration.config.domain || integration.display_name}</strong>
-                            {integration.config.mailjet_verified !== undefined && (
+                            <strong>{displayName}</strong>
+                            {isVerificationRequired && (
                                 <Tooltip
                                     title={
-                                        integration.config.mailjet_verified
-                                            ? 'This domain is ready to use'
-                                            : 'You cannot send emails from this domain until it has been verified'
+                                        isVerified
+                                            ? 'This channel is ready to use'
+                                            : 'You cannot send messages from this channel until it has been verified'
                                     }
                                 >
-                                    <LemonTag type={integration.config.mailjet_verified ? 'success' : 'warning'}>
-                                        {integration.config.mailjet_verified ? 'Verified' : 'Unverified'}
+                                    <LemonTag type={isVerified ? 'success' : 'warning'}>
+                                        {isVerified ? 'Verified' : 'Unverified'}
                                     </LemonTag>
                                 </Tooltip>
                             )}
@@ -65,15 +67,15 @@ function MessageChannel({ integration }: { integration: IntegrationType }): JSX.
                 </div>
 
                 <div className="flex gap-2 items-center">
-                    {!integration.config.mailjet_verified && (
+                    {!isVerified && (
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                openNewChannelModal(integration, 'email')
+                                openNewChannelModal(integration, integration.kind as ChannelType)
                             }}
                             icon={<IconWarning />}
                         >
-                            Verify domain
+                            Verify
                         </LemonButton>
                     )}
                     <LemonButton

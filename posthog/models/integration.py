@@ -1041,18 +1041,20 @@ class TwilioIntegration:
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    @property
-    def twilio_provider(self) -> TwilioProvider:
-        return TwilioProvider()
-
     @classmethod
     def integration_from_keys(
         cls, account_sid: str, auth_token: str, phone_number: str, team_id: int, created_by: Optional[User] = None
     ) -> Integration:
+        twilio_provider = TwilioProvider(account_sid=account_sid, auth_token=auth_token)
+        is_phone_verified = twilio_provider.verify_phone_number(phone_number)
+
+        if not is_phone_verified:
+            raise ValidationError({"phone_number": f"Failed to verify ownership of phone number {phone_number}"})
+
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="twilio",
-            integration_id=account_sid,
+            integration_id=f"{account_sid} | {phone_number}",
             defaults={
                 "config": {
                     "account_sid": account_sid,
@@ -1069,18 +1071,3 @@ class TwilioIntegration:
             integration.save()
 
         return integration
-
-    def verify(self):
-        phone_number = self.integration.config.get("phone_number")
-
-        verification_result = self.twilio_provider.verify_phone_number(phone_number)
-
-        if verification_result.get("status") == "success":
-            updated_config = {"verified": True}
-
-            # Merge the new config with existing config
-            updated_config = {**self.integration.config, **updated_config}
-            self.integration.config = updated_config
-            self.integration.save()
-
-        return verification_result

@@ -7,7 +7,7 @@ import { twilioSetupModalLogic, TwilioSetupModalLogicProps } from './twilioSetup
 import { IconTwilio } from 'lib/lemon-ui/icons'
 
 export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element => {
-    const { integrationLoading } = useValues(twilioSetupModalLogic(props))
+    const { isTwilioIntegrationSubmitting } = useValues(twilioSetupModalLogic(props))
     const { submitTwilioIntegration } = useActions(twilioSetupModalLogic(props))
 
     return (
@@ -32,14 +32,15 @@ export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element
                         name="phoneNumber"
                         label="Phone Number"
                         info="Must be an SMS/MMS enabled phone number owned by your Twilio account"
+                        help="Must be E.164 format, e.g. +1234567890"
                     >
-                        <LemonInput type="number" placeholder="+1234567890" />
+                        <LemonInput placeholder="+1234567890" />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            loading={integrationLoading}
+                            loading={isTwilioIntegrationSubmitting}
                             onClick={submitTwilioIntegration}
                         >
                             Connect
