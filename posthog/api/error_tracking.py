@@ -65,6 +65,7 @@ class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSeria
 
 class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
+    issue = serializers.PrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
     integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
     integration_id = serializers.PrimaryKeyRelatedField(
         write_only=True, queryset=Integration.objects.all(), source="integration"

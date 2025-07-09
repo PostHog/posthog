@@ -521,7 +521,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         if not use_prefetched:
             return []
 
-        return [str(issue.id) for issue in queryset.only("id").iterator()]
+        return [str(issue.id) for issue in queryset.values("id")]
 
     @cached_property
     def issue_properties(self):
