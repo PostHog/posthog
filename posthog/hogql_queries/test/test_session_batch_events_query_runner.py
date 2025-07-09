@@ -6,6 +6,7 @@ from freezegun import freeze_time
 
 from posthog.hogql_queries.ai.session_events_query_runner.runner import SessionBatchEventsQueryRunner
 from posthog.hogql_queries.ai.session_events_query_runner.schema import (
+    CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
     create_session_batch_query,
@@ -259,3 +260,93 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(event_row[0], "$pageview")  # event
             self.assertEqual(event_row[1], "/home")  # properties.page
             self.assertEqual(event_row[2], "test_value")  # properties.custom_field
+
+    def test_cached_response_type(self):
+        """Test that the runner returns cached response when run"""
+        self._create_events_for_sessions(
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            query = create_session_batch_query(
+                session_ids=[self.session_1_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            # Validate response
+            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            # Should have all the caching fields
+            self.assertIsNotNone(response.cache_key)
+            self.assertIsNotNone(response.is_cached)
+            self.assertIsNotNone(response.last_refresh)
+            self.assertIsNotNone(response.next_allowed_client_refresh)
+            self.assertIsNotNone(response.timezone)
+            # Should also have the session-specific fields
+            self.assertIsNotNone(response.session_events)
+            self.assertEqual(len(response.session_events), 1)
+            self.assertEqual(response.session_events[0].session_id, self.session_1_id)
+            self.assertEqual(response.sessions_with_no_events, [])
+            # Should have the standard response fields
+            self.assertIsNotNone(response.columns)
+            self.assertIsNotNone(response.results)
+            self.assertIsNotNone(response.hogql)
+
+    def test_cached_response_vs_calculate(self):
+        """Test that cached response includes the same session data as calculate()."""
+        self._create_events_for_sessions(
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+                ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/about"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            query = create_session_batch_query(
+                session_ids=[self.session_1_id, self.session_2_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            # Get both responses
+            calculate_response = runner.calculate()
+            cached_response = runner.run()
+            # Verify both are the correct types
+            self.assertIsInstance(calculate_response, SessionBatchEventsQueryResponse)
+            self.assertIsInstance(cached_response, CachedSessionBatchEventsQueryResponse)
+            # Session-specific data should be identical
+            self.assertEqual(len(calculate_response.session_events), len(cached_response.session_events))
+            self.assertEqual(calculate_response.sessions_with_no_events, cached_response.sessions_with_no_events)
+            # Core data should be identical
+            self.assertEqual(calculate_response.results, cached_response.results)
+            self.assertEqual(calculate_response.columns, cached_response.columns)
+            self.assertEqual(calculate_response.hogql, cached_response.hogql)
+
+    def test_cached_response_ungrouped(self):
+        """Test cached response when group_by_session=False."""
+        self._create_events_for_sessions(
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            query = SessionBatchEventsQuery(
+                session_ids=[self.session_1_id],
+                select=["event", "timestamp", "properties.$session_id"],
+                where=[f"properties.$session_id IN ['{self.session_1_id}']"],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                group_by_session=False,  # Should not group by session
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+            # Should be cached response
+            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            # Should not have session_events populated
+            self.assertIsNone(response.session_events)
+            # Should have regular results
+            self.assertIsNotNone(response.results)
+            self.assertEqual(len(response.results), 1)
