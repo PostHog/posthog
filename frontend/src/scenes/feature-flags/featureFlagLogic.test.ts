@@ -8,6 +8,17 @@ import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
 
 // Import the standalone function for testing
+/**
+ * Detects specific feature flag changes that warrant confirmation.
+ *
+ * NOTE: This function intentionally only detects a LIMITED SUBSET of possible changes:
+ * - Active status (enabled/disabled)
+ * - First group's rollout percentage
+ *
+ * Other changes like name, key, properties, payloads, variants, etc. are not detected.
+ * This is a deliberate design choice to focus on the most impactful changes that could
+ * immediately affect user experience.
+ */
 function detectFeatureFlagChanges(
     originalFlag: FeatureFlagType | null,
     updatedFlag: Partial<FeatureFlagType>
@@ -23,7 +34,7 @@ function detectFeatureFlagChanges(
         changes.push('Flag enabled/disabled status changed')
     }
 
-    // Check rollout percentage changes
+    // Check rollout percentage changes (only first group for simplicity)
     const originalRollout = originalFlag.filters?.groups?.[0]?.rollout_percentage || 0
     const updatedRollout = updatedFlag.filters?.groups?.[0]?.rollout_percentage || 0
     if (originalRollout !== updatedRollout) {
