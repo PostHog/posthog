@@ -848,7 +848,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
             external_logger.info(
-                "Batch export finished as there is no data in range %s - %s matching specified filters",
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
             )
@@ -958,13 +958,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                             merge_key=merge_key,
                             update_key=update_key,
                         )
-
-        external_logger.info(
-            "Batch export for range %s - %s finished with %d records exported",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            details.records_completed,
-        )
 
         return details.records_completed
 
