@@ -40,7 +40,6 @@ class SearchSessionRecordingsTool(MaxTool):
             "change": change,
             "generated_filter_options": None,
             "messages": [],
-            # "root_tool_call_id": "",
             **self.context,
         }
 
