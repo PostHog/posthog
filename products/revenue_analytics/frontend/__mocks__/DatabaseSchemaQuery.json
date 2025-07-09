@@ -3511,5 +3511,6 @@
             },
             "type": "managed_view"
         }
-    }
+    },
+    "joins": []
 }
