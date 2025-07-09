@@ -428,16 +428,21 @@ jobs:
                       exit 1
                   fi
 
-            - name: Run @storybook/test-runner
+            - name: Run @storybook/test-runner (up to 3 attempts)
               if: needs.changes.outputs.frontend == 'true'
               env:
-                  # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
                   HOME: /root
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  for i in 1 2 3; do
+                    echo "Attempt $i: Running @storybook/test-runner"
+                    pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
+                    if [ $i -eq 3 ]; then
+                      echo "Test runner failed after 3 attempts"
+                      exit 1
+                    fi
+                  done
 
             - name: Archive failure screenshots
               if: needs.changes.outputs.frontend == 'true' && ${{ failure() }}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useValues } from 'kea'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -181,7 +181,7 @@ export function useFloatingMaxPosition(): {
     const [floatingMaxPositionStyle, setFloatingMaxPositionStyle] = useState<React.CSSProperties>({})
 
     // Only animate when transitioning from collapsed to expanded
-    useEffect(() => {
+    useLayoutEffect(() => {
         const wasCollapsed = !prevExpandedRef.current
         const isNowExpanded = isFloatingMaxExpanded
 
@@ -196,7 +196,7 @@ export function useFloatingMaxPosition(): {
     }, [isFloatingMaxExpanded])
 
     // Update position style when layout changes
-    useEffect(() => {
+    useLayoutEffect(() => {
         const side = floatingMaxPosition?.side || 'right'
         const baseStyle = isFloatingMaxExpanded
             ? {

@@ -24,7 +24,7 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
-    MaxContextShape,
+    MaxUIContext,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
@@ -975,7 +975,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=[dashboard], insights=None)
+        ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -991,7 +991,7 @@ Query results: 42 events
         event2 = MaxEventContext(id="2", name="button_click")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1004,7 +1004,7 @@ Query results: 42 events
         event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=[event1, event2], actions=None)
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1017,7 +1017,7 @@ Query results: 42 events
         action2 = MaxActionContext(id=2.0, name="Purchase")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1030,7 +1030,7 @@ Query results: 42 events
         action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
 
         # Create mock UI context
-        ui_context = MaxContextShape(dashboards=None, insights=None, events=None, actions=[action1, action2])
+        ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1051,7 +1051,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1065,7 +1065,7 @@ Query results: 42 events
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
-        ui_context = MaxContextShape(insights=None)
+        ui_context = MaxUIContext(insights=None)
         result = self.mixin._format_ui_context(ui_context)
         self.assertEqual(result, "")
 
@@ -1083,7 +1083,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
@@ -1106,7 +1106,7 @@ Query results: 42 events
         )
 
         # Create mock UI context
-        ui_context = MaxContextShape(insights=[insight])
+        ui_context = MaxUIContext(insights=[insight])
 
         result = self.mixin._format_ui_context(ui_context)
 
