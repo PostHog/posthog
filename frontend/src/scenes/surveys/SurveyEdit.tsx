@@ -347,6 +347,15 @@ export default function SurveyEdit(): JSX.Element {
                                                     </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
+                                                {featureFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS] && (
+                                                    <LemonCheckbox
+                                                        label="Allow collecting responses via external link"
+                                                        checked={!!survey.is_publicly_shareable}
+                                                        onChange={(checked) =>
+                                                            setSurveyValue('is_publicly_shareable', checked)
+                                                        }
+                                                    />
+                                                )}
                                             </div>
                                         )
                                     }}

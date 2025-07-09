@@ -2,22 +2,27 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 import re
+import uuid
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
+import json
 
 import nh3
 import posthoganalytics
+from posthoganalytics import capture_exception
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from rest_framework import request, serializers, status, viewsets, exceptions, filters
 from rest_framework.request import Request
 from rest_framework.response import Response
+from django.shortcuts import render
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
@@ -54,6 +59,7 @@ from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
 )
+import structlog
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -148,6 +154,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "is_publicly_shareable",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -214,6 +221,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_daily_limits",
             "enable_partial_responses",
             "_create_in_folder",
+            "is_publicly_shareable",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -1356,7 +1364,7 @@ def get_surveys_response(team: Team):
 
 
 @csrf_exempt
-def surveys(request: Request):
+def surveys(request: Request, survey_id: str | None = None):
     token = get_token(None, request)
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
@@ -1386,7 +1394,176 @@ def surveys(request: Request):
             ),
         )
 
+    # If survey_id is provided, return individual survey
+    if survey_id:
+        try:
+            survey = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").get(
+                id=survey_id, team=team
+            )
+        except Survey.DoesNotExist:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "surveys",
+                    "Survey not found.",
+                    type="not_found",
+                    code="survey_not_found",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+
+        # Check if survey is archived
+        if survey.archived:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "surveys",
+                    "This survey is no longer available.",
+                    type="not_found",
+                    code="survey_archived",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+
+        # Return individual survey response
+        serialized_survey = SurveyAPISerializer(survey).data
+        response_data = {
+            "survey": serialized_survey,
+            "project_config": {
+                "api_host": request.build_absolute_uri("/").rstrip("/"),
+                "token": team.api_token,
+            },
+        }
+        return cors_response(request, JsonResponse(response_data))
+
+    # Return all surveys (existing behavior)
     return cors_response(request, JsonResponse(get_surveys_response(team)))
+
+
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+SURVEY_ID_MAX_LENGTH = 50
+CACHE_TIMEOUT_SECONDS = 300
+
+
+def is_valid_uuid(uuid_string: str) -> bool:
+    """Validate if a string is a valid UUID format."""
+    try:
+        uuid.UUID(uuid_string)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+@csrf_exempt
+@axes_dispatch
+def public_survey_page(request, survey_id: str):
+    """
+    Server-side rendered public survey page with security and performance optimizations
+    """
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    # Input validation
+    if not is_valid_uuid(survey_id) or len(survey_id) > SURVEY_ID_MAX_LENGTH:
+        logger.warning("survey_page_invalid_id", survey_id=survey_id)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Invalid Request",
+                "error_message": "The requested survey is not available.",
+            },
+            status=400,
+        )
+
+    # Database query with minimal fields and timeout protection
+    try:
+        survey = (
+            Survey.objects.select_related("team")
+            .only("id", "name", "appearance", "archived", "is_publicly_shareable", "team__id", "team__api_token")
+            .get(id=survey_id)
+        )
+    except Survey.DoesNotExist:
+        logger.info("survey_page_not_found", survey_id=survey_id)
+        # Use generic error message to prevent survey ID enumeration
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey Not Available",
+                "error_message": "The requested survey is not available.",
+            },
+            status=404,
+        )
+    except Exception as e:
+        logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
+        capture_exception(e)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Service Unavailable",
+                "error_message": "The service is temporarily unavailable. Please try again later.",
+            },
+            status=503,
+        )
+
+    survey_is_running = (
+        survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None
+    )
+
+    # Check survey availability (combine checks for consistent error message)
+    if survey.archived or not survey.is_publicly_shareable or not survey_is_running:
+        logger.info(
+            "survey_page_access_denied",
+            survey_id=survey_id,
+            archived=survey.archived,
+            publicly_shareable=survey.is_publicly_shareable,
+        )
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey not receiving responses",
+                "error_message": "The requested survey is not receiving responses.",
+            },
+            status=404,  # Use 404 instead of 403 to prevent information leakage
+        )
+
+    # Build project config
+    project_config = {
+        "api_host": request.build_absolute_uri("/").rstrip("/"),
+        "token": survey.team.api_token,
+    }
+
+    if hasattr(survey.team, "ui_host") and survey.team.ui_host:
+        project_config["ui_host"] = survey.team.ui_host
+
+    context = {
+        "name": survey.name,
+        "id": survey.id,
+        "appearance": json.dumps(survey.appearance),
+        "project_config_json": json.dumps(project_config),
+        "debug": settings.DEBUG,
+    }
+
+    logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
+
+    response = render(request, "surveys/public_survey.html", context)
+
+    # Security headers
+    response["X-Frame-Options"] = "DENY"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response["Permissions-Policy"] = "accelerometer=(), camera=(), microphone=(), geolocation=()"
+    response["X-XSS-Protection"] = "1; mode=block"
+
+    # Cache headers
+    response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
+    response["Vary"] = "Accept-Encoding"  # Enable compression caching
+
+    return response
 
 
 @contextmanager
