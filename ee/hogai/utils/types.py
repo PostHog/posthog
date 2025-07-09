@@ -196,7 +196,6 @@ class PartialAssistantState(_SharedAssistantState):
             root_conversation_start_id="",
             rag_context="",
             query_generation_retry_count=0,
-            query_planner_previous_response_id="",
             generated_filter_options=None,
             change="",
             current_filters=None,
