@@ -470,23 +470,15 @@ def get_csp_event(request):
     if error_response:
         return error_response
 
-    if posthoganalytics.feature_enabled("ingestion-new-capture-internal", csp_report.get("distinct_id", None)):
+    distinct_id = csp_report.get("distinct_id", None)
+    if posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", distinct_id):
         try:
             token = get_token(csp_report, request)
-            resp = new_capture_internal(token, csp_report.get("distinct_id", None), csp_report, False)
-            if resp.status_code < 400:
-                return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
-            else:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "csp_report_capture",
-                        "Failed to submit CSP report",
-                        code="capture_http_error",
-                        type="capture_http_error",
-                        status_code=resp.status_code,
-                    ),
-                )
+            resp = new_capture_internal(token, distinct_id, csp_report, False)
+            resp.raise_for_status()
+
+            return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
         except HTTPError as hte:
             capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
             logger.exception("csp_report_capture_http_error", exc_info=hte)
@@ -494,7 +486,7 @@ def get_csp_event(request):
                 request,
                 generate_exception_response(
                     "csp_report_capture",
-                    f"Failed to submit CSP report: {hte}",
+                    f"Failed to submit CSP report",
                     code="capture_http_error",
                     type="capture_http_error",
                     status_code=hte.response.status_code,
@@ -507,7 +499,7 @@ def get_csp_event(request):
                 request,
                 generate_exception_response(
                     "csp_report_capture",
-                    f"Failed to submit CSP report: {e}",
+                    f"Failed to submit CSP report",
                     code="capture_error",
                     type="capture_error",
                     status_code=status.HTTP_400_BAD_REQUEST,

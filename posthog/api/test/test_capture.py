@@ -2396,24 +2396,58 @@ class TestCapture(BaseTest):
             }
         }
 
+        # TODO ELI: obtain raw request, inject distinct_id and session_id?
         resp = self.client.post(
             f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
 
-        mock_new_capture.assert_called_once_with(
-            token=None,
-            distinct_id="test-user",
-            raw_event={
-                "$csp_violation": {
-                    "document_url": "https://example.com/foo/bar",
-                    "referrer": "https://www.google.com/",
-                    "violated_directive": "default-src self",
-                    "effective_directive": "img-src",
-                    "original_policy": "default-src 'self'; img-src 'self' https://img.example.com",
-                }
+        expected_event = {
+            "event": "$csp_violation",
+            "distinct_id": mock.ANY,
+            "timestamp": mock.ANY,
+            "properties": {
+                "$session_id": mock.ANY,
+                "$csp_version": "unknown",
+                "$current_url": "https://example.com/foo/bar",
+                "$process_person_profile": False,
+                "$raw_user_agent": None,
+                "$csp_report_type": "csp-violation",
+                "$csp_document_url": "https://example.com/foo/bar",
+                "$csp_referrer": "https://www.google.com/",
+                "$csp_violated_directive": "default-src self",
+                "$csp_effective_directive": "img-src",
+                "$csp_original_policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "$csp_disposition": "enforce",
+                "$csp_blocked_url": "https://evil.com/malicious-image.png",
+                "$csp_line_number": 10,
+                "$csp_column_number": None,
+                "$csp_source_file": "https://example.com/foo/bar.html",
+                "$csp_status_code": 0,
+                "$csp_script_sample": "alert(&#x27;hello&#x27;)",
+                "$csp_raw_report": {
+                    "csp-report": {
+                        "document-uri": "https://example.com/foo/bar",
+                        "referrer": "https://www.google.com/",
+                        "violated-directive": "default-src self",
+                        "effective-directive": "img-src",
+                        "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                        "disposition": "enforce",
+                        "blocked-uri": "https://evil.com/malicious-image.png",
+                        "line-number": 10,
+                        "source-file": "https://example.com/foo/bar.html",
+                        "status-code": 0,
+                        "script-sample": "alert(&#x27;hello&#x27;)",
+                    }
+                },
             },
-            process_person_profile=False,
+        }
+
+        mock_new_capture.assert_called_once_with(
+            self.team.api_token,
+            mock.ANY,
+            expected_event,
+            False,
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
