@@ -60,7 +60,7 @@ export function ChartCell({
 
     return (
         <td
-            className={`min-w-[400px] border-b border-border-bold p-0 align-top text-center relative ${
+            className={`min-w-[400px] p-0 align-top text-center relative ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             }`}
         >
