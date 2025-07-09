@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
@@ -13,6 +13,7 @@ import { IconCompass } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { SidePanelTab } from '~/types'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
@@ -48,7 +49,14 @@ export interface ToolDefinition {
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], sceneLogic, ['scene', 'sceneConfig']],
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            sceneLogic,
+            ['scene', 'sceneConfig'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [router, ['locationChanged']],
     })),
     actions({
@@ -160,14 +168,16 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 s.isFloatingMaxExpanded,
                 sidePanelLogic.selectors.sidePanelOpen,
                 sidePanelLogic.selectors.selectedTab,
+                s.featureFlags,
             ],
-            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab) =>
+            (scene, sceneConfig, isFloatingMaxExpanded, sidePanelOpen, selectedTab, featureFlags) =>
                 sceneConfig &&
                 !sceneConfig.onlyUnauthenticated &&
                 sceneConfig.layout !== 'plain' &&
                 !(scene === Scene.Max && !isFloatingMaxExpanded) && // In the full Max scene, and Max is not intentionally in floating mode (i.e. expanded)
-                !(sidePanelOpen && selectedTab === SidePanelTab.Max), // The Max side panel is open
-            // ,
+                !(sidePanelOpen && selectedTab === SidePanelTab.Max) && // The Max side panel is open
+                featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] &&
+                featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
         ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],

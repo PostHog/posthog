@@ -47,7 +47,7 @@ import {
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
-import { getIndexForVariant } from '../experimentCalculations'
+import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { experimentLogic, FORM_MODES } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
