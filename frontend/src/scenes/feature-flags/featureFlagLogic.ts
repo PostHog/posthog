@@ -67,6 +67,7 @@ import {
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
@@ -1239,6 +1240,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         callback: (folder) => actions.saveFeatureFlag({ ...pendingFlag, _create_in_folder: folder }),
                     })
                 }
+            }
+        },
+        showConfirmationModal: ({ changes, pendingFlag }) => {
+            // Display the confirmation modal when showConfirmationModal is triggered
+            if (changes.length > 0 && pendingFlag) {
+                openConfirmationModal({
+                    featureFlag: pendingFlag as FeatureFlagType,
+                    type: 'multi-changes',
+                    changes: changes,
+                    customMessage: values.currentTeam?.feature_flag_confirmation_message || undefined,
+                    onConfirm: actions.confirmFlagChanges,
+                })
             }
         },
     })),
