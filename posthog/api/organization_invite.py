@@ -128,7 +128,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def validate_target_email(self, email: str):
-        return EmailNormalizer.normalize_case_insensitive(email)
+        return EmailNormalizer.normalize(email)
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own

@@ -86,8 +86,7 @@ class OrganizationInvite(UUIDModel):
         if (
             _email
             and self.target_email
-            and EmailNormalizer.normalize_case_insensitive(_email)
-            != EmailNormalizer.normalize_case_insensitive(self.target_email)
+            and EmailNormalizer.normalize(_email) != EmailNormalizer.normalize(self.target_email)
         ):
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",

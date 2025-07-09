@@ -4,10 +4,10 @@ while maintaining backwards compatibility with existing data that may have mixed
 """
 
 import logging
+import posthoganalytics
 from typing import Optional, TYPE_CHECKING
 from django.core.exceptions import MultipleObjectsReturned
 from django.db.models import QuerySet
-from django.contrib.auth.models import BaseUserManager
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 class EmailNormalizer:
     @staticmethod
-    def normalize_case_insensitive(email: str) -> str:
+    def normalize(email: str) -> str:
         if not email:
             return email
 
-        return BaseUserManager.normalize_email(email).lower()
+        return email.lower()
 
 
 class EmailLookupHandler:
@@ -78,10 +78,22 @@ class EmailMultiRecordHandler:
 
         if user_count > 1:
             email_variations = list(case_insensitive_matches.values_list("email", flat=True))
+            last_logged_in_user_id = last_logged_in_user.id if last_logged_in_user else None
+
+            posthoganalytics.capture(
+                "multiple users with email case variations",
+                properties={
+                    "email": email,
+                    "user_count": user_count,
+                    "email_variations": email_variations,
+                    "last_logged_in_user_id": last_logged_in_user_id,
+                },
+            )
+
             logger.warning(
                 f"Multiple users with case variations of email '{email}' during {context}. "
                 f"Found {user_count} variations: {email_variations}. "
-                f"Returning last logged in user (ID: {last_logged_in_user.id if last_logged_in_user else 'None'})"
+                f"Returning last logged in user (ID: {last_logged_in_user_id})"
             )
 
         return last_logged_in_user

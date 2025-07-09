@@ -8,7 +8,7 @@ from posthog.models.user import User
 
 
 class TestEmailNormalizer(TestCase):
-    def test_normalize_case_insensitive(self):
+    def test_normalize(self):
         """Test that email normalization works correctly."""
         test_cases = [
             ("test@EXAMPLE.COM", "test@example.com"),
@@ -22,7 +22,7 @@ class TestEmailNormalizer(TestCase):
 
         for input_email, expected in test_cases:
             with self.subTest(input_email=input_email):
-                result = EmailNormalizer.normalize_case_insensitive(input_email)
+                result = EmailNormalizer.normalize(input_email)
                 self.assertEqual(result, expected)
 
 

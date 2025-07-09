@@ -64,7 +64,7 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
-        email = EmailNormalizer.normalize_case_insensitive(email)
+        email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
