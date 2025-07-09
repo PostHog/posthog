@@ -23,6 +23,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -46,7 +47,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         useValues(errorTrackingIssueSceneLogic)
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
-
+    const tagRenderer = useErrorTagRenderer()
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
 
@@ -104,6 +105,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     issueLoading={issueLoading}
                     event={selectedEvent ?? undefined}
                     eventLoading={firstSeenEventLoading}
+                    label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
                     <ErrorFilters.DateRange />
