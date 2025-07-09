@@ -129,7 +129,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 s.sceneConfig,
                 s.activeScene,
                 s.user,
-                s.currentOrganization,
                 s.currentProject,
                 s.currentTeam,
                 s.featureFlags,
@@ -139,7 +138,6 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 sceneConfig,
                 activeScene,
                 user,
-                currentOrganization,
                 currentProject,
                 currentTeam,
                 featureFlags
