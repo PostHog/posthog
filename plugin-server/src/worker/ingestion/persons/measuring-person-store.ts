@@ -100,8 +100,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
-    flush(): Promise<void> {
-        return Promise.resolve()
+    flush(): Promise<TopicMessage[]> {
+        return Promise.resolve([])
     }
 
     reportBatch(): void {
