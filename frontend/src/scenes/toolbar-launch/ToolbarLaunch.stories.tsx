@@ -9,6 +9,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { TeamPublicType } from '~/types'
 
 import { ToolbarLaunch } from './ToolbarLaunch'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const meta: Meta = {
     title: 'Scenes-Other/ToolbarLaunch',
@@ -17,7 +18,7 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
-        featureFlags: ['web-experiments', 'web-vitals', 'web-vitals-toolbar'],
+        featureFlags: [FEATURE_FLAGS.WEB_EXPERIMENTS],
         viewMode: 'story',
         mockDate: '2024-01-01',
     },
