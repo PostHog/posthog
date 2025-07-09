@@ -1,7 +1,7 @@
 import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
-import { type ExperimentVariantResult, isBayesianResult, formatChanceToWin, getNiceTickValues } from '../shared/utils'
+import { type ExperimentVariantResult, formatPercentageChange, getNiceTickValues } from '../shared/utils'
 import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -125,7 +125,7 @@ export function VariantRow({
                 )}
             </td>
 
-            {/* P-value column - show statistical significance (empty for baseline) */}
+            {/* Change column - show percentage change (empty for baseline) */}
             <td
                 className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
@@ -134,15 +134,7 @@ export function VariantRow({
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
-                    <div className="text-sm text-text-primary">
-                        {isBayesianResult(testVariantResult)
-                            ? formatChanceToWin(testVariantResult.chance_to_win)
-                            : testVariantResult.p_value !== undefined
-                            ? testVariantResult.p_value < 0.001
-                                ? '<0.001'
-                                : testVariantResult.p_value.toFixed(3)
-                            : '—'}
-                    </div>
+                    <div className="text-sm text-text-primary">{formatPercentageChange(testVariantResult)}</div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
                 )}
