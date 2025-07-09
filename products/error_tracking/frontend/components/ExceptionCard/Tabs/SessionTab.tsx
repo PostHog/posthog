@@ -28,8 +28,8 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
     return (
         <TabsPrimitiveContent {...props}>
             {match([loading, sessionId])
-                .with([true, P.any], () => <SessionTabContentEmpty />)
-                .with([false, P.nullish], () => <SessionTabContentEmpty />)
+                .with([true, P.any], () => <SessionTabContentLoading />)
+                .with([false, P.nullish], () => <SessionTabContentNoSession />)
                 .with([false, P.string], ([_, sessionId]) => (
                     <SessionTabContent sessionId={sessionId} timestamp={timestamp} />
                 ))
@@ -46,7 +46,7 @@ export function SessionTabContentLoading(): JSX.Element {
     )
 }
 
-export function SessionTabContentEmpty(): JSX.Element {
+export function SessionTabContentNoSession(): JSX.Element {
     return (
         <div className="flex justify-center w-full h-[300px] items-center">
             <EmptyMessage
@@ -87,7 +87,6 @@ export function SessionTabContent({
             const five_seconds_before = dayjs(timestamp).valueOf() - 5000
             seekToTimestamp(five_seconds_before, false)
         }
-        setPlay()
     }, [timestamp, seekToTimestamp, setPlay])
 
     return (
@@ -95,7 +94,7 @@ export function SessionTabContent({
             <SessionRecordingPlayer
                 {...recordingProps}
                 mode={SessionRecordingPlayerMode.Standard}
-                autoPlay={false}
+                autoPlay={true}
                 noMeta
                 noBorder
                 noInspector
