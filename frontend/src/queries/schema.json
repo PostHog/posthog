@@ -14433,7 +14433,7 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "number"
@@ -14453,7 +14453,7 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "filters": {
                     "$ref": "#/definitions/DashboardFilter"
@@ -14468,7 +14468,7 @@
                     "type": "array"
                 },
                 "name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "const": "dashboard",
@@ -14482,13 +14482,13 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "string"
                 },
                 "name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "type": {
                     "const": "event",
@@ -14518,13 +14518,13 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "$ref": "#/definitions/InsightShortId"
                 },
                 "name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
