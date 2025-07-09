@@ -10,7 +10,13 @@ import {
     ExperimentStatsBase,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
-import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, CHART_CELL_VIEW_BOX_HEIGHT, GRID_LINES_OPACITY } from './constants'
+import {
+    VIEW_BOX_WIDTH,
+    SVG_EDGE_MARGIN,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    GRID_LINES_OPACITY,
+    CELL_HEIGHT,
+} from './constants'
 import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
@@ -64,7 +70,7 @@ export function VariantRow({
     }
 
     return (
-        <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
+        <tr className="hover:bg-bg-hover group [&:last-child>td]:border-b-0" style={{ height: `${CELL_HEIGHT}px` }}>
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
@@ -72,6 +78,7 @@ export function VariantRow({
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
+                    style={{ height: `${CELL_HEIGHT * totalVariantRows}px` }}
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -89,6 +96,7 @@ export function VariantRow({
                 className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
+                style={{ height: `${CELL_HEIGHT}px` }}
             >
                 {variantResult ? (
                     <div className="text-sm text-text-primary whitespace-nowrap">
@@ -104,6 +112,7 @@ export function VariantRow({
                 className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
+                style={{ height: `${CELL_HEIGHT}px` }}
             >
                 {isBaseline ? (
                     <div className="text-sm">
@@ -131,6 +140,7 @@ export function VariantRow({
                 className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
+                style={{ height: `${CELL_HEIGHT}px` }}
             >
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
@@ -177,13 +187,14 @@ export function VariantRow({
                     className={`min-w-[400px] p-0 align-top text-center relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${isLastRow ? 'border-b border-border-bold' : ''}`}
+                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative h-full">
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                                 preserveAspectRatio="none"
-                                className="w-full max-w-[1000px] h-full"
+                                className="h-full w-full max-w-[1000px]"
                             >
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}

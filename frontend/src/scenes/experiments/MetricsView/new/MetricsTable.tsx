@@ -13,6 +13,7 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+import { CELL_HEIGHT } from './constants'
 
 interface MetricsTableProps {
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
@@ -89,9 +90,9 @@ export function MetricsTable({
 
                         if (!result && !error) {
                             return (
-                                <tr key={metricIndex}>
-                                    <td colSpan={5}>
-                                        <ChartLoadingState height={60} />
+                                <tr key={metricIndex} style={{ height: `${CELL_HEIGHT}px` }}>
+                                    <td colSpan={5} style={{ height: `${CELL_HEIGHT}px` }}>
+                                        <ChartLoadingState height={CELL_HEIGHT} />
                                     </td>
                                 </tr>
                             )
@@ -99,10 +100,10 @@ export function MetricsTable({
 
                         if (error || !hasMinimumExposureForResults) {
                             return (
-                                <tr key={metricIndex}>
-                                    <td colSpan={5}>
+                                <tr key={metricIndex} style={{ height: `${CELL_HEIGHT}px` }}>
+                                    <td colSpan={5} style={{ height: `${CELL_HEIGHT}px` }}>
                                         <ChartEmptyState
-                                            height={60}
+                                            height={CELL_HEIGHT}
                                             experimentStarted={!!experiment.start_date}
                                             hasMinimumExposure={hasMinimumExposureForResults}
                                             metric={metric}
