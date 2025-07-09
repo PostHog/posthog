@@ -42,6 +42,8 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import { addRecordingToPlaylist } from '../player/utils/playerUtils'
+import { lemonToast } from '@posthog/lemon-ui'
 export type PersonUUID = string
 
 interface Params {
@@ -362,6 +364,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         setSelectedRecordings: (recordings: SessionRecordingType[]) => ({ recordings }),
+        handleAddToPlaylist: (short_id: string) => ({ short_id }),
+        handleSelectUnselectAll: (checked: boolean) => ({ checked }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -637,6 +641,30 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         setHideViewedRecordings: () => {
             actions.maybeLoadSessionRecordings('older')
+        },
+        handleAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    for (const recording of values.selectedRecordings) {
+                        await addRecordingToPlaylist(short_id, recording.id, true)
+                    }
+                    actions.setSelectedRecordings([])
+                })(),
+                {
+                    success: 'Added to collection!',
+                    error: 'Failed to add to collection!',
+                    pending: `Adding ${values.selectedRecordings.length} recording${
+                        values.selectedRecordings.length > 1 ? 's' : ''
+                    } to the collection...`,
+                }
+            )
+        },
+        handleSelectUnselectAll: ({ checked }: { checked: boolean }) => {
+            if (checked) {
+                actions.setSelectedRecordings(values.sessionRecordings)
+            } else {
+                actions.setSelectedRecordings([])
+            }
         },
     })),
     selectors({

@@ -1,10 +1,12 @@
 import { IconEllipsis, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-
 import { RecordingUniversalFilters } from '~/types'
-
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { ReplayTabs } from '~/types'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -100,6 +102,11 @@ export function SessionRecordingsPlaylistTopSettings({
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
+    const { playlists, playlistsLoading } = useValues(
+        savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    )
+    const { selectedRecordings, sessionRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { handleAddToPlaylist, handleSelectUnselectAll } = useActions(sessionRecordingsPlaylistLogic)
 
     const menuItems = [
         {
@@ -122,20 +129,36 @@ export function SessionRecordingsPlaylistTopSettings({
                 },
             ],
         },
-
-        {
-            label: 'Add to collection',
-            items: [],
-        },
+        ...(!playlistsLoading && playlists.results.length > 0 && selectedRecordings.length > 0
+            ? [
+                  {
+                      label: 'Add to collection',
+                      items: playlists.results.map((playlist) => ({
+                          label: (
+                              <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
+                          ),
+                          onClick: () => handleAddToPlaylist(playlist.short_id),
+                      })),
+                  },
+              ]
+            : []),
     ]
 
     return (
         <SettingsBar border="none" className="justify-between">
-            {filters && setFilters ? (
-                <span className="text-xs font-normal inline-flex items-center ml-2">
-                    Sort by: <SortedBy filters={filters} setFilters={setFilters} />
-                </span>
-            ) : null}
+            <div className="flex items-center">
+                <LemonCheckbox
+                    checked={sessionRecordings.length > 0 && selectedRecordings.length === sessionRecordings.length}
+                    onChange={(checked) => handleSelectUnselectAll(checked)}
+                    stopPropagation
+                    className="ml-2"
+                />
+                {filters && setFilters ? (
+                    <span className="text-xs font-normal inline-flex items-center ml-2">
+                        Sort by: <SortedBy filters={filters} setFilters={setFilters} />
+                    </span>
+                ) : null}
+            </div>
             <SettingsMenu items={menuItems} icon={<IconEllipsis className="rotate-90" />} />
         </SettingsBar>
     )

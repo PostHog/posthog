@@ -96,6 +96,11 @@ export function LemonCheckbox({
                 )}
                 data-attr={dataAttr}
                 onMouseDownCapture={stopShiftSelection}
+                onClick={(e) => {
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
+                }}
             >
                 <input
                     className="LemonCheckbox__input"
@@ -103,9 +108,6 @@ export function LemonCheckbox({
                     checked={localChecked}
                     defaultChecked={defaultChecked}
                     onChange={(e) => {
-                        if (stopPropagation) {
-                            e.stopPropagation()
-                        }
                         // NOTE: We only want to setLocalChecked if the component is not controlled externally
                         checked === undefined && setLocalChecked(e.target.checked)
                         onChange?.(e.target.checked, e)
