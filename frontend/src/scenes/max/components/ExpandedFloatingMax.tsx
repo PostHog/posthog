@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDrag } from '@posthog/icons'
@@ -76,7 +76,7 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
                     setShowFloatingMaxSuggestions(false)
                 }}
                 bottomActions={
-                    <div className="px-1 -mt-0.5">
+                    <div className="px-1 -mt-1">
                         <div
                             ref={dragElementRef}
                             className={`flex items-center justify-center cursor-grab ${
