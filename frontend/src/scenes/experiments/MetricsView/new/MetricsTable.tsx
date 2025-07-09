@@ -122,6 +122,7 @@ export function MetricsTable({
                                 metricIndex={metricIndex}
                                 chartRadius={chartRadius}
                                 isSecondary={isSecondary}
+                                isLastMetric={metricIndex === metrics.length - 1}
                                 onDuplicateMetric={() => {
                                     duplicateMetric({ metricIndex, isSecondary })
                                     updateExperimentMetrics()

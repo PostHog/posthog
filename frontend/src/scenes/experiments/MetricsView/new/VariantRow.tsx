@@ -18,6 +18,7 @@ interface VariantRowProps {
     variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
     testVariantResult: ExperimentVariantResult | null // Test variant data for variant column (null for baseline-only)
     isFirstRow: boolean
+    isLastMetric: boolean
     isBaseline?: boolean // Whether this row represents the baseline
     metric?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricType?: InsightType
@@ -33,6 +34,7 @@ export function VariantRow({
     variantResult,
     testVariantResult,
     isFirstRow,
+    isLastMetric,
     isBaseline = false,
     metric,
     metricType,
@@ -61,7 +63,9 @@ export function VariantRow({
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className="w-1/5 min-h-[60px] border-b border-r border-border bg-bg-light p-3 align-top text-left relative"
+                    className={`w-1/5 min-h-[60px] border-r border-border bg-bg-light p-3 align-top text-left relative ${
+                        !isLastMetric ? 'border-b' : ''
+                    }`}
                     rowSpan={totalVariantRows}
                 >
                     <MetricHeader
