@@ -3862,7 +3862,7 @@ interface BreadcrumbBase {
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
     /** Whether to show a custom popover for the project */
-    is_popover_project?: boolean
+    isPopoverProject?: boolean
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */

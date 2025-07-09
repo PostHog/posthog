@@ -159,7 +159,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         key: 'project',
                         name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
                         tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
-                        is_popover_project: true,
+                        isPopoverProject: true,
                     })
                 }
 
