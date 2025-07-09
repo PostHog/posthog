@@ -105,7 +105,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     {textProps.maxLength !== undefined ? (
                         <div
                             className={cn(
-                                'flex flex-row justify-end text-sm',
+                                'flex flex-row justify-end flex-grow text-sm',
                                 textLength >= textProps.maxLength && 'text-error'
                             )}
                         >
